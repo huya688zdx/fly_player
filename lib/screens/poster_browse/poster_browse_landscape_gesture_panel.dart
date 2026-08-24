@@ -12,7 +12,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
   final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
   final void Function(int index) onItemTap;
   final Widget collapsedContent;
-  final ValueChanged<bool>? onCollapsedChanged;
+  final ValueChanged<double>? onCollapseProgressChanged;
 
   const PosterBrowseLandscapeGesturePanel({
     super.key,
@@ -23,7 +23,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
     required this.secondaryLabelOf,
     required this.onItemTap,
     required this.collapsedContent,
-    this.onCollapsedChanged,
+    this.onCollapseProgressChanged,
   });
 
   @override
@@ -47,6 +47,7 @@ class _PosterBrowseLandscapeGesturePanelState
   double _horizontalDragDistance = 0;
   double _horizontalDragStartOffset = 0;
   int _horizontalSettleGeneration = 0;
+  int _contentSwitchDirection = 1;
 
   @override
   void initState() {
@@ -54,7 +55,7 @@ class _PosterBrowseLandscapeGesturePanelState
     _collapseController = AnimationController(
       vsync: this,
       duration: _settleDuration,
-    );
+    )..addListener(_notifyCollapseProgress);
     _scrollController = ScrollController();
     _scheduleFocusedItemSync(jump: true);
   }
@@ -62,6 +63,11 @@ class _PosterBrowseLandscapeGesturePanelState
   @override
   void didUpdateWidget(covariant PosterBrowseLandscapeGesturePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.focusedIndex != oldWidget.focusedIndex) {
+      _contentSwitchDirection = widget.focusedIndex > oldWidget.focusedIndex
+          ? 1
+          : -1;
+    }
     if (widget.focusedIndex != oldWidget.focusedIndex ||
         widget.items.length != oldWidget.items.length ||
         _focusedItemId(widget) != _focusedItemId(oldWidget)) {
@@ -71,6 +77,7 @@ class _PosterBrowseLandscapeGesturePanelState
 
   @override
   void dispose() {
+    _collapseController.removeListener(_notifyCollapseProgress);
     _collapseController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -147,11 +154,25 @@ class _PosterBrowseLandscapeGesturePanelState
                               transitionBuilder: (child, animation) {
                                 return FadeTransition(
                                   opacity: animation,
-                                  child: SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(0.04, 0),
-                                      end: Offset.zero,
-                                    ).animate(animation),
+                                  child: AnimatedBuilder(
+                                    animation: animation,
+                                    builder: (context, animatedChild) {
+                                      final isIncoming =
+                                          animatedChild?.key ==
+                                          widget.collapsedContent.key;
+                                      final direction = isIncoming
+                                          ? _contentSwitchDirection
+                                          : -_contentSwitchDirection;
+                                      return FractionalTranslation(
+                                        translation: Offset(
+                                          0.08 *
+                                              direction *
+                                              (1 - animation.value),
+                                          0,
+                                        ),
+                                        child: animatedChild,
+                                      );
+                                    },
                                     child: child,
                                   ),
                                 );
@@ -213,12 +234,15 @@ class _PosterBrowseLandscapeGesturePanelState
     final collapse = velocity.abs() > _velocityThreshold
         ? velocity > 0
         : _collapseController.value >= 0.45;
-    widget.onCollapsedChanged?.call(collapse);
     _collapseController.animateTo(
       collapse ? 1 : 0,
       duration: _settleDuration,
       curve: Curves.easeOutCubic,
     );
+  }
+
+  void _notifyCollapseProgress() {
+    widget.onCollapseProgressChanged?.call(_collapseController.value);
   }
 
   void _handleHorizontalDragStart(DragStartDetails details) {
