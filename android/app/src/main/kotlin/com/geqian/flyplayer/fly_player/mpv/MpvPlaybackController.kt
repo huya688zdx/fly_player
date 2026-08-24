@@ -154,7 +154,8 @@ class MpvPlaybackController(
     private val sessionGate = PlaybackSessionGate()
     private val runtimeBootstrap = MpvRuntimeBootstrap(context, mpv)
     private val performanceSampler = PlaybackPerformanceSampler(context)
-    private val captureExportController = MpvCaptureExportController(context, mpv)
+    private val captureExportController =
+        MpvCaptureExportController(context, videoOutputTarget, mpv)
     private val chapterSnapshotBuilder = MpvChapterSnapshotBuilder(TAG, mpv)
     private val pauseController = PlaybackPauseController(TAG, mpv)
     private val stateReporter = MpvPlaybackStateReporter(
@@ -310,6 +311,7 @@ class MpvPlaybackController(
 
     private fun disposeInternal() {
         invalidateVideoOutputSanityChecks()
+        captureExportController.release()
         sourceResolver.release()
         if (mpv.isAvailable() && mpv.isCreated()) {
             clearRetainedPlaybackStateForReuse()
@@ -491,7 +493,15 @@ class MpvPlaybackController(
                 "message" to null,
             )
         }
-        source = source.copy(listenVideoModeEnabled = enabled)
+        source =
+            source.copy(
+                listenVideoModeEnabled = enabled,
+                startPositionMs = resolveInternalReloadStartPositionMs(
+                    reliableSeek = source.reliableSeek,
+                    currentPositionMs = state.positionMs,
+                    sourceStartPositionMs = source.startPositionMs,
+                ),
+            )
         if (!initialized || !mpv.isAvailable()) {
             updateState(
                 state.copy(
@@ -758,6 +768,14 @@ class MpvPlaybackController(
             } else {
                 false
             }
+            if (success) {
+                source =
+                    source.copy(
+                        subtitleTrackIndex = resolvedTrackId ?: -1,
+                        subtitleTrackGuid = trackGuid,
+                        preferExternalSubtitle = false,
+                    )
+            }
             updateState(
                 state.copy(
                     statusText = if (success) "Subtitle track changed" else state.statusText,
@@ -772,6 +790,14 @@ class MpvPlaybackController(
         if (disposed) return false
         runOnPlaybackThread {
             val success = queueExternalSubtitle(path)
+            if (success) {
+                source =
+                    source.copy(
+                        subtitleTrackIndex = null,
+                        subtitleTrackGuid = null,
+                        preferExternalSubtitle = true,
+                    )
+            }
             updateState(
                 state.copy(
                     statusText = if (success) {
@@ -1555,7 +1581,15 @@ class MpvPlaybackController(
         Log.w(TAG, "reload current source reason=$reason playback=${loadState.activePlaybackUrl}")
         if (source.url.isNotBlank()) {
             resumeAfterSurfaceRestore = false
-            source = source.copy(startPaused = state.paused)
+            source =
+                source.copy(
+                    startPositionMs = resolveInternalReloadStartPositionMs(
+                        reliableSeek = source.reliableSeek,
+                        currentPositionMs = state.positionMs,
+                        sourceStartPositionMs = source.startPositionMs,
+                    ),
+                    startPaused = state.paused,
+                )
             loadState.clearForRecovery(source.url)
             sessionGate.onVideoRecoveryTriggered()
             loadCurrentSource()
