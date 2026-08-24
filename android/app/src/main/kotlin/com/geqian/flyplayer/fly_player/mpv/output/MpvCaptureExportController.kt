@@ -2,9 +2,14 @@ package com.geqian.flyplayer.fly_player.mpv
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.view.PixelCopy
 import com.geqian.flyplayer.fly_player.R
 import com.geqian.flyplayer.fly_player.ScreenshotDirectoryAccessController
 import com.geqian.flyplayer.fly_player.localizedString
@@ -14,13 +19,34 @@ import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+internal fun captureFrameToFile(
+    targetFile: File,
+    captureWithMpv: () -> Boolean,
+    captureWithAndroid: () -> Boolean,
+): Boolean {
+    val capturedWithMpv = runCatching(captureWithMpv).getOrDefault(false)
+    if (capturedWithMpv && targetFile.exists() && targetFile.length() > 0L) {
+        return true
+    }
+
+    targetFile.delete()
+    val capturedWithAndroid = runCatching(captureWithAndroid).getOrDefault(false)
+    return capturedWithAndroid && targetFile.exists() && targetFile.length() > 0L
+}
 
 internal class MpvCaptureExportController(
     private val context: Context,
+    private val videoOutputTarget: VideoOutputTarget,
     private val mpv: MpvFacade = DefaultMpvFacade,
 ) {
     private val screenshotDirectoryController =
         ScreenshotDirectoryAccessController(context)
+    private val surfaceCaptureThread =
+        HandlerThread("FlyPlayerScreenshotCapture").apply { start() }
+    private val surfaceCaptureHandler = Handler(surfaceCaptureThread.looper)
 
     private companion object {
         const val CAPTURE_UNAVAILABLE_MESSAGE = "capture unavailable"
@@ -34,6 +60,14 @@ internal class MpvCaptureExportController(
         const val SCREENSHOT_TARGET_PRIM_SDR = "bt.709"
         const val SCREENSHOT_TARGET_TRC_SDR = "bt.1886"
         const val SCREENSHOT_TONE_MAPPING = "bt.2390"
+        const val SURFACE_CAPTURE_TIMEOUT_MS = 1800L
+        const val SURFACE_CAPTURE_SUBTITLE_REFRESH_MS = 50L
+        const val SURFACE_CAPTURE_JPEG_QUALITY = 95
+    }
+
+    fun release() {
+        surfaceCaptureHandler.removeCallbacksAndMessages(null)
+        surfaceCaptureThread.quitSafely()
     }
 
     fun captureFrame(
@@ -58,19 +92,30 @@ internal class MpvCaptureExportController(
                 stamp = stamp,
             )
         val tempFile = File(context.cacheDir, "fly_player_frame_$stamp.jpg")
-        val commandSuccess =
-            withSdrScreenshotTarget {
-                runCatching {
-                    mpv.command(
-                        arrayOf(
-                            "screenshot-to-file",
-                            tempFile.absolutePath,
-                            if (includeSubtitles) "subtitles" else "video",
-                        ),
-                    ) >= 0
-                }.getOrDefault(false)
-            }
-        if (!commandSuccess || !tempFile.exists() || tempFile.length() <= 0L) {
+        val captured =
+            captureFrameToFile(
+                targetFile = tempFile,
+                captureWithMpv = {
+                    withSdrScreenshotTarget {
+                        runCatching {
+                            mpv.command(
+                                arrayOf(
+                                    "screenshot-to-file",
+                                    tempFile.absolutePath,
+                                    if (includeSubtitles) "subtitles" else "video",
+                                ),
+                            ) >= 0
+                        }.getOrDefault(false)
+                    }
+                },
+                captureWithAndroid = {
+                    captureSurfaceFrame(
+                        targetFile = tempFile,
+                        includeSubtitles = includeSubtitles,
+                    )
+                },
+            )
+        if (!captured) {
             tempFile.delete()
             return mapOf(
                 "success" to false,
@@ -91,6 +136,66 @@ internal class MpvCaptureExportController(
                 "message" to (saveResult.message ?: CAPTURE_SAVE_FAILED_MESSAGE),
                 "code" to saveResult.code,
             )
+        }
+    }
+
+    /**
+     * 当前 mpv/FFmpeg 构建可能不带 JPEG 编码器：命令会被接受，但最终不会生成文件。
+     * 此时直接从视频 Surface 读回已经显示的画面，再由 Android 编码 JPEG。
+     */
+    private fun captureSurfaceFrame(
+        targetFile: File,
+        includeSubtitles: Boolean,
+    ): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        val surface = videoOutputTarget.currentSurface()?.takeIf { it.isValid } ?: return false
+        val width = videoOutputTarget.view.width.takeIf { it > 0 } ?: return false
+        val height = videoOutputTarget.view.height.takeIf { it > 0 } ?: return false
+        val savedSubtitleVisibility =
+            if (includeSubtitles) null else mpv.getPropertyString("sub-visibility")
+        val hideSubtitles =
+            !includeSubtitles &&
+                !savedSubtitleVisibility.isNullOrBlank() &&
+                !savedSubtitleVisibility.equals("no", ignoreCase = true)
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        return try {
+            if (hideSubtitles) {
+                mpv.setPropertyString("sub-visibility", "no")
+                // 给暂停画面一次重绘机会，避免把切换前的字幕像素读回来。
+                SystemClock.sleep(SURFACE_CAPTURE_SUBTITLE_REFRESH_MS)
+            }
+            val completed = CountDownLatch(1)
+            var resultCode = PixelCopy.ERROR_UNKNOWN
+            val dispatched =
+                runCatching {
+                    PixelCopy.request(
+                        surface,
+                        bitmap,
+                        { result ->
+                            resultCode = result
+                            completed.countDown()
+                        },
+                        surfaceCaptureHandler,
+                    )
+                }.isSuccess
+            if (!dispatched || !completed.await(SURFACE_CAPTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                false
+            } else if (resultCode != PixelCopy.SUCCESS) {
+                false
+            } else {
+                FileOutputStream(targetFile).use { output ->
+                    bitmap.compress(
+                        Bitmap.CompressFormat.JPEG,
+                        SURFACE_CAPTURE_JPEG_QUALITY,
+                        output,
+                    )
+                }
+            }
+        } finally {
+            if (hideSubtitles) {
+                savedSubtitleVisibility?.let { mpv.setPropertyString("sub-visibility", it) }
+            }
+            bitmap.recycle()
         }
     }
 
