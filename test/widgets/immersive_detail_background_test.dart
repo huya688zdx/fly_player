@@ -43,7 +43,7 @@ void main() {
     expect(gradient.colors.last.a, lessThan(gradient.colors.first.a));
   });
 
-  testWidgets('海报与正文交接层横跨分界并在正文侧自然消散', (tester) async {
+  testWidgets('海报与正文交接层完全属于海报且不侵入正文', (tester) async {
     final baseColors = AppThemeBuilder.build(
       AppThemePreset.midnight,
     ).extension<AppThemeColors>()!;
@@ -72,18 +72,24 @@ void main() {
     final top = bridge.top!;
     final height = bridge.height!;
     expect(top, lessThan(400));
-    expect(top + height, greaterThan(400 + 20));
-    expect(top + height, lessThanOrEqualTo(400 + 40));
+    expect(top + height, closeTo(400, 0.01));
     expect(
-      find.byKey(const ValueKey<String>('detail-hero-transition-blur')),
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('detail-hero-image-region')),
+        matching: find.byKey(const ValueKey<String>('detail-hero-transition')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('detail-hero-transition-veil')),
       findsOneWidget,
     );
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey<String>('detail-hero-transition-blur')),
+        of: find.byKey(const ValueKey<String>('detail-hero-transition')),
         matching: find.byType(BackdropFilter),
       ),
-      findsOneWidget,
+      findsNothing,
     );
 
     final decoration =
@@ -96,7 +102,7 @@ void main() {
                 .decoration
             as BoxDecoration;
     final gradient = decoration.gradient!;
-    expect(gradient.colors.last.a, 0);
+    expect(gradient.colors.last.a, 1);
   });
 
   testWidgets('标题覆盖层只承载标题而不再绘制第二套分界渐变', (tester) async {
