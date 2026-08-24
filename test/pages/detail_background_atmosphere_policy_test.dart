@@ -20,4 +20,28 @@ void main() {
       );
     }
   });
+
+  test('季详情只由共享沉浸背景绘制海报与正文交界', () {
+    final source = File(
+      'lib/pages/tv_season_detail_page.dart',
+    ).readAsStringSync();
+
+    expect(source, isNot(contains('final heroFogShadow =')));
+    expect(
+      source,
+      isNot(contains('height: topContentInset + 10 + pullDownShift')),
+      reason: '季详情仍在共享 ImmersiveDetailBackground 之外重复绘制交界阴影',
+    );
+  });
+
+  test('季详情使用当前海报图片启用动态取色', () {
+    final source = File(
+      'lib/pages/tv_season_detail_page.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('imageUrl: dynamicThemeImageUrl'));
+    expect(source, contains('imageHeaders: dynamicThemeImages.headers'));
+    expect(source, contains('enabled: dynamicThemeEnabled'));
+    expect(source, isNot(contains('enabled: false')));
+  });
 }
