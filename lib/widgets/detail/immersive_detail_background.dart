@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -206,20 +205,15 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
       transitionTint.withValues(alpha: isLightSurface ? 0.08 : 0.12),
       transitionBody,
     );
-    // 模糊只发生在海报内部并由上到下渐强；颜色在海报底边完全接管，
-    // 正文侧仅保留一小段同色收尾，避免形成横跨内容的大块雾带。
+    // 交接层必须是海报裁切区域的一部分，不能作为兄弟层延伸到正文；
+    // 这样滚动时烟雾遮罩始终附着在图片上，正文只承接稳定的取色底面。
     final minimumImageBlend = heroHeight < 168.0 ? heroHeight : 168.0;
     final transitionImageBlend = (heroHeight * 0.42)
         .clamp(minimumImageBlend, 252.0)
         .toDouble();
-    final transitionBodyOverlap = (heroHeight * 0.08)
-        .clamp(24.0, 40.0)
-        .toDouble();
-    final transitionHeight = transitionImageBlend + transitionBodyOverlap;
     final transitionTop = (expandedHeroHeight - transitionImageBlend)
         .clamp(0.0, double.infinity)
         .toDouble();
-    final boundaryStop = transitionImageBlend / transitionHeight;
     final baseScrimAlpha = (isLightSurface ? 0.0 : 0.03) * overlayOpacity;
 
     final heroImageHeight = expandedHeroHeight + parallaxMax + 80;
@@ -260,6 +254,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
             ),
 
           Positioned(
+            key: const ValueKey<String>('detail-hero-image-region'),
             top: 0,
             left: 0,
             right: 0,
@@ -302,81 +297,68 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-
-          Positioned(
-            key: const ValueKey<String>('detail-hero-transition'),
-            left: 0,
-            right: 0,
-            top: transitionTop,
-            height: transitionHeight,
-            child: IgnorePointer(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
                   Positioned(
-                    key: const ValueKey<String>('detail-hero-transition-blur'),
+                    key: const ValueKey<String>('detail-hero-transition'),
                     left: 0,
                     right: 0,
-                    top: 0,
+                    top: transitionTop,
                     height: transitionImageBlend,
-                    child: ClipRect(
-                      child: ShaderMask(
-                        blendMode: BlendMode.dstIn,
-                        shaderCallback: (bounds) => LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: <Color>[
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.22),
-                            Colors.black.withValues(alpha: 0.72),
-                            Colors.black,
-                          ],
-                          stops: const <double>[0.0, 0.36, 0.68, 1.0],
-                        ).createShader(bounds),
-                        child: BackdropFilter(
-                          filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                          child: const ColoredBox(color: Colors.transparent),
-                        ),
-                      ),
-                    ),
-                  ),
-                  DecoratedBox(
-                    key: const ValueKey<String>(
-                      'detail-hero-transition-gradient',
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: <Color>[
-                          Colors.transparent,
-                          colors.overlayScrim.withValues(
-                            alpha: isLightSurface ? 0.03 : 0.08,
+                    child: IgnorePointer(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          DecoratedBox(
+                            key: const ValueKey<String>(
+                              'detail-hero-transition-veil',
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: <Color>[
+                                  Colors.transparent,
+                                  transitionTint.withValues(
+                                    alpha: isLightSurface ? 0.025 : 0.04,
+                                  ),
+                                  transitionTint.withValues(
+                                    alpha: isLightSurface ? 0.07 : 0.10,
+                                  ),
+                                ],
+                                stops: const <double>[0.0, 0.58, 1.0],
+                              ),
+                            ),
                           ),
-                          transitionSurface.withValues(
-                            alpha: isLightSurface ? 0.16 : 0.22,
+                          DecoratedBox(
+                            key: const ValueKey<String>(
+                              'detail-hero-transition-gradient',
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: <Color>[
+                                  Colors.transparent,
+                                  colors.overlayScrim.withValues(
+                                    alpha: isLightSurface ? 0.03 : 0.08,
+                                  ),
+                                  transitionSurface.withValues(
+                                    alpha: isLightSurface ? 0.16 : 0.22,
+                                  ),
+                                  transitionSurface.withValues(
+                                    alpha: isLightSurface ? 0.52 : 0.62,
+                                  ),
+                                  transitionSurface,
+                                ],
+                                stops: const <double>[
+                                  0.0,
+                                  0.28,
+                                  0.56,
+                                  0.82,
+                                  1.0,
+                                ],
+                              ),
+                            ),
                           ),
-                          transitionSurface.withValues(
-                            alpha: isLightSurface ? 0.52 : 0.62,
-                          ),
-                          transitionSurface,
-                          transitionSurface.withValues(
-                            alpha: isLightSurface ? 0.42 : 0.50,
-                          ),
-                          Colors.transparent,
-                        ],
-                        stops: <double>[
-                          0.0,
-                          0.24,
-                          0.50,
-                          boundaryStop - 0.08,
-                          boundaryStop,
-                          0.94,
-                          1.0,
                         ],
                       ),
                     ),
