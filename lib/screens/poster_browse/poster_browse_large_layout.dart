@@ -56,8 +56,19 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
   static const _horizontalVelocityThreshold = 360.0;
   static const _horizontalDistanceThreshold = 48.0;
 
-  bool _isTrackCollapsed = false;
+  double _collapseProgress = 0;
   double _horizontalDragDistance = 0;
+  int _contentSwitchDirection = 1;
+
+  @override
+  void didUpdateWidget(covariant PosterBrowseLargeLayout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.focusedIndex != oldWidget.focusedIndex) {
+      _contentSwitchDirection = widget.focusedIndex > oldWidget.focusedIndex
+          ? 1
+          : -1;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,113 +77,117 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         ? const <PosterBrowseDisplayItem>[]
         : currentRow.items.map(widget.displayItemOf).toList(growable: false);
 
-    return SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final viewportHeight = constraints.maxHeight;
-          final showMediaInfo = viewportHeight >= 600;
-          final compressChrome = viewportHeight < 412;
-          final verticalInset = compressChrome ? 8.0 : null;
+    return GestureDetector(
+      key: const ValueKey('poster_browse_full_horizontal_swipe_surface'),
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: currentItems.length > 1
+          ? (_) => _horizontalDragDistance = 0
+          : null,
+      onHorizontalDragUpdate: currentItems.length > 1
+          ? (details) {
+              _horizontalDragDistance +=
+                  details.primaryDelta ?? details.delta.dx;
+            }
+          : null,
+      onHorizontalDragEnd: currentItems.length > 1
+          ? (details) =>
+                _handlePrimaryHorizontalDragEnd(details, currentItems.length)
+          : null,
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final viewportHeight = constraints.maxHeight;
+            final showMediaInfo = viewportHeight >= 600;
+            final compressChrome = viewportHeight < 412;
+            final verticalInset = compressChrome ? 8.0 : null;
+            final collapseProgress = _collapseProgress.clamp(0.0, 1.0);
 
-          return Padding(
-            padding: EdgeInsets.fromLTRB(
-              28,
-              verticalInset ?? 16,
-              28,
-              verticalInset ?? 22,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _BackButton(onPressed: widget.onBack),
-                Expanded(
-                  child: GestureDetector(
-                    key: const ValueKey(
-                      'poster_browse_primary_horizontal_swipe_surface',
-                    ),
-                    behavior: HitTestBehavior.opaque,
-                    onHorizontalDragStart: currentItems.length > 1
-                        ? (_) => _horizontalDragDistance = 0
-                        : null,
-                    onHorizontalDragUpdate: currentItems.length > 1
-                        ? (details) {
-                            _horizontalDragDistance +=
-                                details.primaryDelta ?? details.delta.dx;
-                          }
-                        : null,
-                    onHorizontalDragEnd: currentItems.length > 1
-                        ? (details) => _handlePrimaryHorizontalDragEnd(
-                            details,
-                            currentItems.length,
-                          )
-                        : null,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      child: showMediaInfo && !_isTrackCollapsed
-                          ? Padding(
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                28,
+                verticalInset ?? 16,
+                28,
+                verticalInset ?? 22,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _BackButton(onPressed: widget.onBack),
+                  Expanded(
+                    child: showMediaInfo && collapseProgress < 0.999
+                        ? IgnorePointer(
+                            ignoring: collapseProgress > 0.5,
+                            child: Opacity(
                               key: const ValueKey(
-                                'poster_browse_primary_media_info',
+                                'poster_browse_primary_collapse_opacity',
                               ),
-                              padding: const EdgeInsets.only(
-                                left: 36,
-                                right: 36,
-                                top: 24,
-                              ),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 560,
+                              opacity: 1 - collapseProgress,
+                              child: FractionalTranslation(
+                                translation: Offset(0, 0.1 * collapseProgress),
+                                child: Padding(
+                                  key: const ValueKey(
+                                    'poster_browse_primary_media_info',
                                   ),
-                                  child: widget.focusedItem == null
-                                      ? const SizedBox.shrink()
-                                      : PosterBrowseMediaInfo(
-                                          item: widget.focusedItem!,
-                                          logoRequest: widget.logoRequest,
-                                          secondaryLabel: widget.secondaryLabel,
-                                          metaWidgets: widget.metaWidgets,
-                                          compact: viewportHeight < 900,
-                                          onPlay: widget.onPlay,
-                                          onDetail: widget.onDetail,
-                                        ),
+                                  padding: const EdgeInsets.only(
+                                    left: 36,
+                                    right: 36,
+                                    top: 24,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 560,
+                                      ),
+                                      child: _buildAnimatedPrimaryMediaInfo(
+                                        viewportHeight,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
-                            )
-                          : const SizedBox.shrink(
-                              key: ValueKey(
-                                'poster_browse_primary_media_info_hidden',
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  if (collapseProgress < 0.999)
+                    ClipRect(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        heightFactor: 1 - collapseProgress,
+                        child: IgnorePointer(
+                          ignoring: collapseProgress > 0.5,
+                          child: Opacity(
+                            key: const ValueKey(
+                              'poster_browse_row_selector_collapse_opacity',
+                            ),
+                            opacity: 1 - collapseProgress,
+                            child: FractionalTranslation(
+                              translation: Offset(0, 0.35 * collapseProgress),
+                              child: _RowSelector(
+                                rows: widget.rows,
+                                selectedRow: widget.selectedRow,
+                                onSelectRow: widget.onSelectRow,
                               ),
                             ),
-                    ),
-                  ),
-                ),
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment.bottomLeft,
-                  child: _isTrackCollapsed
-                      ? const SizedBox.shrink()
-                      : _RowSelector(
-                          rows: widget.rows,
-                          selectedRow: widget.selectedRow,
-                          onSelectRow: widget.onSelectRow,
+                          ),
                         ),
-                ),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  height: _isTrackCollapsed ? 0 : (compressChrome ? 8 : 14),
-                ),
-                SizedBox(
-                  height: 264,
-                  child: _buildTrackArea(context, currentRow, currentItems),
-                ),
-              ],
-            ),
-          );
-        },
+                      ),
+                    )
+                  else
+                    const SizedBox.shrink(),
+                  SizedBox(
+                    height: (compressChrome ? 8 : 14) * (1 - collapseProgress),
+                  ),
+                  SizedBox(
+                    height: 264,
+                    child: _buildTrackArea(context, currentRow, currentItems),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -200,10 +215,13 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         imageOf: widget.imageOf,
         secondaryLabelOf: widget.secondaryLabelOf,
         onItemTap: widget.onSelectItem,
-        onCollapsedChanged: _handleCollapsedChanged,
+        onCollapseProgressChanged: _handleCollapseProgressChanged,
         collapsedContent: widget.focusedItem == null
             ? const SizedBox.shrink()
             : Padding(
+                key: ValueKey(
+                  'poster_browse_collapsed_content_${widget.focusedItem!.card.id}',
+                ),
                 padding: const EdgeInsets.fromLTRB(36, 0, 36, 4),
                 child: Align(
                   alignment: Alignment.topLeft,
@@ -234,9 +252,78 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
     );
   }
 
-  void _handleCollapsedChanged(bool collapsed) {
-    if (_isTrackCollapsed == collapsed) return;
-    setState(() => _isTrackCollapsed = collapsed);
+  void _handleCollapseProgressChanged(double progress) {
+    if ((_collapseProgress - progress).abs() < 0.0001) return;
+    setState(() => _collapseProgress = progress);
+  }
+
+  Widget _buildAnimatedPrimaryMediaInfo(double viewportHeight) {
+    final focusedItem = widget.focusedItem;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          alignment: Alignment.bottomLeft,
+          children: <Widget>[
+            ...previousChildren,
+            if (currentChild != null) currentChild,
+          ],
+        );
+      },
+      transitionBuilder: _buildPrimaryInfoTransition,
+      child: focusedItem == null
+          ? const SizedBox.shrink(
+              key: ValueKey('poster_browse_primary_info_empty'),
+            )
+          : PosterBrowseMediaInfo(
+              key: ValueKey(
+                'poster_browse_primary_info_${focusedItem.card.id}',
+              ),
+              item: focusedItem,
+              logoRequest: widget.logoRequest,
+              secondaryLabel: widget.secondaryLabel,
+              metaWidgets: widget.metaWidgets,
+              compact: viewportHeight < 900,
+              onPlay: widget.onPlay,
+              onDetail: widget.onDetail,
+            ),
+    );
+  }
+
+  Widget _buildPrimaryInfoTransition(
+    Widget child,
+    Animation<double> animation,
+  ) {
+    final curvedAnimation = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: curvedAnimation,
+      child: AnimatedBuilder(
+        animation: curvedAnimation,
+        builder: (context, child) {
+          final currentKey = ValueKey(
+            'poster_browse_primary_info_${widget.focusedItem?.card.id}',
+          );
+          final isIncoming = child?.key == currentKey;
+          final direction = isIncoming
+              ? _contentSwitchDirection
+              : -_contentSwitchDirection;
+          return FractionalTranslation(
+            translation: Offset(
+              0.08 * direction * (1 - curvedAnimation.value),
+              0,
+            ),
+            child: child,
+          );
+        },
+        child: child,
+      ),
+    );
   }
 
   void _handlePrimaryHorizontalDragEnd(DragEndDetails details, int itemCount) {
