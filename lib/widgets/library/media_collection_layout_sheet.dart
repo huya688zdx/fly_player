@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../models/media_collection_view_type.dart';
 import '../../theme/app_theme.dart';
+import '../common/app_modal_surface.dart';
 
 class MediaCollectionLayoutSheet extends StatelessWidget {
   final MediaCollectionViewType currentViewType;
@@ -17,10 +18,8 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
     return showModalBottomSheet<MediaCollectionViewType>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: colors.backgroundElevated,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
+      barrierColor: colors.overlayScrim,
       builder: (context) {
         return MediaCollectionLayoutSheet(currentViewType: currentViewType);
       },
@@ -45,80 +44,40 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
 
     return SafeArea(
       top: false,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: media.size.height * 0.82),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 56,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: colors.borderStrong,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              SizedBox(height: compact ? 14 : 18),
-              Center(
-                child: Text(
-                  l10n.collectionLayoutTitle,
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              SizedBox(height: verticalGap),
-              Text(
-                l10n.collectionLayoutViewSection,
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              SizedBox(height: sectionGap),
-              Row(
-                children: [
-                  Expanded(
-                    child: _LayoutChoiceTile(
-                      title: l10n.collectionLayoutPosterWall,
-                      icon: Icons.grid_view_rounded,
-                      selected: posterWallSelected,
-                      compact: compact,
-                      onTap: () {
-                        Navigator.of(context).pop(
-                          horizontalSelected
-                              ? MediaCollectionViewType.horizontalPoster
-                              : MediaCollectionViewType.verticalPoster,
-                        );
-                      },
+      child: AppModalSurface(
+        key: const ValueKey<String>('app-modal-surface-library-layout'),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: media.size.height * 0.82),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 56,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: colors.borderStrong,
+                      borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: _LayoutChoiceTile(
-                      title: l10n.collectionLayoutList,
-                      icon: Icons.view_list_rounded,
-                      selected: listSelected,
-                      compact: compact,
-                      onTap: () {
-                        Navigator.of(context).pop(MediaCollectionViewType.list);
-                      },
+                ),
+                SizedBox(height: compact ? 14 : 18),
+                Center(
+                  child: Text(
+                    l10n.collectionLayoutTitle,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ],
-              ),
-              if (posterWallSelected) ...[
+                ),
                 SizedBox(height: verticalGap),
                 Text(
-                  l10n.collectionLayoutPosterSection,
+                  l10n.collectionLayoutViewSection,
                   style: TextStyle(
                     color: colors.textSecondary,
                     fontSize: 14,
@@ -130,35 +89,80 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _LayoutChoiceTile(
-                        title: l10n.collectionLayoutHorizontalPoster,
-                        icon: Icons.crop_16_9_rounded,
-                        selected: horizontalSelected,
+                        title: l10n.collectionLayoutPosterWall,
+                        icon: Icons.grid_view_rounded,
+                        selected: posterWallSelected,
                         compact: compact,
                         onTap: () {
-                          Navigator.of(
-                            context,
-                          ).pop(MediaCollectionViewType.horizontalPoster);
+                          Navigator.of(context).pop(
+                            horizontalSelected
+                                ? MediaCollectionViewType.horizontalPoster
+                                : MediaCollectionViewType.verticalPoster,
+                          );
                         },
                       ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
                       child: _LayoutChoiceTile(
-                        title: l10n.collectionLayoutVerticalPoster,
-                        icon: Icons.crop_portrait_rounded,
-                        selected: verticalSelected,
+                        title: l10n.collectionLayoutList,
+                        icon: Icons.view_list_rounded,
+                        selected: listSelected,
                         compact: compact,
                         onTap: () {
                           Navigator.of(
                             context,
-                          ).pop(MediaCollectionViewType.verticalPoster);
+                          ).pop(MediaCollectionViewType.list);
                         },
                       ),
                     ),
                   ],
                 ),
+                if (posterWallSelected) ...[
+                  SizedBox(height: verticalGap),
+                  Text(
+                    l10n.collectionLayoutPosterSection,
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(height: sectionGap),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _LayoutChoiceTile(
+                          title: l10n.collectionLayoutHorizontalPoster,
+                          icon: Icons.crop_16_9_rounded,
+                          selected: horizontalSelected,
+                          compact: compact,
+                          onTap: () {
+                            Navigator.of(
+                              context,
+                            ).pop(MediaCollectionViewType.horizontalPoster);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: _LayoutChoiceTile(
+                          title: l10n.collectionLayoutVerticalPoster,
+                          icon: Icons.crop_portrait_rounded,
+                          selected: verticalSelected,
+                          compact: compact,
+                          onTap: () {
+                            Navigator.of(
+                              context,
+                            ).pop(MediaCollectionViewType.verticalPoster);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -186,8 +190,8 @@ class _LayoutChoiceTile extends StatelessWidget {
     final colors = context.appColors;
     final borderColor = selected ? colors.selection : colors.borderSubtle;
     final backgroundColor = selected
-        ? colors.selectionSoft
-        : colors.surfaceStrong;
+        ? appModalTileColor(colors, selected: true)
+        : appModalTileColor(colors);
     final contentColor = selected ? colors.selectionStrong : colors.textPrimary;
 
     return InkWell(

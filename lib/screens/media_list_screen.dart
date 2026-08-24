@@ -12,6 +12,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../media_backend/action/media_library_item_action_target.dart';
+import '../media_backend/home_catalog_presentation.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_catalog.dart';
@@ -21,18 +22,17 @@ import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
-import '../services/app_log_service.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/home_data_cache.dart';
 import '../services/session_exit_bridge.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
-import '../theme/detail_tokens.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_hero_image.dart';
 import '../ui/detail_theme_prewarmer.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/main_navigation_metrics.dart';
 import '../ui/route_transition_gate.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
@@ -40,12 +40,20 @@ import '../utils/async_action_guard.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/liquid_glass.dart';
 import '../ui/detail_artwork_resolver.dart';
 import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
+import 'home/continue_detail_target.dart';
+import 'home/home_presentation_profile.dart';
+import 'home/home_view_data.dart';
+import 'home/widgets/home_catalog_section.dart';
+import 'home/widgets/home_continue_watching_section.dart';
+import 'home/widgets/home_landscape_media_section.dart';
+import 'home/widgets/home_section_header.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
 import 'poster_browse/poster_browse_artwork_enricher.dart';
@@ -53,6 +61,7 @@ import 'poster_browse/poster_browse_artwork_prewarmer.dart';
 import 'poster_browse/poster_browse_loader.dart';
 import 'poster_browse/poster_browse_session_key.dart';
 import 'search_screen.dart';
+import '../widgets/app_atmospheric_background.dart';
 
 part 'media_list_screen_actions.dart';
 part 'media_list_screen_widgets.dart';
@@ -71,6 +80,12 @@ typedef _MediaItemsWithImages = ({
   Map<String, MediaImageRequest> backdropImageRequests,
 });
 
+const _MediaItemsWithImages _emptyMediaItemsWithImages = (
+  items: <MediaLibraryItem>[],
+  imageRequests: <String, MediaImageRequest>{},
+  backdropImageRequests: <String, MediaImageRequest>{},
+);
+
 class MediaListScreen extends StatefulWidget {
   final bool secondaryHost;
 
@@ -82,22 +97,84 @@ class MediaListScreen extends StatefulWidget {
 
 class _MediaListScreenState extends State<MediaListScreen>
     with WidgetsBindingObserver {
-  static const int _fallbackContinueLimit = 12;
+  static const int _fallbackContinueLimit = 8;
   static const int _secondaryContinueLimit = 4;
   static const int _defaultCategoryPreviewLimit = 12;
   static const int _secondaryCategoryPreviewLimit = 8;
 
-  List<MediaItem> _categories = <MediaItem>[];
-  Map<String, List<MediaLibraryItem>> _itemsByCategory =
-      <String, List<MediaLibraryItem>>{};
-  List<MediaLibraryItem> _continueWatching = <MediaLibraryItem>[];
-  Map<String, List<MediaImageRequest>> _catalogImageRequests =
-      <String, List<MediaImageRequest>>{};
-  Map<String, MediaImageRequest> _itemImageRequests =
-      <String, MediaImageRequest>{};
-  Map<String, MediaImageRequest> _backdropImageRequests =
-      <String, MediaImageRequest>{};
-  Map<String, dynamic> _mediaSummary = <String, dynamic>{};
+  HomeViewData _homeData = const HomeViewData.empty();
+  String _homeDataLoadKey = '';
+  final HomeLoadGeneration _homeLoadGeneration = HomeLoadGeneration();
+  final HomeCacheWriteCoordinator _homeCacheWrites =
+      HomeCacheWriteCoordinator();
+
+  bool _isCurrentHomeLoad(int generation) =>
+      mounted && _homeLoadGeneration.isCurrent(generation);
+
+  int _beginHomeLoad() {
+    final generation = _homeLoadGeneration.begin();
+    _homeCacheWrites.advanceTo(generation);
+    return generation;
+  }
+
+  void _invalidateHomeLoads() {
+    final generation = _homeLoadGeneration.invalidate();
+    _homeCacheWrites.advanceTo(generation);
+  }
+
+  List<MediaItem> get _categories => _homeData.catalogs;
+  set _categories(List<MediaItem> value) {
+    _homeData = _homeData.copyWith(catalogs: value);
+  }
+
+  Map<String, List<MediaLibraryItem>> get _itemsByCategory =>
+      _homeData.catalogPreviewItems;
+  set _itemsByCategory(Map<String, List<MediaLibraryItem>> value) {
+    _homeData = _homeData.copyWith(catalogPreviewItems: value);
+  }
+
+  List<MediaLibraryItem> get _continueWatching => _homeData.continueWatching;
+  set _continueWatching(List<MediaLibraryItem> value) {
+    _homeData = _homeData.copyWith(continueWatching: value);
+  }
+
+  // 首页区块组件将在后续 UI 接线中直接读取该兼容入口。
+  // ignore: unused_element
+  List<MediaLibraryItem> get _nextUp => _homeData.nextUp;
+  set _nextUp(List<MediaLibraryItem> value) {
+    _homeData = _homeData.copyWith(nextUp: value);
+  }
+
+  // 首页区块组件将在后续 UI 接线中直接读取该兼容入口。
+  // ignore: unused_element
+  List<MediaLibraryItem> get _latest => _homeData.latest;
+  set _latest(List<MediaLibraryItem> value) {
+    _homeData = _homeData.copyWith(latest: value);
+  }
+
+  Map<String, dynamic> get _mediaSummary => _homeData.summary;
+  set _mediaSummary(Map<String, dynamic> value) {
+    _homeData = _homeData.copyWith(summary: value);
+  }
+
+  Map<String, List<MediaImageRequest>> get _catalogImageRequests =>
+      _homeData.catalogImageRequests;
+  set _catalogImageRequests(Map<String, List<MediaImageRequest>> value) {
+    _homeData = _homeData.copyWith(catalogImageRequests: value);
+  }
+
+  Map<String, MediaImageRequest> get _itemImageRequests =>
+      _homeData.itemImageRequests;
+  set _itemImageRequests(Map<String, MediaImageRequest> value) {
+    _homeData = _homeData.copyWith(itemImageRequests: value);
+  }
+
+  Map<String, MediaImageRequest> get _backdropImageRequests =>
+      _homeData.backdropImageRequests;
+  set _backdropImageRequests(Map<String, MediaImageRequest> value) {
+    _homeData = _homeData.copyWith(backdropImageRequests: value);
+  }
+
   Map<String, dynamic> _localeMap = <String, dynamic>{};
   String _lastLoadKey = '';
 
@@ -140,6 +217,7 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   @override
   void dispose() {
+    _invalidateHomeLoads();
     _posterBrowsePrewarmGeneration += 1;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -169,15 +247,11 @@ class _MediaListScreenState extends State<MediaListScreen>
     final serverReady =
         session.currentKind.isServerFamily && session.isConfigured;
     if (!serverReady && !provider.isConfigured) {
+      _invalidateHomeLoads();
       _lastLoadKey = '';
       _posterBrowsePrewarmGeneration += 1;
-      _categories = <MediaItem>[];
-      _itemsByCategory = <String, List<MediaLibraryItem>>{};
-      _continueWatching = <MediaLibraryItem>[];
-      _catalogImageRequests = <String, List<MediaImageRequest>>{};
-      _itemImageRequests = <String, MediaImageRequest>{};
-      _backdropImageRequests = <String, MediaImageRequest>{};
-      _mediaSummary = <String, dynamic>{};
+      _homeData = const HomeViewData.empty();
+      _homeDataLoadKey = '';
       _localeMap = <String, dynamic>{};
       _error = null;
       _isLoading = false;
@@ -191,6 +265,10 @@ class _MediaListScreenState extends State<MediaListScreen>
     if (loadKey != _lastLoadKey) {
       _posterBrowsePrewarmGeneration += 1;
       _lastLoadKey = loadKey;
+      if (_homeDataLoadKey != loadKey) {
+        _homeData = const HomeViewData.empty();
+        _homeDataLoadKey = loadKey;
+      }
       if (serverReady) {
         // 服务器族首页不读飞牛 HomeDataCache，避免跨后端串内容。
         _fetchHomeData();
@@ -201,9 +279,11 @@ class _MediaListScreenState extends State<MediaListScreen>
   }
 
   Future<void> _tryLoadFromCacheThenRefresh() async {
+    final loadGeneration = _beginHomeLoad();
+    final loadKey = _lastLoadKey;
     final snapshot = await HomeDataCache.load();
+    if (!_isCurrentHomeLoad(loadGeneration)) return;
     if (snapshot != null && snapshot.categories.isNotEmpty) {
-      if (!mounted) return;
       setState(() {
         _categories = snapshot.categories;
         _itemsByCategory = snapshot.itemsByCategory;
@@ -212,6 +292,9 @@ class _MediaListScreenState extends State<MediaListScreen>
         _backdropImageRequests = <String, MediaImageRequest>{};
         _mediaSummary = snapshot.mediaSummary;
         _continueWatching = snapshot.continueWatching;
+        _nextUp = <MediaLibraryItem>[];
+        _latest = <MediaLibraryItem>[];
+        _homeDataLoadKey = loadKey;
         _loadingFromCache = true;
         _isLoading = false;
         _error = null;
@@ -221,6 +304,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       return;
     }
     // No cache 鈥?full load with spinner.
+    if (!_isCurrentHomeLoad(loadGeneration)) return;
     _fetchHomeData();
   }
 
@@ -284,10 +368,11 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   static List<MediaImageRequest> _requestsForRefs(
     DetailArtworkResolver resolver,
-    Iterable<MediaImageRef> refs,
-  ) {
+    Iterable<MediaImageRef> refs, {
+    required int width,
+  }) {
     return refs
-        .map(resolver.resolveRef)
+        .map((ref) => resolver.resolveRef(ref, width: width))
         .where((request) => request.isNotEmpty)
         .toList(growable: false);
   }
@@ -320,6 +405,21 @@ class _MediaListScreenState extends State<MediaListScreen>
     );
   }
 
+  void _scheduleHomeCacheSave(int generation, HomeViewData data) {
+    unawaited(
+      _homeCacheWrites.schedule(
+        generation: generation,
+        canWrite: () => _isCurrentHomeLoad(generation),
+        write: () => HomeDataCache.save(
+          categories: data.catalogs,
+          itemsByCategory: data.catalogPreviewItems,
+          mediaSummary: data.summary,
+          continueWatching: data.continueWatching,
+        ),
+      ),
+    );
+  }
+
   /// 继续观看数据源：飞牛走 FeiniuApi，其它公共后端走 backend。
   Future<_MediaItemsWithImages> _loadContinueWatching(
     MediaBackend backend,
@@ -342,6 +442,59 @@ class _MediaListScreenState extends State<MediaListScreen>
     final cards = await backend.getContinueWatching(forceRefresh: forceRefresh);
     onCardsLoaded?.call(cards);
     return _cardsToMediaItems(resolver, cards);
+  }
+
+  Future<HomeSectionLoadResult<List<MediaItemCard>>> _loadOptionalCards(
+    String label,
+    Future<List<MediaItemCard>> Function() loader,
+  ) async {
+    try {
+      return HomeSectionLoadResult<List<MediaItemCard>>.success(await loader());
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[UI][HOME] optional section failed $label: $error\n$stackTrace',
+      );
+      await logSwallowedError(
+        action: 'optional section failed $label',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'home',
+      );
+      return const HomeSectionLoadResult<List<MediaItemCard>>.failure();
+    }
+  }
+
+  Future<HomeSectionLoadResult<_MediaItemsWithImages>>
+  _loadContinueWatchingSafely(
+    MediaBackend backend,
+    FeiniuApi api,
+    DetailArtworkResolver resolver, {
+    bool forceRefresh = false,
+    ValueChanged<List<MediaItemCard>>? onCardsLoaded,
+  }) async {
+    try {
+      return HomeSectionLoadResult<_MediaItemsWithImages>.success(
+        await _loadContinueWatching(
+          backend,
+          api,
+          resolver,
+          forceRefresh: forceRefresh,
+          onCardsLoaded: onCardsLoaded,
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[UI][HOME] optional section failed continueWatching: '
+        '$error\n$stackTrace',
+      );
+      await logSwallowedError(
+        action: 'optional section failed continueWatching',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'home',
+      );
+      return const HomeSectionLoadResult<_MediaItemsWithImages>.failure();
+    }
   }
 
   /// 某库预览条目数据源：飞牛走 FeiniuApi，其它公共后端走 backend。
@@ -370,6 +523,8 @@ class _MediaListScreenState extends State<MediaListScreen>
   }
 
   Future<void> _fetchHomeData() async {
+    final loadGeneration = _beginHomeLoad();
+    final loadKey = _lastLoadKey;
     debugPrint('[UI][HOME] start loading home data');
     final usingSpinner = !_loadingFromCache;
     if (usingSpinner) {
@@ -394,6 +549,11 @@ class _MediaListScreenState extends State<MediaListScreen>
         token: imageCredentials.token,
         accessCode: imageCredentials.accessCode,
       );
+      final profile = HomePresentationProfile.forCapabilities(
+        backend.capabilities,
+      );
+      final needsNextUp = profile.sectionOrder.contains(HomeSectionKind.nextUp);
+      final needsLatest = profile.sectionOrder.contains(HomeSectionKind.latest);
 
       // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend銆傜户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛氶鐗涜蛋
       // FeiniuApi锛堜繚鐣欑画鎾繘搴︾瓑瀵屽瓧娈碉級锛孍mby 绛夎蛋 backend锛堣 _loadContinueWatching /
@@ -401,11 +561,12 @@ class _MediaListScreenState extends State<MediaListScreen>
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatching(
+        _loadContinueWatchingSafely(
           backend,
           api,
           resolver,
           onCardsLoaded: (cards) {
+            if (!_isCurrentHomeLoad(loadGeneration)) return;
             unawaited(
               _prewarmPosterBrowseArtwork(
                 backend: backend,
@@ -415,7 +576,28 @@ class _MediaListScreenState extends State<MediaListScreen>
             );
           },
         ),
+        needsNextUp
+            ? _loadOptionalCards(
+                'nextUp',
+                () => backend.getNextUpItems(limit: 8),
+              )
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
+        needsLatest
+            ? _loadOptionalCards(
+                'latest',
+                () => backend.getLatestItems(limit: 12),
+              )
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
       ]);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
       final categories = rawCatalogs.map(_catalogToMediaItem).toList();
       final catalogImageRequests = <String, List<MediaImageRequest>>{
@@ -425,21 +607,32 @@ class _MediaListScreenState extends State<MediaListScreen>
             catalog.posters.isNotEmpty
                 ? catalog.posters
                 : <MediaImageRef>[catalog.primaryImage],
+            width: MediaLayoutProfile.homeCatalogRequestWidthValue,
           ),
       };
       final summary = parallelResults[1] as Map<String, dynamic>;
-      final playListResult = parallelResults[2] as _MediaItemsWithImages;
+      final playListLoad =
+          parallelResults[2] as HomeSectionLoadResult<_MediaItemsWithImages>;
+      final playListResult = playListLoad.valueOr(_emptyMediaItemsWithImages);
       final playList = playListResult.items;
+      final nextUpLoad =
+          parallelResults[3] as HomeSectionLoadResult<List<MediaItemCard>>;
+      final latestLoad =
+          parallelResults[4] as HomeSectionLoadResult<List<MediaItemCard>>;
+      final nextUpResult = _cardsToMediaItems(
+        resolver,
+        nextUpLoad.valueOr(const <MediaItemCard>[]),
+      );
+      final latestResult = _cardsToMediaItems(
+        resolver,
+        latestLoad.valueOr(const <MediaItemCard>[]),
+      );
       const localeMap = <String, dynamic>{};
 
       // Fetch all category items in parallel.
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
-      final itemImageRequests = <String, MediaImageRequest>{
-        ...playListResult.imageRequests,
-      };
-      final backdropImageRequests = <String, MediaImageRequest>{
-        ...playListResult.backdropImageRequests,
-      };
+      final itemImageRequests = <String, MediaImageRequest>{};
+      final backdropImageRequests = <String, MediaImageRequest>{};
       final allItems = <MediaLibraryItem>[];
       final categoryFutures = categories.map((category) async {
         try {
@@ -463,6 +656,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         }
       }).toList();
       final categoryResults = await Future.wait(categoryFutures);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       for (final (catId, result) in categoryResults) {
         itemsByCategory[catId] = result.items;
         allItems.addAll(result.items);
@@ -470,33 +664,71 @@ class _MediaListScreenState extends State<MediaListScreen>
         backdropImageRequests.addAll(result.backdropImageRequests);
       }
 
-      final continueWatching = _resolveContinueWatching(
-        backend,
-        playList,
-        allItems,
+      final continueSection = playListLoad.isSuccess
+          ? HomeSectionLoadResult<HomeMediaSectionData>.success(
+              HomeMediaSectionData(
+                items: _resolveContinueWatching(backend, playList, allItems),
+                imageRequests: playListResult.imageRequests,
+                backdropImageRequests: playListResult.backdropImageRequests,
+              ),
+            )
+          : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
+      final nextUpSection = nextUpLoad.isSuccess
+          ? HomeSectionLoadResult<HomeMediaSectionData>.success(
+              HomeMediaSectionData(
+                items: nextUpResult.items,
+                imageRequests: nextUpResult.imageRequests,
+                backdropImageRequests: nextUpResult.backdropImageRequests,
+              ),
+            )
+          : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
+      final latestSection = latestLoad.isSuccess
+          ? HomeSectionLoadResult<HomeMediaSectionData>.success(
+              HomeMediaSectionData(
+                items: latestResult.items,
+                imageRequests: latestResult.imageRequests,
+                backdropImageRequests: latestResult.backdropImageRequests,
+              ),
+            )
+          : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
+      final homeData = mergeHomeOptionalSections(
+        current: homeDataFallbackForLoadKey(
+          snapshot: _homeData,
+          snapshotLoadKey: _homeDataLoadKey,
+          requestLoadKey: loadKey,
+        ),
+        refreshedBase: HomeViewData(
+          catalogs: categories,
+          catalogPreviewItems: itemsByCategory,
+          summary: summary,
+          catalogImageRequests: catalogImageRequests,
+          itemImageRequests: itemImageRequests,
+          backdropImageRequests: backdropImageRequests,
+        ),
+        continueWatching: continueSection,
+        nextUp: nextUpSection,
+        latest: latestSection,
       );
 
-      if (!mounted) return;
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       setState(() {
-        _categories = categories;
-        _itemsByCategory = itemsByCategory;
-        _continueWatching = continueWatching;
-        _catalogImageRequests = catalogImageRequests;
-        _itemImageRequests = itemImageRequests;
-        _backdropImageRequests = backdropImageRequests;
-        _mediaSummary = summary;
+        _homeData = homeData;
+        _homeDataLoadKey = loadKey;
         _localeMap = localeMap;
         _isLoading = false;
         _loadingFromCache = false;
         _error = null;
       });
 
-      if (playList.isEmpty && continueWatching.isNotEmpty) {
+      if (playListLoad.isSuccess &&
+          playList.isEmpty &&
+          homeData.continueWatching.isNotEmpty) {
+        if (!_isCurrentHomeLoad(loadGeneration)) return;
         unawaited(
           _prewarmPosterBrowseArtwork(
             backend: backend,
             nas: provider,
-            cards: continueWatching
+            cards: homeData.continueWatching
                 .map(cardFromLibraryItem)
                 .toList(growable: false),
           ),
@@ -505,18 +737,12 @@ class _MediaListScreenState extends State<MediaListScreen>
 
       // Persist to cache锛堜粎椋炵墰锛欻omeDataCache 鏄鐗涙€佺紦瀛橈紝Emby 鏁版嵁涓嶅啓鍏ラ伩鍏嶈法鍚庣涓插唴瀹癸級銆?
       if (backend.capabilities.kind == MediaBackendKind.feiniu) {
-        unawaited(
-          HomeDataCache.save(
-            categories: categories,
-            itemsByCategory: itemsByCategory,
-            mediaSummary: summary,
-            continueWatching: continueWatching,
-          ),
-        );
+        if (!_isCurrentHomeLoad(loadGeneration)) return;
+        _scheduleHomeCacheSave(loadGeneration, homeData);
       }
     } catch (error) {
       debugPrint('[UI][HOME] load failed $error');
-      if (!mounted) return;
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       // If we have stale cache data, keep showing it.
       if (_loadingFromCache) return;
       setState(() {
@@ -531,6 +757,8 @@ class _MediaListScreenState extends State<MediaListScreen>
   }
 
   Future<void> _backgroundRefresh() async {
+    final loadGeneration = _beginHomeLoad();
+    final loadKey = _lastLoadKey;
     debugPrint('[UI][HOME] background refresh start');
     final provider = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
@@ -555,15 +783,21 @@ class _MediaListScreenState extends State<MediaListScreen>
       );
 
       // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend锛涚户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛堝悓 _fetchHomeData锛夈€?
+      final profile = HomePresentationProfile.forCapabilities(
+        backend.capabilities,
+      );
+      final needsNextUp = profile.sectionOrder.contains(HomeSectionKind.nextUp);
+      final needsLatest = profile.sectionOrder.contains(HomeSectionKind.latest);
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatching(
+        _loadContinueWatchingSafely(
           backend,
           api,
           resolver,
           forceRefresh: true,
           onCardsLoaded: (cards) {
+            if (!_isCurrentHomeLoad(loadGeneration)) return;
             unawaited(
               _prewarmPosterBrowseArtwork(
                 backend: backend,
@@ -573,7 +807,28 @@ class _MediaListScreenState extends State<MediaListScreen>
             );
           },
         ),
+        needsNextUp
+            ? _loadOptionalCards(
+                'nextUp',
+                () => backend.getNextUpItems(limit: 8),
+              )
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
+        needsLatest
+            ? _loadOptionalCards(
+                'latest',
+                () => backend.getLatestItems(limit: 12),
+              )
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
       ]);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
       final categories = rawCatalogs.map(_catalogToMediaItem).toList();
       final catalogImageRequests = <String, List<MediaImageRequest>>{
@@ -583,20 +838,31 @@ class _MediaListScreenState extends State<MediaListScreen>
             catalog.posters.isNotEmpty
                 ? catalog.posters
                 : <MediaImageRef>[catalog.primaryImage],
+            width: MediaLayoutProfile.homeCatalogRequestWidthValue,
           ),
       };
       final summary = parallelResults[1] as Map<String, dynamic>;
-      final playListResult = parallelResults[2] as _MediaItemsWithImages;
+      final playListLoad =
+          parallelResults[2] as HomeSectionLoadResult<_MediaItemsWithImages>;
+      final playListResult = playListLoad.valueOr(_emptyMediaItemsWithImages);
       final playList = playListResult.items;
+      final nextUpLoad =
+          parallelResults[3] as HomeSectionLoadResult<List<MediaItemCard>>;
+      final latestLoad =
+          parallelResults[4] as HomeSectionLoadResult<List<MediaItemCard>>;
+      final nextUpResult = _cardsToMediaItems(
+        resolver,
+        nextUpLoad.valueOr(const <MediaItemCard>[]),
+      );
+      final latestResult = _cardsToMediaItems(
+        resolver,
+        latestLoad.valueOr(const <MediaItemCard>[]),
+      );
 
       // Fetch all category items in parallel.
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
-      final itemImageRequests = <String, MediaImageRequest>{
-        ...playListResult.imageRequests,
-      };
-      final backdropImageRequests = <String, MediaImageRequest>{
-        ...playListResult.backdropImageRequests,
-      };
+      final itemImageRequests = <String, MediaImageRequest>{};
+      final backdropImageRequests = <String, MediaImageRequest>{};
       final allItems = <MediaLibraryItem>[];
       final categoryFutures = categories.map((category) async {
         try {
@@ -619,6 +885,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         }
       }).toList();
       final categoryResults = await Future.wait(categoryFutures);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       for (final (catId, result) in categoryResults) {
         itemsByCategory[catId] = result.items;
         allItems.addAll(result.items);
@@ -626,56 +893,68 @@ class _MediaListScreenState extends State<MediaListScreen>
         backdropImageRequests.addAll(result.backdropImageRequests);
       }
 
-      final continueWatching = _resolveContinueWatching(
-        backend,
-        playList,
-        allItems,
+      final continueSection = playListLoad.isSuccess
+          ? HomeSectionLoadResult<HomeMediaSectionData>.success(
+              HomeMediaSectionData(
+                items: _resolveContinueWatching(backend, playList, allItems),
+                imageRequests: playListResult.imageRequests,
+                backdropImageRequests: playListResult.backdropImageRequests,
+              ),
+            )
+          : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
+      final nextUpSection = nextUpLoad.isSuccess
+          ? HomeSectionLoadResult<HomeMediaSectionData>.success(
+              HomeMediaSectionData(
+                items: nextUpResult.items,
+                imageRequests: nextUpResult.imageRequests,
+                backdropImageRequests: nextUpResult.backdropImageRequests,
+              ),
+            )
+          : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
+      final latestSection = latestLoad.isSuccess
+          ? HomeSectionLoadResult<HomeMediaSectionData>.success(
+              HomeMediaSectionData(
+                items: latestResult.items,
+                imageRequests: latestResult.imageRequests,
+                backdropImageRequests: latestResult.backdropImageRequests,
+              ),
+            )
+          : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
+      final homeData = mergeHomeOptionalSections(
+        current: homeDataFallbackForLoadKey(
+          snapshot: _homeData,
+          snapshotLoadKey: _homeDataLoadKey,
+          requestLoadKey: loadKey,
+        ),
+        refreshedBase: HomeViewData(
+          catalogs: categories,
+          catalogPreviewItems: itemsByCategory,
+          summary: summary,
+          catalogImageRequests: catalogImageRequests,
+          itemImageRequests: itemImageRequests,
+          backdropImageRequests: backdropImageRequests,
+        ),
+        continueWatching: continueSection,
+        nextUp: nextUpSection,
+        latest: latestSection,
       );
 
-      if (!mounted) return;
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
+      setState(() {
+        _homeData = homeData;
+        _homeDataLoadKey = loadKey;
+        _loadingFromCache = false;
+      });
 
-      // Only update UI if data changed.
-      final newSnapshot = HomeDataSnapshot(
-        categories: categories,
-        itemsByCategory: itemsByCategory,
-        mediaSummary: summary,
-        continueWatching: continueWatching,
-        cachedAt: DateTime.now(),
-      );
-
-      final currentSnapshot = HomeDataSnapshot(
-        categories: _categories,
-        itemsByCategory: _itemsByCategory,
-        mediaSummary: _mediaSummary,
-        continueWatching: _continueWatching,
-        cachedAt: DateTime.now(),
-      );
-
-      if (!newSnapshot.isSameAs(currentSnapshot)) {
-        setState(() {
-          _categories = categories;
-          _itemsByCategory = itemsByCategory;
-          _continueWatching = continueWatching;
-          _catalogImageRequests = catalogImageRequests;
-          _itemImageRequests = itemImageRequests;
-          _mediaSummary = summary;
-          _loadingFromCache = false;
-        });
-      } else {
-        setState(() {
-          _catalogImageRequests = catalogImageRequests;
-          _itemImageRequests = itemImageRequests;
-          _backdropImageRequests = backdropImageRequests;
-          _loadingFromCache = false;
-        });
-      }
-
-      if (playList.isEmpty && continueWatching.isNotEmpty) {
+      if (playListLoad.isSuccess &&
+          playList.isEmpty &&
+          homeData.continueWatching.isNotEmpty) {
+        if (!_isCurrentHomeLoad(loadGeneration)) return;
         unawaited(
           _prewarmPosterBrowseArtwork(
             backend: backend,
             nas: provider,
-            cards: continueWatching
+            cards: homeData.continueWatching
                 .map(cardFromLibraryItem)
                 .toList(growable: false),
           ),
@@ -683,22 +962,17 @@ class _MediaListScreenState extends State<MediaListScreen>
       }
 
       // Always update cache with fresh data.
-      unawaited(
-        HomeDataCache.save(
-          categories: categories,
-          itemsByCategory: itemsByCategory,
-          mediaSummary: summary,
-          continueWatching: continueWatching,
-        ),
-      );
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
+      _scheduleHomeCacheSave(loadGeneration, homeData);
     } catch (error) {
       debugPrint('[UI][HOME] background refresh failed: $error');
-      if (!mounted) return;
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       setState(() => _loadingFromCache = false);
     }
   }
 
   Future<void> _refreshContinueWatching() async {
+    final refreshLoadKey = _lastLoadKey;
     final provider = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
     if (backend.capabilities.kind == MediaBackendKind.feiniu &&
@@ -725,6 +999,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         resolver,
         forceRefresh: true,
         onCardsLoaded: (cards) {
+          if (!mounted || refreshLoadKey != _lastLoadKey) return;
           unawaited(
             _prewarmPosterBrowseArtwork(
               backend: backend,
@@ -734,7 +1009,7 @@ class _MediaListScreenState extends State<MediaListScreen>
           );
         },
       );
-      if (!mounted) return;
+      if (!mounted || refreshLoadKey != _lastLoadKey) return;
       // 与 _fetchHomeData 一致:经 _resolveContinueWatching 统一(飞牛空时回退分类挑选,
       // Emby 等留空)。否则返回时刷新与初始加载口径不一致会导致续播区抖动/消失。
       final continueWatching = _resolveContinueWatching(
@@ -747,24 +1022,36 @@ class _MediaListScreenState extends State<MediaListScreen>
       // push 返回的 Future 在 pop 动画第一帧前就 resolve，回包大概率落在
       // 380ms pop 转场里；等转场结束再应用，且列表未变化时不整页重建。
       await RouteTransitionGate.of(context);
-      if (!mounted) return;
+      if (!mounted || refreshLoadKey != _lastLoadKey) return;
       final oldContinueIds = _continueWatching.map((item) => item.guid).toSet();
       final itemsUnchanged = HomeDataSnapshot.itemsEqual(
         _continueWatching,
         continueWatching,
       );
+      var itemImageRequests = _itemImageRequests;
+      var backdropImageRequests = _backdropImageRequests;
+      if (backend.capabilities.kind.isServerFamily) {
+        itemImageRequests = Map<String, MediaImageRequest>.of(
+          _itemImageRequests,
+        );
+        backdropImageRequests = Map<String, MediaImageRequest>.of(
+          _backdropImageRequests,
+        );
+        for (final id in oldContinueIds) {
+          itemImageRequests.remove(id);
+          backdropImageRequests.remove(id);
+        }
+        itemImageRequests.addAll(playListResult.imageRequests);
+        backdropImageRequests.addAll(playListResult.backdropImageRequests);
+      }
       setState(() {
-        if (backend.capabilities.kind.isServerFamily) {
-          for (final id in oldContinueIds) {
-            _itemImageRequests.remove(id);
-            _backdropImageRequests.remove(id);
-          }
-          _itemImageRequests.addAll(playListResult.imageRequests);
-          _backdropImageRequests.addAll(playListResult.backdropImageRequests);
-        }
-        if (!itemsUnchanged) {
-          _continueWatching = continueWatching;
-        }
+        _homeData = _homeData.copyWith(
+          continueWatching: itemsUnchanged
+              ? _continueWatching
+              : continueWatching,
+          itemImageRequests: itemImageRequests,
+          backdropImageRequests: backdropImageRequests,
+        );
       });
       if (playListResult.items.isEmpty && continueWatching.isNotEmpty) {
         unawaited(
@@ -1164,6 +1451,33 @@ class _MediaListScreenState extends State<MediaListScreen>
         unawaited(_refreshContinueWatching());
       },
     );
+  }
+
+  /// 从首页继续观看卡直接恢复播放，返回首页后只刷新续看区块。
+  Future<void> _playContinueItem(MediaLibraryItem item) async {
+    if (item.guid.trim().isEmpty) return;
+    _pendingContinueWatchingRefresh = true;
+    try {
+      await const ItemPlaybackLauncher().open(
+        context,
+        itemGuid: item.guid,
+        fallbackTitle: item.displayTitle,
+      );
+    } catch (error, stackTrace) {
+      _pendingContinueWatchingRefresh = false;
+      await logSwallowedError(
+        action: 'play continue watching item',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'media_list_screen',
+        id: item.guid,
+      );
+      if (!mounted) return;
+      _showHomeSnackBar(
+        AppLocalizations.of(context).detailPlayInfoFailed,
+        backgroundColor: context.appColors.danger,
+      );
+    }
   }
 
   bool _isEpisodeItem(MediaLibraryItem item) {

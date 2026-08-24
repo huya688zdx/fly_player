@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/emby_api.dart';
 import 'package:fly_player/api/jellyfin_api.dart';
@@ -48,6 +52,38 @@ void main() {
     expect(_JellyfinHeaderProbe().sessionHeader('tok-1'), contains('"tok-1"'));
   });
 
+  test('Jellyfin 继续观看通过用户条目端点筛选可续播视频', () async {
+    late RequestOptions captured;
+    final adapter = _CapturingDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{'Items': <Object?>[]});
+    });
+    final api = JellyfinApi(
+      dio: Dio(BaseOptions())..httpClientAdapter = adapter,
+    );
+
+    await api.getResumeItems(
+      serverUrl: 'https://jellyfin.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      limit: 20,
+      fields: 'UserData,PrimaryImageAspectRatio',
+    );
+
+    expect(captured.uri.path, '/Users/user-1/Items');
+    expect(captured.uri.queryParameters['Filters'], 'IsResumable');
+    expect(captured.uri.queryParameters['Recursive'], 'true');
+    expect(captured.uri.queryParameters['IncludeItemTypes'], 'Movie,Episode');
+    expect(captured.uri.queryParameters['SortBy'], 'DatePlayed');
+    expect(captured.uri.queryParameters['SortOrder'], 'Descending');
+    expect(captured.uri.queryParameters['Limit'], '20');
+    expect(
+      captured.uri.queryParameters['Fields'],
+      'UserData,PrimaryImageAspectRatio',
+    );
+    expect(captured.uri.queryParameters['api_key'], 'tok');
+  });
+
   test('Jellyfin 描述符已登记且工厂产出 Jellyfin 后端', () {
     final descriptor = MediaBackendRegistry.requireDescriptor(
       MediaBackendKind.jellyfin,
@@ -69,4 +105,35 @@ void main() {
     expect(backend.capabilities.usesLegacyFeiniuFlow, isFalse);
     expect(MediaBackendKind.jellyfin.isServerFamily, isTrue);
   });
+}
+
+class _JsonResponse {
+  const _JsonResponse(this.body);
+
+  final Map<String, Object?> body;
+}
+
+class _CapturingDioAdapter implements HttpClientAdapter {
+  _CapturingDioAdapter(this.handler);
+
+  final _JsonResponse Function(RequestOptions options) handler;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final response = handler(options);
+    return ResponseBody.fromString(
+      jsonEncode(response.body),
+      200,
+      headers: <String, List<String>>{
+        Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

@@ -1,13 +1,15 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/media_backend/media_image_request.dart';
+import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/layout_adaptive.dart';
+import 'package:fly_player/ui/media_poster_card.dart';
 
 void main() {
   MediaLayoutProfile profile({
     required double screenWidth,
     required bool isTablet,
-    required double continueCardWidth,
     required double homePosterCardWidth,
-    required double categoryMiniPosterWidth,
   }) {
     return MediaLayoutProfile(
       screenWidth: screenWidth,
@@ -15,13 +17,6 @@ void main() {
       pageHorizontalPadding: 0,
       sectionGap: 0,
       itemGap: 0,
-      categoryStripHeight: 0,
-      categoryCardWidth: 0,
-      categoryMiniPosterWidth: categoryMiniPosterWidth,
-      categoryMiniPosterHeight: 0,
-      continueCardWidth: continueCardWidth,
-      continueImageHeight: 0,
-      continueRowHeight: 0,
       homePosterCardWidth: homePosterCardWidth,
       homePosterImageHeight: 0,
       homePosterRowHeight: 0,
@@ -39,16 +34,12 @@ void main() {
     final fullWidth = profile(
       screenWidth: 1400,
       isTablet: true,
-      continueCardWidth: 260,
       homePosterCardWidth: 176,
-      categoryMiniPosterWidth: 52,
     );
     final splitPane = profile(
       screenWidth: 520,
       isTablet: false,
-      continueCardWidth: 188,
       homePosterCardWidth: 115,
-      categoryMiniPosterWidth: 36,
     );
 
     expect(
@@ -57,11 +48,56 @@ void main() {
     );
     expect(splitPane.homePosterRequestWidth, fullWidth.homePosterRequestWidth);
     expect(
-      splitPane.categoryMiniPosterRequestWidth,
-      fullWidth.categoryMiniPosterRequestWidth,
+      splitPane.homeCatalogRequestWidth,
+      fullWidth.homeCatalogRequestWidth,
     );
     expect(splitPane.continueDecodeWidth, fullWidth.continueDecodeWidth);
     expect(splitPane.homePosterDecodeWidth, fullWidth.homePosterDecodeWidth);
-    expect(splitPane.miniPosterDecodeWidth, fullWidth.miniPosterDecodeWidth);
+    expect(splitPane.homeCatalogDecodeWidth, fullWidth.homeCatalogDecodeWidth);
+    expect(splitPane.continueDecodeWidth, 520);
+    expect(splitPane.homeCatalogDecodeWidth, 440);
+    expect(splitPane.homeCatalogRequestWidth, 440);
+    expect(splitPane.homeCatalogRequestWidth, isNonNegative);
+  });
+
+  testWidgets('首页海报行按真实文字缩放为两行文字留足高度', (tester) async {
+    for (final scale in <double>[2, 3]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppThemeBuilder.build(AppThemePreset.midnight),
+          home: MediaQuery(
+            data: MediaQueryData(
+              size: const Size(320, 800),
+              textScaler: TextScaler.linear(scale),
+            ),
+            child: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  final layout = MediaLayoutProfile.of(context);
+                  return SizedBox(
+                    width: layout.homePosterCardWidth,
+                    height: layout.homePosterRowHeightFor(
+                      MediaQuery.textScalerOf(context),
+                    ),
+                    child: MediaPosterCard(
+                      images: MediaImageRequest.empty,
+                      title: '一个足够长的首页媒体标题',
+                      subtitle: '2026 · 第 12 集',
+                      imageHeight: layout.homePosterImageHeight,
+                      titleFontSize: layout.homePosterTitleFontSize,
+                      subtitleFontSize: layout.homePosterSubtitleFontSize,
+                      titleFontWeight: FontWeight.w500,
+                      subtitleFontWeight: FontWeight.w400,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull, reason: '文字缩放 $scale 不应溢出');
+    }
   });
 }
