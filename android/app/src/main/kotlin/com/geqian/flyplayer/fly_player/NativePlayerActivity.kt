@@ -120,6 +120,15 @@ private fun Context.nativePanelString(resId: Int): String = localizedString(resI
 private fun Context.nativePanelString(resId: Int, vararg args: Any): String =
     localizedString(resId, *args)
 
+internal fun nativePanelDanmakuResultIsCurrent(
+    resultEpisodeNumber: Int,
+    currentEpisodeNumber: Int,
+    matchesCurrentSeason: Boolean,
+): Boolean =
+    matchesCurrentSeason &&
+        currentEpisodeNumber > 0 &&
+        resultEpisodeNumber == currentEpisodeNumber
+
 internal fun nativePanelLanguageName(context: Context, raw: String): String {
     val key = raw.trim().lowercase()
     if (key.isEmpty() || key == "zz-unknow" || key == "unknown" || key == "und") {
@@ -8641,11 +8650,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             onResult = { result ->
                 runOnUiThread {
                     hideCenterHint()
-                    // 自动定位当前集：把集号 == 正在播放集的结果排到最前（稳定排序保留其余顺序）。
+                    // 自动定位当前集：季度和集号都命中才排到最前。
                     val currentEp = currentEpisodeNumber()
                     val parsed = parseDanmakuResults(result)
                     danmakuSearchResults = if (currentEp > 0) {
-                        parsed.sortedByDescending { resultEpisodeNumber(it) == currentEp }
+                        parsed.sortedByDescending {
+                            nativePanelDanmakuResultIsCurrent(
+                                resultEpisodeNumber = resultEpisodeNumber(it),
+                                currentEpisodeNumber = currentEp,
+                                matchesCurrentSeason = it["matchesCurrentSeason"] == true,
+                            )
+                        }
                     } else {
                         parsed
                     }
@@ -8667,9 +8682,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val title = item["title"]?.toString()?.takeIf { it.isNotEmpty() }
             ?: item["animeTitle"]?.toString().orEmpty()
         val subtitle = item["subtitle"]?.toString().orEmpty()
-        // 优先判断：搜索结果集号 == 正在播放集号 → 标「当前集」徽章，帮用户一眼定位本集弹幕源。
+        // 只有季度和集号都与正在播放的媒体一致，才标记「当前集」。
         val currentEp = currentEpisodeNumber()
-        val isCurrent = currentEp > 0 && resultEpisodeNumber(item) == currentEp
+        val isCurrent = nativePanelDanmakuResultIsCurrent(
+            resultEpisodeNumber = resultEpisodeNumber(item),
+            currentEpisodeNumber = currentEp,
+            matchesCurrentSeason = item["matchesCurrentSeason"] == true,
+        )
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))

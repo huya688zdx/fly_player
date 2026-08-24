@@ -237,13 +237,24 @@ class DanDanPlayResolver {
     final matched = <DanDanPlayEpisodeSearchItem>[];
     final remaining = <DanDanPlayEpisodeSearchItem>[];
     for (final item in items) {
-      final candidateSeason = _extractSeasonNumber(item.animeTitle);
-      final isRequestedSeason =
-          candidateSeason == seasonNumber ||
-          (seasonNumber == 1 && candidateSeason == 0);
+      final isRequestedSeason = candidateMatchesSeason(
+        item,
+        seasonNumber: seasonNumber,
+      );
       (isRequestedSeason ? matched : remaining).add(item);
     }
     return <DanDanPlayEpisodeSearchItem>[...matched, ...remaining];
+  }
+
+  /// 当前媒体缺少季度信息时不猜测；有季度信息时兼容未标季名的第一季。
+  static bool candidateMatchesSeason(
+    DanDanPlayEpisodeSearchItem item, {
+    required int seasonNumber,
+  }) {
+    if (seasonNumber <= 0) return false;
+    final candidateSeason = _extractSeasonNumber(item.animeTitle);
+    return candidateSeason == seasonNumber ||
+        (seasonNumber == 1 && candidateSeason == 0);
   }
 
   static int? _normalizeTmdbId(String trimId) {

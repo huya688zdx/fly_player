@@ -322,6 +322,10 @@ class NativeDanmakuPrefetch {
             'animeTitle': item.animeTitle,
             'episodeTitle': item.episodeTitle,
             'episodeNumber': item.episodeNumber,
+            'matchesCurrentSeason': DanDanPlayResolver.candidateMatchesSeason(
+              item,
+              seasonNumber: seasonNumber,
+            ),
             'title': item.displaySubtitle,
             'subtitle': item.displayTitle,
           },
