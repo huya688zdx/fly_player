@@ -23,10 +23,10 @@ class DanmakuSavedSource {
   final int episodeNumber;
   final String mediaType;
 
-  const DanmakuSavedSource({
+  DanmakuSavedSource({
     required this.type,
     required this.mediaKey,
-    required this.sourceKey,
+    required String sourceKey,
     required this.label,
     required this.commentCount,
     required this.updatedAtMs,
@@ -40,7 +40,7 @@ class DanmakuSavedSource {
     this.seasonNumber = 0,
     this.episodeNumber = 0,
     this.mediaType = '',
-  });
+  }) : sourceKey = _normalizeSourceKey(type, sourceKey);
 
   bool get isLocalFile => type == DanmakuSavedSourceType.localFile;
   bool get isDanDanPlay => type == DanmakuSavedSourceType.danDanPlay;
@@ -104,5 +104,14 @@ class DanmakuSavedSource {
       final String text => int.tryParse(text) ?? 0,
       _ => 0,
     };
+  }
+
+  static String _normalizeSourceKey(DanmakuSavedSourceType type, String value) {
+    if (type != DanmakuSavedSourceType.danDanPlay) return value;
+    final normalized = value.trim();
+    if (normalized.isEmpty || normalized.startsWith('dandan:')) {
+      return normalized;
+    }
+    return 'dandan:$normalized';
   }
 }
