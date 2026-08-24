@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../media_backend/media_image_request.dart';
-import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import 'detail_info_block.dart';
 
@@ -11,7 +10,6 @@ class DetailHeroOverlay extends StatelessWidget {
   final String subtitle;
   final double? titleFontSize;
   final double bottomInset;
-  final bool useSoftGradient;
   final Widget? titleChild;
 
   const DetailHeroOverlay({
@@ -21,50 +19,11 @@ class DetailHeroOverlay extends StatelessWidget {
     this.subtitle = '',
     this.titleFontSize,
     this.bottomInset = 36,
-    this.useSoftGradient = false,
     this.titleChild,
   });
 
   @override
   Widget build(BuildContext context) {
-    final themeColors = context.appColors;
-    final isLightSurface =
-        themeColors.backgroundBase.computeLuminance() >= 0.58;
-    final colors = useSoftGradient
-        ? isLightSurface
-              ? [
-                  Colors.transparent,
-                  themeColors.backgroundBase.withValues(alpha: 0.05),
-                  themeColors.backgroundBase.withValues(alpha: 0.12),
-                  themeColors.backgroundBase.withValues(alpha: 0.26),
-                  themeColors.backgroundBase.withValues(alpha: 0.62),
-                  themeColors.backgroundBase,
-                ]
-              : [
-                  Colors.transparent,
-                  themeColors.overlayScrim.withValues(alpha: 0.08),
-                  themeColors.overlayScrim.withValues(alpha: 0.14),
-                  themeColors.overlayScrim.withValues(alpha: 0.28),
-                  themeColors.overlayScrim.withValues(alpha: 0.52),
-                  themeColors.backgroundBase,
-                ]
-        : isLightSurface
-        ? [
-            Colors.transparent,
-            themeColors.backgroundBase.withValues(alpha: 0.08),
-            themeColors.backgroundBase.withValues(alpha: 0.20),
-            themeColors.backgroundBase.withValues(alpha: 0.40),
-            themeColors.backgroundBase.withValues(alpha: 0.76),
-            themeColors.backgroundBase,
-          ]
-        : [
-            Colors.transparent,
-            themeColors.overlayScrim.withValues(alpha: 0.20),
-            themeColors.overlayScrim.withValues(alpha: 0.46),
-            themeColors.overlayScrim.withValues(alpha: 0.58),
-            themeColors.overlayScrim.withValues(alpha: 0.66),
-            themeColors.backgroundBase,
-          ];
     final onImageShadows = <Shadow>[
       Shadow(
         color: Colors.black.withValues(alpha: 0.30),
@@ -72,31 +31,10 @@ class DetailHeroOverlay extends StatelessWidget {
         offset: const Offset(0, 3),
       ),
     ];
-    final stops = useSoftGradient
-        ? const [0.0, 0.46, 0.68, 0.82, 0.92, 1.0]
-        : const [0.0, 0.50, 0.74, 0.86, 0.92, 1.0];
-
     return SizedBox(
       height: height,
       child: Stack(
         children: [
-          Positioned.fill(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: colors,
-                    stops: stops,
-                  ),
-                ),
-              ),
-            ),
-          ),
           Positioned(
             left: DetailTokens.screenHorizontalPadding,
             right: DetailTokens.screenHorizontalPadding,
