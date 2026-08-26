@@ -64,24 +64,20 @@ class PosterBrowsePosterCard extends StatelessWidget {
                           child: _RatingBadge(text: item.ratingText.trim()),
                         ),
                       if (progressValue != null)
-                        // 进度胶囊内缩悬浮于海报上：距边 8px + 全圆角 +
-                        // 深色轨道，不贴底边也不被海报圆角裁切，任何
-                        // 海报底色上都可读；纯单层绘制无滤镜开销。
+                        // 进度条全贴合：通栏横贯卡片并贴住底边，
+                        // 由海报自身的圆角(12)裁切端部；轨道用深色
+                        // 半透明，浅色海报上也能看清进度走向。
                         Positioned(
-                          left: 8,
-                          right: 8,
-                          bottom: 8,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.55),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(999),
-                              child: LinearProgressIndicator(
-                                minHeight: 5,
-                                value: progressValue,
-                                backgroundColor: Colors.transparent,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: LinearProgressIndicator(
+                              minHeight: 4,
+                              value: progressValue,
+                              backgroundColor: Colors.black.withValues(
+                                alpha: 0.38,
                               ),
                             ),
                           ),
