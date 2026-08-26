@@ -17,6 +17,7 @@ import '../theme/app_theme.dart';
 import '../theme/app_theme_l10n.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
+import '../ui/main_navigation_metrics.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
@@ -634,7 +635,13 @@ class AppSettingsScreen extends StatelessWidget {
                         compact ? 16 : 24,
                         10,
                         compact ? 16 : 24,
-                        compact ? 24 : 32,
+                        // 主窗口下内容延伸到悬浮导航条后方，需预留底栏高度；
+                        // 分屏副窗没有底栏，维持原有留白。
+                        secondaryHost
+                            ? (compact ? 24 : 32)
+                            : MainNavigationMetrics.contentBottomInset(
+                                media.viewPadding.bottom,
+                              ),
                       ),
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: maxContentWidth),
