@@ -51,6 +51,79 @@ void main() {
     expect(find.byType(BackendLogo), findsNWidgets(2));
   });
 
+  testWidgets('历史列表使用真实后端 Logo', (tester) async {
+    await tester.pumpWidget(
+      host(<LoginHistoryEntry>[
+        feiniuEntry,
+        embyEntry,
+        const LoginHistoryEntry(
+          kind: MediaBackendKind.jellyfin,
+          baseUrl: 'https://jellyfin.example.test',
+          userName: 'alice',
+          password: 'pw',
+          rememberPassword: true,
+          updatedAtMillis: 0,
+        ),
+      ]),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('backend_logo_feiniu')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('backend_logo_emby')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('backend_logo_jellyfin')),
+      findsOneWidget,
+    );
+    expect(find.text('FN'), findsNothing);
+    expect(find.text('E'), findsNothing);
+    expect(find.text('JF'), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Semantics && widget.properties.label == '飞牛影视',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Semantics && widget.properties.label == 'Emby',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Semantics && widget.properties.label == 'Jellyfin',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      (tester
+                  .widget<Image>(
+                    find.byKey(const ValueKey<String>('backend_logo_feiniu')),
+                  )
+                  .image
+              as AssetImage)
+          .assetName,
+      'lib/img/feiniu_Logo.png',
+    );
+    expect(
+      (tester
+                  .widget<Image>(
+                    find.byKey(const ValueKey<String>('backend_logo_emby')),
+                  )
+                  .image
+              as AssetImage)
+          .assetName,
+      'lib/img/Emby_logo.png',
+    );
+  });
+
   testWidgets('点击历史条目回传该条目', (tester) async {
     LoginHistoryEntry? popped;
     await tester.pumpWidget(

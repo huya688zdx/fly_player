@@ -13,6 +13,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ConnectionScreen), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(3));
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
+    await tester.tap(find.byKey(const Key('feiniuAdvancedOptionsButton')));
+    await tester.pumpAndSettle();
     expect(find.byType(TextField), findsNWidgets(4));
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsOneWidget);
     expect(

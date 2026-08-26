@@ -135,6 +135,8 @@ void main() {
   testWidgets('记住登录时屏幕提交会保存访问码到运行态和安全历史', (tester) async {
     final harness = await _pumpPersistenceScreen(tester);
 
+    await tester.tap(find.byKey(const Key('feiniuAdvancedOptionsButton')));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('feiniuAccessCodeField')),
       'screen-access-code',
@@ -155,6 +157,8 @@ void main() {
   testWidgets('不记住登录时屏幕提交仅保留当前运行态访问码', (tester) async {
     final harness = await _pumpPersistenceScreen(tester);
 
+    await tester.tap(find.byKey(const Key('feiniuAdvancedOptionsButton')));
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('feiniuAccessCodeField')),
       'runtime-only-access-code',
