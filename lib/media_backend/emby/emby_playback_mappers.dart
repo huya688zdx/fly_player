@@ -1,0 +1,300 @@
+import '../playback/media_playback.dart';
+
+/// Emby `MediaSource` / `MediaStreams` → 播放中立模型（直链直播）。
+///
+/// 与 `emby_media_mappers.dart` 的 `mapEmbySourceVersions`（详情页展示版本）**同源解析**
+/// `MediaStreams`，但产出**播放中立** [MediaPlaybackSource] / [MediaPlaybackTrack]，供
+/// `EmbyMediaBackend.getPlayback` 装配 [MediaPlaybackBundle]。
+///
+/// 投递方式固定 [MediaPlaybackDeliveryKind.directLink]：static 直链原文件，mpv 直接吃原始
+/// 容器、所有内嵌音轨/字幕在 mpv 侧按轨道号切换，无服务端转码会话（见
+/// `docs/superpowers/specs/2026-06-25-emby-playback-design.md` §2）。
+
+/// 选中 `MediaSource` → 中立播放源。视频属性取首条 video `MediaStream`；[url] 为已拼好的
+/// 直链（[EmbyApi.buildStreamUrl]）或转码 HLS（[EmbyApi.buildHlsStreamUrl]，此时 [delivery]
+/// 传 [MediaPlaybackDeliveryKind.transcoding]），[headers] 为过 fnos 边缘闸的 entry-token
+/// cookie（或空）。
+MediaPlaybackSource mapEmbyPlaybackSource(
+  Map<String, Object?> source, {
+  required String url,
+  Map<String, String> headers = const <String, String>{},
+  MediaPlaybackDeliveryKind delivery = MediaPlaybackDeliveryKind.directLink,
+}) {
+  final video = _firstStreamOfType(source, 'video');
+  final videoIndex = video == null ? -1 : _asInt(video['Index']);
+  return MediaPlaybackSource(
+    id: (source['Id'] ?? '').toString(),
+    // Emby 无独立视频轨 guid 概念；用视频流容器 index 作中立视频轨标识（缺则空）。
+    videoTrackId: videoIndex >= 0 ? '$videoIndex' : '',
+    delivery: delivery,
+    url: url,
+    headers: headers,
+    width: _asInt(video?['Width']),
+    height: _asInt(video?['Height']),
+    videoCodec: (video?['Codec'] ?? '').toString(),
+    videoProfile: (video?['Profile'] ?? '').toString(),
+    colorSpace: (video?['ColorSpace'] ?? '').toString(),
+    colorTransfer: (video?['ColorTransfer'] ?? '').toString(),
+    colorPrimaries: (video?['ColorPrimaries'] ?? '').toString(),
+    bitDepth: _asInt(video?['BitDepth']),
+    // 直链原文件可靠 seek；不强制本地代理。
+    reliableSeek: true,
+    forceNativeProxy: false,
+  );
+}
+
+/// Emby 转码画质梯度：每个竖直分辨率档一条（高→低），码率为该档 VideoBitrate 上限（bps）。
+///
+/// Emby 没有服务端预生成的画质列表（对位飞牛 `qualities` 返回）——转码档是客户端自报
+/// MaxHeight+VideoBitrate、服务端按需出流，故梯度在客户端定死。只保留不超过源竖直分辨率
+/// 的档位，避免无意义的放大转码。
+const List<({int height, int bitrate})> _embyTranscodeTiers =
+    <({int height, int bitrate})>[
+      (height: 2160, bitrate: 20000000),
+      (height: 1440, bitrate: 12000000),
+      (height: 1080, bitrate: 8000000),
+      (height: 720, bitrate: 4000000),
+    ];
+
+/// 画质候选标识前缀。候选 id 自包含（`emby:q:<mediaSourceId>:<height>:<bitrate>` /
+/// `emby:q:<mediaSourceId>:original`），[embyQualityVersionId] 可无状态取回版本 id。
+const String _embyQualityIdPrefix = 'emby:q:';
+
+String _embyQualityId(String mediaSourceId, String suffix) =>
+    '$_embyQualityIdPrefix$mediaSourceId:$suffix';
+
+/// 从播放请求的 `qualityId` 还原「版本」（MediaSource）id：
+/// 详情页版本切换传裸 MediaSourceId，画质候选 id 则带 [_embyQualityIdPrefix] 前缀——
+/// 两种都归一成 MediaSourceId 供版本查找（Emby id 为十六进制串，不含 `:`，按段切分安全）。
+String embyQualityVersionId(String? qualityId) {
+  final id = qualityId?.trim() ?? '';
+  if (!id.startsWith(_embyQualityIdPrefix)) return id;
+  final parts = id.substring(_embyQualityIdPrefix.length).split(':');
+  return parts.isEmpty ? '' : parts.first.trim();
+}
+
+/// `qualityId` 是否为画质候选 id（而非裸 MediaSourceId 版本标识）。
+bool isEmbyQualityCandidateId(String? qualityId) =>
+    (qualityId?.trim() ?? '').startsWith(_embyQualityIdPrefix);
+
+/// 画质档的目标竖直分辨率（`"1080P"` → 1080）；解析不出返回 0。
+int embyQualityMaxHeight(MediaPlaybackQuality quality) {
+  final digits = quality.resolution.replaceAll(RegExp(r'[^0-9]'), '');
+  return int.tryParse(digits) ?? 0;
+}
+
+/// 选中 `MediaSource` → 画质候选列表：原画档（static 直链）+ 客户端转码梯度。
+///
+/// 对位飞牛 `mapFeiniuPlaybackQualities`。原画档恒在首位且 `isDefault`（初始起播默认原画，
+/// 与现直链直播行为一致）；转码档只出「低于源竖直分辨率」的档位，源分辨率同档仅在源码率
+/// 明显高于该档上限时保留（如 1080p 高码率原盘 → 1080P 8Mbps 转码档仍有省带宽意义）。
+/// `SupportsTranscoding == false`（服务端明确禁转码）时只出原画档。
+List<MediaPlaybackQuality> mapEmbyPlaybackQualities(
+  Map<String, Object?> source,
+) {
+  final mediaSourceId = (source['Id'] ?? '').toString();
+  final video = _firstStreamOfType(source, 'video');
+  final videoIndex = video == null ? -1 : _asInt(video['Index']);
+  final videoTrackId = videoIndex >= 0 ? '$videoIndex' : '';
+  final height = _asInt(video?['Height']);
+  final streamBitrate = _asInt(video?['BitRate']);
+  final sourceBitrate = streamBitrate > 0
+      ? streamBitrate
+      : _asInt(source['Bitrate']);
+
+  final qualities = <MediaPlaybackQuality>[
+    MediaPlaybackQuality(
+      id: _embyQualityId(mediaSourceId, 'original'),
+      sourceId: mediaSourceId,
+      videoTrackId: videoTrackId,
+      delivery: MediaPlaybackDeliveryKind.original,
+      label: height > 0 ? '${height}P' : '',
+      resolution: height > 0 ? '${height}P' : '',
+      bitrate: sourceBitrate,
+      isDefault: true,
+    ),
+  ];
+  if (source['SupportsTranscoding'] == false || height <= 0) return qualities;
+
+  for (final tier in _embyTranscodeTiers) {
+    if (tier.height > height) continue;
+    // 源同分辨率档：仅当源码率显著高于该档上限（>1.5 倍）时才值得转码降码率。
+    if (tier.height == height &&
+        (sourceBitrate <= 0 || sourceBitrate <= tier.bitrate * 3 ~/ 2)) {
+      continue;
+    }
+    qualities.add(
+      MediaPlaybackQuality(
+        id: _embyQualityId(mediaSourceId, '${tier.height}:${tier.bitrate}'),
+        sourceId: mediaSourceId,
+        videoTrackId: videoTrackId,
+        delivery: MediaPlaybackDeliveryKind.transcoding,
+        label: '${tier.height}P',
+        resolution: '${tier.height}P',
+        bitrate: tier.bitrate,
+      ),
+    );
+  }
+  return qualities;
+}
+
+/// 选中 `MediaSource` → 中立音轨 / 字幕轨候选。
+///
+/// 轨道 id = 容器内 stream `Index`（与详情页选择器、`Default*StreamIndex` 同口径），index 同值
+/// 供桥接器映射 mpv 轨道号。`isDefault` 由 `DefaultAudioStreamIndex` / `DefaultSubtitleStreamIndex`
+/// 判定；字幕 `subtitleLocation` 按 `IsExternal` 分内嵌 / 外挂。
+({List<MediaPlaybackTrack> audio, List<MediaPlaybackTrack> subtitle})
+mapEmbyPlaybackTracks(Map<String, Object?> source) {
+  final defaultAudio = _defaultIndex(source['DefaultAudioStreamIndex']);
+  final defaultSubtitle = _defaultIndex(source['DefaultSubtitleStreamIndex']);
+  final audio = <MediaPlaybackTrack>[];
+  final subtitle = <MediaPlaybackTrack>[];
+  final rawStreams = source['MediaStreams'];
+  if (rawStreams is List) {
+    for (final raw in rawStreams) {
+      if (raw is! Map) continue;
+      final stream = Map<String, Object?>.from(raw);
+      final index = _asInt(stream['Index']);
+      switch ((stream['Type'] ?? '').toString().toLowerCase()) {
+        case 'audio':
+          audio.add(
+            _track(
+              stream,
+              index,
+              MediaPlaybackTrackKind.audio,
+              isDefault: defaultAudio != null && index == defaultAudio,
+            ),
+          );
+          break;
+        case 'subtitle':
+          subtitle.add(
+            _track(
+              stream,
+              index,
+              MediaPlaybackTrackKind.subtitle,
+              isDefault: defaultSubtitle != null && index == defaultSubtitle,
+            ),
+          );
+          break;
+      }
+    }
+  }
+  return (audio: audio, subtitle: subtitle);
+}
+
+/// 选中 `MediaSource` 默认音轨 / 字幕的 stream Index 字符串（喂 selectPlaybackTrack 的
+/// fallbackTrackId）；无 / 关闭（负值）返回空。
+String embyDefaultAudioId(Map<String, Object?> source) =>
+    _defaultIdString(source['DefaultAudioStreamIndex']);
+
+String embyDefaultSubtitleId(Map<String, Object?> source) =>
+    _defaultIdString(source['DefaultSubtitleStreamIndex']);
+
+/// 外挂字幕轨的**自包含**标识（播放桥接器产出、后端反向通道解码）。
+///
+/// 内嵌字幕 mpv 按 sid 切换、轨道 id 用容器 Index 即可；外挂字幕要靠原生壳反向通道
+/// 把轨道下载成文件，而 `resolveSubtitleFile(guid, format)` 只回传 guid——故把下载 Emby
+/// 字幕直链所需的 itemId / mediaSourceId / streamIndex 全编进 guid，后端无状态解码即可
+/// 拼直链。前缀 `emby:sub:`；各段为 Emby 十六进制 / 数字 id，不含 `:`，故按 `:` 切分安全。
+String embyExternalSubtitleGuid({
+  required String itemId,
+  required String mediaSourceId,
+  required int index,
+}) => 'emby:sub:$itemId:$mediaSourceId:$index';
+
+/// 解析 [embyExternalSubtitleGuid] 产出的外挂字幕标识；非该格式返回 `null`。
+EmbyExternalSubtitleRef? parseEmbyExternalSubtitleGuid(String guid) {
+  const prefix = 'emby:sub:';
+  if (!guid.startsWith(prefix)) return null;
+  final parts = guid.substring(prefix.length).split(':');
+  if (parts.length != 3) return null;
+  final itemId = parts[0].trim();
+  final mediaSourceId = parts[1].trim();
+  final index = int.tryParse(parts[2].trim());
+  if (itemId.isEmpty || index == null) return null;
+  return EmbyExternalSubtitleRef(
+    itemId: itemId,
+    mediaSourceId: mediaSourceId,
+    streamIndex: index,
+  );
+}
+
+/// [parseEmbyExternalSubtitleGuid] 的解码产物。
+class EmbyExternalSubtitleRef {
+  const EmbyExternalSubtitleRef({
+    required this.itemId,
+    required this.mediaSourceId,
+    required this.streamIndex,
+  });
+
+  final String itemId;
+  final String mediaSourceId;
+  final int streamIndex;
+}
+
+MediaPlaybackTrack _track(
+  Map<String, Object?> stream,
+  int index,
+  MediaPlaybackTrackKind kind, {
+  required bool isDefault,
+}) {
+  final display = (stream['DisplayTitle'] ?? '').toString().trim();
+  final language = (stream['Language'] ?? '').toString().trim();
+  final title = (stream['Title'] ?? '').toString().trim();
+  final codec = (stream['Codec'] ?? '').toString().trim();
+  final label = display.isNotEmpty
+      ? display
+      : <String>[
+          if (language.isNotEmpty) language,
+          if (title.isNotEmpty) title,
+          if (codec.isNotEmpty) codec.toUpperCase(),
+        ].join(' ').trim();
+  final external = stream['IsExternal'] == true;
+  return MediaPlaybackTrack(
+    id: '$index',
+    kind: kind,
+    index: index,
+    label: label.isNotEmpty ? label : '#$index',
+    language: language,
+    codec: codec,
+    title: title,
+    isDefault: isDefault,
+    subtitleLocation: kind == MediaPlaybackTrackKind.subtitle
+        ? (external
+              ? MediaSubtitleLocation.external
+              : MediaSubtitleLocation.embedded)
+        : null,
+  );
+}
+
+Map<String, Object?>? _firstStreamOfType(
+  Map<String, Object?> source,
+  String type,
+) {
+  final rawStreams = source['MediaStreams'];
+  if (rawStreams is! List) return null;
+  for (final raw in rawStreams) {
+    if (raw is! Map) continue;
+    final stream = Map<String, Object?>.from(raw);
+    if ((stream['Type'] ?? '').toString().toLowerCase() == type) return stream;
+  }
+  return null;
+}
+
+/// `Default*StreamIndex` → int；缺失 / 负值（无 / 关闭）返回 null。
+int? _defaultIndex(Object? value) {
+  final index = value is int ? value : int.tryParse('${value ?? ''}');
+  if (index == null || index < 0) return null;
+  return index;
+}
+
+String _defaultIdString(Object? value) {
+  final index = _defaultIndex(value);
+  return index == null ? '' : '$index';
+}
+
+int _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse('${value ?? ''}') ?? 0;
+}
