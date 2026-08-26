@@ -392,7 +392,7 @@ class FlyPlayerApp extends StatelessWidget {
           return Consumer<AppLocaleProvider>(
             builder: (context, localeProvider, _) {
               return MaterialApp(
-                title: 'Fly Player',
+                title: '飞翔播放器',
                 onGenerateTitle: (context) =>
                     AppLocalizations.of(context).appTitle,
                 locale: localeProvider.locale,

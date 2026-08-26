@@ -19,17 +19,18 @@ void main() {
     await _pumpConnectionScreen(tester, baseUrl: 'https://nas.example.test');
     await tester.pump();
 
-    expect(find.text('飞牛播放器'), findsOneWidget);
+    expect(find.text('飞翔播放器'), findsOneWidget);
     expect(find.byIcon(Icons.history_rounded), findsOneWidget);
     expect(find.byType(Switch), findsNothing);
     expect(find.text('查看已下载数据'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
+    expect(find.text('访问码（可选）'), findsNothing);
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
+    expect(find.byType(TextField), findsNWidgets(3));
+
+    await _expandFeiniuOptions(tester);
     expect(find.text('访问码（可选）'), findsOneWidget);
-    expect(
-      tester.widget(find.byKey(const Key('feiniuAccessCodeField'))),
-      isA<TextField>(),
-    );
     expect(
       tester
           .widget<TextField>(find.byKey(const Key('feiniuAccessCodeField')))
@@ -41,6 +42,7 @@ void main() {
 
   testWidgets('访问码默认遮挡且眼睛按钮可切换明文状态', (tester) async {
     await _pumpConnectionScreen(tester, baseUrl: 'https://nas.example.test');
+    await _expandFeiniuOptions(tester);
     final accessCodeFinder = find.byKey(const Key('feiniuAccessCodeField'));
     await tester.ensureVisible(accessCodeFinder);
     await tester.pumpAndSettle();
@@ -70,6 +72,7 @@ void main() {
             );
           },
     );
+    await _expandFeiniuOptions(tester);
     final accessCodeFinder = find.byKey(const Key('feiniuAccessCodeField'));
     await tester.ensureVisible(accessCodeFinder);
     await tester.enterText(accessCodeFinder, 'done-access-code');
@@ -98,6 +101,7 @@ void main() {
             );
           },
     );
+    await _expandFeiniuOptions(tester);
 
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(2), 'secret');
@@ -115,6 +119,7 @@ void main() {
 
   testWidgets('切换服务器族后返回飞牛会保留尚未提交的访问码', (tester) async {
     await _pumpConnectionScreen(tester, baseUrl: 'https://nas.example.test');
+    await _expandFeiniuOptions(tester);
     await tester.enterText(
       find.byKey(const Key('feiniuAccessCodeField')),
       'temporary-access-code',
@@ -126,6 +131,8 @@ void main() {
 
     await tester.tap(find.text('飞牛影视'));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
+    await _expandFeiniuOptions(tester);
     final accessCodeField = tester.widget<TextField>(
       find.byKey(const Key('feiniuAccessCodeField')),
     );
@@ -160,6 +167,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(feiniuHistory.baseUrl));
     await tester.pumpAndSettle();
+    await _expandFeiniuOptions(tester);
     expect(
       tester
           .widget<TextField>(find.byKey(const Key('feiniuAccessCodeField')))
@@ -176,6 +184,7 @@ void main() {
 
     await tester.tap(find.text('飞牛影视'));
     await tester.pumpAndSettle();
+    await _expandFeiniuOptions(tester);
     expect(
       tester
           .widget<TextField>(find.byKey(const Key('feiniuAccessCodeField')))
@@ -185,97 +194,119 @@ void main() {
     );
   });
 
-  testWidgets('飞牛 HTTP 地址显示无协议服务器并选中 HTTP', (tester) async {
+  testWidgets('飞牛裸地址登录默认提交 HTTPS', (tester) async {
+    String? submittedBaseUrl;
     await _pumpConnectionScreen(
       tester,
-      baseUrl: 'http://nas.example.test:5667',
+      baseUrl: '',
+      feiniuLogin:
+          ({
+            required baseUrl,
+            required userName,
+            required password,
+            required accessCode,
+          }) async {
+            submittedBaseUrl = baseUrl;
+            return LoginWithBaseUrlResult(
+              token: 'token',
+              resolvedBaseUrl: baseUrl,
+            );
+          },
     );
-
-    expect(find.text('HTTP'), findsOneWidget);
-    expect(find.text('HTTPS'), findsOneWidget);
-    final protocolSelector = tester.widget<SegmentedButton<String>>(
-      find.byType(SegmentedButton<String>),
-    );
-    expect(protocolSelector.selected, <String>{'http'});
-    expect(_serverField(tester).controller?.text, 'nas.example.test:5667');
-  });
-
-  testWidgets('飞牛 HTTPS 地址可明确切回 HTTP', (tester) async {
-    await _pumpConnectionScreen(
-      tester,
-      baseUrl: 'https://nas.example.test:5667',
-    );
-
-    expect(
-      tester
-          .widget<SegmentedButton<String>>(find.byType(SegmentedButton<String>))
-          .selected,
-      <String>{'https'},
-    );
-
-    await tester.tap(find.text('HTTP'));
-    await tester.pump();
-
-    expect(
-      tester
-          .widget<SegmentedButton<String>>(find.byType(SegmentedButton<String>))
-          .selected,
-      <String>{'http'},
-    );
-  });
-
-  testWidgets('粘贴完整 HTTPS 地址时同步协议选择', (tester) async {
-    await _pumpConnectionScreen(
-      tester,
-      baseUrl: 'http://nas.example.test:5667',
-    );
-
     await tester.enterText(
-      find.byType(TextField).first,
-      'https://other.example.test:7443/path',
+      find.byKey(const Key('connectionServerAddressField')),
+      'nas.example.test:5667',
     );
-    await tester.pump();
-
-    expect(
-      tester
-          .widget<SegmentedButton<String>>(find.byType(SegmentedButton<String>))
-          .selected,
-      <String>{'https'},
+    await tester.enterText(
+      find.byKey(const Key('connectionUserNameField')),
+      'alice',
     );
+    await tester.enterText(
+      find.byKey(const Key('connectionPasswordField')),
+      'secret',
+    );
+    await tester.tap(find.byKey(const Key('connectionSubmitButton')));
+    await tester.pumpAndSettle();
+    expect(submittedBaseUrl, 'https://nas.example.test:5667');
   });
 
-  testWidgets('粘贴 HTTPS 地址后选择 HTTP 会以 HTTP 提交', (tester) async {
-    final submittedBaseUrl = await _submitPastedAddress(
+  testWidgets('飞牛显式 HTTP 地址保持 HTTP', (tester) async {
+    String? submittedBaseUrl;
+    await _pumpConnectionScreen(
       tester,
-      pastedAddress: 'https://other.example.test:7443/path',
-      selectedProtocol: 'HTTP',
+      baseUrl: '',
+      feiniuLogin:
+          ({
+            required baseUrl,
+            required userName,
+            required password,
+            required accessCode,
+          }) async {
+            submittedBaseUrl = baseUrl;
+            return LoginWithBaseUrlResult(
+              token: 'token',
+              resolvedBaseUrl: baseUrl,
+            );
+          },
     );
-
-    expect(submittedBaseUrl, 'http://other.example.test:7443/path');
+    await tester.enterText(
+      find.byKey(const Key('connectionServerAddressField')),
+      'http://nas.example.test:5667',
+    );
+    await tester.enterText(
+      find.byKey(const Key('connectionUserNameField')),
+      'alice',
+    );
+    await tester.enterText(
+      find.byKey(const Key('connectionPasswordField')),
+      'secret',
+    );
+    await tester.tap(find.byKey(const Key('connectionSubmitButton')));
+    await tester.pumpAndSettle();
+    expect(submittedBaseUrl, 'http://nas.example.test:5667');
   });
 
-  testWidgets('粘贴 HTTP 地址后选择 HTTPS 会以 HTTPS 提交', (tester) async {
-    final submittedBaseUrl = await _submitPastedAddress(
-      tester,
-      pastedAddress: 'http://other.example.test:7443/path',
-      selectedProtocol: 'HTTPS',
-    );
-
-    expect(submittedBaseUrl, 'https://other.example.test:7443/path');
-  });
-
-  testWidgets('320dp 大字体下协议选择不溢出', (tester) async {
+  testWidgets('320dp 大字体下地址输入不溢出', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await _pumpConnectionScreen(
       tester,
-      baseUrl: 'http://nas.example.test:5667',
+      baseUrl: '',
       textScaler: const TextScaler.linear(1.6),
     );
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('首次进入不预填真实服务器地址', (tester) async {
+    await _pumpConnectionScreen(tester, baseUrl: '');
+
+    final field = tester.widget<TextField>(
+      find.byKey(const Key('connectionServerAddressField')),
+    );
+    expect(field.controller!.text, isEmpty);
+    expect(field.decoration!.hintText, isNot(contains('geqian688')));
+    expect(field.decoration!.hintText, isNot(contains('feiniu.geqian.sbs')));
+  });
+
+  testWidgets('飞牛更多选项展开并在切换服务后收起', (tester) async {
+    await _pumpConnectionScreen(tester, baseUrl: '');
+
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('feiniuAdvancedOptionsButton')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsOneWidget);
+
+    await tester.tap(find.text('Emby'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
+
+    await tester.tap(find.text('飞牛影视'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
   });
 }
 
@@ -332,43 +363,10 @@ Future<void> _pumpConnectionScreen(
   await tester.pump();
 }
 
-TextField _serverField(WidgetTester tester) {
-  return tester.widgetList<TextField>(find.byType(TextField)).first;
-}
-
-Future<String?> _submitPastedAddress(
-  WidgetTester tester, {
-  required String pastedAddress,
-  required String selectedProtocol,
-}) async {
-  String? submittedBaseUrl;
-  await _pumpConnectionScreen(
-    tester,
-    baseUrl: 'https://nas.example.test:5667',
-    feiniuLogin:
-        ({
-          required baseUrl,
-          required userName,
-          required password,
-          required accessCode,
-        }) async {
-          submittedBaseUrl = baseUrl;
-          return LoginWithBaseUrlResult(
-            token: 'token',
-            resolvedBaseUrl: baseUrl,
-          );
-        },
-  );
-
-  final fields = find.byType(TextField);
-  await tester.enterText(fields.at(0), pastedAddress);
-  await tester.enterText(fields.at(1), 'alice');
-  await tester.enterText(fields.at(2), 'secret');
-  await tester.tap(find.text(selectedProtocol));
-  await tester.pump();
-  await tester.ensureVisible(find.byType(ElevatedButton));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byType(ElevatedButton));
-  await tester.pumpAndSettle();
-  return submittedBaseUrl;
+Future<void> _expandFeiniuOptions(WidgetTester tester) async {
+  final button = find.byKey(const Key('feiniuAdvancedOptionsButton'));
+  if (find.byKey(const Key('feiniuAccessCodeField')).evaluate().isEmpty) {
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+  }
 }
