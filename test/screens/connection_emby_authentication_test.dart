@@ -55,7 +55,7 @@ void main() {
 
     final fields = find.byType(TextField);
     expect(fields, findsNWidgets(3));
-    await tester.enterText(fields.at(0), 'https://emby.example.test/');
+    await tester.enterText(fields.at(0), 'emby.example.test');
     await tester.enterText(fields.at(1), 'alice');
     await tester.enterText(fields.at(2), 'secret');
     final loginButton = find.byType(ElevatedButton);

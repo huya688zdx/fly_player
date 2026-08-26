@@ -10,6 +10,8 @@
 -->
 <resources>
 
+    <string name="app_name">飞翔播放器</string>
+
     <!-- ========== notification_：播放通知（NativePlaybackMediaService） ========== -->
     <string name="notification_now_playing">正在播放</string>
     <string name="notification_action_play">播放</string>

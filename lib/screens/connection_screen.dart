@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -16,9 +17,9 @@ import '../services/media_backend_connection_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../utils/action_rate_limiter.dart';
-import '../utils/api_url_helper.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
+import '../utils/connection_server_address.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/login_error_resolver.dart';
 import '../utils/nas_image_headers.dart';
@@ -71,6 +72,15 @@ typedef FeiniuLoginCallback =
       required String accessCode,
     });
 
+const Color _connectionMistBlueDark = Color(0xFF567A98);
+const Color _connectionMistBlueLight = Color(0xFF456B86);
+
+Color _connectionMistBlue(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.light
+      ? _connectionMistBlueLight
+      : _connectionMistBlueDark;
+}
+
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key, this.embyApi, this.feiniuLogin});
 
@@ -108,9 +118,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   MediaBackendKind _selectedBackend = MediaBackendKind.feiniu;
 
-  /// 表单滑动切换方向：+1 = 新表单从右进（向右侧后端切换），-1 反向。
-  double _slideDx = 1;
-  String _baseUrlScheme = 'http';
   double _swipeStartX = 0;
   double _swipeStartY = 0;
   double _swipeLastX = 0;
@@ -119,14 +126,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _obscurePassword = true;
   bool _obscureAccessCode = true;
   bool _isSubmitting = false;
+  bool _showFeiniuAdvanced = false;
+  String? _inlineError;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
 
   @override
   void initState() {
     super.initState();
     final provider = context.read<NasProvider>();
-    _baseUrlController.text = _displayBaseUrlForLogin(provider.sourceBaseUrl);
-    _baseUrlScheme = _schemeForLogin(provider.sourceBaseUrl);
+    _baseUrlController.text = provider.sourceBaseUrl;
     _userNameController.text = provider.userName;
     _passwordController.text = provider.password;
     _accessCodeController.text = provider.accessCode;
@@ -172,6 +180,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   void _showTopTip(String message, Color color) {
     if (!mounted || message.trim().isEmpty) return;
     _topTip.show(context, message: message, color: color);
+  }
+
+  void _setInlineError(String? message) {
+    if (!mounted) return;
+    setState(() {
+      _inlineError = message?.trim().isEmpty == true ? null : message?.trim();
+    });
+  }
+
+  void _showValidationError(String message) {
+    _setInlineError(message);
+    _showTopTip(message, context.appColors.danger);
   }
 
   Future<void> _loadStoredBackendConnection() async {
@@ -227,10 +247,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       details: details,
     );
     if (!mounted) return;
-    _showTopTip(
-      LoginErrorResolver.resolve(error, l10n: AppLocalizations.of(context)),
-      context.appColors.danger,
+    final message = LoginErrorResolver.resolve(
+      error,
+      l10n: AppLocalizations.of(context),
     );
+    _setInlineError(message);
+    _showTopTip(message, context.appColors.danger);
   }
 
   Future<void> _submit() async {
@@ -250,7 +272,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   ) async {
     FocusScope.of(context).unfocus();
     final form = _serverForms[descriptor.kind]!;
-    final baseUrl = _normalizeServerBaseUrlInput(form.baseUrl.text);
+    final baseUrl = normalizeConnectionServerAddress(
+      form.baseUrl.text,
+      stripEmbyWebClientPath: true,
+    );
     final userName = form.userName.text.trim();
     final password = form.password.text;
 
@@ -262,25 +287,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return;
     }
     if (baseUrl.isEmpty) {
-      _showTopTip(
+      _showValidationError(
         AppLocalizations.of(
           context,
         ).connectionServerAddressRequired(descriptor.displayName),
-        context.appColors.danger,
       );
       return;
     }
     if (userName.isEmpty) {
-      _showTopTip(
+      _showValidationError(
         AppLocalizations.of(context).connectionUserNameRequired,
-        context.appColors.danger,
       );
       return;
     }
     if (password.isEmpty) {
-      _showTopTip(
+      _showValidationError(
         AppLocalizations.of(context).connectionPasswordRequired,
-        context.appColors.danger,
       );
       return;
     }
@@ -288,6 +310,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final isRelay = usesFnConnectRelayCookie(baseUrl);
 
     setState(() {
+      _inlineError = null;
       _isSubmitting = true;
       form.baseUrl.text = baseUrl;
     });
@@ -435,6 +458,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Future<void> _submitWithUnifiedErrors() async {
     FocusScope.of(context).unfocus();
 
+    _setInlineError(null);
+
     if (_isSubmitting || _submitLimiter.shouldBlock()) {
       _showTopTip(
         AppLocalizations.of(context).connectionOperationFailedRetryLater,
@@ -449,31 +474,27 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final accessCode = _accessCodeController.text;
 
     if (baseUrl.isEmpty) {
-      _showTopTip(
+      _showValidationError(
         AppLocalizations.of(context).connectionServerRequired,
-        context.appColors.danger,
       );
       return;
     }
     if (userName.isEmpty) {
-      _showTopTip(
+      _showValidationError(
         AppLocalizations.of(context).connectionUserNameRequired,
-        context.appColors.danger,
       );
       return;
     }
     if (password.isEmpty) {
-      _showTopTip(
+      _showValidationError(
         AppLocalizations.of(context).connectionPasswordRequired,
-        context.appColors.danger,
       );
       return;
     }
 
     setState(() {
       _isSubmitting = true;
-      _baseUrlScheme = _schemeForLogin(baseUrl);
-      _baseUrlController.text = _displayBaseUrlForLogin(baseUrl);
+      _baseUrlController.text = baseUrl;
     });
 
     try {
@@ -610,12 +631,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       _selectBackend(entry.kind);
       return;
     }
-    _baseUrlController.text = _displayBaseUrlForLogin(entry.baseUrl);
+    _baseUrlController.text = entry.baseUrl;
     _userNameController.text = entry.userName;
     _passwordController.text = entry.rememberPassword ? entry.password : '';
     _accessCodeController.text = entry.rememberPassword ? entry.accessCode : '';
     setState(() {
-      _baseUrlScheme = _schemeForLogin(entry.baseUrl);
       _rememberPassword = entry.rememberPassword;
     });
     _selectBackend(MediaBackendKind.feiniu);
@@ -623,13 +643,23 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   /// 切换选中后端并记录滑动方向（新表单从目标方向滑入）。
   void _selectBackend(MediaBackendKind next) {
-    if (next == _selectedBackend) return;
-    final oldIndex = _backendOrder.indexOf(_selectedBackend);
+    if (next == _selectedBackend) {
+      if (_inlineError != null) {
+        setState(() {
+          _inlineError = null;
+        });
+      }
+      return;
+    }
     final newIndex = _backendOrder.indexOf(next);
     if (newIndex < 0) return;
+    FocusScope.of(context).unfocus();
     setState(() {
-      _slideDx = newIndex > oldIndex ? 1 : -1;
       _selectedBackend = next;
+      _inlineError = null;
+      if (next.isServerFamily) {
+        _showFeiniuAdvanced = false;
+      }
     });
   }
 
@@ -784,34 +814,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return RegExp(r'[\u4e00-\u9fff]').hasMatch(value);
   }
 
-  void _syncBaseUrlScheme(String raw) {
-    final scheme = Uri.tryParse(raw.trim())?.scheme.toLowerCase();
-    if ((scheme != 'http' && scheme != 'https') || scheme == _baseUrlScheme) {
-      return;
-    }
-    setState(() {
-      _baseUrlScheme = scheme!;
-    });
-  }
-
-  void _selectBaseUrlScheme(String scheme) {
-    if (scheme != 'http' && scheme != 'https') return;
-    final raw = _baseUrlController.text;
-    final updated = raw.replaceFirst(
-      RegExp(r'^\s*https?://', caseSensitive: false),
-      '$scheme://',
-    );
-    if (updated != raw) {
-      _baseUrlController.value = TextEditingValue(
-        text: updated,
-        selection: TextSelection.collapsed(offset: updated.length),
-      );
-    }
-    setState(() {
-      _baseUrlScheme = scheme;
-    });
-  }
-
   String _normalizeBaseUrlInput(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return '';
@@ -819,65 +821,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (fnConnectId != null) {
       return fnConnectId;
     }
-    final explicitUri = Uri.tryParse(trimmed);
-    final explicitScheme = explicitUri?.scheme.toLowerCase() ?? '';
-    final scheme = explicitScheme == 'http' || explicitScheme == 'https'
-        ? explicitScheme
-        : _baseUrlScheme;
-    final withScheme = trimmed.contains('://') ? trimmed : '$scheme://$trimmed';
-    try {
-      final uri = Uri.parse(withScheme);
-      if (uri.host.isEmpty && !withScheme.contains(RegExp(r'^\w+://[^/]+'))) {
-        return '';
-      }
-      final normalized = uri.replace(scheme: scheme).toString();
-      return ApiUrlHelper.normalizeBaseUrl(normalized);
-    } catch (_) {
-      return '';
-    }
-  }
-
-  String _schemeForLogin(String raw) {
-    final scheme = Uri.tryParse(raw.trim())?.scheme.toLowerCase();
-    return scheme == 'https' ? 'https' : 'http';
-  }
-
-  String _displayBaseUrlForLogin(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return '';
-    final uri = Uri.tryParse(trimmed);
-    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
-      return trimmed;
-    }
-    if (uri.scheme.toLowerCase() != 'http' &&
-        uri.scheme.toLowerCase() != 'https') {
-      return trimmed;
-    }
-    final buffer = StringBuffer(uri.host);
-    if (uri.hasPort) {
-      buffer.write(':${uri.port}');
-    }
-    final path = uri.path.trim();
-    if (path.isNotEmpty && path != '/') {
-      buffer.write(path);
-    }
-    if (uri.hasQuery) {
-      buffer.write('?${uri.query}');
-    }
-    return buffer.toString();
-  }
-
-  String _normalizeServerBaseUrlInput(String raw) {
-    // MediaBrowser 家族（Emby / Jellyfin）网页客户端路径形状一致，共用内核的规整逻辑。
-    final normalized = EmbyApi.normalizeServerUrl(raw);
-    if (normalized.isEmpty) return '';
-    try {
-      final uri = Uri.parse(normalized);
-      if (uri.host.isEmpty) return '';
-      return normalized;
-    } catch (_) {
-      return '';
-    }
+    return normalizeConnectionServerAddress(trimmed);
   }
 
   BackendSessionProvider? _backendSessionProvider() {
@@ -892,8 +836,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
+    final colors = context.appColors;
     return Scaffold(
-      backgroundColor: const Color(0xFF08111A),
+      backgroundColor: colors.backgroundBase,
       body: Listener(
         onPointerDown: _handleSwipePointerDown,
         onPointerMove: _handleSwipePointerMove,
@@ -902,32 +847,71 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           behavior: HitTestBehavior.opaque,
           onTap: () => FocusScope.of(context).unfocus(),
           child: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 430),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 0),
-                      _LogoHeader(title: l10n.connectionAppName),
-                      const SizedBox(height: 16),
-                      _BackendSelector(
-                        l10n: l10n,
-                        selected: _selectedBackend,
-                        onChanged: _selectBackend,
-                      ),
-                      const SizedBox(height: 18),
-                      _buildForm(theme, l10n),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            child: _buildResponsiveConnectionBody(context, theme, l10n),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildResponsiveConnectionBody(
+    BuildContext context,
+    ThemeData theme,
+    AppLocalizations l10n,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 840;
+        final minHeight = math.max(0.0, constraints.maxHeight - 48);
+        final formColumn = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [_buildForm(theme, l10n)],
+        );
+
+        final content = isWide
+            ? Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    key: const Key('connectionWideBrandPane'),
+                    width: 280,
+                    child: _LogoHeader(title: l10n.connectionAppName),
+                  ),
+                  const SizedBox(width: 32),
+                  SizedBox(
+                    key: const Key('connectionWideFormPane'),
+                    width: 460,
+                    child: formColumn,
+                  ),
+                ],
+              )
+            : Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 500),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _LogoHeader(title: l10n.connectionAppName),
+                      const SizedBox(height: 18),
+                      formColumn,
+                    ],
+                  ),
+                ),
+              );
+
+        return SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Center(child: content),
+          ),
+        );
+      },
     );
   }
 
@@ -953,77 +937,188 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _selectBackend(_backendOrder[nextIndex]);
   }
 
-  /// 后端表单：单一持久面板 + 内部字段的方向性滑动切换。
-  ///
-  /// 不再用 `AnimatedSwitcher` 跨淡「两整套带阴影的表单」——`FadeTransition` 的
-  /// opacity 会强制离屏 `saveLayer`，叠在海报墙背景上直接 GPU 超支（极卡），叠加
-  /// `ScaleTransition` 与 layoutBuilder 对齐不一致还会抖。这里面板常驻（阴影只栅格化
-  /// 一次），只对内部字段做**纯位移**滑动（无 opacity/scale，无离屏层），顺滑不抖。
   Widget _buildForm(ThemeData theme, AppLocalizations l10n) {
     final isFeiniu = _selectedBackend == MediaBackendKind.feiniu;
+    final animationsDisabled = MediaQuery.disableAnimationsOf(context);
+    final switchDuration = animationsDisabled
+        ? Duration.zero
+        : const Duration(milliseconds: 220);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _LoginFormPanel(
-          child: ClipRect(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              layoutBuilder: (currentChild, previousChildren) {
-                return Stack(
-                  alignment: Alignment.topCenter,
-                  children: [
-                    ...previousChildren,
-                    if (currentChild != null) currentChild,
-                  ],
-                );
-              },
-              transitionBuilder: (child, animation) {
-                final key = child.key;
-                final isIncoming =
-                    key is ValueKey<MediaBackendKind> &&
-                    key.value == _selectedBackend;
-                // 向右侧后端切换时新卡从右进、旧卡向左出；向左侧后端切换反向。
-                final dx = _slideDx;
-                final position = isIncoming
-                    ? Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero)
-                    : Tween<Offset>(begin: Offset(-dx, 0), end: Offset.zero);
-                return SlideTransition(
-                  position: position.animate(animation),
-                  child: child,
-                );
-              },
-              child: KeyedSubtree(
-                key: ValueKey<MediaBackendKind>(_selectedBackend),
-                child: _buildFormFields(theme, l10n, backend: _selectedBackend),
+          key: const Key('connectionLoginFormPanel'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _BackendSelector(
+                key: const Key('connectionBackendSelector'),
+                l10n: l10n,
+                selected: _selectedBackend,
+                onChanged: _selectBackend,
               ),
-            ),
+              const SizedBox(height: 10),
+              _buildConnectionCardHeader(l10n),
+              const SizedBox(height: 10),
+              AnimatedSize(
+                duration: switchDuration,
+                curve: Curves.easeOutCubic,
+                child: AnimatedSwitcher(
+                  duration: switchDuration,
+                  reverseDuration: animationsDisabled
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  layoutBuilder: (currentChild, previousChildren) => Stack(
+                    alignment: Alignment.topCenter,
+                    children: <Widget>[
+                      ...previousChildren,
+                      if (currentChild != null) currentChild,
+                    ],
+                  ),
+                  transitionBuilder: (child, animation) {
+                    final curved = CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    );
+                    final position = Tween<Offset>(
+                      begin: const Offset(0.025, 0),
+                      end: Offset.zero,
+                    ).animate(curved);
+                    return FadeTransition(
+                      opacity: curved,
+                      child: SlideTransition(position: position, child: child),
+                    );
+                  },
+                  child: KeyedSubtree(
+                    key: ValueKey<MediaBackendKind>(_selectedBackend),
+                    child: _buildFormFields(
+                      theme,
+                      l10n,
+                      backend: _selectedBackend,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildRememberRow(
+                        theme,
+                        l10n,
+                        value: isFeiniu
+                            ? _rememberPassword
+                            : _serverForms[_selectedBackend]!.rememberPassword,
+                        onChanged: (value) {
+                          setState(() {
+                            if (isFeiniu) {
+                              _rememberPassword = value;
+                            } else {
+                              _serverForms[_selectedBackend]!.rememberPassword =
+                                  value;
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                    if (isFeiniu)
+                      TextButton(
+                        key: const Key('feiniuAdvancedOptionsButton'),
+                        onPressed: () {
+                          setState(() {
+                            _showFeiniuAdvanced = !_showFeiniuAdvanced;
+                          });
+                        },
+                        style: _footerButtonStyle(
+                          theme,
+                          foregroundColor: context.appColors.textMuted,
+                        ),
+                        child: Text(
+                          _showFeiniuAdvanced
+                              ? l10n.connectionCollapseOptions
+                              : l10n.connectionMoreOptions,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              AnimatedSize(
+                duration: switchDuration,
+                curve: Curves.easeOutCubic,
+                child: _inlineError == null
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            key: const Key('connectionInlineErrorText'),
+                            _inlineError!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: context.appColors.danger,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 9),
+              _SubmitButton(
+                key: const Key('connectionSubmitButton'),
+                isSubmitting: _isSubmitting,
+                label: l10n.connectionLogin,
+                onPressed: _isSubmitting ? null : _submit,
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 18),
-        _SubmitButton(
-          isSubmitting: _isSubmitting,
-          label: l10n.connectionLogin,
-          onPressed: _isSubmitting ? null : _submit,
-        ),
-        const SizedBox(height: 10),
-        Visibility(
-          visible: isFeiniu,
-          maintainState: true,
-          maintainAnimation: true,
-          maintainSize: true,
-          maintainInteractivity: false,
-          maintainSemantics: false,
-          child: _buildFeiniuFooter(theme, l10n),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 36,
+          child: isFeiniu ? _buildFeiniuFooter(theme, l10n) : null,
         ),
       ],
     );
   }
 
-  /// 单套表单字段（服务器/账号/密码/记住）。飞牛与服务器族结构一致，仅控制器与文案不同，
-  /// 共用此构建以保证各态高度严格相等——滑动切换时面板不重排、不抖。
+  Widget _buildConnectionCardHeader(AppLocalizations l10n) {
+    final colors = context.appColors;
+    final descriptor = _selectedBackend.isServerFamily
+        ? MediaBackendRegistry.requireDescriptor(_selectedBackend)
+        : null;
+    final serviceName = descriptor?.displayName ?? l10n.connectionFeiniuMedia;
+    return Row(
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            color: colors.accentStrong,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            '${l10n.connectionLogin} $serviceName',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildFormFields(
     ThemeData theme,
     AppLocalizations l10n, {
@@ -1037,86 +1132,85 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final userController = form?.userName ?? _userNameController;
     final passwordController = form?.password ?? _passwordController;
     final obscure = form?.obscurePassword ?? _obscurePassword;
-    final remember = form?.rememberPassword ?? _rememberPassword;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _GlassField(
-          controller: baseController,
-          labelText: descriptor != null
-              ? l10n.connectionServerAddressLabel(descriptor.displayName)
-              : l10n.connectionServerLabel,
-          hintText: descriptor != null
-              ? l10n.connectionServerAddressExample(descriptor.serverUrlExample)
-              : l10n.connectionServerExample,
-          leadingIcon: Icons.dns_outlined,
-          keyboardType: TextInputType.url,
-          textInputAction: TextInputAction.next,
-          autofillHints: const <String>[AutofillHints.url],
-          onChanged: form != null ? null : _syncBaseUrlScheme,
-          suffix: IconButton(
-            onPressed: _openLoginHistory,
-            icon: Icon(
-              Icons.history_rounded,
-              color: _historyEntries.isEmpty
-                  ? const Color(0xFF58687C)
-                  : const Color(0xFF7C8DA5),
-            ),
+    final colors = context.appColors;
+    final serverKey = form == null
+        ? const Key('connectionServerAddressField')
+        : Key('serverAddress_${backend.name}');
+    final userKey = form == null
+        ? const Key('connectionUserNameField')
+        : Key('userName_${backend.name}');
+    final passwordKey = form == null
+        ? const Key('connectionPasswordField')
+        : Key('password_${backend.name}');
+    final fields = <Widget>[
+      _GlassField(
+        controller: baseController,
+        textFieldKey: serverKey,
+        labelText: descriptor != null
+            ? l10n.connectionServerAddressLabel(descriptor.displayName)
+            : l10n.connectionServerLabel,
+        hintText: descriptor != null
+            ? l10n.connectionServerAddressExample(descriptor.serverUrlExample)
+            : l10n.connectionServerExample,
+        leadingIcon: Icons.dns_outlined,
+        keyboardType: TextInputType.url,
+        textInputAction: TextInputAction.next,
+        autofillHints: const <String>[AutofillHints.url],
+        suffix: IconButton(
+          tooltip: l10n.connectionLoginHistory,
+          onPressed: _openLoginHistory,
+          icon: Icon(
+            Icons.history_rounded,
+            color: _historyEntries.isEmpty
+                ? colors.textMuted.withValues(alpha: 0.55)
+                : colors.textMuted,
           ),
         ),
-        const SizedBox(height: 10),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final textScale = MediaQuery.textScalerOf(context).scale(1);
-            final isStacked = constraints.maxWidth < 300 || textScale > 1.2;
-            return SizedBox(
-              height: isStacked ? 96 : 40,
-              child: form != null
-                  ? const SizedBox.shrink()
-                  : _buildProtocolSelector(theme, l10n, isStacked: isStacked),
-            );
+      ),
+      const SizedBox(height: 12),
+      _GlassField(
+        controller: userController,
+        textFieldKey: userKey,
+        labelText: l10n.connectionAccountLabel,
+        hintText: l10n.connectionUserNameHint,
+        leadingIcon: Icons.person_outline_rounded,
+        textInputAction: TextInputAction.next,
+        autofillHints: const <String>[AutofillHints.username],
+      ),
+      const SizedBox(height: 12),
+      _GlassField(
+        controller: passwordController,
+        textFieldKey: passwordKey,
+        labelText: l10n.connectionPasswordHint,
+        hintText: '',
+        leadingIcon: Icons.lock_outline_rounded,
+        obscureText: obscure,
+        textInputAction: TextInputAction.done,
+        autofillHints: const <String>[AutofillHints.password],
+        onSubmitted: (_) => _submit(),
+        suffix: IconButton(
+          tooltip: l10n.connectionPasswordHint,
+          onPressed: () {
+            setState(() {
+              if (form != null) {
+                form.obscurePassword = !form.obscurePassword;
+              } else {
+                _obscurePassword = !_obscurePassword;
+              }
+            });
           },
-        ),
-        const SizedBox(height: 12),
-        _GlassField(
-          controller: userController,
-          labelText: l10n.connectionAccountLabel,
-          hintText: l10n.connectionUserNameHint,
-          leadingIcon: Icons.person_outline_rounded,
-          textInputAction: TextInputAction.next,
-          autofillHints: const <String>[AutofillHints.username],
-        ),
-        const SizedBox(height: 12),
-        _GlassField(
-          controller: passwordController,
-          labelText: l10n.connectionPasswordHint,
-          hintText: '',
-          leadingIcon: Icons.lock_outline_rounded,
-          obscureText: obscure,
-          textInputAction: TextInputAction.done,
-          autofillHints: const <String>[AutofillHints.password],
-          onSubmitted: (_) => _submit(),
-          suffix: IconButton(
-            onPressed: () {
-              setState(() {
-                if (form != null) {
-                  form.obscurePassword = !form.obscurePassword;
-                } else {
-                  _obscurePassword = !_obscurePassword;
-                }
-              });
-            },
-            icon: Icon(
-              obscure
-                  ? Icons.visibility_off_outlined
-                  : Icons.visibility_outlined,
-              color: const Color(0xFF8795AD),
-            ),
+          icon: Icon(
+            obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            color: colors.textMuted,
           ),
         ),
-        const SizedBox(height: 12),
-        if (form == null)
+      ),
+    ];
+
+    if (form == null && _showFeiniuAdvanced) {
+      fields
+        ..add(const SizedBox(height: 12))
+        ..add(
           _GlassField(
             key: const Key('feiniuAccessCodeFieldContainer'),
             textFieldKey: const Key('feiniuAccessCodeField'),
@@ -1128,6 +1222,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _submit(),
             suffix: IconButton(
+              tooltip: l10n.connectionAccessCodeOptional,
               onPressed: () {
                 setState(() {
                   _obscureAccessCode = !_obscureAccessCode;
@@ -1137,91 +1232,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 _obscureAccessCode
                     ? Icons.visibility_off_outlined
                     : Icons.visibility_outlined,
-                color: const Color(0xFF8795AD),
+                color: colors.textMuted,
               ),
             ),
-          )
-        else
-          const ExcludeSemantics(
-            child: IgnorePointer(child: SizedBox(height: 64)),
           ),
-        const SizedBox(height: 14),
-        _buildRememberRow(
-          theme,
-          l10n,
-          value: remember,
-          onChanged: (value) {
-            setState(() {
-              if (form != null) {
-                form.rememberPassword = value;
-              } else {
-                _rememberPassword = value;
-              }
-            });
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProtocolSelector(
-    ThemeData theme,
-    AppLocalizations l10n, {
-    required bool isStacked,
-  }) {
-    final label = Text(
-      l10n.connectionProtocolLabel,
-      style: theme.textTheme.bodyMedium?.copyWith(
-        color: const Color(0xFFB6C1D4),
-        fontWeight: FontWeight.w500,
-      ),
-    );
-    final selector = SegmentedButton<String>(
-      segments: <ButtonSegment<String>>[
-        ButtonSegment<String>(
-          value: 'http',
-          label: Text(l10n.connectionProtocolHttp),
-        ),
-        ButtonSegment<String>(
-          value: 'https',
-          label: Text(l10n.connectionProtocolHttps),
-        ),
-      ],
-      selected: <String>{_baseUrlScheme},
-      onSelectionChanged: (selected) {
-        if (selected.isEmpty) return;
-        _selectBaseUrlScheme(selected.first);
-      },
-      showSelectedIcon: false,
-      style: SegmentedButton.styleFrom(
-        foregroundColor: const Color(0xFF91A0BB),
-        selectedForegroundColor: Colors.white,
-        backgroundColor: const Color(0xD80B1624),
-        selectedBackgroundColor: const Color(0xFF263A58),
-        side: const BorderSide(color: Color(0xFF405675)),
-        visualDensity: VisualDensity.compact,
-      ),
-    );
-    if (isStacked) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          label,
-          const SizedBox(height: 6),
-          Expanded(child: selector),
-        ],
-      );
+        );
     }
-    return Row(
-      children: [
-        label,
-        const SizedBox(width: 12),
-        Expanded(child: selector),
-      ],
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: fields,
     );
   }
 
   Widget _buildFeiniuFooter(ThemeData theme, AppLocalizations l10n) {
+    final colors = context.appColors;
     return Center(
       child: Wrap(
         alignment: WrapAlignment.center,
@@ -1231,18 +1257,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         children: [
           TextButton(
             onPressed: _openDownloadedData,
-            style: _footerButtonStyle(
-              theme,
-              foregroundColor: const Color(0xFF8FA6C7),
-            ),
+            style: _footerButtonStyle(theme, foregroundColor: colors.textMuted),
             child: Text(l10n.connectionOpenDownloads),
           ),
           TextButton(
             onPressed: _isSubmitting ? null : _resetFnConnectWebLoginState,
             style: _footerButtonStyle(
               theme,
-              foregroundColor: const Color(0xFFB6A06A),
-              disabledForegroundColor: const Color(0xFF5D5A52),
+              foregroundColor: colors.textMuted,
+              disabledForegroundColor: colors.textMuted.withValues(alpha: 0.5),
               fontWeight: FontWeight.w600,
             ),
             child: Text(l10n.fnConnectReloginTitle),
@@ -1258,6 +1281,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
+    final colors = context.appColors;
     return Row(
       children: [
         InkWell(
@@ -1271,10 +1295,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 child: Checkbox(
                   value: value,
                   onChanged: (next) => onChanged(next ?? false),
-                  side: const BorderSide(color: Color(0xFF4D5C6F)),
+                  side: BorderSide(color: colors.borderStrong),
                   fillColor: WidgetStateProperty.resolveWith(
                     (states) => states.contains(WidgetState.selected)
-                        ? const Color(0xFF2D74D9)
+                        ? colors.selection
                         : Colors.transparent,
                   ),
                 ),
@@ -1283,7 +1307,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               Text(
                 l10n.connectionRememberLogin,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFFB3C0D4),
+                  color: colors.textSecondary,
                 ),
               ),
             ],
@@ -1315,6 +1339,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
 class _BackendSelector extends StatelessWidget {
   const _BackendSelector({
+    super.key,
     required this.l10n,
     required this.selected,
     required this.onChanged,
@@ -1326,10 +1351,18 @@ class _BackendSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final selectionColor = _connectionMistBlue(context);
+    final animationDuration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 180);
     // 选项 = 飞牛（遗留族）+ 注册表登记的服务器族后端，新增后端自动出现。
+    final legacyBackend = MediaBackendKind.values.firstWhere(
+      (kind) => !kind.isServerFamily,
+    );
     final options = <({MediaBackendKind kind, String label, String asset})>[
       (
-        kind: MediaBackendKind.feiniu,
+        kind: legacyBackend,
         label: l10n.connectionFeiniuMedia,
         asset: 'lib/img/feiniu_Logo.png',
       ),
@@ -1349,34 +1382,29 @@ class _BackendSelector extends StatelessWidget {
         : -1 + 2 * (selectedIndex < 0 ? 0 : selectedIndex) / (count - 1);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xC10B1726),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF253651)),
+        color: colors.surfaceSubtle,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.borderSubtle),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(2),
         child: Stack(
           children: [
             // 滑动高亮：跟随选中项在各分区间平滑移动。
             AnimatedAlign(
-              duration: AppTransitions.contentSwitchDuration,
+              duration: animationDuration,
               curve: Curves.easeOutCubic,
               alignment: Alignment(alignmentX, 0),
               child: FractionallySizedBox(
                 widthFactor: 1 / count,
                 child: Container(
-                  height: 48,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: const Color(0x182D74D9),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFF3F84FF)),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x552D74D9),
-                        blurRadius: 16,
-                        spreadRadius: -4,
-                      ),
-                    ],
+                    color: selectionColor.withValues(alpha: 0.20),
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(
+                      color: selectionColor.withValues(alpha: 0.38),
+                    ),
                   ),
                 ),
               ),
@@ -1420,13 +1448,17 @@ class _BackendSelectorButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
         child: AnimatedDefaultTextStyle(
-          duration: AppTransitions.contentSwitchDuration,
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 120),
           curve: Curves.easeOutCubic,
           style: TextStyle(
-            color: selected ? Colors.white : const Color(0xFFB6C0D1),
-            fontSize: 15,
+            color: selected
+                ? context.appColors.textPrimary
+                : context.appColors.textSecondary,
+            fontSize: 13,
             fontWeight: FontWeight.w700,
           ),
           child: Row(
@@ -1434,17 +1466,15 @@ class _BackendSelectorButton extends StatelessWidget {
             children: [
               Image.asset(
                 assetName,
-                width: 28,
-                height: 28,
+                width: 19,
+                height: 19,
                 fit: BoxFit.contain,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 5),
               Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(label, maxLines: 1, textAlign: TextAlign.center),
                 ),
               ),
             ],
@@ -1457,6 +1487,7 @@ class _BackendSelectorButton extends StatelessWidget {
 
 class _SubmitButton extends StatelessWidget {
   const _SubmitButton({
+    super.key,
     required this.isSubmitting,
     required this.label,
     required this.onPressed,
@@ -1469,16 +1500,21 @@ class _SubmitButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final buttonColor = _connectionMistBlue(context);
+    final buttonForeground =
+        ThemeData.estimateBrightnessForColor(buttonColor) == Brightness.dark
+        ? Colors.white
+        : Colors.black;
     return SizedBox(
-      height: 56,
+      height: 52,
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF2D74D9),
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: const Color(0xFF1E4B89),
+          backgroundColor: buttonColor,
+          foregroundColor: buttonForeground,
+          disabledBackgroundColor: buttonColor.withValues(alpha: 0.45),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(14),
           ),
           elevation: 0,
           textStyle: theme.textTheme.titleMedium?.copyWith(
@@ -1491,8 +1527,8 @@ class _SubmitButton extends StatelessWidget {
                 height: 22,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.2,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                  backgroundColor: Colors.white.withValues(alpha: 0.18),
+                  valueColor: AlwaysStoppedAnimation<Color>(buttonForeground),
+                  backgroundColor: buttonForeground.withValues(alpha: 0.18),
                 ),
               )
             : Text(label),
@@ -1508,34 +1544,44 @@ class _LogoHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final colors = context.appColors;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Image.asset(
           'lib/img/app_logo.png',
-          width: 68,
-          height: 68,
+          width: 44,
+          height: 44,
           fit: BoxFit.contain,
         ),
-        const SizedBox(height: 10),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 30,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          AppLocalizations.of(context).connectionTagline,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Color(0xFFA7B6D2),
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            letterSpacing: 0,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                key: const Key('connectionBrandTitle'),
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                AppLocalizations.of(context).connectionTagline,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1544,27 +1590,28 @@ class _LogoHeader extends StatelessWidget {
 }
 
 class _LoginFormPanel extends StatelessWidget {
-  const _LoginFormPanel({required this.child});
+  const _LoginFormPanel({super.key, required this.child});
 
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xC90B1726),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFF405675)),
-        boxShadow: const [
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colors.borderSubtle),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x66000000),
-            blurRadius: 36,
-            offset: Offset(0, 20),
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
         child: child,
       ),
     );
@@ -1583,7 +1630,6 @@ class _GlassField extends StatelessWidget {
     this.autofillHints,
     this.obscureText = false,
     this.suffix,
-    this.onChanged,
     this.onSubmitted,
     this.textFieldKey,
   });
@@ -1597,31 +1643,24 @@ class _GlassField extends StatelessWidget {
   final Iterable<String>? autofillHints;
   final bool obscureText;
   final Widget? suffix;
-  final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
   final Key? textFieldKey;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final label = labelText?.trim() ?? '';
     return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: const Color(0xD80B1624),
-        border: Border.all(color: const Color(0xFF24344C)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x22000000),
-            blurRadius: 20,
-            offset: Offset(0, 12),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(12),
+        color: colors.surfaceSubtle,
+        border: Border.all(color: colors.borderSubtle),
       ),
       child: Row(
         children: [
           if (leadingIcon != null) ...[
             const SizedBox(width: 18),
-            Icon(leadingIcon, color: const Color(0xFF91A0BB), size: 24),
+            Icon(leadingIcon, color: colors.textMuted, size: 21),
             const SizedBox(width: 14),
           ],
           Expanded(
@@ -1632,25 +1671,24 @@ class _GlassField extends StatelessWidget {
               keyboardType: keyboardType,
               textInputAction: textInputAction,
               autofillHints: autofillHints,
-              onChanged: onChanged,
               onSubmitted: onSubmitted,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 17,
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontSize: 16,
                 fontWeight: FontWeight.w500,
               ),
               decoration: InputDecoration(
                 labelText: label.isEmpty ? null : label,
                 hintText: hintText,
                 floatingLabelBehavior: FloatingLabelBehavior.always,
-                labelStyle: const TextStyle(
-                  color: Color(0xFFB6C1D4),
-                  fontSize: 15,
+                labelStyle: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
-                hintStyle: const TextStyle(
-                  color: Color(0xFF6E7C92),
-                  fontSize: 16,
+                hintStyle: TextStyle(
+                  color: colors.textMuted,
+                  fontSize: 14,
                   fontWeight: FontWeight.w500,
                 ),
                 border: InputBorder.none,

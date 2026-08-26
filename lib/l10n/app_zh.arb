@@ -1,6 +1,6 @@
 {
   "@@locale": "zh",
-  "appTitle": "Fly Player",
+  "appTitle": "飞翔播放器",
   "globalLoadFailed": "加载失败",
   "navMovies": "影视",
   "navSettings": "设置",
@@ -224,7 +224,7 @@
   "routeErrorMissingSeason": "缺少季详情参数",
   "routeErrorMissingPerson": "缺少人物详情参数",
   "routeErrorMissingDownload": "缺少下载详情参数",
-  "connectionAppName": "飞牛播放器",
+  "connectionAppName": "飞翔播放器",
   "connectionUserNameHint": "用户名",
   "connectionPasswordHint": "密码",
   "connectionAccessCodeOptional": "访问码（可选）",
@@ -265,7 +265,7 @@
       "backend": {}
     }
   },
-  "connectionServerExample": "例如：https://feiniu.geqian.sbs:5667",
+  "connectionServerExample": "例如：https://nas.example.com",
   "connectionServerAddressExample": "例如：{url}",
   "@connectionServerAddressExample": {
     "placeholders": {
@@ -276,6 +276,8 @@
   "connectionFeiniuMedia": "飞牛影视",
   "connectionFeiniuNas": "飞牛 NAS",
   "connectionTagline": "连接您的媒体服务，畅享影音世界",
+  "connectionMoreOptions": "更多选项",
+  "connectionCollapseOptions": "收起更多选项",
   "loginErrorGenericFailure": "登录失败，请重试",
   "loginErrorInvalidServerAddress": "服务器地址格式不正确",
   "loginErrorInvalidCredentials": "用户名或密码错误",
