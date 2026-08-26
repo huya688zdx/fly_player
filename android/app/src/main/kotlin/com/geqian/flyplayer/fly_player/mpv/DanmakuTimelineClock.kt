@@ -223,14 +223,16 @@ internal class DanmakuTimelineClock {
                 rememberAcceptedSample(sampleTimeNs)
                 return unchangedUpdate(predictedMs)
             }
-            reanchor(reportedPositionMs, nowNs)
+            // 播停相位变化会先于下一份 time-pos 到达，不能用复用的旧位置把可见弹幕拉回。
+            val pausePositionMs = predictedMs.coerceAtLeast(0f)
+            reanchor(pausePositionMs, nowNs)
             lastReportedPositionMs = reportedPositionMs
             state = DanmakuTimelineState.PAUSED
             resumeSettleUntilNs = 0L
             rememberAcceptedSample(sampleTimeNs)
             return result(
                 correction = DanmakuTimelineCorrection.REANCHOR,
-                timelineMs = reportedPositionMs,
+                timelineMs = pausePositionMs,
                 rawDriftMs = reportedPositionMs - predictedMs,
                 stabilizedDriftMs = 0f,
                 isNewPositionSample = isNewPositionSample,
@@ -238,15 +240,17 @@ internal class DanmakuTimelineClock {
         }
 
         if (state == DanmakuTimelineState.PAUSED) {
-            reanchor(reportedPositionMs, nowNs)
+            // 恢复事件也可能复用暂停前的旧样本，应从已经冻结的可见位置继续推进。
+            val resumePositionMs = predictedMs.coerceAtLeast(0f)
+            reanchor(resumePositionMs, nowNs)
             lastReportedPositionMs = reportedPositionMs
             state = DanmakuTimelineState.RESUME_SETTLE
-            resumeFloorMs = reportedPositionMs
+            resumeFloorMs = resumePositionMs
             resumeSettleUntilNs = nowNs + RESUME_SETTLE_WINDOW_NS
             rememberAcceptedSample(sampleTimeNs)
             return result(
                 correction = DanmakuTimelineCorrection.REANCHOR,
-                timelineMs = reportedPositionMs,
+                timelineMs = resumePositionMs,
                 rawDriftMs = 0f,
                 stabilizedDriftMs = 0f,
                 isNewPositionSample = isNewPositionSample,
