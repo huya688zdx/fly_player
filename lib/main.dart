@@ -1042,7 +1042,9 @@ class _MainNavigationState extends State<MainNavigation> {
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
-      extendBody: false,
+      // 内容延伸到导航条后方：底栏只保留悬浮胶囊 + 单层渐隐托底，
+      // 由各页面的列表自行预留 MainNavigationMetrics.contentBottomInset。
+      extendBody: true,
       body: IndexedStack(index: _selectedTab.tabIndex, children: pages),
       bottomNavigationBar: _LiquidGlassBottomNavigation(
         currentIndex: _selectedTab.tabIndex,
@@ -1089,7 +1091,7 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
     final viewportWidth = MediaQuery.sizeOf(context).width;
     final barWidth = MainNavigationMetrics.barWidthFor(viewportWidth);
     final bottomPadding = MainNavigationMetrics.outerBottomPadding(bottomInset);
-    final inactive = colors.textSecondary.withValues(alpha: .72);
+    final inactive = colors.textSecondary;
     final active = Color.lerp(colors.textPrimary, colors.selection, .28)!;
     final outerSurface = Color.alphaBlend(
       colors.selection.withValues(alpha: isLightSurface ? .08 : .12),
@@ -1100,78 +1102,86 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
       outerSurface,
     );
 
+    // 单层渐变托底：从页面背景完全透明渐入 backgroundBase，
+    // 消除旧的实色横带接缝；仅一层渐变绘制，无模糊合成开销。
     return Material(
-      color: colors.backgroundBase,
-      child: Padding(
-        padding: EdgeInsets.only(top: 6, bottom: bottomPadding),
-        child: Center(
-          heightFactor: 1,
-          child: SizedBox(
-            width: barWidth,
-            height: MainNavigationMetrics.barHeight,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: outerSurface,
-                borderRadius: BorderRadius.circular(25),
-                border: Border.all(
-                  color: Color.alphaBlend(
-                    colors.selection.withValues(alpha: .24),
-                    outerSurface,
+      type: MaterialType.transparency,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: const <double>[0, .35, 1],
+            colors: <Color>[
+              colors.backgroundBase.withValues(alpha: 0),
+              colors.backgroundBase.withValues(alpha: .72),
+              colors.backgroundBase,
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.only(top: 6, bottom: bottomPadding),
+          child: Center(
+            heightFactor: 1,
+            child: SizedBox(
+              width: barWidth,
+              height: MainNavigationMetrics.barHeight,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: outerSurface,
+                  borderRadius: BorderRadius.circular(25),
+                  border: Border.all(
+                    color: Color.alphaBlend(
+                      colors.selection.withValues(alpha: .24),
+                      outerSurface,
+                    ),
+                    width: .8,
                   ),
-                  width: .8,
                 ),
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: <Widget>[
-                  AnimatedAlign(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    alignment: destinations.length <= 1
-                        ? Alignment.center
-                        : Alignment(
-                            -1.0 +
-                                safeIndex * (2.0 / (destinations.length - 1)),
-                            0,
-                          ),
-                    child: FractionallySizedBox(
-                      widthFactor: 1 / destinations.length,
-                      heightFactor: 1,
-                      child: Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(19),
-                            border: Border.all(
-                              color: Color.alphaBlend(
-                                colors.selection.withValues(
-                                  alpha: isLightSurface ? .34 : .42,
-                                ),
-                                selectedSurface,
-                              ),
-                              width: .8,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    AnimatedAlign(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      alignment: destinations.length <= 1
+                          ? Alignment.center
+                          : Alignment(
+                              -1.0 +
+                                  safeIndex * (2.0 / (destinations.length - 1)),
+                              0,
                             ),
-                            color: selectedSurface,
+                      child: FractionallySizedBox(
+                        widthFactor: 1 / destinations.length,
+                        heightFactor: 1,
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          // 选中块只靠填充色阶区分，去掉旧的双层描边。
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(19),
+                              color: selectedSurface,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  Row(
-                    children: List.generate(destinations.length, (index) {
-                      final selected = index == safeIndex;
-                      return Expanded(
-                        child: _LiquidGlassNavItem(
-                          destination: destinations[index],
-                          selected: selected,
-                          activeColor: active,
-                          inactiveColor: inactive,
-                          onTap: () => onTap(index),
-                        ),
-                      );
-                    }),
-                  ),
-                ],
+                    Row(
+                      children: List.generate(destinations.length, (index) {
+                        final selected = index == safeIndex;
+                        return Expanded(
+                          child: _LiquidGlassNavItem(
+                            destination: destinations[index],
+                            selected: selected,
+                            activeColor: active,
+                            inactiveColor: inactive,
+                            onTap: () => onTap(index),
+                          ),
+                        );
+                      }),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
