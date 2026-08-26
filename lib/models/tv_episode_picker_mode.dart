@@ -1,0 +1,1 @@
+enum TvEpisodePickerMode { list, grid }
