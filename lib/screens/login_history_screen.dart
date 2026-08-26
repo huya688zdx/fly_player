@@ -233,48 +233,33 @@ class _LoginHistoryTile extends StatelessWidget {
 }
 
 /// 历史行首的后端 logo。
-///
-/// 目前是占位假图：飞牛 / Emby 各一种配色与字母。后续用户提供真实 logo 后，
-/// 只需把下面这处 placeholder 换成 `Image.asset('assets/.../xxx.png')` 即可。
 class BackendLogo extends StatelessWidget {
   const BackendLogo({super.key, required this.kind, this.size = 40});
 
   final MediaBackendKind kind;
   final double size;
 
+  String get _assetName => kind.isServerFamily
+      ? MediaBackendRegistry.requireDescriptor(kind).logoAsset
+      : 'lib/img/feiniu_Logo.png';
+
+  String get _semanticLabel => kind.isServerFamily
+      ? MediaBackendRegistry.requireDescriptor(kind).displayName
+      : '飞牛影视';
+
   @override
   Widget build(BuildContext context) {
-    final descriptor = MediaBackendRegistry.descriptorFor(kind);
-    final serverFamily = kind.isServerFamily;
-    // TODO(logo): 替换为真实 logo 图片资源。
-    // return Image.asset(
-    //   serverFamily ? 'assets/images/login/server_logo.png'
-    //                : 'assets/images/login/feiniu_logo.png',
-    //   width: size, height: size,
-    // );
-    final background = serverFamily
-        ? const Color(0xFF1F3A2E)
-        : const Color(0xFF1E3354);
-    final foreground = serverFamily
-        ? const Color(0xFF52C41A)
-        : const Color(0xFF6AA7FF);
-    final badgeText = descriptor?.badgeText ?? 'FN';
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: foreground.withValues(alpha: 0.32)),
-      ),
-      child: Text(
-        badgeText,
-        style: TextStyle(
-          color: foreground,
-          fontSize: serverFamily ? 18 : 15,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.2,
+    return Semantics(
+      label: _semanticLabel,
+      image: true,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.asset(
+          _assetName,
+          key: ValueKey<String>('backend_logo_${kind.name}'),
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
         ),
       ),
     );
