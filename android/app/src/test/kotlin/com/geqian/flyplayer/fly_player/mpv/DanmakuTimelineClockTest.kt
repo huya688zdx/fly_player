@@ -322,7 +322,7 @@ class DanmakuTimelineClockTest {
     }
 
     @Test
-    fun `暂停与恢复都锚定上报位置且恢复后零漂移`() {
+    fun `暂停与恢复在新鲜样本下保持零漂移`() {
         val clock = playingClock(positionMs = 1_000f)
 
         val paused =
@@ -359,6 +359,57 @@ class DanmakuTimelineClockTest {
             )
         assertEquals(DanmakuTimelineCorrection.NONE, steady.correction)
         assertEquals(0f, steady.stabilizedDriftMs, 0.001f)
+    }
+
+    @Test
+    fun `暂停相位复用旧位置样本时保持可见时间线连续`() {
+        val clock = playingClock(positionMs = 1_000f)
+        clock.update(
+            positionMs = 1_100f,
+            sampleTimeNs = 100_000_000L,
+            nowNs = 100_000_000L,
+            phase = DanmakuTimelinePlaybackPhase.PLAYING,
+            playbackSpeed = 1f,
+        )
+
+        val paused =
+            clock.update(
+                positionMs = 1_100f,
+                sampleTimeNs = 100_000_000L,
+                nowNs = 300_000_000L,
+                phase = DanmakuTimelinePlaybackPhase.PAUSED,
+                playbackSpeed = 1f,
+            )
+
+        assertEquals(DanmakuTimelineCorrection.REANCHOR, paused.correction)
+        assertEquals(1_300f, paused.timelineMs, 0.001f)
+        assertEquals(1_300f, clock.currentTimelineMs(2_000_000_000L, 1f), 0.001f)
+    }
+
+    @Test
+    fun `恢复相位复用旧位置样本时从冻结位置继续`() {
+        val clock = playingClock(positionMs = 1_000f)
+        clock.update(
+            positionMs = 1_100f,
+            sampleTimeNs = 100_000_000L,
+            nowNs = 300_000_000L,
+            phase = DanmakuTimelinePlaybackPhase.PAUSED,
+            playbackSpeed = 1f,
+        )
+        val frozenPositionMs = clock.currentTimelineMs(2_000_000_000L, 1f)
+
+        val resumed =
+            clock.update(
+                positionMs = 1_100f,
+                sampleTimeNs = 100_000_000L,
+                nowNs = 2_000_000_000L,
+                phase = DanmakuTimelinePlaybackPhase.PLAYING,
+                playbackSpeed = 1f,
+            )
+
+        assertEquals(DanmakuTimelineCorrection.REANCHOR, resumed.correction)
+        assertEquals(frozenPositionMs, resumed.timelineMs, 0.001f)
+        assertEquals(frozenPositionMs + 100f, clock.currentTimelineMs(2_100_000_000L, 1f), 0.001f)
     }
 
     @Test
