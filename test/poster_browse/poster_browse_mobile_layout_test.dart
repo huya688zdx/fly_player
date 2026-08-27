@@ -56,6 +56,7 @@ void main() {
     expect(find.byType(PosterBrowsePosterCard), findsNWidgets(cards.length));
     expect(find.text('降临'), findsOneWidget);
     expect(find.text('沙丘'), findsOneWidget);
+    expect(find.text('2024'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -254,6 +255,7 @@ void main() {
         ),
       ),
     );
+    expect(find.text('2024'), findsWidgets);
 
     await tester.tap(find.text('播放'));
     await tester.tap(find.text('详情'));
