@@ -1,4 +1,6 @@
 import 'package:fly_player/media_backend/media_backend_kind.dart';
+import 'package:fly_player/media_backend/detail/media_detail.dart';
+import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/models/media_library_item.dart';
 import 'package:fly_player/screens/home/continue_detail_target.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,12 +64,21 @@ void main() {
   });
 
   test('续看单集可解析为当前季详情并携带当前集定位', () {
-    final source = episode();
+    final source = episode(ancestorGuid: 'library-root');
+    const detail = MediaDetail(
+      id: 'episode-1',
+      type: 'Episode',
+      seriesId: 'series-real',
+      title: '第一集',
+      secondaryTitle: '轻音少女',
+      primaryImage: MediaImageRef.empty,
+    );
 
-    final target = continueSeasonDetailTarget(source);
+    final target = continueSeasonDetailTarget(source, detail);
 
     expect(target, isNotNull);
-    expect(target!.parentGuid, 'series-1');
+    expect(target!.parentGuid, 'series-real');
+    expect(target.seriesTitle, '轻音少女');
     expect(target.seasonItem.guid, 'season-1');
     expect(target.seasonItem.type, 'season');
     expect(target.initialEpisodeGuid, 'episode-1');
