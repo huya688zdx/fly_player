@@ -96,7 +96,12 @@ class PosterBrowseMobileLayout extends StatelessWidget {
         ),
         SizedBox(
           height: carouselHeight,
-          child: _buildCarouselArea(context, currentRow, currentItems),
+          child: _buildCarouselArea(
+            context,
+            currentRow,
+            currentItems,
+            showSecondaryLabel: isLandscape,
+          ),
         ),
       ],
     );
@@ -153,14 +158,16 @@ class PosterBrowseMobileLayout extends StatelessWidget {
   Widget _buildCarouselArea(
     BuildContext context,
     PosterBrowseRow? currentRow,
-    List<PosterBrowseDisplayItem> currentItems,
-  ) {
+    List<PosterBrowseDisplayItem> currentItems, {
+    required bool showSecondaryLabel,
+  }) {
     if (currentItems.isNotEmpty) {
       return PosterBrowseArcCarousel(
         key: const ValueKey('poster_browse_mobile_carousel'),
         items: currentItems,
         initialIndex: focusedIndex,
         showProgress: currentRow?.kind == PosterBrowseRowKind.continueWatching,
+        showSecondaryLabel: showSecondaryLabel,
         imageOf: imageOf,
         secondaryLabelOf: secondaryLabelOf,
         onSettled: onSelectItem,

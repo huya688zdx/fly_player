@@ -25,7 +25,7 @@ void main() {
     HttpOverrides.global = previousHttpOverrides;
   });
 
-  testWidgets('海报卡显示文本评分进度且文本不在图片 Stack 内并响应点击', (tester) async {
+  testWidgets('海报卡隐藏评分胶囊并可隐藏副标签且响应点击', (tester) async {
     var tapped = false;
     final item = _item(
       title: '沙丘',
@@ -40,6 +40,7 @@ void main() {
           item: item,
           focused: true,
           showProgress: true,
+          showSecondaryLabel: false,
           imageUrl: 'https://images.example.test/poster.jpg',
           imageHeaders: const <String, String>{'Authorization': 'Bearer token'},
           secondaryLabel: '2024 · 科幻',
@@ -49,8 +50,8 @@ void main() {
     );
 
     expect(find.text('沙丘'), findsOneWidget);
-    expect(find.text('2024 · 科幻'), findsOneWidget);
-    expect(find.text('★ 9.1'), findsOneWidget);
+    expect(find.text('2024 · 科幻'), findsNothing);
+    expect(find.textContaining('★'), findsNothing);
 
     final progress = tester.widget<LinearProgressIndicator>(
       find.byType(LinearProgressIndicator),
@@ -68,7 +69,6 @@ void main() {
     });
 
     expect(_hasStackAncestor(tester, find.text('沙丘')), isFalse);
-    expect(_hasStackAncestor(tester, find.text('2024 · 科幻')), isFalse);
 
     final focusScale = tester.widget<AnimatedScale>(
       find.descendant(

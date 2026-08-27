@@ -6,6 +6,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
   final PosterBrowseDisplayItem item;
   final bool focused;
   final bool showProgress;
+  final bool showSecondaryLabel;
   final String imageUrl;
   final Map<String, String> imageHeaders;
   final String secondaryLabel;
@@ -17,6 +18,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
     required this.item,
     required this.focused,
     required this.showProgress,
+    this.showSecondaryLabel = true,
     required this.imageUrl,
     required this.imageHeaders,
     required this.secondaryLabel,
@@ -57,12 +59,6 @@ class PosterBrowsePosterCard extends StatelessWidget {
                         headers: imageHeaders,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      if (item.ratingText.trim().isNotEmpty)
-                        Positioned(
-                          top: 6,
-                          right: 6,
-                          child: _RatingBadge(text: item.ratingText.trim()),
-                        ),
                       if (progressValue != null)
                         // 与首页续看卡一致，浅色轨道贴住海报底边并显示完整宽度。
                         Positioned(
@@ -104,7 +100,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
                     fontWeight: focused ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
-                if (secondaryLabel.trim().isNotEmpty) ...[
+                if (showSecondaryLabel && secondaryLabel.trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
                     secondaryLabel.trim(),
@@ -169,33 +165,6 @@ class _PosterImage extends StatelessWidget {
         fit: BoxFit.cover,
         filterQuality: FilterQuality.medium,
         errorBuilder: (context, error, stackTrace) => placeholder,
-      ),
-    );
-  }
-}
-
-class _RatingBadge extends StatelessWidget {
-  final String text;
-
-  const _RatingBadge({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        child: Text(
-          '★ $text',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-            height: 1,
-          ),
-        ),
       ),
     );
   }
