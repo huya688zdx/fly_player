@@ -329,12 +329,15 @@ class _InfoCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Text(
-                      _displayValue(l10n, rows[i]),
-                      style: TextStyle(
-                        color: colors.textSecondary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                    Expanded(
+                      child: Text(
+                        _displayValue(l10n, rows[i]),
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
