@@ -101,9 +101,25 @@ extension _MediaListScreenActions on _MediaListScreenState {
         try {
           switch (action) {
             case _ContinueWatchingAction.viewDetail:
-              await _openItemDetail(
-                continueDetailTarget(item, backend.capabilities.kind),
+              final seasonTarget = continueSeasonDetailTarget(item);
+              if (seasonTarget == null) {
+                await _openItemDetail(
+                  continueDetailTarget(item, backend.capabilities.kind),
+                );
+                break;
+              }
+              _pendingContinueWatchingRefresh = true;
+              await AdaptiveDetailNavigator.open<void>(
+                context,
+                AdaptiveDetailRequest.season(
+                  parentGuid: seasonTarget.parentGuid,
+                  seriesTitle: seasonTarget.seriesTitle,
+                  backdropPath: seasonTarget.backdropPath,
+                  seasonItem: seasonTarget.seasonItem,
+                  initialEpisodeGuid: seasonTarget.initialEpisodeGuid,
+                ),
               );
+              if (mounted) unawaited(_refreshContinueWatching());
               break;
             case _ContinueWatchingAction.markWatched:
               final nextWatched = !flags.watched;
