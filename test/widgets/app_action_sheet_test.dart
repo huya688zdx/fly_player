@@ -72,7 +72,7 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, (_) async => null);
   });
 
-  testWidgets('操作菜单改为字幕选择同款单列状态行且不再显示网格和取消条', (tester) async {
+  testWidgets('操作菜单使用无圆点的独立描边项且不再显示网格和取消条', (tester) async {
     await _openSheet(tester);
 
     expect(
@@ -91,11 +91,34 @@ void main() {
       findsOneWidget,
     );
     expect(
-      tester.getSize(
-        find.byKey(const ValueKey<String>('action-sheet-selection-0')),
-      ),
-      const Size.square(22),
+      find.byKey(const ValueKey<String>('action-sheet-selection-0')),
+      findsNothing,
     );
+    final firstRow = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey<String>('action-sheet-option-0')),
+    );
+    final secondRow = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey<String>('action-sheet-option-1')),
+    );
+    final firstDecoration = firstRow.decoration! as BoxDecoration;
+    final secondDecoration = secondRow.decoration! as BoxDecoration;
+    expect(
+      (firstDecoration.border! as Border).top.color,
+      isNot(Colors.transparent),
+    );
+    expect(
+      (secondDecoration.border! as Border).top.color,
+      isNot(Colors.transparent),
+    );
+    expect(firstDecoration.color, isNot(Colors.transparent));
+    expect(secondDecoration.color, isNot(Colors.transparent));
+    final firstRect = tester.getRect(
+      find.byKey(const ValueKey<String>('action-sheet-option-0')),
+    );
+    final secondRect = tester.getRect(
+      find.byKey(const ValueKey<String>('action-sheet-option-1')),
+    );
+    expect(secondRect.top - firstRect.bottom, 8);
     expect(tester.takeException(), isNull);
   });
 

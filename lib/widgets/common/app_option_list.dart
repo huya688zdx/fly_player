@@ -93,6 +93,8 @@ class AppOptionListTile extends StatelessWidget {
     this.subtitle = '',
     this.selected = false,
     this.destructive = false,
+    this.showIndicator = true,
+    this.outlined = false,
     this.indicatorKey,
     this.trailing,
   });
@@ -102,6 +104,8 @@ class AppOptionListTile extends StatelessWidget {
   final Key? tileKey;
   final bool selected;
   final bool destructive;
+  final bool showIndicator;
+  final bool outlined;
   final Key? indicatorKey;
   final Widget? trailing;
   final VoidCallback onTap;
@@ -122,6 +126,8 @@ class AppOptionListTile extends StatelessWidget {
           )
         : selected
         ? appModalTileBorderColor(colors, selected: true)
+        : outlined
+        ? colors.borderSubtle
         : Colors.transparent;
 
     return AnimatedContainer(
@@ -133,6 +139,8 @@ class AppOptionListTile extends StatelessWidget {
             ? destructiveColor
             : selected
             ? selectedColor
+            : outlined
+            ? appModalTileColor(colors)
             : Colors.transparent,
         borderRadius: radius,
         border: Border.all(color: borderColor),
@@ -146,12 +154,14 @@ class AppOptionListTile extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
             child: Row(
               children: [
-                _OptionSelectionIndicator(
-                  indicatorKey: indicatorKey,
-                  selected: selected,
-                  destructive: destructive,
-                ),
-                const SizedBox(width: 12),
+                if (showIndicator) ...[
+                  _OptionSelectionIndicator(
+                    indicatorKey: indicatorKey,
+                    selected: selected,
+                    destructive: destructive,
+                  ),
+                  const SizedBox(width: 12),
+                ],
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

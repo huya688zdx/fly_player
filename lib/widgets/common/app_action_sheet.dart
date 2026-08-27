@@ -57,7 +57,7 @@ class _AppActionSheetBody<T> extends StatelessWidget {
         shrinkWrap: true,
         padding: EdgeInsets.zero,
         itemCount: options.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 4),
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           final option = options[index];
           return AppOptionListTile(
@@ -65,6 +65,8 @@ class _AppActionSheetBody<T> extends StatelessWidget {
             indicatorKey: ValueKey<String>('action-sheet-selection-$index'),
             title: option.label,
             destructive: option.destructive,
+            showIndicator: false,
+            outlined: true,
             onTap: () {
               if (AppSheetTransitions.maybeClose<T>(context, option.value)) {
                 return;
