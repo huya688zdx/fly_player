@@ -84,6 +84,25 @@ void main() {
     expect(target.initialEpisodeGuid, 'episode-1');
   });
 
+  test('单集没有背景图时用主海报作为季详情背景回退', () {
+    final source = episode(
+      ancestorGuid: 'library-root',
+    ).copyWith(backdropUrl: '');
+    const detail = MediaDetail(
+      id: 'episode-1',
+      type: 'Episode',
+      seriesId: 'series-real',
+      title: '第一集',
+      secondaryTitle: '轻音少女',
+      primaryImage: MediaImageRef(url: '/episode-poster.jpg'),
+    );
+
+    final target = continueSeasonDetailTarget(source, detail);
+
+    expect(target, isNotNull);
+    expect(target!.backdropPath, '/episode-poster.jpg');
+  });
+
   test('服务器族单集缺少系列 ID 时回退当前条目', () {
     final source = episode(ancestorGuid: '  ');
 
