@@ -48,47 +48,50 @@ class PosterBrowsePosterCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
-                  width: width,
-                  height: imageHeight,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _PosterImage(
-                        url: imageUrl,
-                        headers: imageHeaders,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      if (progressValue != null)
-                        // 与首页续看卡一致，浅色轨道贴住海报底边并显示完整宽度。
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: LinearProgressIndicator(
-                              minHeight: 4,
-                              value: progressValue,
-                              backgroundColor: Colors.white.withValues(
-                                alpha: 0.20,
-                              ),
-                            ),
-                          ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: width,
+                    height: imageHeight,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _PosterImage(
+                          url: imageUrl,
+                          headers: imageHeaders,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      if (focused)
-                        Positioned.fill(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
+                        if (progressValue != null)
+                          // 与首页续看卡一致，浅色轨道贴住海报底边并显示完整宽度。
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: ClipRRect(
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Theme.of(context).colorScheme.primary,
-                                width: 2,
+                              child: LinearProgressIndicator(
+                                minHeight: 4,
+                                value: progressValue,
+                                backgroundColor: Colors.white.withValues(
+                                  alpha: 0.20,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                        if (focused)
+                          Positioned.fill(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),

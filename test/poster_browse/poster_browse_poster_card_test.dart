@@ -58,6 +58,10 @@ void main() {
     );
     expect(progress.value, 0.5);
     expect(progress.backgroundColor, Colors.white.withValues(alpha: 0.20));
+    expect(
+      find.ancestor(of: find.byType(Stack), matching: find.byType(ClipRRect)),
+      findsOneWidget,
+    );
 
     final image = tester.widget<Image>(find.byType(Image));
     final provider = image.image;
