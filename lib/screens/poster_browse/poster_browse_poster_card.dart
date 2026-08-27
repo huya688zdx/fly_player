@@ -64,9 +64,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
                           child: _RatingBadge(text: item.ratingText.trim()),
                         ),
                       if (progressValue != null)
-                        // 进度条全贴合：通栏横贯卡片并贴住底边，
-                        // 由海报自身的圆角(12)裁切端部；轨道用深色
-                        // 半透明，浅色海报上也能看清进度走向。
+                        // 与首页续看卡一致，浅色轨道贴住海报底边并显示完整宽度。
                         Positioned(
                           left: 0,
                           right: 0,
@@ -76,8 +74,8 @@ class PosterBrowsePosterCard extends StatelessWidget {
                             child: LinearProgressIndicator(
                               minHeight: 4,
                               value: progressValue,
-                              backgroundColor: Colors.black.withValues(
-                                alpha: 0.38,
+                              backgroundColor: Colors.white.withValues(
+                                alpha: 0.20,
                               ),
                             ),
                           ),

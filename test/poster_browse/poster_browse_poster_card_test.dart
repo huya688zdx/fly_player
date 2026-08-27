@@ -56,6 +56,7 @@ void main() {
       find.byType(LinearProgressIndicator),
     );
     expect(progress.value, 0.5);
+    expect(progress.backgroundColor, Colors.white.withValues(alpha: 0.20));
 
     final image = tester.widget<Image>(find.byType(Image));
     final provider = image.image;
