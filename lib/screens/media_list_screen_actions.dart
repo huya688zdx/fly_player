@@ -101,7 +101,20 @@ extension _MediaListScreenActions on _MediaListScreenState {
         try {
           switch (action) {
             case _ContinueWatchingAction.viewDetail:
-              final seasonTarget = continueSeasonDetailTarget(item);
+              ContinueSeasonDetailTarget? seasonTarget;
+              try {
+                final detail = await backend.getItemDetail(item.guid);
+                seasonTarget = continueSeasonDetailTarget(item, detail);
+              } catch (error, stackTrace) {
+                await logSwallowedError(
+                  action: 'resolve continue season detail target',
+                  id: item.guid,
+                  error: error,
+                  stackTrace: stackTrace,
+                  source: 'media_list_screen',
+                );
+              }
+              if (!mounted) return;
               if (seasonTarget == null) {
                 await _openItemDetail(
                   continueDetailTarget(item, backend.capabilities.kind),

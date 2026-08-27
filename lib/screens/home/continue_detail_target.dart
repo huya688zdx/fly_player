@@ -1,4 +1,5 @@
 import '../../media_backend/media_backend_kind.dart';
+import '../../media_backend/detail/media_detail.dart';
 import '../../models/media_library_item.dart';
 
 class ContinueSeasonDetailTarget {
@@ -17,17 +18,20 @@ class ContinueSeasonDetailTarget {
   final String initialEpisodeGuid;
 }
 
-ContinueSeasonDetailTarget? continueSeasonDetailTarget(MediaLibraryItem item) {
+ContinueSeasonDetailTarget? continueSeasonDetailTarget(
+  MediaLibraryItem item,
+  MediaDetail detail,
+) {
   if (item.type.trim().toLowerCase() != 'episode') return null;
 
   final seasonGuid = item.parentGuid.trim();
-  final seriesGuid = item.ancestorGuid.trim();
+  final seriesGuid = detail.seriesId.trim();
   if (seasonGuid.isEmpty || seriesGuid.isEmpty || item.guid.trim().isEmpty) {
     return null;
   }
 
-  final seriesTitle = item.ancestorName.trim().isNotEmpty
-      ? item.ancestorName.trim()
+  final seriesTitle = detail.displayTitle.trim().isNotEmpty
+      ? detail.displayTitle.trim()
       : item.tvTitle.trim().isNotEmpty
       ? item.tvTitle.trim()
       : item.title;
@@ -37,7 +41,9 @@ ContinueSeasonDetailTarget? continueSeasonDetailTarget(MediaLibraryItem item) {
   return ContinueSeasonDetailTarget(
     parentGuid: seriesGuid,
     seriesTitle: seriesTitle,
-    backdropPath: item.backdropUrl,
+    backdropPath: detail.backdropImage.url.trim().isNotEmpty
+        ? detail.backdropImage.url.trim()
+        : item.backdropUrl,
     seasonItem: item.copyWith(
       guid: seasonGuid,
       title: seasonTitle,
