@@ -61,6 +61,18 @@ void main() {
     expect(identical(target, source), isTrue);
   });
 
+  test('续看单集可解析为当前季详情并携带当前集定位', () {
+    final source = episode();
+
+    final target = continueSeasonDetailTarget(source);
+
+    expect(target, isNotNull);
+    expect(target!.parentGuid, 'series-1');
+    expect(target.seasonItem.guid, 'season-1');
+    expect(target.seasonItem.type, 'season');
+    expect(target.initialEpisodeGuid, 'episode-1');
+  });
+
   test('服务器族单集缺少系列 ID 时回退当前条目', () {
     final source = episode(ancestorGuid: '  ');
 

@@ -151,6 +151,7 @@ class AdaptiveDetailRequest {
     required String backdropPath,
     required MediaLibraryItem seasonItem,
     List<MediaLibraryItem>? initialSeasonItems,
+    String initialEpisodeGuid = '',
   }) {
     return AdaptiveDetailRequest._(
       buildRoute: (presentation) => AppTransitions.leftToRightPageTurnRoute(
@@ -160,6 +161,7 @@ class AdaptiveDetailRequest {
           backdropPath: backdropPath,
           seasonItem: seasonItem,
           initialSeasonItems: initialSeasonItems,
+          initialEpisodeGuid: initialEpisodeGuid,
           presentation: presentation,
         ),
       ),

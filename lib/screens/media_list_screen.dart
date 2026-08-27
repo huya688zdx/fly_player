@@ -29,6 +29,7 @@ import '../services/session_exit_bridge.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
+import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_hero_image.dart';
 import '../ui/detail_theme_prewarmer.dart';
 import '../ui/layout_adaptive.dart';

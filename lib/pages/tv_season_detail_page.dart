@@ -67,6 +67,7 @@ class TvSeasonDetailPage extends StatefulWidget {
   final String backdropPath;
   final MediaLibraryItem seasonItem;
   final List<MediaLibraryItem>? initialSeasonItems;
+  final String initialEpisodeGuid;
   final DetailPresentation presentation;
 
   const TvSeasonDetailPage({
@@ -76,6 +77,7 @@ class TvSeasonDetailPage extends StatefulWidget {
     required this.backdropPath,
     required this.seasonItem,
     this.initialSeasonItems,
+    this.initialEpisodeGuid = '',
     this.presentation = DetailPresentation.page,
   });
 
@@ -102,6 +104,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   );
 
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _episodeSectionKey = GlobalKey();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
   final DetailTopTip _topTip = DetailTopTip();
   final TvSeasonDownloadSheetController _downloadSheetController =
@@ -153,6 +156,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   // 原生壳是独立 Activity,退出无返回点;启动时置位,回前台据 _selectedEpisodeGuid(选集切换
   // 已在 reentry 里更新)一次性刷新进度。性能门控:仅播放后刷一次,非实时。
   bool _nativePlayerLaunched = false;
+  bool _initialEpisodePositionApplied = false;
   int _episodeRangeIndex = 0;
   int _seasonLoadSeq = 0;
 
@@ -380,6 +384,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   String _currentPlaybackEpisodeGuid() => _playInfo?.item.guid.trim() ?? '';
 
   String _preferredEpisodeGuid(List<MediaLibraryItem> episodes) {
+    final initialGuid = widget.initialEpisodeGuid.trim();
+    if (!_initialEpisodePositionApplied && initialGuid.isNotEmpty) {
+      for (final episode in episodes) {
+        if (episode.guid == initialGuid) return initialGuid;
+      }
+    }
+
     final selectedGuid = _selectedEpisodeGuid.trim();
     if (selectedGuid.isNotEmpty) {
       for (final episode in episodes) {
@@ -400,6 +411,27 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       }
     }
     return episodes.isNotEmpty ? episodes.first.guid : '';
+  }
+
+  void _scheduleInitialEpisodePosition() {
+    final initialGuid = widget.initialEpisodeGuid.trim();
+    if (_initialEpisodePositionApplied ||
+        initialGuid.isEmpty ||
+        _selectedEpisodeGuid != initialGuid) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _initialEpisodePositionApplied) return;
+      final targetContext = _episodeSectionKey.currentContext;
+      if (targetContext == null) return;
+      _initialEpisodePositionApplied = true;
+      Scrollable.ensureVisible(
+        targetContext,
+        alignment: 0.05,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   int _rangeIndexForEpisodeGuid(
@@ -1152,6 +1184,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       });
       if (showLoading) _resetScrollToTop();
       if (showLoading) _startEntryAnimations();
+      _scheduleInitialEpisodePosition();
       unawaited(_resolveNeutralPlayTarget(backend, target, episodes));
     } catch (e) {
       if (!mounted || seq != _seasonLoadSeq) return;
@@ -1243,6 +1276,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   String _neutralPreferredEpisodeGuid(List<MediaEpisodeSummary> episodes) {
     if (episodes.isEmpty) return '';
+    final initialGuid = widget.initialEpisodeGuid.trim();
+    if (!_initialEpisodePositionApplied && initialGuid.isNotEmpty) {
+      for (final episode in episodes) {
+        if (episode.id == initialGuid) return initialGuid;
+      }
+    }
     // 优先：有断点续看进度的一集（即「正在看」的那集）——反映最新播放进度。
     for (final ep in episodes) {
       if (ep.resumePositionSeconds > 0) return ep.id;
@@ -1796,6 +1835,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       hasOverview: hasOverview,
                       episodeSection: showEpisodes
                           ? TvEpisodeBrowserSection(
+                              key: _episodeSectionKey,
                               title: AppLocalizations.of(
                                 context,
                               ).detailEpisodeTitle,
@@ -2071,6 +2111,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _descriptionVisible = true;
         _artworkReady = _episodeItemsResolved;
       });
+      _scheduleInitialEpisodePosition();
       unawaited(_loadDeferredSections(seq: seq, seasonGuid: seasonGuid));
     });
   }
@@ -2098,6 +2139,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         );
         _artworkReady = _descriptionVisible;
       });
+      _scheduleInitialEpisodePosition();
       unawaited(_prefetchDownloadData(episodes, selectedEpisodeGuid));
     } catch (error, stackTrace) {
       await logSwallowedError(
@@ -3212,6 +3254,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                 hasOverview: hasOverview,
                                 episodeSection: _seasonItems.isNotEmpty
                                     ? TvEpisodeBrowserSection(
+                                        key: _episodeSectionKey,
                                         title: AppLocalizations.of(
                                           context,
                                         ).detailEpisodeTitle,
