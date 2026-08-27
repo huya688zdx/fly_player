@@ -289,7 +289,7 @@ class _RangeChips extends StatelessWidget {
   }
 }
 
-class _PreviewGrid extends StatelessWidget {
+class _PreviewGrid extends StatefulWidget {
   final List<TvEpisodeCardData> entries;
   final String token;
   final String accessCode;
@@ -312,6 +312,20 @@ class _PreviewGrid extends StatelessWidget {
   });
 
   @override
+  State<_PreviewGrid> createState() => _PreviewGridState();
+}
+
+class _PreviewGridState extends State<_PreviewGrid> {
+  final ScrollController _scrollController = ScrollController();
+  bool _initialSelectionPositionApplied = false;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -327,29 +341,34 @@ class _PreviewGrid extends StatelessWidget {
         ).textScaler.scale(1).clamp(1.0, 1.2);
         final summaryHeight = (32.0 * textScale).clamp(32.0, 44.0);
         final itemHeight = imageHeight + summaryHeight + 64;
+        _scheduleSelectedEpisodeScroll(
+          viewportWidth: width,
+          cardWidth: cardWidth,
+        );
         return SizedBox(
           height: itemHeight,
           child: ListView.separated(
+            controller: _scrollController,
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.only(right: 4),
-            itemCount: entries.length,
+            itemCount: widget.entries.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
-              final entry = entries[index];
+              final entry = widget.entries[index];
               return RepaintBoundary(
                 child: SizedBox(
                   width: cardWidth,
                   child: _PreviewCard(
                     entry: entry,
-                    token: token,
-                    accessCode: accessCode,
-                    baseUrl: baseUrl,
+                    token: widget.token,
+                    accessCode: widget.accessCode,
+                    baseUrl: widget.baseUrl,
                     imageHeight: imageHeight,
-                    detailText: detailText,
-                    onSelect: () => onEpisodeSelected(entry.guid),
-                    onLongPress: () => onEpisodeLongPress(entry.guid),
-                    onDetail: () => onEpisodeDetailTap(entry.guid),
+                    detailText: widget.detailText,
+                    onSelect: () => widget.onEpisodeSelected(entry.guid),
+                    onLongPress: () => widget.onEpisodeLongPress(entry.guid),
+                    onDetail: () => widget.onEpisodeDetailTap(entry.guid),
                   ),
                 ),
               );
@@ -358,6 +377,31 @@ class _PreviewGrid extends StatelessWidget {
         );
       },
     );
+  }
+
+  void _scheduleSelectedEpisodeScroll({
+    required double viewportWidth,
+    required double cardWidth,
+  }) {
+    if (_initialSelectionPositionApplied) return;
+    final selectedIndex = widget.entries.indexWhere((entry) => entry.selected);
+    if (selectedIndex < 0) return;
+    if (selectedIndex == 0) {
+      _initialSelectionPositionApplied = true;
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _initialSelectionPositionApplied ||
+          !_scrollController.hasClients) {
+        return;
+      }
+      _initialSelectionPositionApplied = true;
+      final itemExtent = cardWidth + 12;
+      final target = (selectedIndex * itemExtent - (viewportWidth - cardWidth))
+          .clamp(0.0, _scrollController.position.maxScrollExtent);
+      _scrollController.jumpTo(target);
+    });
   }
 }
 
