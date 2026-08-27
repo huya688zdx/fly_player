@@ -75,6 +75,7 @@ class PosterBrowseArcCarousel extends StatefulWidget {
   final List<PosterBrowseDisplayItem> items;
   final int initialIndex;
   final bool showProgress;
+  final bool showSecondaryLabel;
   final MediaImageRequest Function(PosterBrowseDisplayItem item) imageOf;
   final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
   final ValueChanged<int> onSettled;
@@ -87,6 +88,7 @@ class PosterBrowseArcCarousel extends StatefulWidget {
     required this.items,
     required this.initialIndex,
     required this.showProgress,
+    this.showSecondaryLabel = true,
     required this.imageOf,
     required this.secondaryLabelOf,
     required this.onSettled,
@@ -255,6 +257,7 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
                   item: item,
                   focused: focused,
                   showProgress: widget.showProgress,
+                  showSecondaryLabel: widget.showSecondaryLabel,
                   imageUrl: imageRequest.canLoad ? imageRequest.urls.first : '',
                   imageHeaders: imageRequest.headers,
                   secondaryLabel: widget.secondaryLabelOf(item),
