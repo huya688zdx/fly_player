@@ -38,12 +38,21 @@ ContinueSeasonDetailTarget? continueSeasonDetailTarget(
   final seasonTitle = item.parentTitle.trim().isNotEmpty
       ? item.parentTitle.trim()
       : seriesTitle;
+  // 单集详情不一定返回 backdrop；保留首页条目的背景，并以主海报兜底，
+  // 避免季详情页只剩纯色背景。
+  final backdropPath =
+      <String>[
+            detail.backdropImage.url,
+            item.backdropUrl,
+            detail.primaryImage.url,
+            item.poster,
+          ]
+          .map((path) => path.trim())
+          .firstWhere((path) => path.isNotEmpty, orElse: () => '');
   return ContinueSeasonDetailTarget(
     parentGuid: seriesGuid,
     seriesTitle: seriesTitle,
-    backdropPath: detail.backdropImage.url.trim().isNotEmpty
-        ? detail.backdropImage.url.trim()
-        : item.backdropUrl,
+    backdropPath: backdropPath,
     seasonItem: item.copyWith(
       guid: seasonGuid,
       title: seasonTitle,
