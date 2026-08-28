@@ -8,6 +8,7 @@ import '../../theme/app_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/layout_adaptive.dart';
+import '../../ui/media_placeholder.dart';
 import '../../ui/media_poster_card.dart';
 import '../../utils/api_url_helper.dart';
 
@@ -209,16 +210,8 @@ class _ListThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     if (!images.canLoad) {
-      return Container(
-        color: colors.surfaceStrong,
-        alignment: Alignment.center,
-        child: Icon(
-          Icons.movie,
-          color: colors.textMuted.withValues(alpha: 0.5),
-        ),
-      );
+      return const MediaPlaceholder();
     }
     // 列表缩略图固定显示 72x46,按 DPR 换算解码宽度。图源是竖版海报(约2:3,
     // 服务端只按宽等比缩放),cacheWidth/cacheHeight 双维会走等同 BoxFit.fill
@@ -231,14 +224,7 @@ class _ListThumb extends StatelessWidget {
       cacheWidth: (72 * dpr).round(),
       headers: images.headers,
       errorBuilder: (_, __, ___) {
-        return Container(
-          color: colors.surfaceStrong,
-          alignment: Alignment.center,
-          child: Icon(
-            Icons.movie,
-            color: colors.textMuted.withValues(alpha: 0.5),
-          ),
-        );
+        return const MediaPlaceholder();
       },
     );
   }

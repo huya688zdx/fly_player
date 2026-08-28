@@ -9,6 +9,7 @@ import '../media_backend/media_image_request.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common/liquid_glass.dart';
 import 'app_transitions.dart';
+import 'media_placeholder.dart';
 
 class DetailHeroImage extends StatefulWidget {
   final MediaImageRequest images;
@@ -150,17 +151,7 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
   }
 
   Widget _buildPlaceholder() {
-    const fallback = AppThemePalette.fallback;
-    return Container(
-      color: fallback.surfaceSubtle,
-      child: Center(
-        child: Icon(
-          Icons.movie_creation_outlined,
-          size: 28,
-          color: fallback.textMuted.withValues(alpha: 0.7),
-        ),
-      ),
-    );
+    return const MediaPlaceholder();
   }
 }
 
