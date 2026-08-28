@@ -459,6 +459,7 @@ class MpvPlaybackController(
             state = state.copy(
                 loadNonce = source.loadNonce,
                 paused = source.startPaused,
+                speed = source.playbackSpeed,
                 // 新源从未降级开始（强设备/低负载源应保持满画质）。
                 performanceFallbackLevel = 0,
             )
