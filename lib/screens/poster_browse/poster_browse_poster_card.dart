@@ -148,11 +148,9 @@ class _PosterImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: borderRadius,
-      ),
+    final placeholder = ClipRRect(
+      borderRadius: borderRadius,
+      child: const MediaPlaceholder(),
     );
     final trimmedUrl = url.trim();
     if (trimmedUrl.isEmpty) {
