@@ -58,8 +58,11 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
   static const _maxTrackHeight = 264.0;
   static const _maxCardWidth = 116.0;
   static const _minCardWidth = 72.0;
-  // 标题最多两行、剧集副标题一行，再加两段间距约占 80px。
-  static const _cardVerticalBudget = 80.0;
+  // 轨道 ListView 的上下内边距（6+6），卡片宽度要为它让位。
+  static const _trackVerticalPadding = 12.0;
+  // 标题最多两行、剧集副标题一行，再加两段间距；按 CJK 字体实际行高留足余量
+  // （此前按 80px 估算，中文两行标题在矮视口下会 BOTTOM OVERFLOWED ~4px）。
+  static const _cardVerticalBudget = 92.0;
 
   double _collapseProgress = 0;
   double _horizontalDragDistance = 0;
@@ -124,7 +127,10 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
               collapseProgress: collapseProgress,
             );
             final cardWidth =
-                ((expandedTrackHeight - _cardVerticalBudget) / 1.5)
+                ((expandedTrackHeight -
+                            _trackVerticalPadding -
+                            _cardVerticalBudget) /
+                        1.5)
                     .clamp(_minCardWidth, _maxCardWidth)
                     .toDouble();
 
