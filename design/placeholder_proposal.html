@@ -135,7 +135,7 @@ body{
    占位组件 .ph —— 四套方案共用骨架,靠 ph--a/b/c/d 切换
    ============================================================ */
 .ph{
-  container-type:inline-size;
+  container-type:size;
   position:relative;overflow:hidden;border-radius:10px;isolation:isolate;
   background:var(--m-surface);
   transition:background .35s;
@@ -150,7 +150,7 @@ body{
 .ph .ph-sprockets{position:absolute;inset:0 auto 0 0;width:0;opacity:0}
 .ph .ph-sprockets.r{inset:0 0 0 auto}
 .ph .ph-ticks{position:absolute;inset:0;opacity:0}
-.ph .ph-ticks i{position:absolute;width:max(9px,8.5cqw);aspect-ratio:1;border:0 solid var(--ph-line)}
+.ph .ph-ticks i{position:absolute;width:max(9px,8cqmin);aspect-ratio:1;border:0 solid var(--ph-line)}
 .ph .ph-ticks i:nth-child(1){top:6.5%;left:6.5%;border-top-width:1.4px;border-left-width:1.4px;border-top-left-radius:3px}
 .ph .ph-ticks i:nth-child(2){top:6.5%;right:6.5%;border-top-width:1.4px;border-right-width:1.4px;border-top-right-radius:3px}
 .ph .ph-ticks i:nth-child(3){bottom:6.5%;left:6.5%;border-bottom-width:1.4px;border-left-width:1.4px;border-bottom-left-radius:3px}
@@ -159,7 +159,7 @@ body{
 /* 中心区:玻璃圆片 + 图标(三枚图标常驻,按方案显隐) */
 .ph .ph-center{position:absolute;inset:0;display:grid;place-items:center}
 .ph .ph-disc{
-  position:absolute;width:47cqw;aspect-ratio:1;border-radius:50%;
+  position:absolute;width:min(46cqmin,72px);aspect-ratio:1;border-radius:50%;
   opacity:0;transform:scale(.9);transition:opacity .4s,transform .4s;
   background:
     linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.02)),
@@ -172,9 +172,9 @@ html[data-mode="light"] .ph .ph-disc{
   border-color:rgba(24,33,50,.14);box-shadow:0 8px 18px rgba(90,70,20,.14),inset 0 1px 0 rgba(255,255,255,.7);
 }
 .ph .glyph{position:absolute;color:var(--ph-glyph);opacity:0;transition:opacity .4s}
-.ph .glyph-strip{width:23cqw}
-.ph .glyph-clap{width:26cqw}
-.ph .glyph-iris{width:33cqw}
+.ph .glyph-strip{width:21cqmin}
+.ph .glyph-clap{width:24cqmin}
+.ph .glyph-iris{width:31cqmin}
 .ph .glyph-iris{animation:iris-spin 56s linear infinite;animation-play-state:paused}
 @keyframes iris-spin{to{transform:rotate(360deg)}}
 
@@ -227,7 +227,7 @@ html[data-mode="light"] .ph .ph-disc{
 .ph--c .ph-sprockets.r{
   border-right:0;border-left:1px solid color-mix(in srgb,var(--accent) 20%,transparent);
 }
-.ph--c .glyph-strip{opacity:.9;width:20cqw}
+.ph--c .glyph-strip{opacity:.9;width:18cqmin}
 
 /* ---------- 方案 D · 光圈聚焦 ---------- */
 .ph--d .ph-bg{background:radial-gradient(120% 120% at 50% 38%,var(--ph-g1) 0%,var(--ph-g2) 52%,var(--ph-g3) 100%)}
@@ -265,13 +265,13 @@ html[data-mode="light"] .phone{border-color:rgba(24,33,50,.10);box-shadow:0 30px
 /* —— 详情页 hero 区 —— */
 .hero-row{display:flex;gap:16px}
 .hero-poster{flex:0 0 150px;width:150px;height:225px}
-.hero-info{flex:1;min-width:0;display:flex;flex-direction:column;padding-top:44px}
+.hero-info{flex:1;min-width:0;display:flex;flex-direction:column;padding-top:26px}
 .hero-info .title{font-size:21px;font-weight:800;letter-spacing:.01em;line-height:1.3}
 .hero-info .sub{margin-top:10px;font-size:16px;font-weight:700;color:var(--m-text)}
 .hero-info .meta{margin-top:10px;font-size:14px;color:var(--m-muted)}
 .hero-info .meta .score{color:var(--accent-strong);font-weight:700}
 .hero-info .meta .sep{margin:0 8px;opacity:.5}
-.btn-row{display:flex;gap:10px;margin-top:20px;align-items:center}
+.btn-row{display:flex;gap:11px;margin-top:22px;align-items:center}
 .btn-play{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
   height:44px;padding:0 26px;border-radius:24px;border:0;cursor:default;
@@ -457,7 +457,9 @@ html[data-accent="blue"] .cmp-card .rec,html[data-accent="teal"] .cmp-card .rec,
         <div class="title">中二病也要谈恋爱!</div>
         <div class="sub">Specials</div>
         <div class="meta"><span class="score">8.1 分</span><span class="sep">/</span>2012</div>
-        <div class="btn-row">
+      </div>
+    </div>
+    <div class="btn-row">
           <button class="btn-play" tabindex="-1">
             <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><path d="M11.2 6.1c.7.4.7 1.4 0 1.8L1.9 13.4c-.7.4-1.5-.1-1.5-.9V1.5C.4.7 1.2.2 1.9.6z"/></svg>
             第 1 集
@@ -465,8 +467,6 @@ html[data-accent="blue"] .cmp-card .rec,html[data-accent="teal"] .cmp-card .rec,
           <span class="btn-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.5-1.5 2-3.2 2-4.5A4.5 4.5 0 0 0 12 6.3 4.5 4.5 0 0 0 3 9.5c0 1.3.5 3 2 4.5l7 6.5z"/></svg></span>
           <span class="btn-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12m0 0 5-5m-5 5-5-5M4 20h16"/></svg></span>
           <span class="btn-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/><path d="m4 20 16-16"/></svg></span>
-        </div>
-      </div>
     </div>
 
     <div class="sec-head">
