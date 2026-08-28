@@ -103,7 +103,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     }
 
     if (_isLoading) {
-      return Center(child: CircularProgressIndicator(color: colors.accent));
+      return const Center(child: BirdLoader(size: 120));
     }
 
     if (_error != null) {

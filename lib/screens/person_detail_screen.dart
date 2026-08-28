@@ -41,6 +41,7 @@ import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/theme_save_name_helper.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class PersonDetailScreen extends StatefulWidget {
   final String personGuid;
@@ -832,7 +833,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                   : widget.initialName)
             : (person?.displayName ?? widget.initialName);
         final body = _isLoading
-            ? Center(child: CircularProgressIndicator(color: colors.accent))
+            ? const Center(child: BirdLoader(size: 120))
             : _neutralDisplayOnly
             ? (_error != null
                   ? AppErrorState(
@@ -1025,17 +1026,14 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                       ),
                   ],
                   if (_jobLoading)
-                    SliverToBoxAdapter(
+                    const SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
                         child: Center(
                           child: SizedBox(
                             width: 24,
                             height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.2,
-                              color: colors.accent,
-                            ),
+                            child: BirdGlyph(size: 24),
                           ),
                         ),
                       ),

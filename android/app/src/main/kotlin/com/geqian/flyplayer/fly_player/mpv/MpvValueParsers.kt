@@ -40,6 +40,8 @@ fun sanitizeMpvIntProperty(property: String, value: Long?): Long? {
     if (numeric <= 0L) return null
     return when (property) {
         "display-depth" -> numeric.takeIf { it in 1L..64L }
+        "audio-params/channel-count",
+        "audio-out-params/channel-count" -> numeric.takeIf { it in 1L..64L }
         "video-params/w",
         "video-params/h",
         "video-out-params/w",

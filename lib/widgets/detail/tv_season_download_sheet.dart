@@ -11,6 +11,7 @@ import '../../theme/download_sheet_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class TvSeasonDownloadQualityOption {
   final String value;
@@ -321,8 +322,8 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                           SizedBox(
                             width: 14,
                             height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
+                            child: BirdGlyph(
+                              size: 14,
                               color: sheetTheme.subtitleColor,
                             ),
                           ),

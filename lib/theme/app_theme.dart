@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 enum AppThemePreset { midnight, ocean, forest, graphite, sunset, aurora, latte }
 
@@ -1021,6 +1022,19 @@ class AppThemeBuilder {
       ),
       colors.surface,
     );
+    final systemIconBrightness = brightness == Brightness.light
+        ? Brightness.dark
+        : Brightness.light;
+    final systemOverlayStyle = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: systemIconBrightness,
+      statusBarBrightness: brightness,
+      systemNavigationBarColor: colors.backgroundBase,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarIconBrightness: systemIconBrightness,
+      systemStatusBarContrastEnforced: false,
+      systemNavigationBarContrastEnforced: false,
+    );
 
     return base.copyWith(
       appBarTheme: AppBarTheme(
@@ -1029,6 +1043,7 @@ class AppThemeBuilder {
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
+        systemOverlayStyle: systemOverlayStyle,
         iconTheme: IconThemeData(color: colors.textPrimary),
         titleTextStyle: TextStyle(
           color: colors.textPrimary,

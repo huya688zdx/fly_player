@@ -24,6 +24,7 @@ import '../utils/app_exception.dart';
 import '../widgets/common/app_error_state.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class SearchScreen extends StatefulWidget {
   final Map<String, dynamic> initialLocaleMap;
@@ -401,7 +402,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return _buildHistorySection();
     }
     if (_isSearching) {
-      return Center(child: CircularProgressIndicator(color: colors.accent));
+      return const Center(child: BirdLoader(size: 120));
     }
     if (_error != null) {
       return AppErrorState(

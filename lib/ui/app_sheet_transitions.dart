@@ -78,6 +78,7 @@ class AppSheetTransitions {
     BuildContext context, {
     required WidgetBuilder builder,
     bool barrierDismissible = true,
+    bool enableDrag = false,
     String barrierLabel = '',
     Color barrierColor = Colors.transparent,
     bool useRootNavigator = false,
@@ -103,7 +104,12 @@ class AppSheetTransitions {
                 ),
               Align(
                 alignment: Alignment.bottomCenter,
-                child: builder(dialogContext),
+                child: enableDrag
+                    ? _SwipeDismissibleBottomSurface(
+                        onDismiss: () => close(dialogContext),
+                        child: builder(dialogContext),
+                      )
+                    : builder(dialogContext),
               ),
             ],
           ),
@@ -131,6 +137,68 @@ class AppSheetTransitions {
       isCurrent: isCurrent,
       isForward: isForward,
       child: child,
+    );
+  }
+}
+
+class _SwipeDismissibleBottomSurface extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onDismiss;
+
+  const _SwipeDismissibleBottomSurface({
+    required this.child,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_SwipeDismissibleBottomSurface> createState() =>
+      _SwipeDismissibleBottomSurfaceState();
+}
+
+class _SwipeDismissibleBottomSurfaceState
+    extends State<_SwipeDismissibleBottomSurface> {
+  static const double _dismissDistance = 120;
+  static const double _dismissVelocity = 700;
+
+  double _offset = 0;
+  bool _dragging = false;
+
+  void _onDragStart(DragStartDetails details) {
+    setState(() => _dragging = true);
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    final next = (_offset + details.delta.dy).clamp(0.0, double.infinity);
+    if (next == _offset) return;
+    setState(() => _offset = next);
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (_offset >= _dismissDistance || velocity >= _dismissVelocity) {
+      widget.onDismiss();
+      return;
+    }
+    setState(() {
+      _dragging = false;
+      _offset = 0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      key: const ValueKey<String>('app-bottom-sheet-swipe-dismiss'),
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragStart: _onDragStart,
+      onVerticalDragUpdate: _onDragUpdate,
+      onVerticalDragEnd: _onDragEnd,
+      child: AnimatedContainer(
+        duration: _dragging ? Duration.zero : const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        transform: Matrix4.translationValues(0, _offset, 0),
+        child: widget.child,
+      ),
     );
   }
 }

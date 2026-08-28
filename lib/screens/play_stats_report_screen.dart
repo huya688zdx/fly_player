@@ -15,6 +15,7 @@ import '../utils/swallowed_error_logger.dart';
 import 'play_stats_debug_page.dart';
 import 'play_stats_report/play_stats_report_formatters.dart';
 import 'play_stats_report/play_stats_report_widgets.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class PlayStatsMetadataMaps {
   final Map<int, String> genreMap;
@@ -747,24 +748,18 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
                       maxWidth: compactHeader ? 14 : 58,
                     ),
                     child: compactHeader
-                        ? SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 1.8,
-                              color: colors.accent,
-                            ),
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: BirdGlyph(size: 14),
                           )
                         : Row(
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
-                              SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.8,
-                                  color: colors.accent,
-                                ),
+                              const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: BirdGlyph(size: 14),
                               ),
                               const SizedBox(width: 6),
                               Flexible(
@@ -888,7 +883,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
 
   Widget _buildBody(PlayStatsReportFormatters formatters) {
     if (_isInitialLoading && _snapshot == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: BirdLoader(size: 132));
     }
 
     final snapshot = _snapshot;

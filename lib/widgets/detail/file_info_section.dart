@@ -4,7 +4,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../models/authorized_dir_entry.dart';
 import '../../models/stream_track_data.dart';
 import '../../theme/app_theme.dart';
-import '../common/liquid_glass.dart';
+import 'detail_surface.dart';
 
 class FileInfoSection extends StatefulWidget {
   final StreamFileInfo? file;
@@ -70,9 +70,9 @@ class _FileInfoSectionState extends State<FileInfoSection> {
           ),
         ),
         const SizedBox(height: 14),
-        LiquidGlass(
-          radius: 20,
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+        DetailSurface(
+          key: const ValueKey<String>('file-info-surface'),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -115,20 +115,51 @@ class _FileInfoSectionState extends State<FileInfoSection> {
                         ),
                       ),
               ),
-              const SizedBox(height: 16),
-              _RowBlock(
-                label: widget.sizeLabel ?? l10n.fileInfoSizeLabel,
-                value: _formatBytes(f.size),
-              ),
-              const SizedBox(height: 16),
-              _RowBlock(
-                label: widget.createdAtLabel ?? l10n.fileInfoCreatedAtLabel,
-                value: _formatTs(f.fileBirthTime),
-              ),
-              const SizedBox(height: 16),
-              _RowBlock(
-                label: widget.addedAtLabel ?? l10n.fileInfoAddedAtLabel,
-                value: _formatTs(f.createTime),
+              const SizedBox(height: 18),
+              Divider(color: colors.borderSubtle, height: 1),
+              const SizedBox(height: 18),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = 18.0;
+                  final columns = constraints.maxWidth >= 520
+                      ? 3
+                      : constraints.maxWidth >= 300
+                      ? 2
+                      : 1;
+                  final itemWidth =
+                      (constraints.maxWidth - spacing * (columns - 1)) /
+                      columns;
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: 18,
+                    children: [
+                      SizedBox(
+                        width: itemWidth,
+                        child: _RowBlock(
+                          label: widget.sizeLabel ?? l10n.fileInfoSizeLabel,
+                          value: _formatBytes(f.size),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _RowBlock(
+                          label:
+                              widget.createdAtLabel ??
+                              l10n.fileInfoCreatedAtLabel,
+                          value: _formatTs(f.fileBirthTime),
+                        ),
+                      ),
+                      SizedBox(
+                        width: itemWidth,
+                        child: _RowBlock(
+                          label:
+                              widget.addedAtLabel ?? l10n.fileInfoAddedAtLabel,
+                          value: _formatTs(f.createTime),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -158,7 +189,7 @@ class _RowBlock extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: colors.textMuted,
+                  color: colors.textSecondary,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -171,9 +202,9 @@ class _RowBlock extends StatelessWidget {
         Text(
           value.isEmpty ? '-' : value,
           style: TextStyle(
-            color: colors.textSecondary,
+            color: colors.textPrimary,
             fontSize: 15,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
             height: 1.34,
           ),
         ),

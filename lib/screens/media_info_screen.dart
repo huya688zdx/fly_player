@@ -6,6 +6,7 @@ import '../models/media_info.dart';
 import '../providers/nas_provider.dart';
 import '../utils/app_exception.dart';
 import '../widgets/common/app_error_state.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class MediaInfoScreen extends StatefulWidget {
   const MediaInfoScreen({super.key});
@@ -84,7 +85,7 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            if (_isLoading) const CircularProgressIndicator(),
+            if (_isLoading) const BirdGlyph(size: 20),
             if (_error != null)
               Expanded(
                 child: AppErrorState(error: _error!, onRetry: _fetchMetadata),

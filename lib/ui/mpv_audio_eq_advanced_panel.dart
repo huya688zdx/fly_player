@@ -8,6 +8,7 @@ import '../playback/settings/mpv_settings_store.dart';
 import '../theme/app_theme.dart';
 import 'adaptive_text.dart';
 import 'mpv_audio_eq_editor.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class MpvAudioEqAdvancedPanel extends StatefulWidget {
   final Map<String, String> settings;
@@ -305,10 +306,10 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
               ),
               const SizedBox(height: 16),
               if (_loadingPresets)
-                Center(
+                const Center(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: CircularProgressIndicator(color: colors.accent),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: BirdLoader(size: 96),
                   ),
                 )
               else if (_presets.isEmpty)

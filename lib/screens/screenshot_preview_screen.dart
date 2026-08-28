@@ -19,6 +19,7 @@ import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
 import '../services/parallel_host_bridge.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class ScreenshotPreviewScreen extends StatefulWidget {
   const ScreenshotPreviewScreen({super.key});
@@ -178,7 +179,7 @@ class _ScreenshotLightboxRouteLoaderState
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             backgroundColor: Colors.black,
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(child: BirdLoader(size: 140)),
           );
         }
         final payload = snapshot.data;
@@ -731,7 +732,7 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : RefreshIndicator(
                   onRefresh: _load,
                   color: colors.accent,
@@ -1919,10 +1920,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
         child: SizedBox(
           width: 30,
           height: 30,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            color: Colors.white,
-          ),
+          child: BirdGlyph(size: 30, color: Colors.white),
         ),
       ),
       builder: (context, index) {

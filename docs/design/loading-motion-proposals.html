@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>流光加载提案</title>
+<style>
+  :root {
+    --bg: #09111C;
+    --bg-deep: #060C15;
+    --card: #0D1624;
+    --canvas: #0A1220;
+    --line: rgba(135, 230, 172, 0.08);
+    --line-strong: rgba(135, 230, 172, 0.16);
+    --ink: #E8F0EA;
+    --ink-dim: #8FA098;
+    --ink-faint: #5C6B66;
+    --accent: #87E6AC;
+    --accent-deep: #37B36B;
+    --mono: "Cascadia Code", ui-monospace, Consolas, monospace;
+    --sans: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.7;
+    min-height: 100vh;
+  }
+
+  /* ── 环境底光 ─────────────────────────── */
+  .atmo {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(900px 480px at 18% -8%, rgba(55, 179, 107, 0.09), transparent 62%),
+      radial-gradient(720px 520px at 88% 4%, rgba(39, 181, 233, 0.05), transparent 60%),
+      radial-gradient(1000px 700px at 50% 110%, rgba(55, 179, 107, 0.05), transparent 65%);
+  }
+  main { position: relative; z-index: 1; max-width: 1060px; margin: 0 auto; padding: 64px 28px 90px; }
+
+  /* ── 头部 ─────────────────────────────── */
+  header { margin-bottom: 20px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px; letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--accent); opacity: 0.85; margin-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 44px); font-weight: 600;
+    letter-spacing: 0.02em; line-height: 1.25; text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lede { color: var(--ink-dim); max-width: 62ch; margin-top: 14px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  .now {
+    display: flex; gap: 14px; align-items: center;
+    border: 1px solid var(--line); border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+    padding: 16px 20px; margin: 30px 0 14px;
+  }
+  .now .demo { flex: 0 0 auto; width: 56px; height: 56px; display: grid; place-items: center; }
+  .spinner-old {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 3px solid rgba(135, 230, 172, 0.18);
+    border-top-color: var(--accent-deep);
+    animation: spin 0.9s linear infinite;
+  }
+  .now p { color: var(--ink-dim); font-size: 13.5px; }
+  .now p b { color: var(--ink); font-weight: 600; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 方案卡片 ─────────────────────────── */
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 22px; margin-top: 30px;
+  }
+  @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0) 42%), var(--card);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .stage {
+    position: relative;
+    height: 220px;
+    display: grid; place-items: center;
+    background:
+      radial-gradient(420px 200px at 50% 118%, rgba(55, 179, 107, 0.07), transparent 70%),
+      var(--canvas);
+    border-bottom: 1px solid var(--line);
+  }
+  .stage .ruler {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px),
+                      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(closest-side at 50% 50%, #000 30%, transparent 95%);
+    opacity: 0.5;
+  }
+  .meta { padding: 20px 22px 22px; }
+  .meta .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .meta h2 { font-size: 18px; font-weight: 600; letter-spacing: 0.02em; }
+  .meta .tag {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em;
+    color: var(--accent); border: 1px solid var(--line-strong);
+    border-radius: 999px; padding: 2px 10px; white-space: nowrap;
+  }
+  .meta p { color: var(--ink-dim); font-size: 13.5px; margin-top: 8px; }
+  .meta .impl {
+    margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
+    font-size: 12.5px; color: var(--ink-faint);
+  }
+  .meta .impl b { color: var(--ink-dim); font-weight: 600; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; }
+
+  /* ══ 方案 A · 弧光 ════════════════════ */
+  .arc-wrap { position: relative; width: 76px; height: 76px; animation: spin 1.15s cubic-bezier(0.45, 0.1, 0.55, 0.9) infinite; }
+  .arc-wrap .arc {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: conic-gradient(from 140deg,
+      transparent 0deg, rgba(135, 230, 172, 0.04) 60deg,
+      rgba(135, 230, 172, 0.35) 200deg, var(--accent) 330deg, #F2FFF7 360deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4.5px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4.5px));
+    filter: drop-shadow(0 0 7px rgba(135, 230, 172, 0.45));
+  }
+  .arc-wrap .head {
+    position: absolute; top: -3.5px; left: calc(50% - 3.5px);
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #F2FFF7;
+    box-shadow: 0 0 10px 2px rgba(135, 230, 172, 0.75), 0 0 26px 6px rgba(135, 230, 172, 0.28);
+  }
+
+  /* ══ 方案 B · 光核 ════════════════════ */
+  .halo { position: relative; width: 110px; height: 110px; display: grid; place-items: center; }
+  .halo .ring {
+    position: absolute; inset: 0; margin: auto;
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    animation: halo-ring 2.2s cubic-bezier(0.16, 0.7, 0.4, 1) infinite;
+    opacity: 0;
+  }
+  .halo .ring:nth-child(2) { animation-delay: 0.73s; }
+  .halo .ring:nth-child(3) { animation-delay: 1.46s; }
+  @keyframes halo-ring {
+    0%   { transform: scale(1);    opacity: 0.55; }
+    100% { transform: scale(4.1);  opacity: 0; }
+  }
+  .halo .core {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 30%, #F4FFF8, var(--accent) 62%);
+    box-shadow: 0 0 12px 2px rgba(135, 230, 172, 0.55), 0 0 34px 8px rgba(135, 230, 172, 0.18);
+    animation: halo-core 2.2s ease-in-out infinite;
+  }
+  @keyframes halo-core {
+    0%, 100% { transform: scale(0.82); }
+    50%      { transform: scale(1.06); }
+  }
+
+  /* ══ 方案 C · 律动条 ══════════════════ */
+  .eq { display: flex; gap: 7px; align-items: center; height: 56px; }
+  .eq i {
+    width: 5px; border-radius: 3px;
+    background: linear-gradient(180deg, #F2FFF7, var(--accent) 55%, var(--accent-deep));
+    box-shadow: 0 0 9px rgba(135, 230, 172, 0.3);
+    animation: eq-bar 1.05s ease-in-out infinite;
+    transform-origin: center;
+  }
+  .eq i:nth-child(1) { height: 16px; animation-delay: -0.42s; }
+  .eq i:nth-child(2) { height: 34px; animation-delay: -0.21s; }
+  .eq i:nth-child(3) { height: 46px; animation-delay: 0s; }
+  .eq i:nth-child(4) { height: 30px; animation-delay: -0.63s; }
+  .eq i:nth-child(5) { height: 18px; animation-delay: -0.84s; }
+  @keyframes eq-bar {
+    0%, 100% { transform: scaleY(0.38); opacity: 0.55; }
+    50%      { transform: scaleY(1);    opacity: 1; }
+  }
+
+  /* ══ 方案 D · 双星轨迹 ════════════════ */
+  .orbit { position: relative; width: 130px; height: 130px; }
+  .orbit .track {
+    position: absolute; inset: 0; margin: auto;
+    width: 104px; height: 40px; border-radius: 50%;
+    border: 1px solid rgba(135, 230, 172, 0.14);
+  }
+  .orbit .sat {
+    position: absolute; inset: 0;
+    offset-path: path("M 110 65 A 52 20 0 1 1 109.9 65 Z");
+    animation: orbit-run 1.6s linear infinite;
+  }
+  .orbit .sat:nth-child(3) { animation-delay: -0.8s; }
+  .orbit .sat::before {
+    content: ""; position: absolute; left: -4.5px; top: -4.5px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #F4FFF8, var(--accent) 60%);
+    box-shadow: 0 0 10px 2px rgba(135, 230, 172, 0.55);
+  }
+  @keyframes orbit-run { to { offset-distance: 100%; } }
+
+  /* ══ 方案 E · 海报骨架 ════════════════ */
+  .skeleton { display: flex; gap: 14px; }
+  .sk-card { width: 68px; }
+  .sk-poster {
+    width: 68px; height: 100px; border-radius: 9px;
+    background: linear-gradient(155deg, #142234, #0F1A2A);
+    border: 1px solid rgba(135, 230, 172, 0.06);
+    position: relative; overflow: hidden;
+  }
+  .sk-line { height: 8px; border-radius: 4px; background: #132135; margin-top: 9px; position: relative; overflow: hidden; }
+  .sk-line.short { width: 62%; }
+  .sk-card:nth-child(2) { opacity: 0.72; }
+  .sk-card:nth-child(3) { opacity: 0.45; }
+  .skeleton { position: relative; overflow: hidden; padding: 4px 2px; }
+  .skeleton::after {
+    content: ""; position: absolute; inset: -40% -70%;
+    background: linear-gradient(105deg, transparent 42%, rgba(135, 230, 172, 0.09) 50%, rgba(242, 255, 247, 0.13) 53%, transparent 62%);
+    animation: sweep 1.5s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    from { transform: translateX(-55%); }
+    to   { transform: translateX(55%); }
+  }
+
+  /* ══ 方案 F · 顶栏光轨 ════════════════ */
+  .linear { width: 46%; position: relative; }
+  .linear .bar {
+    height: 3px; border-radius: 2px; overflow: hidden;
+    background: rgba(135, 230, 172, 0.1);
+  }
+  .linear .bar i {
+    display: block; height: 100%; width: 46%; border-radius: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent) 55%, #F2FFF7);
+    box-shadow: 0 0 9px rgba(135, 230, 172, 0.6);
+    animation: linear-run 1.35s cubic-bezier(0.5, 0.05, 0.5, 0.95) infinite;
+  }
+  @keyframes linear-run {
+    0%   { transform: translateX(-105%); }
+    100% { transform: translateX(235%); }
+  }
+  .linear .caption {
+    margin-top: 10px; text-align: center;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.22em;
+    color: var(--ink-faint); text-transform: uppercase;
+  }
+
+  /* ── 色板适配 ─────────────────────────── */
+  .section-title {
+    margin: 64px 0 8px; display: flex; align-items: baseline; gap: 14px;
+  }
+  .section-title h2 { font-size: 22px; font-weight: 600; }
+  .section-title p { color: var(--ink-faint); font-size: 13px; }
+  .tones {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: 14px; margin-top: 20px;
+  }
+  .tone {
+    border: 1px solid var(--line); border-radius: 14px;
+    background: var(--card); padding: 20px 10px 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .tone .arc-wrap { width: 46px; height: 46px; animation-duration: 1.3s; }
+  .tone .arc-wrap .arc {
+    background: conic-gradient(from 140deg,
+      transparent 0deg, color-mix(in srgb, var(--t) 5%, transparent) 60deg,
+      color-mix(in srgb, var(--t) 40%, transparent) 200deg, var(--t) 330deg, color-mix(in srgb, var(--t) 30%, white) 360deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--t) 45%, transparent));
+  }
+  .tone .arc-wrap .head {
+    width: 5.5px; height: 5.5px; background: color-mix(in srgb, var(--t) 30%, white);
+    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--t) 65%, transparent);
+  }
+  .tone span { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; color: var(--ink-faint); }
+
+  /* ── 建议组合 ─────────────────────────── */
+  .combo {
+    margin-top: 22px; border: 1px solid var(--line-strong); border-radius: 16px;
+    background: linear-gradient(180deg, rgba(135, 230, 172, 0.045), transparent 55%), var(--card);
+    padding: 24px 26px;
+  }
+  .combo h3 { font-size: 16px; font-weight: 600; color: var(--accent); margin-bottom: 12px; letter-spacing: 0.04em; }
+  .combo ul { list-style: none; display: grid; gap: 9px; }
+  .combo li { display: flex; gap: 12px; font-size: 13.5px; color: var(--ink-dim); }
+  .combo li b { color: var(--ink); font-weight: 600; flex: 0 0 7.5em; }
+  .combo li::before { content: "—"; color: var(--accent); flex: 0 0 auto; }
+
+  footer { margin-top: 70px; color: var(--ink-faint); font-size: 12px; text-align: center; letter-spacing: 0.08em; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01s !important; animation-iteration-count: 1 !important; }
+  }
+</style>
+</head>
+<body>
+<div class="atmo"></div>
+<main>
+  <header>
+    <p class="eyebrow">Fly Player · Loading Motion</p>
+    <h1>流光加载<em>动效提案</em></h1>
+    <p class="lede">六套候选方案，全部基于 App 现有色板（深海军蓝底 + <strong>AppAccentTone</strong> 强调色），落地后随用户主题换色。每一套都可以单独用在全屏、区块或局部场景。</p>
+    <div class="now">
+      <div class="demo"><div class="spinner-old"></div></div>
+      <p><b>现状</b> — 默认 <span style="font-family:var(--mono);font-size:12px">CircularProgressIndicator</span>，28 处直接散落调用，无统一规范，观感廉价且与深色氛围脱节。</p>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- A -->
+    <article class="card">
+      <div class="stage"><div class="ruler"></div>
+        <div class="arc-wrap"><div class="arc"></div><div class="head"></div></div>
+      </div>
+      <div class="meta">
+        <div class="head"><h2>A · 弧光 Comet</h2><span class="tag">全屏 / 区块通用</span></div>
+        <p>渐变彗尾 + 白热头部光点，扫过一圈带缓动的弧线。速度曲线带轻微加减速，比匀速旋转更有"呼吸感"，是最接近高端播放器的经典形。</p>
+        <p class="impl"><b>CUSTOMPAINTER</b> — SweepGradient 画弧 + MaskFilter 发光，旋转用 AnimationController ease 曲线</p>
+      </div>
+    </article>
+
+    <!-- B -->
+    <article class="card">
+      <div class="stage"><div class="ruler"></div>
+        <div class="halo"><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="core"></div></div>
+      </div>
+      <div class="meta">
+        <div class="head"><h2>B · 光核 Halo</h2><span class="tag">全屏留白场景</span></div>
+        <p>中心光点呼吸，涟漪三连向外扩散。极简、安静，适合首页这种大面积留白的等待，不抢氛围背景的戏。</p>
+        <p class="impl"><b>CUSTOMPAINTER</b> — 三个错相扩散圆环 + 中心点缩放，纯动画零图片资源</p>
+      </div>
+    </article>
+
+    <!-- C -->
+    <article class="card">
+      <div class="stage"><div class="ruler"></div>
+        <div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <div class="meta">
+        <div class="head"><h2>C · 律动条 Reverb</h2><span class="tag">播放器 / 媒体语境</span></div>
+        <p>五根渐变光柱错相律动，向"声波/均衡器"隐喻靠拢，媒体属性最强。建议保留给播放相关加载（弹幕匹配、音轨切换）形成语义区分。</p>
+        <p class="impl"><b>WIDGET</b> — 5 个 AnimatedContainer 错相 scaleY，实现最简单</p>
+      </div>
+    </article>
+
+    <!-- D -->
+    <article class="card">
+      <div class="stage"><div class="ruler"></div>
+        <div class="orbit"><div class="track"></div><div class="sat"></div><div class="sat"></div></div>
+      </div>
+      <div class="meta">
+        <div class="head"><h2>D · 双星 Orbit</h2><span class="tag">连接 / 同步场景</span></div>
+        <p>两颗光点沿椭圆轨道对转，"环绕 NAS / 建立连接"的隐喻直观，适合连接页、媒体库扫描、同步等长任务。</p>
+        <p class="impl"><b>CUSTOMPAINTER</b> — 椭圆参数方程驱动两点相位运动，可加前后景深缩放</p>
+      </div>
+    </article>
+
+    <!-- E -->
+    <article class="card">
+      <div class="stage"><div class="ruler"></div>
+        <div class="skeleton">
+          <div class="sk-card"><div class="sk-poster"></div><div class="sk-line"></div><div class="sk-line short"></div></div>
+          <div class="sk-card"><div class="sk-poster"></div><div class="sk-line"></div><div class="sk-line short"></div></div>
+          <div class="sk-card"><div class="sk-poster"></div><div class="sk-line"></div><div class="sk-line short"></div></div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="head"><h2>E · 海报骨架 Shimmer</h2><span class="tag">列表 / 网格专用</span></div>
+        <p>不是转圈，而是内容本身的"占位剪影"：海报比例卡片 + 文本行，一道微光斜扫。等待结束内容原位浮现，无跳变——首页、搜索、收藏列表的最佳答案。</p>
+        <p class="impl"><b>WIDGET</b> — 按现有海报栅格做骨架组件 + ShaderMask 流光，可与分页加载复用</p>
+      </div>
+    </article>
+
+    <!-- F -->
+    <article class="card">
+      <div class="stage"><div class="ruler"></div>
+        <div class="linear"><div class="bar"><i></i></div><p class="caption">Loading</p></div>
+      </div>
+      <div class="meta">
+        <div class="head"><h2>F · 顶栏光轨 Line</h2><span class="tag">页面顶部 / 局部</span></div>
+        <p>3px 细光轨来回扫动，贴页面顶部或区块内嵌，不占据版面空间。适合已有内容、只等一小块数据的场景（分类切换、分页追加）。</p>
+        <p class="impl"><b>WIDGET</b> — 单个渐变条位移循环，可作为统一 LoadingLine 组件全局引用</p>
+      </div>
+    </article>
+  </div>
+
+  <div class="section-title">
+    <h2>强调色自适应</h2>
+    <p>同一套动效在 8 种 AppAccentTone 下的效果 —— 落地时只取主题强调色，无需逐套调色</p>
+  </div>
+  <div class="tones">
+    <div class="tone" style="--t:#63A0FF"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>blue</span></div>
+    <div class="tone" style="--t:#7AD8FF"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>cyan</span></div>
+    <div class="tone" style="--t:#87E6AC"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>green</span></div>
+    <div class="tone" style="--t:#FFCC67"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>amber</span></div>
+    <div class="tone" style="--t:#FF97B2"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>rose</span></div>
+    <div class="tone" style="--t:#FFA089"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>coral</span></div>
+    <div class="tone" style="--t:#9EA4FF"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>indigo</span></div>
+    <div class="tone" style="--t:#8EECD8"><div class="arc-wrap"><div class="arc"></div><div class="head"></div></div><span>mint</span></div>
+  </div>
+
+  <div class="section-title">
+    <h2>建议组合</h2>
+    <p>六套不必全用 —— 按场景收敛为三条规则即可覆盖全局</p>
+  </div>
+  <div class="combo">
+    <h3>推荐落地方案</h3>
+    <ul>
+      <li><b>全屏首屏加载</b>A 弧光（或 B 光核），替换 connection_screen / startup_gate 等处的转圈</li>
+      <li><b>海报列表 / 网格</b>E 海报骨架，替换首页、搜索、收藏、分类的整页 Loading，并可下探到分页 footer</li>
+      <li><b>局部 / 已有内容</b>F 光轨，替换按钮旁、区块内的小型转圈；播放相关场景可引入 C 律动条做语义区分</li>
+    </ul>
+  </div>
+
+  <footer>FLY PLAYER · LOADING MOTION PROPOSALS · 2026-08</footer>
+</main>
+</body>
+</html>

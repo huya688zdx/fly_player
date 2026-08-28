@@ -30,4 +30,3 @@ class DetailResolutionSection extends StatelessWidget {
     );
   }
 }
-

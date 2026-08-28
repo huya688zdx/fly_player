@@ -184,6 +184,9 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final parallaxMax = (screenHeight * 0.85).clamp(180.0, 560.0);
 
     final collapseOffset = widget.scrollOffset.clamp(0.0, double.infinity);
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final snappedCollapseOffset =
+        (collapseOffset * devicePixelRatio).roundToDouble() / devicePixelRatio;
     final parallaxShift = (collapseOffset * widget.parallaxFactor).clamp(
       0.0,
       parallaxMax,
@@ -201,16 +204,22 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
         widget.transitionTintColor ??
         ambientTint ??
         (isLightSurface ? colors.backgroundElevated : colors.overlayScrim);
+    final transitionSurfaceTint = ambientTint ?? transitionTint;
     final transitionSurface = Color.alphaBlend(
-      transitionTint.withValues(alpha: isLightSurface ? 0.08 : 0.12),
+      transitionSurfaceTint.withValues(alpha: isLightSurface ? 0.10 : 0.17),
       transitionBody,
     );
-    // 交接层必须是海报裁切区域的一部分，不能作为兄弟层延伸到正文；
-    // 这样滚动时烟雾遮罩始终附着在图片上，正文只承接稳定的取色底面。
-    final minimumImageBlend = heroHeight < 168.0 ? heroHeight : 168.0;
-    final transitionImageBlend = (heroHeight * 0.42)
-        .clamp(minimumImageBlend, 252.0)
+    // 交接层必须是海报裁切区域的一部分，不能作为普通兄弟层静止悬挂；
+    // 这样滚动时烟雾遮罩始终附着在图片上。裁切线之下的色差由「接续带」
+    // （与裁切层共用同一滚动位移的兄弟层）缓释，见 Stack 尾部的
+    // detail-hero-seam-fade。
+    final minimumImageBlend = heroHeight < 200.0 ? heroHeight : 200.0;
+    final transitionImageBlend = (heroHeight * 0.64)
+        .clamp(minimumImageBlend, 400.0)
         .toDouble();
+    // 接续带高度：随海报高度比例缩放，限制在 96~160px，足够摊平色差
+    // 又不至于把染色拖进正文太深。
+    final seamFadeHeight = (heroHeight * 0.30).clamp(96.0, 160.0);
     final transitionTop = (expandedHeroHeight - transitionImageBlend)
         .clamp(0.0, double.infinity)
         .toDouble();
@@ -261,14 +270,14 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
             height: expandedHeroHeight,
             child: Transform.translate(
               key: const ValueKey<String>('detail-hero-region-scroll-follow'),
-              offset: Offset(0, -collapseOffset),
+              offset: Offset(0, -snappedCollapseOffset),
               child: ClipRect(
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
                     Transform.translate(
                       key: const ValueKey<String>('detail-hero-image-parallax'),
-                      offset: Offset(0, collapseOffset - parallaxShift),
+                      offset: Offset(0, snappedCollapseOffset - parallaxShift),
                       child: SizedBox(
                         width: screenWidth,
                         height: heroImageHeight,
@@ -322,14 +331,14 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                                     end: Alignment.bottomCenter,
                                     colors: <Color>[
                                       Colors.transparent,
-                                      transitionTint.withValues(
+                                      transitionSurfaceTint.withValues(
                                         alpha: isLightSurface ? 0.025 : 0.04,
                                       ),
-                                      transitionTint.withValues(
+                                      transitionSurfaceTint.withValues(
                                         alpha: isLightSurface ? 0.07 : 0.10,
                                       ),
                                     ],
-                                    stops: const <double>[0.0, 0.58, 1.0],
+                                    stops: const <double>[0.0, 0.42, 1.0],
                                   ),
                                 ),
                               ),
@@ -344,21 +353,21 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                                     colors: <Color>[
                                       Colors.transparent,
                                       colors.overlayScrim.withValues(
-                                        alpha: isLightSurface ? 0.03 : 0.08,
+                                        alpha: isLightSurface ? 0.015 : 0.03,
                                       ),
                                       transitionSurface.withValues(
-                                        alpha: isLightSurface ? 0.16 : 0.22,
+                                        alpha: isLightSurface ? 0.09 : 0.12,
                                       ),
                                       transitionSurface.withValues(
-                                        alpha: isLightSurface ? 0.52 : 0.62,
+                                        alpha: isLightSurface ? 0.32 : 0.40,
                                       ),
                                       transitionSurface,
                                     ],
                                     stops: const <double>[
                                       0.0,
-                                      0.28,
-                                      0.56,
-                                      0.82,
+                                      0.30,
+                                      0.60,
+                                      0.88,
                                       1.0,
                                     ],
                                   ),
@@ -370,6 +379,42 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+          ),
+
+          // 接续带：海报裁切底边之下的一小段同色余韵。交接层底部落在
+          // 染色承接色上，而正文侧是底色+环境光晕（随高度渐变），两者在
+          // 裁切线上存在色差——之前直接切断，形成肉眼可见的横向分界。
+          // 接续带从承接色精确起笔、缓释到透明，把色差摊进渐变里消除分界。
+          // 与海报裁切层共用同一个滚动位移，滚动时始终贴住海报底边。
+          Positioned(
+            key: const ValueKey<String>('detail-hero-seam-fade'),
+            left: 0,
+            right: 0,
+            top: expandedHeroHeight,
+            height: seamFadeHeight,
+            child: Transform.translate(
+              offset: Offset(0, -snappedCollapseOffset),
+              child: RepaintBoundary(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: <Color>[
+                          transitionSurface,
+                          transitionSurface.withValues(
+                            alpha: isLightSurface ? 0.38 : 0.48,
+                          ),
+                          transitionSurface.withValues(alpha: 0.0),
+                        ],
+                        stops: const <double>[0.0, 0.42, 1.0],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

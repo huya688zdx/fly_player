@@ -62,9 +62,9 @@ object NativeLocalizedStrings {
             }
         }
         return if (formatArgs.isEmpty()) {
-            context.getString(id)
+            context.resources.getString(id)
         } else {
-            context.getString(id, *formatArgs)
+            context.resources.getString(id, *formatArgs)
         }
     }
 }

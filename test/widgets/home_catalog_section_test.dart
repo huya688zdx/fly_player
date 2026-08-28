@@ -14,8 +14,12 @@ const loadableImage = MediaImageRequest(
   selfAuthenticated: true,
 );
 
-Widget testApp(Widget child, {AppThemeColors? runtimeColors}) => MaterialApp(
-  theme: AppThemeBuilder.build(AppThemePreset.midnight),
+Widget testApp(
+  Widget child, {
+  AppThemeColors? runtimeColors,
+  AppThemePreset preset = AppThemePreset.midnight,
+}) => MaterialApp(
+  theme: AppThemeBuilder.build(preset),
   home: AppRuntimeColorScope(
     colors: runtimeColors,
     hasRuntimeColors: runtimeColors != null,
@@ -189,6 +193,42 @@ void main() {
     );
     expect(accentBox.color, accent);
     expect(tester.widget<Text>(find.text('动态主题')).style?.color, Colors.white);
+  });
+
+  testWidgets('亮色主题媒体库标题层使用浅色语义渐变且不再残留黑色阴影', (tester) async {
+    await tester.pumpWidget(
+      testApp(
+        HomeCatalogSection(
+          items: const <HomeCatalogCardData>[
+            HomeCatalogCardData(
+              id: 'light-library',
+              title: '动漫电影',
+              mediaType: HomeCatalogMediaType.movies,
+              imageRequests: <MediaImageRequest>[],
+            ),
+          ],
+          onTap: (_) {},
+        ),
+        preset: AppThemePreset.latte,
+      ),
+    );
+
+    final overlay = tester.widget<DecoratedBox>(
+      find.byKey(
+        const ValueKey<String>('catalog-caption-overlay-light-library'),
+      ),
+    );
+    final decoration = overlay.decoration as BoxDecoration;
+    final gradient = decoration.gradient! as LinearGradient;
+    final colors = Theme.of(
+      tester.element(find.text('动漫电影')),
+    ).extension<AppThemeColors>()!;
+    final title = tester.widget<Text>(find.text('动漫电影'));
+
+    expect(gradient.colors.last.computeLuminance(), greaterThan(.72));
+    expect(title.style?.color, colors.textPrimary);
+    expect(title.style?.shadows, isEmpty);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('媒体库图片候选失败时不连跳且限制解码尺寸', (tester) async {

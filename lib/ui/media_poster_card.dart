@@ -136,10 +136,6 @@ class MediaPosterCard extends StatelessWidget {
 
   Widget _buildPosterArea(BuildContext context) {
     final colors = context.appColors;
-    final posterBorder = Color.alphaBlend(
-      colors.accent.withValues(alpha: .16),
-      colors.borderStrong.withValues(alpha: .82),
-    );
     final ratingFill = Color.alphaBlend(
       colors.accent.withValues(alpha: .92),
       colors.surface,
@@ -161,10 +157,6 @@ class MediaPosterCard extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 color: colors.surfaceStrong,
-              ),
-              foregroundDecoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: posterBorder, width: .8),
               ),
               child: _PosterImage(
                 images: images,

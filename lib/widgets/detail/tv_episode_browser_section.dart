@@ -693,7 +693,7 @@ class _EpisodePoster extends StatelessWidget {
                 children: [
                   for (int i = 0; i < resolutions.length; i++) ...[
                     if (i > 0) const SizedBox(width: 2),
-                    CapabilityBadge(label: resolutions[i]),
+                    CapabilityBadge(label: resolutions[i], onImage: true),
                   ],
                 ],
               ),

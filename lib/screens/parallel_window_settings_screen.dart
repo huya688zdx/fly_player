@@ -156,8 +156,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                         _OptionChip(
                           selected: settings.splitRatioPreset == 'focus_detail',
                           title: '35 / 65',
-                          subtitle:
-                              l10n.parallelWindowSplitFocusDetailSubtitle,
+                          subtitle: l10n.parallelWindowSplitFocusDetailSubtitle,
                           onTap: settings.isReady
                               ? () =>
                                     settings.setSplitRatioPreset('focus_detail')

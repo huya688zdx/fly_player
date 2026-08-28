@@ -12,6 +12,7 @@ import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_debug_detail_pages.dart';
 import 'play_stats_debug_formatters.dart';
 import 'play_stats_debug_widgets.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class PlayStatsDebugPage extends StatefulWidget {
   const PlayStatsDebugPage({super.key});
@@ -221,7 +222,7 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
         future: _snapshotFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: BirdLoader(size: 120));
           }
           if (snapshot.hasError) {
             return Center(

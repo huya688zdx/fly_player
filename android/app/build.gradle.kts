@@ -121,11 +121,27 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles("proguard-rules.pro")
         }
+
+        // profile 性能分析包：独立 applicationId（.profile 后缀），
+        // 与正式包共存于同一设备，互不覆盖、不占用对方数据。
+        getByName("profile") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".profile"
+            versionNameSuffix = "-profile"
+            signingConfig = signingConfigs.getByName("debug")
+            // profile 包定位是性能分析，不做 R8 瘦身（本工程 R8 会编译失败）；
+            // 资源收缩依赖代码收缩，需一并关闭。
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
     }
 
     // 两个产品风味：
-    //   full —— 含 MNN 弹幕动态遮挡（ISNet-anime，~7MB 原生库 + ~88MB 模型）。
-    //   lite —— 不含遮挡，包体小 ~95MB；动态遮挡自动降级为不可用（不崩溃）。
+    //   full —— 含 MNN 弹幕动态遮挡（ISNet-anime，~8MB 原生库 + ~85MB 模型）。
+    //   lite —— 不含遮挡，APK 约 58MB；动态遮挡自动降级为不可用（不崩溃）。
+    //   注意：build 输出目录里的旧 APK 会因增量构建残留孤立数据而虚胖，
+    //   看真实包体请以 clean 后的单次构建为准（见 docs 或 memory 记录）。
     // MNN 实现/模型/.so 按 sourceSet 隔离在 src/full，lite 用 src/lite 同 API 替身。
     flavorDimensions += "paddle"
     productFlavors {

@@ -42,6 +42,8 @@ flutter
 probe_*
 tmp_*
 .codex_tmp/
+.codex-*.png
+.codex-remote-attachments/
 capture/
 .look/
 gfxinfo_*.txt

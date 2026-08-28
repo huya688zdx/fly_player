@@ -32,6 +32,7 @@ import '../ui/route_transition_gate.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/swallowed_error_logger.dart';
+import '../widgets/common/app_catalog_query_sheets.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/liquid_glass.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
@@ -684,20 +685,16 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     }
   }
 
-  Future<void> _changeSort(String column) async {
-    final nextColumn = column == _sortColumn ? _sortColumn : column;
-    final nextType = column == _sortColumn
-        ? (_sortType == 'ASC' ? 'DESC' : 'ASC')
-        : 'DESC';
+  Future<void> _changeSort(String column, String sortType) async {
     setState(() {
-      _sortColumn = nextColumn;
-      _sortType = nextType;
+      _sortColumn = column;
+      _sortType = sortType;
     });
     if (_settingsMdbGuid.isNotEmpty) {
       await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
         _settingsMdbGuid,
-        sortField: nextColumn,
-        sortType: nextType,
+        sortField: column,
+        sortType: sortType,
         viewType: _viewType.storageValue,
       );
     }
@@ -738,62 +735,17 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   }
 
   Future<void> _openSortSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.appModalBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        final colors = context.appColors;
-        final l10n = AppLocalizations.of(context);
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  l10n.listSortTitle,
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                for (final column in _sortColumns)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      _sortLabelFor(column),
-                      style: TextStyle(
-                        color: column == _sortColumn
-                            ? colors.textPrimary
-                            : colors.textSecondary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    trailing: column == _sortColumn
-                        ? Text(
-                            _sortType == 'ASC'
-                                ? l10n.listSortAsc
-                                : l10n.listSortDesc,
-                            style: TextStyle(color: colors.textMuted),
-                          )
-                        : null,
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      _changeSort(column);
-                    },
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
+    final result = await AppCatalogSortSheet.show(
+      context,
+      options: <AppCatalogSortOption>[
+        for (final column in _sortColumns)
+          AppCatalogSortOption(field: column, label: _sortLabelFor(column)),
+      ],
+      selectedField: _sortColumn,
+      sortType: _sortType,
     );
+    if (!mounted || result == null) return;
+    await _changeSort(result.field, result.sortType);
   }
 
   String _sortLabelFor(String column) {
@@ -887,189 +839,45 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   Future<void> _openFilterSheet() async {
     final resolutionOptions = _availableResolutionFilters();
-    String? tempResolution = _selectedResolutionFilter;
-    int? tempWatched = _selectedWatchedFilter;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.appModalBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModal) {
-            final colors = context.appColors;
-            final l10n = AppLocalizations.of(context);
-            Widget chip({
-              required String label,
-              required bool selected,
-              required VoidCallback onTap,
-            }) {
-              final colors = context.appColors;
-              return Padding(
-                padding: const EdgeInsets.only(right: 10, bottom: 10),
-                child: InkWell(
-                  onTap: onTap,
-                  borderRadius: BorderRadius.circular(999),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? colors.selectionSoft
-                          : colors.surfaceStrong,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: selected
-                            ? colors.selection
-                            : colors.borderSubtle,
-                      ),
-                    ),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        color: selected
-                            ? colors.selectionStrong
-                            : colors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            return SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Text(
-                        l10n.listFilterButton,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      l10n.listFilterResolution,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      children: [
-                        chip(
-                          label: l10n.listFilterAll,
-                          selected: tempResolution == null,
-                          onTap: () => setModal(() => tempResolution = null),
-                        ),
-                        for (final value in resolutionOptions)
-                          chip(
-                            label: value,
-                            selected: tempResolution == value,
-                            onTap: () => setModal(() => tempResolution = value),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.listFilterWatched,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      children: [
-                        chip(
-                          label: l10n.listFilterAll,
-                          selected: tempWatched == null,
-                          onTap: () => setModal(() => tempWatched = null),
-                        ),
-                        chip(
-                          label: l10n.listWatched,
-                          selected: tempWatched == 1,
-                          onTap: () => setModal(() => tempWatched = 1),
-                        ),
-                        chip(
-                          label: l10n.listUnwatched,
-                          selected: tempWatched == 0,
-                          onTap: () => setModal(() => tempWatched = 0),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              setModal(() {
-                                tempResolution = null;
-                                tempWatched = null;
-                              });
-                            },
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: colors.borderSubtle),
-                              foregroundColor: colors.textSecondary,
-                              minimumSize: const Size.fromHeight(44),
-                            ),
-                            child: Text(
-                              l10n.listFilterResetButton,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () {
-                              Navigator.of(context).pop();
-                              setState(() {
-                                _selectedResolutionFilter = tempResolution;
-                                _selectedWatchedFilter = tempWatched;
-                                _items = _applyLocalFilters(_allItems);
-                              });
-                            },
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(44),
-                            ),
-                            child: Text(
-                              l10n.commonConfirm,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
+    final l10n = AppLocalizations.of(context);
+    final result = await AppCatalogFilterSheet.show(
+      context,
+      sections: <AppCatalogFilterSection>[
+        AppCatalogFilterSection(
+          key: 'resolution',
+          title: l10n.listFilterResolution,
+          options: <AppCatalogFilterOption>[
+            for (final value in resolutionOptions)
+              AppCatalogFilterOption(value: value, label: value),
+          ],
+          selectedValues: <Object>{
+            if (_selectedResolutionFilter != null) _selectedResolutionFilter!,
           },
-        );
-      },
+        ),
+        AppCatalogFilterSection(
+          key: 'watched',
+          title: l10n.listFilterWatched,
+          options: <AppCatalogFilterOption>[
+            AppCatalogFilterOption(value: 1, label: l10n.listWatched),
+            AppCatalogFilterOption(value: 0, label: l10n.listUnwatched),
+          ],
+          selectedValues: <Object>{
+            if (_selectedWatchedFilter != null) _selectedWatchedFilter!,
+          },
+        ),
+      ],
     );
+    if (!mounted || result == null) return;
+
+    final resolutions = result['resolution'] ?? const <Object>{};
+    final watched = result['watched'] ?? const <Object>{};
+    setState(() {
+      _selectedResolutionFilter = resolutions.isEmpty
+          ? null
+          : '${resolutions.first}';
+      _selectedWatchedFilter = watched.isEmpty ? null : watched.first as int;
+      _items = _applyLocalFilters(_allItems);
+    });
   }
 
   void _replaceItemLocally(

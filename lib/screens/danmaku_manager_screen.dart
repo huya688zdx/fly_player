@@ -10,6 +10,7 @@ import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 bool _sourceIsTv(DanmakuSavedSource source) {
   final type = source.mediaType.trim().toLowerCase();
@@ -158,7 +159,7 @@ class _DanmakuManagerScreenState extends State<DanmakuManagerScreen> {
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : groups.isEmpty
               ? Center(
                   child: Text(
