@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fly Player · 原生播放页重设计预览 V2</title>
+<style>
+:root{
+  --bg:#07080c;
+  --ink:#f5f6f9;
+  --ink-dim:rgba(245,246,249,.62);
+  --ink-faint:rgba(245,246,249,.38);
+  --amber:#ffb14d;
+  --amber-deep:#ff9328;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'Sora','PingFang SC','HarmonyOS Sans SC','MiSans','Microsoft YaHei UI',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--sans)}
+body{
+  min-height:100vh;padding:34px 40px 60px;
+  background:
+    radial-gradient(1200px 600px at 15% -10%,rgba(255,177,77,.06),transparent 60%),
+    radial-gradient(1000px 700px at 90% 110%,rgba(70,110,255,.05),transparent 60%),
+    var(--bg);
+}
+/* ---------- masthead ---------- */
+.masthead{max-width:1420px;margin:0 auto 28px;display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#ffc97e,var(--amber) 55%,var(--amber-deep));display:grid;place-items:center;box-shadow:0 8px 30px rgba(255,147,40,.3)}
+.logo svg{width:22px;height:22px;fill:#141008}
+.masthead h1{font-size:21px;font-weight:700;letter-spacing:.5px}
+.masthead h1 small{display:block;font-size:11px;font-weight:400;color:var(--ink-dim);letter-spacing:2.5px;margin-top:4px;font-family:var(--mono)}
+.hint{font-size:12.5px;color:var(--ink-dim)}
+.hint b{color:var(--ink)}
+/* ---------- stage ---------- */
+.stage{max-width:1420px;margin:0 auto;display:flex;gap:44px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.device-wrap{display:flex;flex-direction:column;gap:12px}
+.device-label{font-family:var(--mono);font-size:11.5px;letter-spacing:3px;color:var(--ink-dim);display:flex;align-items:center;gap:10px}
+.device-label::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.08)}
+.device{border-radius:34px;padding:10px;background:linear-gradient(160deg,#1c1f28,#0b0c11 60%);border:1px solid rgba(255,255,255,.09);box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.screen{position:relative;border-radius:25px;overflow:hidden;background:#000;user-select:none}
+.landscape .screen{width:880px;height:404px}
+.portrait .screen{width:364px;height:772px}
+/* ---------- video scene ---------- */
+.scene{position:absolute;inset:0;background:#141824}
+.scene .layer{position:absolute;inset:0}
+.scene .sky{background:linear-gradient(180deg,#232c47 0%,#3a4568 34%,#7c6a72 58%,#c98d5e 74%,#e8a96b 82%,#5b4a44 100%)}
+.scene .glow{background:
+  radial-gradient(360px 130px at 50% 80%,rgba(255,214,150,.65),transparent 70%),
+  radial-gradient(240px 90px at 30% 76%,rgba(255,190,120,.35),transparent 70%)}
+.scene .hills{background:
+  radial-gradient(520px 170px at 18% 108%,rgba(14,16,26,.95),transparent 72%),
+  radial-gradient(640px 200px at 85% 112%,rgba(20,18,30,.9),transparent 74%)}
+.scene .bokeh{background:
+  radial-gradient(14px 14px at 22% 66%,rgba(255,230,190,.5),transparent 70%),
+  radial-gradient(9px 9px at 34% 60%,rgba(255,230,190,.4),transparent 70%),
+  radial-gradient(12px 12px at 72% 63%,rgba(255,230,190,.45),transparent 70%),
+  radial-gradient(7px 7px at 62% 70%,rgba(255,230,190,.35),transparent 70%)}
+.scene .vig{background:radial-gradient(140% 120% at 50% 45%,transparent 52%,rgba(0,0,0,.45) 100%)}
+.scene .grain{opacity:.14;mix-blend-mode:overlay;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.7'/%3E%3C/svg%3E")}
+/* portrait: video is a 16:9 block near the top */
+.portrait .scene{inset:76px 0 0 0;height:calc(364px*9/16);bottom:auto}
+.portrait .page-bg{position:absolute;inset:0;background:#0b0c11;z-index:-1}
+/* ---------- scrims ---------- */
+.scrim-top{position:absolute;left:0;right:0;top:0;height:104px;background:linear-gradient(rgba(0,0,0,.68),rgba(0,0,0,.28) 55%,transparent);pointer-events:none}
+.scrim-bottom{position:absolute;left:0;right:0;bottom:0;height:168px;background:linear-gradient(transparent,rgba(0,0,0,.30) 30%,rgba(0,0,0,.82));pointer-events:none}
+/* ---------- danmaku ---------- */
+.danmaku{position:absolute;left:0;right:0;top:12%;height:44%;overflow:hidden;pointer-events:none}
+.danmaku .cmt{position:absolute;white-space:nowrap;font-size:15px;font-weight:600;color:#fff;
+  text-shadow:0 0 4px rgba(0,0,0,.9),0 1px 2px rgba(0,0,0,.8);animation:fly linear forwards}
+@keyframes fly{from{transform:translateX(var(--from))}to{transform:translateX(var(--to))}}
+/* ---------- icons ---------- */
+.icon-btn{width:40px;height:40px;border:none;background:transparent;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:color .15s,transform .1s;flex:none}
+.icon-btn svg{width:21px;height:21px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.55))}
+.icon-btn:hover{color:#fff}
+.icon-btn:active{transform:scale(.88)}
+.icon-btn.on{color:var(--amber)}
+.badge{font-size:11px;font-weight:600;color:#141008;background:linear-gradient(135deg,#ffd28a,var(--amber));padding:3px 9px;border-radius:6px;letter-spacing:1px;flex:none}
+/* ---------- top bar ---------- */
+.topbar{position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:6px;padding:10px 12px}
+.title-wrap{min-width:0;display:flex;align-items:center;gap:10px;flex:1}
+.title{font-size:15px;font-weight:600;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 6px rgba(0,0,0,.65)}
+.title small{color:var(--ink-dim);font-weight:400;font-size:11.5px;margin-left:10px;font-family:var(--mono)}
+/* ---------- lock ---------- */
+.lock-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:40px;height:40px}
+.portrait .lock-btn{top:auto;transform:none;right:8px;top:calc(76px + 364px*9/16 - 56px)}
+/* ---------- landscape bottom ---------- */
+.bottom{position:absolute;left:0;right:0;bottom:0;padding:0 20px 12px;display:flex;flex-direction:column}
+.seek-row{display:flex;align-items:center;gap:14px}
+.time{font-family:var(--mono);font-size:12.5px;color:var(--ink-dim);min-width:46px;letter-spacing:.5px}
+.time.cur{color:var(--ink)}
+.seekbar{flex:1;position:relative;height:26px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+.seekbar .rail{position:relative;width:100%;height:3.5px;border-radius:3px;background:rgba(255,255,255,.22);transition:height .15s}
+.seekbar:hover .rail,.seekbar.dragging .rail{height:6px}
+.seekbar .buf{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.35);border-radius:3px}
+.seekbar .played{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--amber-deep),var(--amber));border-radius:3px}
+.seekbar .thumb{position:absolute;top:50%;width:13px;height:13px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 0 0 4px rgba(255,177,77,.22),0 2px 8px rgba(0,0,0,.5);transition:transform .15s}
+.seekbar:hover .thumb,.seekbar.dragging .thumb{transform:translate(-50%,-50%) scale(1.3)}
+.seek-tip{position:absolute;bottom:24px;transform:translateX(-50%);background:rgba(10,12,18,.9);border:1px solid rgba(255,255,255,.12);padding:4px 9px;border-radius:8px;font-family:var(--mono);font-size:11.5px;pointer-events:none;opacity:0;transition:opacity .12s}
+.seekbar:hover .seek-tip,.seekbar.dragging .seek-tip{opacity:1}
+.ctrl-row{display:flex;align-items:center;justify-content:space-between;margin-top:2px}
+.ctrl-row .grp{display:flex;align-items:center;gap:2px}
+.play-main{width:48px;height:48px}
+.play-main svg{width:27px;height:27px}
+.speed-txt{font-family:var(--mono);font-size:13px;font-weight:600;width:auto;padding:0 8px;letter-spacing:.5px}
+/* ---------- caption ---------- */
+.caption{position:absolute;left:0;right:0;bottom:150px;text-align:center;pointer-events:none;display:none}
+.caption span{display:inline-block;background:rgba(0,0,0,.55);padding:5px 14px;border-radius:6px;font-size:15px;letter-spacing:1px}
+.screen.sub-on .caption{display:block}
+.portrait .caption{display:none}
+/* ---------- portrait page ---------- */
+.p-status{position:absolute;top:0;left:0;right:0;height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);z-index:5}
+.p-status .net{display:flex;gap:8px;align-items:center}
+.p-body{position:absolute;left:0;right:0;top:calc(76px + 364px*9/16 + 16px);bottom:0;display:flex;flex-direction:column;padding:0 16px 14px}
+.p-info{display:flex;flex-direction:column;gap:6px;padding:0 2px}
+.p-info .show{font-size:17px;font-weight:700;letter-spacing:.3px}
+.p-info .ep-line{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-dim)}
+.p-info .ep-chip{font-size:11px;font-weight:600;color:var(--amber);background:rgba(255,177,77,.12);border:1px solid rgba(255,177,77,.28);padding:2px 8px;border-radius:6px}
+.p-info .watch{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+.next-ep{display:flex;align-items:center;gap:10px;margin:18px 2px 0;padding:13px 16px;border-radius:14px;cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+.next-ep:active{background:rgba(255,255,255,.09)}
+.next-ep .tx{flex:1}
+.next-ep .tx b{display:block;font-size:13px;font-weight:600}
+.next-ep .tx span{font-size:11px;color:var(--ink-dim)}
+.next-ep .go{color:var(--amber)}
+.next-ep .go svg{width:17px;height:17px}
+.p-seek{margin-top:auto}
+.p-seek .seek-row{gap:10px}
+.p-transport{display:flex;align-items:center;justify-content:space-between;margin-top:4px;padding-bottom:2px}
+.p-transport .grp{display:flex;align-items:center;gap:4px}
+.p-play{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;color:#141008;
+  background:linear-gradient(135deg,#ffc97e,var(--amber) 55%,var(--amber-deep));
+  display:grid;place-items:center;box-shadow:0 10px 26px rgba(255,147,40,.32);transition:transform .12s;flex:none}
+.p-play:active{transform:scale(.92)}
+.p-play svg{width:26px;height:26px}
+.p-play svg{filter:none}
+/* ---------- footnote ---------- */
+.foot{max-width:1420px;margin:36px auto 0;border-top:1px solid rgba(255,255,255,.08);padding-top:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px}
+.foot .card h4{font-size:12px;letter-spacing:2px;color:var(--amber);margin-bottom:9px;font-family:var(--mono)}
+.foot .card ul{list-style:none;display:flex;flex-direction:column;gap:6px}
+.foot .card li{font-size:12.5px;color:var(--ink-dim);line-height:1.55;padding-left:14px;position:relative}
+.foot .card li::before{content:"";position:absolute;left:0;top:8px;width:5px;height:5px;border-radius:50%;background:rgba(255,177,77,.5)}
+.foot b{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <div class="logo"><svg viewBox="0 0 24 24"><path d="M6 4.5v15l13-7.5z"/></svg></div>
+    <h1>原生播放页 · 重设计预览 V2<small>FLY PLAYER / NATIVE PLAYER UI — 通栏控制条方案</small></h1>
+  </div>
+  <div class="hint">点击画面可隐藏/唤出控制层 · 进度条可拖拽 · <b>无二级菜单，仅页面本体</b></div>
+</header>
+
+<main class="stage">
+  <div class="device-wrap landscape">
+    <div class="device-label">横屏 · 全屏</div>
+    <div class="device"><div class="screen" id="scrL"></div></div>
+  </div>
+  <div class="device-wrap portrait">
+    <div class="device-label">竖屏 · 视频上置</div>
+    <div class="device"><div class="screen" id="scrP"></div></div>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="card"><h4>整体</h4><ul>
+    <li>去掉所有悬浮胶囊，控制层回归<b>通栏半透明渐变</b>，顶部/底部各一条，画面中央完全干净。</li>
+    <li>琥珀金只用于<b>进度与选中态</b>，其余图标纯白，降噪。</li>
+    <li>弹幕区保留，模拟真实播放状态。</li>
+  </ul></div>
+  <div class="card"><h4>横屏</h4><ul>
+    <li>顶栏：返回 / 已下载 / 标题 · 时长清晰度 / 画中画 音轨 截图 AB复读 更多。</li>
+    <li>进度条独立一行，悬停放大并显示时间；缓冲段可视。</li>
+    <li>底栏左侧=播放/下一集/弹幕开关，右侧=比例/倍速/音量/字幕/选集/弹幕设置。</li>
+  </ul></div>
+  <div class="card"><h4>竖屏</h4><ul>
+    <li>视频 16:9 上置，下方为番剧信息卡，补足留白。</li>
+    <li>"下一集"入口直观可达；主播放键居中放大。</li>
+    <li>进度条贴近拇指热区，位于页面下缘。</li>
+  </ul></div>
+</footer>
+
+<script>
+/* ============ icons ============ */
+const I = {
+  back:'<path d="M15 18l-6-6 6-6"/>',
+  play:'<path d="M7 4.8v14.4a.6.6 0 0 0 .9.5l11.4-7.2a.6.6 0 0 0 0-1L7.9 4.3a.6.6 0 0 0-.9.5z" fill="currentColor" stroke="none"/>',
+  pause:'<rect x="6" y="4.5" width="4" height="15" rx="1.2" fill="currentColor" stroke="none"/><rect x="14" y="4.5" width="4" height="15" rx="1.2" fill="currentColor" stroke="none"/>',
+  next:'<path d="M6 5.5v13a.5.5 0 0 0 .8.4l8.5-6.5a.5.5 0 0 0 0-.8L6.8 5.1a.5.5 0 0 0-.8.4z" fill="currentColor" stroke="none"/><path d="M18.5 5v14"/>',
+  danmaku:'<path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-8.5L7 20v-3.5H4A1.5 1.5 0 0 1 2.5 15V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M7 9.5h10M7 12.5h6"/>',
+  danmakuOff:'<path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-8.5L7 20v-3.5H4A1.5 1.5 0 0 1 2.5 15V7A1.5 1.5 0 0 1 4 5.5z"/><path d="M4 4l16 16"/>',
+  grid:'<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  volume:'<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/>',
+  subtitle:'<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M6.5 14.5h6M15 14.5h2.5M6.5 11h3M12 11h5.5"/>',
+  aspect:'<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/>',
+  camera:'<path d="M9 6.5 10.2 4.5h3.6L15 6.5h3.5A1.5 1.5 0 0 1 20 8v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17V8a1.5 1.5 0 0 1 1.5-1.5H9z"/><circle cx="12" cy="12.2" r="3.2"/>',
+  pip:'<rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="12" width="6.5" height="4.5" rx="1" fill="currentColor" stroke="none"/>',
+  headphone:'<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3.5" y="14" width="4.5" height="6" rx="2"/><rect x="16" y="14" width="4.5" height="6" rx="2"/>',
+  ab:'<path d="M3.5 17.5v-11h5a2.8 2.8 0 0 1 0 5.6h-5M8.5 12.1a2.9 2.9 0 0 1 0 5.4h-5"/><path d="M20.5 6.5h-4.8v11h4.8M15.7 12h3.8"/><path d="M13 4.5 15 6.5 13 8.5" stroke-width="1.4"/>',
+  more:'<circle cx="5.5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
+  lock:'<rect x="5.5" y="10.5" width="13" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+  unlock:'<rect x="5.5" y="10.5" width="13" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 6.8-1.2"/>',
+  chevR:'<path d="M9 5.5 15.5 12 9 18.5"/>',
+};
+const svg=(n,extra='')=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra}>${I[n]}</svg>`;
+
+const DUR=1481;
+const COMMENTS=['萝莉音','太羞耻了','么么哒','不同的语气2333333333','目测这些CV现实中都好专业','好专业的赶脚','前面路过的打卡','白箱！','声优魂在燃烧','这段配音绝了','导演致敬经典','耳机党福利','立华！立华！'];
+function fmt(s){s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+const $=(h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild;};
+
+function createPlayer(root,{portrait=false}={}){
+  const S={cur:portrait?71:70,playing:true,speed:1.0,dmOn:true,subOn:false};
+  root.classList.add(portrait?'portrait':'landscape');
+  if(portrait) root.appendChild($('<div class="page-bg"></div>'));
+  root.appendChild($('<div class="scene"><div class="layer sky"></div><div class="layer glow"></div><div class="layer hills"></div><div class="layer bokeh"></div><div class="layer vig"></div><div class="layer grain"></div></div>'));
+  const dmLayer=$('<div class="danmaku"></div>');root.appendChild(dmLayer);
+  root.appendChild($('<div class="scrim-top"></div><div class="scrim-bottom"></div>'));
+
+  /* ---------- controls ---------- */
+  const ctl=$('<div class="ctl"></div>');
+  const seekHTML=`
+    <div class="seek-row">
+      <span class="time cur">00:00</span>
+      <div class="seekbar">
+        <div class="rail"><div class="buf"></div><div class="played"></div><div class="thumb"></div></div>
+        <div class="seek-tip">00:00</div>
+      </div>
+      <span class="time dur">${fmt(DUR)}</span>
+    </div>`;
+  let topHTML,bottomHTML;
+  if(!portrait){
+    topHTML=`
+      <div class="topbar">
+        <button class="icon-btn">${svg('back')}</button>
+        <div class="title-wrap"><span class="badge">已下载</span>
+          <span class="title">白箱 第1季 第14集 不留情面的试音会议！<small>24:41 · 1080P</small></span></div>
+        <button class="icon-btn">${svg('pip')}</button>
+        <button class="icon-btn">${svg('headphone')}</button>
+        <button class="icon-btn">${svg('camera')}</button>
+        <button class="icon-btn">${svg('ab')}</button>
+        <button class="icon-btn">${svg('more')}</button>
+      </div>`;
+    bottomHTML=`
+      <div class="bottom">${seekHTML}
+        <div class="ctrl-row">
+          <div class="grp">
+            <button class="icon-btn play-main play-btn">${svg('play')}</button>
+            <button class="icon-btn play-main">${svg('next')}</button>
+            <button class="icon-btn play-main dm-tgl on">${svg('danmaku')}</button>
+          </div>
+          <div class="grp">
+            <button class="icon-btn">${svg('aspect')}</button>
+            <button class="icon-btn speed-btn"><span class="speed-txt">1.0x</span></button>
+            <button class="icon-btn">${svg('volume')}</button>
+            <button class="icon-btn sub-btn">${svg('subtitle')}</button>
+            <button class="icon-btn">${svg('grid')}</button>
+            <button class="icon-btn">${svg('danmaku').replace('<svg','<svg data-x="dmset"')}</button>
+          </div>
+        </div>
+      </div>`;
+  }else{
+    topHTML=`
+      <div class="p-status"><span>20:05</span><span class="net">移动网络 37%</span></div>
+      <div class="topbar" style="top:24px">
+        <button class="icon-btn" style="width:36px;height:36px">${svg('back')}</button>
+        <div class="title-wrap"><span class="badge">已下载</span>
+          <span class="title" style="font-size:13.5px">白箱 第1季 第14集 不留…</span></div>
+        <button class="icon-btn" style="width:36px;height:36px">${svg('headphone')}</button>
+        <button class="icon-btn" style="width:36px;height:36px">${svg('more')}</button>
+      </div>`;
+    bottomHTML=`
+      <div class="p-body">
+        <div class="p-info">
+          <span class="show">白箱 SHIROBAKO</span>
+          <span class="ep-line"><span class="ep-chip">第14集</span>不留情面的试音会议！<span class="watch">已看 5%</span></span>
+        </div>
+        <div class="next-ep">
+          <div class="tx"><b>下一集 · 第15集</b><span>意想不到的初次登场</span></div>
+          <span class="go">${svg('chevR')}</span>
+        </div>
+        <div class="p-seek">${seekHTML}</div>
+        <div class="p-transport">
+          <div class="grp">
+            <button class="icon-btn dm-tgl on">${svg('danmaku')}</button>
+            <button class="icon-btn">${svg('grid')}</button>
+          </div>
+          <button class="p-play play-btn">${svg('play')}</button>
+          <div class="grp">
+            <button class="icon-btn sub-btn">${svg('subtitle')}</button>
+            <button class="icon-btn"><span class="speed-txt">1.0x</span></button>
+          </div>
+        </div>
+      </div>`;
+  }
+  ctl.innerHTML=topHTML+bottomHTML;
+  root.appendChild(ctl);
+  root.appendChild($('<div class="caption"><span>「不留情面……就是这样哦，试音开始！」</span></div>'));
+
+  /* lock */
+  const lockBtn=$(`<button class="icon-btn lock-btn">${svg('unlock')}</button>`);
+  root.appendChild(lockBtn);
+
+  /* ---------- state / render ---------- */
+  const q=s=>root.querySelector(s);
+  const timeCur=root.querySelectorAll('.time.cur');
+  const played=root.querySelectorAll('.played'),buf=root.querySelectorAll('.buf'),thumb=root.querySelectorAll('.thumb');
+  const playBtns=root.querySelectorAll('.play-btn'),dmTgl=root.querySelectorAll('.dm-tgl'),subBtn=root.querySelectorAll('.sub-btn');
+  const render=()=>{
+    const p=(S.cur/DUR*100).toFixed(2)+'%';
+    timeCur.forEach(e=>e.textContent=fmt(S.cur));
+    played.forEach(e=>e.style.width=p);
+    thumb.forEach(e=>e.style.left=p);
+    buf.forEach(e=>e.style.width=Math.min(100,S.cur/DUR*100+14)+'%');
+    playBtns.forEach(b=>b.innerHTML=svg(S.playing?'pause':'play'));
+    dmTgl.forEach(b=>{b.innerHTML=svg(S.dmOn?'danmaku':'danmakuOff');b.classList.toggle('on',S.dmOn);});
+    subBtn.forEach(b=>b.classList.toggle('on',S.subOn));
+    dmLayer.style.display=S.dmOn?'':'none';
+    root.classList.toggle('sub-on',S.subOn);
+  };
+
+  /* ---------- progress tick ---------- */
+  setInterval(()=>{
+    if(!S.playing)return;
+    S.cur+=0.25*S.speed;
+    if(S.cur>=DUR){S.cur=DUR;S.playing=false;render();}
+    render();
+  },250);
+
+  /* ---------- danmaku ---------- */
+  let slot=0;
+  setInterval(()=>{
+    if(!S.dmOn||!S.playing)return;
+    const w=root.clientWidth;
+    const c=$(`<span class="cmt">${COMMENTS[Math.floor(Math.random()*COMMENTS.length)]}</span>`);
+    c.style.top=(slot%6)*15+'%';slot++;
+    const dur=7+Math.random()*4;
+    c.style.setProperty('--from',w+'px');
+    c.style.setProperty('--to','-'+(w*0.6+300)+'px');
+    c.style.animationDuration=dur+'s';
+    dmLayer.appendChild(c);
+    setTimeout(()=>c.remove(),dur*1000);
+  },800);
+
+  /* ---------- seek ---------- */
+  root.querySelectorAll('.seekbar').forEach(bar=>{
+    const tip=bar.querySelector('.seek-tip');
+    let drag=false;
+    const seekAt=x=>{const r=bar.getBoundingClientRect();S.cur=Math.min(DUR,Math.max(0,(x-r.left)/r.width*DUR));render();};
+    bar.addEventListener('pointerdown',e=>{drag=true;bar.classList.add('dragging');bar.setPointerCapture(e.pointerId);seekAt(e.clientX);});
+    bar.addEventListener('pointermove',e=>{
+      const r=bar.getBoundingClientRect();
+      tip.style.left=Math.min(Math.max((e.clientX-r.left)/r.width*100,4),96)+'%';
+      tip.textContent=fmt(Math.min(DUR,Math.max(0,(e.clientX-r.left)/r.width*DUR)));
+      if(drag)seekAt(e.clientX);
+    });
+    bar.addEventListener('pointerup',()=>{drag=false;bar.classList.remove('dragging');});
+  });
+
+  /* ---------- simple toggles ---------- */
+  root.addEventListener('click',e=>{
+    if(e.target.closest('.seekbar'))return;
+    if(e.target.closest('.dm-tgl')){S.dmOn=!S.dmOn;render();return;}
+    if(e.target.closest('.sub-btn')){S.subOn=!S.subOn;render();return;}
+    if(e.target.closest('.play-btn')){S.playing=!S.playing;render();return;}
+    if(e.target.closest('.lock-btn')){lockBtn.innerHTML=svg(lockBtn.innerHTML.includes('unlock')?'lock':'unlock');return;}
+    if(e.target.closest('.icon-btn,.next-ep'))return;
+    root.classList.toggle('ctl-hidden');
+  });
+  const style=document.createElement('style');
+  style.textContent='.screen.ctl-hidden .ctl,.screen.ctl-hidden .scrim-top,.screen.ctl-hidden .scrim-bottom,.screen.ctl-hidden .lock-btn{opacity:0;pointer-events:none;transition:opacity .25s}.screen .ctl,.screen .scrim-top,.screen .scrim-bottom,.screen .lock-btn{transition:opacity .25s}';
+  document.head.appendChild(style);
+
+  render();
+}
+createPlayer(document.getElementById('scrL'),{portrait:false});
+createPlayer(document.getElementById('scrP'),{portrait:true});
+</script>
+</body>
+</html>
