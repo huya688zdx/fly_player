@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剧集海报栏重设计 · 提案 — Fly Player</title>
+<style>
+/* ========== 提案页（评审环境） ========== */
+:root{
+  --bg:#0a0c10;
+  --panel:#10131a;
+  --panel2:#151a23;
+  --line:rgba(255,255,255,.07);
+  --txt:#e9ebf2;
+  --sub:#98a1b3;
+  --accent:#f2c94c;      /* 焦点金，沿用 App 现有语言 */
+  --accent2:#ffd75e;
+  --red:#ff5d5d;
+  --blue:#5da2ff;
+  --green:#8bc34a;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:
+    radial-gradient(1100px 520px at 78% -8%, rgba(242,201,76,.055), transparent 60%),
+    radial-gradient(900px 480px at 6% 14%, rgba(93,162,255,.05), transparent 60%),
+    var(--bg);
+  color:var(--txt);
+  font-family:"MiSans","PingFang SC","HarmonyOS Sans SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+  padding:52px 28px 90px;
+  letter-spacing:.2px;
+}
+.wrap{max-width:1500px;margin:0 auto}
+
+/* 头部 */
+.kicker{font-family:var(--mono);font-size:12px;letter-spacing:4px;color:var(--accent);margin-bottom:14px}
+h1{font-size:30px;font-weight:800;letter-spacing:.5px;line-height:1.35}
+h1 em{font-style:normal;color:var(--accent)}
+.lede{margin-top:14px;max-width:860px;font-size:14.5px;line-height:1.85;color:var(--sub)}
+.lede b{color:var(--txt);font-weight:600}
+.chips{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+.chips span{font-family:var(--mono);font-size:11.5px;color:var(--sub);border:1px solid var(--line);border-radius:999px;padding:5px 12px;background:rgba(255,255,255,.02)}
+.chips span.hot{color:var(--accent);border-color:rgba(242,201,76,.35)}
+
+/* 分区标题 */
+.sec-h{display:flex;align-items:baseline;gap:14px;margin:58px 0 8px}
+.pnum{font-family:var(--mono);font-size:13px;color:var(--accent);letter-spacing:2px}
+.sec-h h2{font-size:21px;font-weight:700}
+.sec-p{font-size:13px;color:var(--sub);margin-bottom:26px}
+
+/* 三列舞台 */
+.stage{display:flex;gap:44px;flex-wrap:wrap;justify-content:center;align-items:flex-start;margin-top:26px}
+.col{width:414px}
+.colhead{margin-bottom:16px;min-height:58px}
+.tag{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:1px;padding:5px 12px;border-radius:8px;margin-bottom:9px}
+.tag-red{color:#ff9a9a;background:rgba(255,93,93,.08);border:1px solid rgba(255,93,93,.3)}
+.tag-amber{color:var(--accent2);background:rgba(242,201,76,.08);border:1px solid rgba(242,201,76,.32)}
+.tag-blue{color:#a8c8ff;background:rgba(93,162,255,.08);border:1px solid rgba(93,162,255,.3)}
+.tag b{font-weight:700}
+.colhead p{font-size:13px;color:var(--sub);line-height:1.7}
+.recommend{display:inline-block;margin-left:8px;font-size:10.5px;background:var(--accent);color:#221a03;font-weight:800;border-radius:6px;padding:2px 7px;vertical-align:2px}
+
+/* 手机壳 */
+.phone{
+  width:390px;height:844px;border-radius:48px;background:#000;position:relative;overflow:hidden;
+  border:10px solid #16181e;
+  box-shadow:0 34px 90px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.06),inset 0 0 0 1px rgba(255,255,255,.04);
+  margin:0 auto;
+}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;background:#08090c}
+.notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:108px;height:26px;border-radius:15px;background:#000;z-index:9}
+
+/* ===== 手机内：Hero ===== */
+.hero{position:relative;height:398px;flex:none;overflow:hidden}
+.hero-art{position:absolute;inset:0;background:linear-gradient(180deg,#ecd9e4 0%,#f4e8d9 40%,#d3e3c0 100%)}
+.orb{position:absolute;border-radius:50%;filter:blur(44px)}
+.o1{width:230px;height:230px;background:#f5c3d6;left:-52px;top:56px;opacity:.95}
+.o2{width:250px;height:250px;background:#c9e6b8;right:-64px;top:110px;opacity:.95}
+.o3{width:200px;height:200px;background:#fff6dc;left:110px;top:-30px;opacity:.85}
+.hero-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,9,12,.2) 0%,rgba(8,9,12,0) 28%,rgba(8,9,12,.62) 72%,#08090c 100%)}
+.statusbar{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;padding:16px 26px 0;font-size:12.5px;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.45);z-index:6}
+.back{position:absolute;top:46px;left:16px;width:36px;height:36px;border-radius:50%;background:rgba(10,12,16,.4);border:1px solid rgba(255,255,255,.16);color:#fff;font-size:17px;display:flex;align-items:center;justify-content:center;z-index:6;backdrop-filter:blur(3px)}
+.hero-body{position:absolute;left:22px;right:22px;bottom:16px;z-index:5}
+.logo-h{line-height:1.04}
+.hl1{display:block;font-size:25px;font-weight:800;color:#fff;letter-spacing:7px;text-shadow:0 2px 10px rgba(40,44,66,.4)}
+.hl2{display:block;font-size:41px;font-weight:900;color:#7cb342;letter-spacing:5px;margin-top:2px;
+  text-shadow:-1px -1px 0 rgba(255,255,255,.7),1px -1px 0 rgba(255,255,255,.7),-1px 1px 0 rgba(255,255,255,.7),1px 1px 0 rgba(255,255,255,.7),0 4px 14px rgba(50,80,25,.4)}
+.ep-line{margin-top:10px;font-size:13px;font-weight:600;color:rgba(255,255,255,.96);text-shadow:0 1px 6px rgba(0,0,0,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta-chips{display:flex;gap:8px;margin-top:10px}
+.meta-chips span{font-size:10.5px;padding:4px 10px;border-radius:999px;background:rgba(15,18,24,.52);border:1px solid rgba(255,255,255,.18);color:#fff;backdrop-filter:blur(2px)}
+.meta-chips .star{color:var(--accent2);font-weight:700}
+.desc{margin-top:12px;font-size:12px;line-height:1.65;color:rgba(255,255,255,.9);text-shadow:0 1px 5px rgba(0,0,0,.5);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.btns{display:flex;gap:12px;margin-top:14px}
+.btn{border-radius:24px;font-size:14px;padding:9px 22px;display:inline-flex;align-items:center;gap:6px}
+.btn.play{background:var(--accent2);color:#231a04;font-weight:800;padding:10px 26px}
+.btn.ghost{border:1.5px solid rgba(255,255,255,.85);color:#fff}
+
+/* ===== 手机内：分类 Tab ===== */
+.tabs{position:relative;height:50px;flex:none;display:flex;gap:22px;align-items:center;padding:0 20px;overflow:hidden}
+.tab{font-size:15px;color:#8b93a3;white-space:nowrap}
+.tab.on{color:#fff;font-weight:800;position:relative}
+.tab.on::after{content:"";position:absolute;left:50%;transform:translateX(-50%);bottom:-9px;width:20px;height:3px;border-radius:2px;background:var(--accent)}
+.tabs::after{content:"";position:absolute;right:0;top:0;bottom:0;width:46px;background:linear-gradient(90deg,transparent,#08090c)}
+
+/* ===== 手机内：海报栏（通用） ===== */
+.rail{flex:1;position:relative;overflow:hidden;padding:8px 0 24px}
+.poster{position:relative;overflow:hidden;border-radius:14px;border:1.5px solid rgba(255,255,255,.1);box-shadow:0 12px 30px rgba(0,0,0,.55);width:100%}
+.ratio-23{aspect-ratio:2/3}
+.ratio-11{aspect-ratio:1/1}
+.ratio-916{aspect-ratio:9/16}
+.meta{margin-top:10px;text-align:center;padding:0 4px}
+.mt{font-size:13px;font-weight:650;color:#fff;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ms{font-size:11px;color:rgba(233,235,242,.52);margin-top:4px}
+.prog{position:absolute;left:12px;right:12px;bottom:12px;height:3px;border-radius:2px;background:rgba(255,255,255,.24)}
+.prog b{display:block;height:100%;border-radius:2px;background:var(--accent)}
+
+/* 海报素材（纯 CSS 画的封面占位，模拟不同原始比例） */
+.p-eupho{background:linear-gradient(180deg,#8fc3ea 0%,#b7d9ec 45%,#9db06a 74%,#5d7a41 100%)}
+.p-eupho::before{content:"";position:absolute;width:110px;height:110px;border-radius:50%;left:50%;top:12%;transform:translateX(-50%);
+  background:radial-gradient(circle,rgba(255,255,244,.95),rgba(255,255,244,0) 70%)}
+.p-eupho .p-logo{position:absolute;left:0;right:0;bottom:12%;text-align:center;font-weight:900;font-size:16px;color:#fff;letter-spacing:1px;
+  text-shadow:0 0 4px #2b6cb8,0 0 12px #2b6cb8,0 2px 6px rgba(0,0,0,.3)}
+.p-eupho .p-sub{position:absolute;left:0;right:0;bottom:26%;text-align:center;font-family:var(--mono);font-size:8px;letter-spacing:3px;color:rgba(255,255,255,.9)}
+.p-maid{background:linear-gradient(160deg,#fdeef3 0%,#f8ecd9 46%,#e6f3da 100%)}
+.p-maid::before{content:"";position:absolute;width:11px;height:11px;border-radius:50%;background:#8bc34a;left:46%;top:13%;box-shadow:15px -7px 0 #aed581}
+.p-maid .p-logo{position:absolute;left:0;right:0;top:44%;transform:translateY(-50%);text-align:center;line-height:1.12}
+.p-maid .p-logo .l1{display:block;font-size:17px;font-weight:900;color:#5c9c33;letter-spacing:3px}
+.p-maid .p-logo .l2{display:block;font-size:27px;font-weight:900;color:#5c9c33;letter-spacing:2px}
+.p-maid .p-logo span{ text-shadow:-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff,1px 1px 0 #fff}
+.p-kaguya{background:linear-gradient(160deg,#141a33 0%,#281433 58%,#3c1020 100%)}
+.p-kaguya::before{content:"";position:absolute;width:74px;height:74px;border-radius:50%;left:12%;top:9%;
+  background:radial-gradient(circle,#d24a3a 0%,#8e1f2d 68%,rgba(142,31,45,0) 72%)}
+.p-kaguya .p-vtxt{position:absolute;writing-mode:vertical-rl;right:14%;top:11%;font-weight:800;font-size:15px;letter-spacing:7px;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.65)}
+.p-nichijou{background:linear-gradient(180deg,#f4edda 0%,#eee5cc 100%)}
+.p-nichijou::after{content:"";position:absolute;right:16%;bottom:12%;width:16px;height:44px;border-radius:8px;background:#7fae5c;box-shadow:-14px 14px 0 -3px #93bf70}
+.p-nichijou .p-vtxt{position:absolute;writing-mode:vertical-rl;left:16%;top:12%;font-weight:800;font-size:15px;letter-spacing:8px;color:#4c7a3f}
+.p-movie{background:linear-gradient(180deg,#38220f 0%,#7a4a22 55%,#c98a3d 100%)}
+.p-movie .p-vtxt{position:absolute;writing-mode:vertical-rl;right:18%;top:15%;font-weight:800;font-size:15px;letter-spacing:6px;color:#f7d9a0;text-shadow:0 2px 8px rgba(60,30,0,.6)}
+.p-movie .p-sub{position:absolute;left:0;right:0;top:9%;text-align:center;font-size:10px;font-weight:700;letter-spacing:2px;color:rgba(255,240,212,.9)}
+
+/* —— 方案 A：中央聚焦 —— */
+.rail-focus{display:flex;justify-content:center;align-items:center;gap:12px;height:100%}
+.cell{flex:0 0 46%;width:46%}
+.cell .poster{border-radius:14px}
+.cell.center .poster{border:2px solid var(--accent);box-shadow:0 0 0 4px rgba(242,201,76,.15),0 18px 44px rgba(0,0,0,.6)}
+.cell.side{transform:scale(.86)}
+.cell.side .poster::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(180deg,rgba(5,7,11,.42),rgba(5,7,11,.56))}
+.cell.side .mt{color:rgba(255,255,255,.86)}
+
+/* —— 方案 B：等高整排 —— */
+.rail-flat{display:flex;gap:12px;align-items:flex-start;padding:16px 0 0 18px;margin-left:-58px;height:100%}
+.cell-f{flex:0 0 148px;width:148px}
+.cell-f .poster{border-radius:13px}
+
+/* —— 现状（Before）：原比例直出 —— */
+.rail-before .bitem{position:absolute}
+.bitem{width:150px}
+.bitem .bt{margin-top:8px;text-align:center;font-size:12px;color:rgba(233,235,242,.92);line-height:1.4}
+.b1{left:-48px;top:16px}
+.b1 .poster{border-radius:10px}
+.b2{left:50%;transform:translateX(-50%);top:0;width:180px}
+.b2 .poster{border:2px solid var(--accent);box-shadow:0 0 0 4px rgba(242,201,76,.15),0 14px 34px rgba(0,0,0,.6);border-radius:12px}
+.b3{right:-52px;top:26px}
+.b3 .poster{border-radius:10px}
+.hole{position:absolute;left:18px;right:18px;bottom:10px;height:54px;border:1.5px dashed rgba(255,93,93,.75);border-radius:10px;background:rgba(255,93,93,.05)}
+.hole b{position:absolute;top:-11px;right:12px;background:#2a1214;border:1px solid rgba(255,93,93,.7);color:#ff8f8f;font-size:10.5px;padding:3px 9px;border-radius:6px;font-weight:600;white-space:nowrap}
+
+/* 列下备注 */
+.notes{margin-top:22px;list-style:none;display:grid;gap:9px}
+.notes li{font-size:13px;line-height:1.65;color:var(--sub);padding-left:22px;position:relative}
+.notes li::before{position:absolute;left:2px;top:1px;font-size:13px}
+.notes.good li::before{content:"✓";color:#7ed07e;font-weight:800}
+.notes.bad li::before{content:"✕";color:var(--red);font-weight:800}
+
+/* ========== 02 裁切原理 ========== */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:34px 38px;margin-top:34px}
+.fx{display:flex;gap:44px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+.fxg{display:flex;flex-direction:column;align-items:center;gap:12px}
+.src{position:relative;overflow:hidden;border-radius:10px;border:1px solid rgba(255,255,255,.14)}
+.src .rt{position:absolute;left:8px;top:8px;font-family:var(--mono);font-size:9.5px;background:rgba(0,0,0,.5);color:#fff;padding:2px 7px;border-radius:5px;letter-spacing:1px}
+.src-cap{font-size:11.5px;color:var(--sub)}
+.fx-mid{display:flex;flex-direction:column;align-items:center;gap:3px;margin-top:34px}
+.fx-mid .ar{color:var(--accent);font-size:19px}
+.fx-mid .lbl{font-family:var(--mono);font-size:10px;color:var(--sub);letter-spacing:1px}
+.out{width:106px;aspect-ratio:2/3;border-radius:12px;overflow:hidden;position:relative;border:1.5px dashed rgba(242,201,76,.55)}
+.out .art{position:absolute;left:-14%;right:-14%;top:-26%;bottom:-26%}
+.out-cap{font-size:11.5px;color:var(--accent2)}
+.panel-note{margin-top:26px;font-size:13.5px;line-height:1.9;color:var(--sub);max-width:960px}
+.panel-note b{color:var(--txt)}
+
+/* ========== 03 规格 ========== */
+.spec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:6px 44px;margin-top:8px}
+.srow{display:flex;justify-content:space-between;gap:18px;border-bottom:1px dashed rgba(255,255,255,.08);padding:9px 2px;font-size:13.5px}
+.srow .k{color:var(--sub);flex:none}
+.srow .v{color:var(--txt);text-align:right;font-family:var(--mono);font-size:12.5px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:6px;border:1px solid rgba(255,255,255,.25)}
+.code{background:#0b0e14;border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin-top:24px;
+  font-family:var(--mono);font-size:12.5px;color:#cfe3ff;line-height:1.85;overflow:auto}
+.code .cm{color:#6f8b5a}
+.code .kw{color:#e8b4f0}
+
+/* 底部 CTA */
+.cta{margin-top:52px;text-align:center}
+.cta .big{font-size:17px;font-weight:700}
+.cta .big em{font-style:normal;color:var(--accent)}
+.cta .small{margin-top:10px;font-size:12.5px;color:var(--sub)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">FLY PLAYER · 详情页改版提案 · POSTER RAIL REDESIGN</div>
+    <h1>剧集海报栏：让<em>任意比例</em>的封面都不再露黑</h1>
+    <p class="lede">问题：海报原始比例不一（2:3 竖版海报 / <b>1:1 BD 封面</b> / 16:9 剧照），现状按原始比例直接摆放 ——
+      底边参差、矮封面下方露出成片黑底、标题基线跟着各自海报高度走。
+      下面在<b>竖屏 390×844、深色主题、继续观看</b>的真实语境里给出两个候选方案，拍板后落到 Flutter。</p>
+    <div class="chips">
+      <span>竖屏 MOBILE · 390×844</span>
+      <span>深色 UI</span>
+      <span class="hot">金色描边 = 当前选中（沿用现有交互语言）</span>
+      <span>封面占位为 CSS 示意图，实际接网络海报</span>
+    </div>
+  </header>
+
+  <!-- ============ 01 提案对比 ============ -->
+  <div class="sec-h"><span class="pnum">01</span><h2>提案对比</h2></div>
+  <p class="sec-p">三台手机是同一页面语境（小林家的龙女仆 · 继续观看），只有底部海报栏不同。</p>
+
+  <div class="stage">
+
+    <!-- ===== 现状 ===== -->
+    <div class="col">
+      <div class="colhead">
+        <span class="tag tag-red">现状 · BEFORE</span>
+        <p>封面按原始比例直出：选中的 1:1 BD 封面反而最矮，下方一大片黑；标题基线错位。</p>
+      </div>
+      <div class="phone"><div class="screen">
+        <span class="notch"></span>
+        <div class="hero">
+          <div class="hero-art"><span class="orb o1"></span><span class="orb o2"></span><span class="orb o3"></span></div>
+          <div class="hero-scrim"></div>
+          <div class="statusbar"><span>22:46</span><span>5G · 87%</span></div>
+          <div class="back">←</div>
+          <div class="hero-body">
+            <div class="logo-h"><span class="hl1">小林家的</span><span class="hl2">龙女仆</span></div>
+            <div class="ep-line">第 14 集 · 迷你龙 6：识得真面目（早知道就不识了）</div>
+            <div class="meta-chips"><span class="star">★ 8.7</span><span>2021</span><span>1分钟</span><span>1080p</span></div>
+            <p class="desc">第二季预热短篇动画《迷你龙》，收录于 小林家的龙女仆S Blu-ray · DVD Vol.S</p>
+            <div class="btns"><span class="btn play">▶ 播放</span><span class="btn ghost">详情</span></div>
+          </div>
+        </div>
+        <div class="tabs">
+          <span class="tab on">继续观看</span><span class="tab">动漫电影</span><span class="tab">动漫TV</span><span class="tab">电视剧</span><span class="tab">混剪</span>
+        </div>
+        <div class="rail rail-before">
+          <div class="bitem b1">
+            <div class="poster ratio-916 p-kaguya"><span class="p-vtxt">辉夜大小姐</span></div>
+            <div class="bt">辉夜大小姐想让我告白</div>
+          </div>
+          <div class="bitem b2">
+            <div class="poster ratio-11 p-maid"><span class="p-logo"><span class="l1">小林家的</span><span class="l2">龙女仆</span></span></div>
+            <div class="bt">小林家的龙女仆</div>
+          </div>
+          <div class="bitem b3">
+            <div class="poster ratio-23 p-nichijou"><span class="p-vtxt">异国日记</span></div>
+            <div class="bt">异国日记</div>
+          </div>
+          <div class="hole"><b>小封面下方露黑 · 标题基线不齐</b></div>
+        </div>
+      </div></div>
+      <ul class="notes bad">
+        <li>不同比例封面原样摆放 → 底边参差不齐</li>
+        <li>矮封面（1:1 BD 盒）下方露出成片黑底</li>
+        <li>标题跟着各自海报高度走，没有对齐网格</li>
+      </ul>
+    </div>
+
+    <!-- ===== 方案 A ===== -->
+    <div class="col">
+      <div class="colhead">
+        <span class="tag tag-amber">方案 A · 中央聚焦卡片 <span class="recommend">推荐</span></span>
+        <p>保留你们现有的「中央放大 + 金色描边」焦点语言；所有封面统一 2:3 cover 裁切，标题 / 副标题 / 进度条锁定同一网格。</p>
+      </div>
+      <div class="phone"><div class="screen">
+        <span class="notch"></span>
+        <div class="hero">
+          <div class="hero-art"><span class="orb o1"></span><span class="orb o2"></span><span class="orb o3"></span></div>
+          <div class="hero-scrim"></div>
+          <div class="statusbar"><span>22:46</span><span>5G · 87%</span></div>
+          <div class="back">←</div>
+          <div class="hero-body">
+            <div class="logo-h"><span class="hl1">小林家的</span><span class="hl2">龙女仆</span></div>
+            <div class="ep-line">第 14 集 · 迷你龙 6：识得真面目（早知道就不识了）</div>
+            <div class="meta-chips"><span class="star">★ 8.7</span><span>2021</span><span>1分钟</span><span>1080p</span></div>
+            <p class="desc">第二季预热短篇动画《迷你龙》，收录于 小林家的龙女仆S Blu-ray · DVD Vol.S</p>
+            <div class="btns"><span class="btn play">▶ 播放</span><span class="btn ghost">详情</span></div>
+          </div>
+        </div>
+        <div class="tabs">
+          <span class="tab on">继续观看</span><span class="tab">动漫电影</span><span class="tab">动漫TV</span><span class="tab">电视剧</span><span class="tab">混剪</span>
+        </div>
+        <div class="rail">
+          <div class="rail-focus">
+            <div class="cell side">
+              <div class="poster ratio-23 p-eupho"><span class="p-sub">SOUND! EUPHONIUM</span><span class="p-logo">吹响吧！上低音号</span><i class="prog"><b style="width:38%"></b></i></div>
+              <div class="meta"><div class="mt">吹响吧！上低音号</div><div class="ms">S2 · 第4集</div></div>
+            </div>
+            <div class="cell center">
+              <div class="poster ratio-23 p-maid"><span class="p-logo"><span class="l1">小林家的</span><span class="l2">龙女仆</span></span><i class="prog"><b style="width:62%"></b></i></div>
+              <div class="meta"><div class="mt">小林家的龙女仆</div><div class="ms">第14集 · 看到 0:42</div></div>
+            </div>
+            <div class="cell side">
+              <div class="poster ratio-23 p-kaguya"><span class="p-vtxt">辉夜大小姐</span></div>
+              <div class="meta"><div class="mt">辉夜大小姐想让我告白</div><div class="ms">TV1 · 第3集</div></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <ul class="notes good">
+        <li>任意比例封面 → 统一 2:3 裁切铺满，<b>永不露黑</b></li>
+        <li>中央放大 + 金色描边 + 两侧压暗，聚焦感与现版一致</li>
+        <li>标题 / 副标题 / 进度条全部锁网格，版面永远整齐</li>
+        <li>「继续观看」卡片自带观看进度条，信息更多</li>
+      </ul>
+    </div>
+
+    <!-- ===== 方案 B ===== -->
+    <div class="col">
+      <div class="colhead">
+        <span class="tag tag-blue">方案 B · 等高整排</span>
+        <p>不做焦点缩放，所有卡片同尺寸平铺滚动；单屏约 2.4 张，浏览效率更高，风格更安静。</p>
+      </div>
+      <div class="phone"><div class="screen">
+        <span class="notch"></span>
+        <div class="hero">
+          <div class="hero-art"><span class="orb o1"></span><span class="orb o2"></span><span class="orb o3"></span></div>
+          <div class="hero-scrim"></div>
+          <div class="statusbar"><span>22:46</span><span>5G · 87%</span></div>
+          <div class="back">←</div>
+          <div class="hero-body">
+            <div class="logo-h"><span class="hl1">小林家的</span><span class="hl2">龙女仆</span></div>
+            <div class="ep-line">第 14 集 · 迷你龙 6：识得真面目（早知道就不识了）</div>
+            <div class="meta-chips"><span class="star">★ 8.7</span><span>2021</span><span>1分钟</span><span>1080p</span></div>
+            <p class="desc">第二季预热短篇动画《迷你龙》，收录于 小林家的龙女仆S Blu-ray · DVD Vol.S</p>
+            <div class="btns"><span class="btn play">▶ 播放</span><span class="btn ghost">详情</span></div>
+          </div>
+        </div>
+        <div class="tabs">
+          <span class="tab on">继续观看</span><span class="tab">动漫电影</span><span class="tab">动漫TV</span><span class="tab">电视剧</span><span class="tab">混剪</span>
+        </div>
+        <div class="rail">
+          <div class="rail-flat">
+            <div class="cell-f">
+              <div class="poster ratio-23 p-movie"><span class="p-sub">吹响悠风号剧场版</span><span class="p-vtxt">誓言的终章</span><i class="prog"><b style="width:25%"></b></i></div>
+              <div class="meta"><div class="mt">吹响悠风号剧场版</div><div class="ms">誓言的终章</div></div>
+            </div>
+            <div class="cell-f">
+              <div class="poster ratio-23 p-eupho"><span class="p-sub">SOUND! EUPHONIUM</span><span class="p-logo">吹响吧！上低音号</span><i class="prog"><b style="width:38%"></b></i></div>
+              <div class="meta"><div class="mt">吹响吧！上低音号</div><div class="ms">S2 · 第4集</div></div>
+            </div>
+            <div class="cell-f">
+              <div class="poster ratio-23 p-maid"><span class="p-logo"><span class="l1">小林家的</span><span class="l2">龙女仆</span></span><i class="prog"><b style="width:62%"></b></i></div>
+              <div class="meta"><div class="mt">小林家的龙女仆</div><div class="ms">第14集 · 看到 0:42</div></div>
+            </div>
+            <div class="cell-f">
+              <div class="poster ratio-23 p-nichijou"><span class="p-vtxt">异国日记</span></div>
+              <div class="meta"><div class="mt">异国日记</div><div class="ms">TV1 · 已看完</div></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <ul class="notes good">
+        <li>同样统一 2:3 裁切规格，<b>不会露黑</b></li>
+        <li>无缩放动效，一屏内容更多、扫描更快</li>
+        <li>实现最简单：普通 ListView 横向滚动即可</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- ============ 02 裁切原理 ============ -->
+  <section class="panel">
+    <div class="sec-h" style="margin-top:0"><span class="pnum">02</span><h2>核心手段：统一 2:3 容器 + cover 居中裁切</h2></div>
+    <p class="sec-p">这是两个方案共用的底座，露黑问题从这里根治。</p>
+    <div class="fx">
+      <div class="fxg">
+        <div class="src ratio-11 p-maid" style="width:150px"><span class="rt">1:1</span><span class="p-logo"><span class="l1">小林家的</span><span class="l2">龙女仆</span></span></div>
+        <div class="src-cap">原图 1:1 · BD 盒封面</div>
+        <div class="fx-mid"><span class="ar">↓</span><span class="lbl">COVER 裁切</span></div>
+        <div class="out"><div class="art p-maid"><span class="p-logo"><span class="l1">小林家的</span><span class="l2">龙女仆</span></span></div></div>
+        <div class="out-cap">统一 2:3 · 永远铺满</div>
+      </div>
+      <div class="fxg">
+        <div class="src p-kaguya" style="width:96px;height:170px"><span class="rt">9:16</span><span class="p-vtxt">辉夜大小姐</span></div>
+        <div class="src-cap">原图 9:16 · 竖版海报</div>
+        <div class="fx-mid"><span class="ar">↓</span><span class="lbl">COVER 裁切</span></div>
+        <div class="out"><div class="art p-kaguya"><span class="p-vtxt">辉夜大小姐</span></div></div>
+        <div class="out-cap">统一 2:3 · 永远铺满</div>
+      </div>
+      <div class="fxg">
+        <div class="src p-eupho" style="width:236px;height:132px"><span class="rt">16:9</span><span class="p-sub">SOUND! EUPHONIUM</span><span class="p-logo">吹响吧！上低音号</span></div>
+        <div class="src-cap">原图 16:9 · 横版剧照</div>
+        <div class="fx-mid"><span class="ar">↓</span><span class="lbl">COVER 裁切</span></div>
+        <div class="out"><div class="art p-eupho"><span class="p-sub">SOUND! EUPHONIUM</span><span class="p-logo">吹响吧！上低音号</span></div></div>
+        <div class="out-cap">统一 2:3 · 永远铺满</div>
+      </div>
+    </div>
+    <p class="panel-note">容器永远 <b>2:3、同圆角、同描边</b>；图片按 <b>cover 居中裁切</b>铺满 —— 宽图裁上下、窄图裁左右，主体居中的海报基本不受影响。
+      Flutter 对应写法就是 <b>AspectRatio(2/3) + BoxFit.cover</b>，一个属性解决露黑。</p>
+  </section>
+
+  <!-- ============ 03 方案 A 规格 ============ -->
+  <section class="panel">
+    <div class="sec-h" style="margin-top:0"><span class="pnum">03</span><h2>方案 A 设计规格（可直接翻译为 dp）</h2></div>
+    <div class="spec-grid">
+      <div class="srow"><span class="k">卡片宽度</span><span class="v">46% 屏宽（≈180dp）</span></div>
+      <div class="srow"><span class="k">卡片比例</span><span class="v">2 : 3（高 ≈270dp）</span></div>
+      <div class="srow"><span class="k">圆角</span><span class="v">14dp</span></div>
+      <div class="srow"><span class="k">默认描边</span><span class="v"><span class="sw" style="background:rgba(255,255,255,.1)"></span>1.5dp · white 10%</span></div>
+      <div class="srow"><span class="k">选中描边</span><span class="v"><span class="sw" style="background:#f2c94c"></span>2dp · #F2C94C + 15% 光晕</span></div>
+      <div class="srow"><span class="k">非选中态</span><span class="v">scale 0.86 + 黑色 45% 压暗</span></div>
+      <div class="srow"><span class="k">主标题</span><span class="v">13sp · white · maxLines 2</span></div>
+      <div class="srow"><span class="k">副标题</span><span class="v">11sp · white 52%（集数/进度）</span></div>
+      <div class="srow"><span class="k">进度条</span><span class="v">高 3dp · #F2C94C（仅继续观看）</span></div>
+      <div class="srow"><span class="k">间距</span><span class="v">卡片间 12dp · 与 Tab 间距 14dp</span></div>
+      <div class="srow"><span class="k">滚动</span><span class="v">viewportFraction ≈ 0.52 · 吸附居中</span></div>
+      <div class="srow"><span class="k">交互</span><span class="v">点侧边卡片 → 平滑换焦点</span></div>
+    </div>
+    <div class="code"><span class="cm">// 落地映射（Flutter 侧，示意）</span>
+PageView.builder(
+  <span class="kw">viewportFraction</span>: .52,                       <span class="cm">// 卡片间 12dp + 吸附居中</span>
+  itemBuilder: (_, i) => AnimatedScale(          <span class="cm">// 焦点态：scale 1.0 / 0.86</span>
+    scale: isCenter ? 1.0 : .86,
+    child: Column(children: [
+      AspectRatio(<span class="kw">aspectRatio</span>: 2/3, child:       <span class="cm">// 根治露黑</span>
+        DecoratedBox(decoration: focusBorder,     <span class="cm">// 金色描边 / white10 描边</span>
+          child: Image(image: p, fit: <span class="kw">BoxFit</span>.cover))),
+      SizedBox(<span class="kw">height</span>: 44, child: Text(t, maxLines: 2)),
+    ])));
+<span class="cm">// 继续观看：卡片底部叠 LinearProgressIndicator(3dp, #F2C94C)</span></div>
+  </section>
+
+  <div class="cta">
+    <div class="big">拍板：回复「<em>方案 A</em>」/「<em>方案 B</em>」，或提出混改意见（比如 B 的布局 + A 的规格），我直接落到 Flutter 详情页。</div>
+    <div class="small">本页为纯静态 HTML、无外部依赖；手机内封面为 CSS 示意图，仅用于演示比例裁切效果。</div>
+  </div>
+
+</div>
+</body>
+</html>
