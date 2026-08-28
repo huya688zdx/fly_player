@@ -11,7 +11,6 @@ class PosterBrowseBackgroundSpec {
     required this.requestWidth,
     required this.cacheWidth,
     required this.prefetchRadius,
-    required this.useCoverUnderlay,
   });
 
   final bool usePosterImages;
@@ -20,7 +19,6 @@ class PosterBrowseBackgroundSpec {
   final int requestWidth;
   final int cacheWidth;
   final int prefetchRadius;
-  final bool useCoverUnderlay;
 }
 
 abstract final class PosterBrowseBackgroundPolicy {
@@ -37,12 +35,13 @@ abstract final class PosterBrowseBackgroundPolicy {
       final width = (logicalSize.width * dpr).round().clamp(360, 960);
       return PosterBrowseBackgroundSpec(
         usePosterImages: true,
-        fit: BoxFit.contain,
-        alignment: Alignment.topCenter,
+        // 全出血 cover：竖版海报、小图、横图一律裁切铺满整屏，杜绝旧 contain
+        // 方案在海报下方露出的成片黑底。上偏对齐保住海报顶部的标题/主体。
+        fit: BoxFit.cover,
+        alignment: const Alignment(0.0, -0.20),
         requestWidth: width,
         cacheWidth: width,
         prefetchRadius: 1,
-        useCoverUnderlay: true,
       );
     }
 
@@ -54,7 +53,6 @@ abstract final class PosterBrowseBackgroundPolicy {
       requestWidth: width,
       cacheWidth: width,
       prefetchRadius: 2,
-      useCoverUnderlay: false,
     );
   }
 }
