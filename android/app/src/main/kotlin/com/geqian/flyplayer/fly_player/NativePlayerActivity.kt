@@ -703,7 +703,7 @@ internal fun nativePanelEpisodeLabel(context: Context, episode: Map<String, Any?
     }
 }
 
-/** 选集面板「播放中」律动条：4 根相位错开的竖条持续起伏，attach 才转、detach 即停。 */
+/** 选集封面「播放中」律动条：8 根细条围绕中线相位错开地缓慢伸缩，attach 才转、detach 即停。 */
 internal class EqualizerView(context: Context, barColor: Int) : View(context) {
     private val density = context.resources.displayMetrics.density
     private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
@@ -733,15 +733,17 @@ internal class EqualizerView(context: Context, barColor: Int) : View(context) {
         super.onDraw(canvas)
         if (startedAtMs == 0L) return
         val t = (System.currentTimeMillis() - startedAtMs) / 1000f
-        val bars = 4
-        val step = width / (bars * 1.7f)
-        paint.strokeWidth = step * 0.62f
+        val bars = 8
+        val step = width / (bars * 1.35f)
+        paint.strokeWidth = (step * 0.42f).coerceAtLeast(1.2f * density)
         val cy = height / 2f
         val maxAmp = height / 2f - 1.5f * density
         for (i in 0 until bars) {
-            val phase = t * 5.4f + i * 0.85f
-            val amp = (0.28f + 0.72f * kotlin.math.abs(kotlin.math.sin(phase))) * maxAmp
-            val x = step * 0.8f + i * step
+            // 2.3 rad/s ≈ 预览稿 4.6 rad/s × 0.5 倍速：慢节奏从容跳动。
+            val phase = t * 2.3f + i * 0.9f
+            val v = 0.12f + 0.88f * kotlin.math.abs(kotlin.math.sin(phase)).coerceAtMost(1f)
+            val amp = v * maxAmp
+            val x = step * 0.7f + i * step
             canvas.drawLine(x, cy - amp, x, cy + amp, paint)
         }
     }
@@ -4770,7 +4772,37 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             val thumbWidth = dp(140)
             val thumbHeight = (thumbWidth * 9 / 16)
-            itemView.addView(thumbnail, LinearLayout.LayoutParams(thumbWidth, thumbHeight))
+            if (isSelected) {
+                // 播放中条目：整张封面盖一层淡黑遮罩，律动条居中悬浮（无底衬块）。
+                val thumbWrap = FrameLayout(this)
+                thumbWrap.addView(
+                    thumbnail,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+                thumbWrap.addView(
+                    View(this).apply {
+                        isClickable = false
+                        background = GradientDrawable().apply {
+                            setColor(0x2E000000)
+                            cornerRadius = dp(8).toFloat()
+                        }
+                    },
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+                thumbWrap.addView(
+                    EqualizerView(this, ACCENT),
+                    FrameLayout.LayoutParams(dp(56), dp(28)).apply { gravity = Gravity.CENTER },
+                )
+                itemView.addView(thumbWrap, LinearLayout.LayoutParams(thumbWidth, thumbHeight))
+            } else {
+                itemView.addView(thumbnail, LinearLayout.LayoutParams(thumbWidth, thumbHeight))
+            }
 
             val posterUrl = resolveImageUrl(episode["poster"]?.toString())
             if (posterUrl.isNotEmpty()) {
@@ -4841,31 +4873,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val watched = (episode["watched"] as? Number)?.toInt() ?: 0
             val statusStr = if (isSelected) localizedString(R.string.player_text_0012) else if (watched == 1) localizedString(R.string.player_text_0013) else ""
             if (statusStr.isNotEmpty()) {
-                // 正在播放的条目：律动条 + 状态文字；已观看只显示文字。
-                val statusRow = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                val statusText = TextView(this).apply {
+                    text = statusStr
+                    setTextColor(ACCENT)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    gravity = Gravity.END
                 }
-                if (isSelected) {
-                    statusRow.addView(
-                        EqualizerView(this, ACCENT),
-                        LinearLayout.LayoutParams(dp(16), dp(14)),
-                    )
-                }
-                statusRow.addView(
-                    TextView(this).apply {
-                        text = statusStr
-                        setTextColor(ACCENT)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                        gravity = Gravity.END
-                    },
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply { leftMargin = if (isSelected) dp(5) else 0 },
-                )
                 // 不用竖直权重：窄屏标题占两行时权重会把状态文字压成 0 高导致被裁。
-                infoLayout.addView(statusRow, LinearLayout.LayoutParams(
+                infoLayout.addView(statusText, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                 ).apply { topMargin = dp(6) })
