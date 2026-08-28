@@ -703,6 +703,50 @@ internal fun nativePanelEpisodeLabel(context: Context, episode: Map<String, Any?
     }
 }
 
+/** 选集面板「播放中」律动条：4 根相位错开的竖条持续起伏，attach 才转、detach 即停。 */
+internal class EqualizerView(context: Context, barColor: Int) : View(context) {
+    private val density = context.resources.displayMetrics.density
+    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = barColor
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+    private var startedAtMs = 0L
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (startedAtMs == 0L) startedAtMs = System.currentTimeMillis()
+            invalidate()
+            postInvalidateOnAnimation()
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        post(ticker)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(ticker)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+        if (startedAtMs == 0L) return
+        val t = (System.currentTimeMillis() - startedAtMs) / 1000f
+        val bars = 4
+        val step = width / (bars * 1.7f)
+        paint.strokeWidth = step * 0.62f
+        val cy = height / 2f
+        val maxAmp = height / 2f - 1.5f * density
+        for (i in 0 until bars) {
+            val phase = t * 5.4f + i * 0.85f
+            val amp = (0.28f + 0.72f * kotlin.math.abs(kotlin.math.sin(phase))) * maxAmp
+            val x = step * 0.8f + i * step
+            canvas.drawLine(x, cy - amp, x, cy + amp, paint)
+        }
+    }
+}
+
 /**
  * 渐进原生化阶段 1 的纯原生播放壳 Activity。
  *
@@ -987,11 +1031,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 弱网：服务端重载（切画质/音轨/字幕/选集）超过该时长仍未完成，升级提示文案。
         const val WEAK_NET_ESCALATE_MS = 6000L
 
-        // 配色对齐播放器重设计：琥珀金作为唯一强调色（进度/选中态/播放键），其余图标纯白降噪。
+        // 配色对齐 app 主题（默认蓝 accent，与 Flutter 播放器进度条同色）。
         // 含符号位的 ARGB 字面量是 Long，须 .toInt()，故用 val 而非 const val。
-        private val ACCENT = 0xFFFFB14D.toInt()
-        private val ACCENT_DEEP = 0xFFFF9328.toInt()
-        private val ACCENT_INK = 0xFF141008.toInt() // 琥珀底上的深色文字（已下载徽章）
+        private val ACCENT = 0xFF3A82F7.toInt()
         private val SCRIM_TOP = 0x8A000000.toInt() // 顶部信息栏渐变起点
         private val SCRIM_BOTTOM = 0xD6000000.toInt() // 底部控制条渐变终点
         private val PILL_BG = 0xB0060A10.toInt() // 中央提示/状态药丸底色
@@ -1000,9 +1042,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         private const val TRACK_BG = 0x24FFFFFF // 进度条底槽
         private const val TRACK_BUFFERED = 0x52FFFFFF // 缓冲进度
         private val TEXT_DIM = 0xB8FFFFFF.toInt() // 次要文字
-        private val ACCENT_SOFT = 0x33FFB14D
+        private val ACCENT_SOFT = 0x333A82F7
         private val PANEL_BG = 0xCC000000.toInt()
-        private val ITEM_SELECTED_BG = 0x33FFB14D.toInt()
+        private val ITEM_SELECTED_BG = 0x333A82F7.toInt()
         // 与 Flutter shared_preferences 共享的播放列表视图偏好键（plugin 自带 `flutter.` 前缀）。
         private const val SHARED_PLAYLIST_VIEW_TYPE_KEY = "flutter.playlist_view_type"
         // 截图保存设置同样与 Flutter 端共享同一份偏好，避免两端各存一套漂移。
@@ -1172,13 +1214,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private var danmakuEnabled = true
     private lateinit var danmakuToggleButton: TextView
-    // 竖屏底部信息卡：番剧名 + 集数徽章 + 下一集入口（横屏隐藏，视频上方留白补足）。
-    private lateinit var portraitInfoSection: LinearLayout
-    private lateinit var portraitShowTitle: TextView
-    private lateinit var portraitEpChip: TextView
-    private lateinit var portraitEpTitle: TextView
-    private lateinit var portraitNextCard: LinearLayout
-    private lateinit var portraitNextLabel: TextView
     private var isAudioOnly = false
     private lateinit var listenButton: View
     private var listenLayer: FrameLayout? = null
@@ -2041,35 +2076,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (this::actionStrip.isInitialized) {
             actionStrip.setPadding(dp(if (portrait) 2 else 4), dp(2), dp(if (portrait) 2 else 4), dp(2))
         }
-        // 竖屏补信息卡（番剧名/集数/下一集入口），横屏纯全屏沉浸。
-        if (this::portraitInfoSection.isInitialized) {
-            portraitInfoSection.visibility = if (portrait) View.VISIBLE else View.GONE
-            if (portrait) refreshPortraitInfoSection()
-        }
-    }
-
-    /** 竖屏信息卡内容：番剧名 + 集数徽章 + 下一集标题；没有下一集时隐藏入口卡片。 */
-    private fun refreshPortraitInfoSection() {
-        if (!this::portraitInfoSection.isInitialized) return
-        val series = loadArgsMap["seriesTitle"]?.toString()?.trim().orEmpty()
-        portraitShowTitle.text = series.ifEmpty { mediaTitle }
-        val epNum = (loadArgsMap["episodeNumber"] as? Number)?.toInt() ?: 0
-        portraitEpChip.visibility = if (epNum > 0) View.VISIBLE else View.GONE
-        if (epNum > 0) portraitEpChip.text = localizedString(R.string.player_episode_number, epNum)
-        val argTitle = loadArgsMap["title"]?.toString()?.trim().orEmpty()
-        portraitEpTitle.text = when {
-            argTitle.isNotEmpty() && argTitle != series -> argTitle
-            mediaTitle.isNotEmpty() && mediaTitle != series -> mediaTitle
-            else -> ""
-        }
-        val episodes = episodeList()
-        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
-        val currentIndex = episodes.indexOfFirst { it["itemGuid"]?.toString() == currentGuid }
-        val next = episodes.getOrNull(currentIndex + 1)
-        portraitNextCard.visibility = if (next != null && currentIndex != -1) View.VISIBLE else View.GONE
-        if (next != null) {
-            portraitNextLabel.text = nativePanelEpisodeLabel(this, next)
-        }
     }
 
     private fun splitSupported(): Boolean {
@@ -2341,7 +2347,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         danmakuEnabled = enabled
         danmakuSettings["enabled"] = enabled
         if (this::playerSurface.isInitialized) playerSurface.setDanmakuVisible(enabled)
-        if (this::danmakuToggleButton.isInitialized) setIconActive(danmakuToggleButton, enabled)
+        refreshDanmakuToggleIcon()
         showTransientHint(
             if (enabled) {
                 localizedString(R.string.player_danmaku_enabled)
@@ -2349,6 +2355,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 localizedString(R.string.player_danmaku_disabled)
             },
         )
+    }
+
+    /** 弹幕开关双状态：开启=蓝色气泡+横线；关闭=白色气泡+斜杠，颜色与图形双重区分。 */
+    private fun refreshDanmakuToggleIcon() {
+        if (!this::danmakuToggleButton.isInitialized) return
+        val enabled = danmakuEnabled
+        danmakuToggleButton.setCompoundDrawablesWithIntrinsicBounds(
+            if (enabled) R.drawable.ic_player_danmaku_toggle else R.drawable.ic_player_danmaku_toggle_off,
+            0, 0, 0,
+        )
+        setIconActive(danmakuToggleButton, enabled)
     }
 
     private fun isServerManagedPlayback(): Boolean {
@@ -2829,7 +2846,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         resetPlaybackProgressTracking() // 换源后重置「已开播」兜底，让 loading 重新从切换态开始
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
-        if (this::portraitInfoSection.isInitialized && isPortrait()) refreshPortraitInfoSection()
         // 图标入口不重复显示文字；切画质/换源后同步无障碍说明即可。
         if (this::qualityButton.isInitialized) qualityButton.contentDescription = currentQualityLabel()
         refreshEpisodeEntryButton()
@@ -3382,17 +3398,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(8), 0, 0, 0)
         }
 
-        // 已下载 标签 (如果适用)：琥珀实底 + 深色文字，唯一保留的实心徽章。
+        // 已下载 标签 (如果适用)
         if (loadArgsMap["isDownloadedFile"] == true) {
             val chip = TextView(this).apply {
                 text = localizedString(R.string.player_text_0002)
-                setTextColor(ACCENT_INK)
+                setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                 includeFontPadding = false
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
                 background = GradientDrawable().apply {
-                    cornerRadius = dp(6).toFloat()
-                    setColor(ACCENT)
+                    setColor(ACCENT_SOFT)
+                    cornerRadius = dp(999).toFloat()
                 }
                 setPadding(dp(8), dp(3), dp(8), dp(3))
             }
@@ -3460,94 +3475,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(12), dp(10), dp(12), dp(12))
             isClickable = true
         }
-
-        // 第零行：竖屏信息卡（番剧名 + 集数徽章 + 下一集入口），横屏整体隐藏。
-        portraitInfoSection = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            // 与下方进度条保持间距；GONE 时 padding 不占空间。
-            setPadding(0, 0, 0, dp(16))
-        }
-        portraitShowTitle = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            includeFontPadding = false
-        }
-        portraitInfoSection.addView(portraitShowTitle)
-        val epLine = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(5), 0, 0)
-        }
-        portraitEpChip = TextView(this).apply {
-            setTextColor(ACCENT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            includeFontPadding = false
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply {
-                cornerRadius = dp(6).toFloat()
-                setColor(ACCENT_SOFT)
-                setStroke(dp(1), 0x47FFB14D)
-            }
-            setPadding(dp(8), dp(2), dp(8), dp(2))
-        }
-        epLine.addView(portraitEpChip)
-        portraitEpTitle = TextView(this).apply {
-            setTextColor(TEXT_DIM)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            includeFontPadding = false
-            setPadding(dp(8), 0, 0, 0)
-        }
-        epLine.addView(portraitEpTitle, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        portraitInfoSection.addView(epLine)
-
-        // 下一集入口：整卡可点，直达 playNextEpisode()；没有下一集时整卡隐藏。
-        portraitNextCard = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = glassBackground(cornerDp = 14)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            isClickable = true
-            isFocusable = true
-            setContentDescription(localizedString(R.string.player_text_0062))
-        }
-        val nextColumn = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        nextColumn.addView(TextView(this).apply {
-            text = localizedString(R.string.player_text_0062)
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            includeFontPadding = false
-        })
-        portraitNextLabel = TextView(this).apply {
-            setTextColor(TEXT_DIM)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            includeFontPadding = false
-        }
-        nextColumn.addView(portraitNextLabel)
-        portraitNextCard.addView(nextColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        portraitNextCard.addView(ImageView(this).apply {
-            setImageResource(R.drawable.ic_player_arrow_back)
-            rotation = 180f
-            setColorFilter(ACCENT)
-        }, dp(20), dp(20))
-        portraitNextCard.setOnClickListener { playNextEpisode() }
-        portraitInfoSection.addView(
-            portraitNextCard,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                .apply { topMargin = dp(12) },
-        )
-        bar.addView(portraitInfoSection)
-        refreshPortraitInfoSection()
 
         // 第一行：进度条 + 时间
         val progressRow = LinearLayout(this).apply {
@@ -3677,7 +3604,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) },
         )
 
-        // 弹幕开关：纯图标（开启=琥珀），与 V2 设计一致；开关状态由 setIconActive 着色。
+        // 弹幕开关：图标区分开/关两种状态（开=气泡+横线，关=气泡+斜杠），着色同步反馈。
         danmakuToggleButton = TextView(this).apply {
             setTextColor(if (danmakuEnabled) ACCENT else Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -3685,14 +3612,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             includeFontPadding = false
             gravity = Gravity.CENTER
             background = subtlePressBackground()
-            setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_player_danmaku_toggle, 0, 0, 0)
+            setCompoundDrawablesWithIntrinsicBounds(
+                if (danmakuEnabled) R.drawable.ic_player_danmaku_toggle else R.drawable.ic_player_danmaku_toggle_off,
+                0, 0, 0,
+            )
             compoundDrawablePadding = 0
             contentDescription = localizedString(R.string.player_text_0008)
             setPadding(dp(10), dp(8), dp(10), dp(8))
             isClickable = true
             setOnClickListener { setDanmakuEnabled(!danmakuEnabled) }
         }
-        setIconActive(danmakuToggleButton, danmakuEnabled)
+        refreshDanmakuToggleIcon()
         controlRow.addView(
             danmakuToggleButton,
             LinearLayout.LayoutParams(
@@ -4911,14 +4841,31 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val watched = (episode["watched"] as? Number)?.toInt() ?: 0
             val statusStr = if (isSelected) localizedString(R.string.player_text_0012) else if (watched == 1) localizedString(R.string.player_text_0013) else ""
             if (statusStr.isNotEmpty()) {
-                val statusText = TextView(this).apply {
-                    text = statusStr
-                    setTextColor(ACCENT)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                    gravity = Gravity.END
+                // 正在播放的条目：律动条 + 状态文字；已观看只显示文字。
+                val statusRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
                 }
+                if (isSelected) {
+                    statusRow.addView(
+                        EqualizerView(this, ACCENT),
+                        LinearLayout.LayoutParams(dp(16), dp(14)),
+                    )
+                }
+                statusRow.addView(
+                    TextView(this).apply {
+                        text = statusStr
+                        setTextColor(ACCENT)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                        gravity = Gravity.END
+                    },
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply { leftMargin = if (isSelected) dp(5) else 0 },
+                )
                 // 不用竖直权重：窄屏标题占两行时权重会把状态文字压成 0 高导致被裁。
-                infoLayout.addView(statusText, LinearLayout.LayoutParams(
+                infoLayout.addView(statusRow, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                 ).apply { topMargin = dp(6) })
@@ -9296,14 +9243,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             Gravity.START,
             ClipDrawable.HORIZONTAL,
         )
-        // 已播放段：琥珀渐变（深→浅），与 V2 设计稿一致。
-        val progressPiece = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(999).toFloat()
-            orientation = GradientDrawable.Orientation.LEFT_RIGHT
-            colors = intArrayOf(ACCENT_DEEP, ACCENT)
-        }
-        val progress = ClipDrawable(progressPiece, Gravity.START, ClipDrawable.HORIZONTAL)
+        val progress = ClipDrawable(trackPiece(ACCENT), Gravity.START, ClipDrawable.HORIZONTAL)
         val layer = LayerDrawable(arrayOf(bg, buffered, progress))
         layer.setId(0, android.R.id.background)
         layer.setId(1, android.R.id.secondaryProgress)
@@ -9318,9 +9258,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildSeekBarThumb(): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(Color.WHITE)
-        // 琥珀光晕描边：拖动热区不变，视觉更贴合强调色。
-        setStroke(dp(3), (0x38 shl 24) or (ACCENT and 0xFFFFFF))
-        setSize(dp(14), dp(14))
+        setSize(dp(16), dp(16))
     }
 
     // ---- 状态 → UI ----

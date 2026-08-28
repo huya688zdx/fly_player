@@ -4,11 +4,18 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFFFF">
+    <!-- 弹幕关闭态：气泡 + 斜杠，与开启态(气泡+横线)一眼可辨 -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFFFF"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:strokeWidth="1.8"
-        android:pathData="M4,4h6.5v6.5H4zM13.5,4H20v6.5h-6.5zM4,13.5h6.5V20H4zM13.5,13.5H20V20h-6.5z" />
+        android:pathData="M4,6.5h16v9.5H9l-5,3v-12.5zM8,10h8M8,13h5" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.8"
+        android:pathData="M4.5,4l15,16" />
 </vector>
