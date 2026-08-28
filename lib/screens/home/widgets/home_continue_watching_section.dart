@@ -112,6 +112,11 @@ class _ContinueCard extends StatelessWidget {
     final radius = BorderRadius.circular(14);
     final imageHeight = width / (16 / 10);
     final compactDownloaded = item.downloaded && width < 176;
+    final isLight = colors.backgroundBase.computeLuminance() >= .58;
+    final artworkBorder = Color.alphaBlend(
+      colors.accent.withValues(alpha: isLight ? .18 : .24),
+      colors.borderStrong.withValues(alpha: isLight ? .82 : .92),
+    );
     final artwork = _ContinueArtwork(
       item: item,
       stableImageCacheWidth: stableImageCacheWidth,
@@ -208,6 +213,19 @@ class _ContinueCard extends StatelessWidget {
                         minHeight: 2.5,
                         color: colors.accent,
                         backgroundColor: Colors.white.withValues(alpha: .20),
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          key: ValueKey<String>(
+                            'continue-artwork-frame-${item.id}',
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: radius,
+                            border: Border.all(color: artworkBorder, width: 1),
+                          ),
+                        ),
                       ),
                     ),
                   ],
