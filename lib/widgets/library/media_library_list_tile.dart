@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
+import '../../ui/media_placeholder.dart';
 
 class MediaLibraryListTile extends StatelessWidget {
   final MediaImageRequest images;
@@ -132,18 +133,10 @@ class _ListThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     // H-018:"能否加载"改由 MediaImageRequest.canLoad 承载——飞牛无 token
     // 仍回退占位,Emby 自鉴权直链(api_key)即使 NAS token 为空也照常加载。
     if (!images.canLoad) {
-      return Container(
-        color: colors.surfaceStrong,
-        alignment: Alignment.center,
-        child: Icon(
-          Icons.movie,
-          color: colors.textMuted.withValues(alpha: 0.5),
-        ),
-      );
+      return const MediaPlaceholder();
     }
 
     return LayoutBuilder(
@@ -163,14 +156,7 @@ class _ListThumb extends StatelessWidget {
           cacheWidth: cacheWidth,
           headers: images.headers,
           errorBuilder: (_, __, ___) {
-            return Container(
-              color: colors.surfaceStrong,
-              alignment: Alignment.center,
-              child: Icon(
-                Icons.movie,
-                color: colors.textMuted.withValues(alpha: 0.5),
-              ),
-            );
+            return const MediaPlaceholder();
           },
         );
       },
