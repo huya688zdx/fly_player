@@ -32,6 +32,12 @@ class NativePlayerActivityPanelModelsTest {
             R.string.player_subtitle_external -> "外挂"
             R.string.player_version_generic -> "版本"
             R.string.player_untitled -> "未命名"
+            R.string.player_text_0142 -> "声道"
+            R.string.player_text_0202 -> "直通"
+            R.string.player_text_0203 -> "PCM 解码"
+            R.string.player_text_0206 -> "软解"
+            R.string.player_hwdec_enabled_fallback -> "软解（硬解已开启，但当前格式或设备不支持）"
+            R.string.player_hwdec_enabled_waiting -> "已开启（等待实际解码器）"
             else -> error("未覆盖的测试资源: $resId")
             }
 
@@ -80,6 +86,85 @@ class NativePlayerActivityPanelModelsTest {
                 resultEpisodeNumber = 1,
                 currentEpisodeNumber = 1,
                 matchesCurrentSeason = true,
+            ),
+        )
+    }
+
+    @Test
+    fun subtitleResolveResultMustStillMatchPendingAndSelectedTrack() {
+        assertTrue(
+            nativePanelSubtitleResolveIsCurrent(
+                resultGuid = "sub-a",
+                pendingGuid = "sub-a",
+                selectedGuid = "sub-a",
+            ),
+        )
+        assertFalse(
+            nativePanelSubtitleResolveIsCurrent(
+                resultGuid = "sub-a",
+                pendingGuid = "sub-a",
+                selectedGuid = "sub-b",
+            ),
+        )
+    }
+
+    @Test
+    fun enabledHwdecExplainsSoftwareFallbackInsteadOfShowingRawNo() {
+        assertEquals(
+            "软解（硬解已开启，但当前格式或设备不支持）",
+            nativePanelHwdecSummary(
+                context = testContext,
+                current = "no",
+                requested = "mediacodec,auto-safe",
+            ),
+        )
+        assertEquals(
+            "MediaCodec Copy",
+            nativePanelHwdecSummary(
+                context = testContext,
+                current = "mediacodec-copy",
+                requested = "mediacodec-copy",
+            ),
+        )
+    }
+
+    @Test
+    fun audioOutputAddsNumericChannelCount() {
+        assertEquals(
+            "PCM 解码 · s32 · 2声道",
+            nativePanelAudioOutputSummary(
+                context = testContext,
+                passthrough = false,
+                audioCodec = "aac",
+                audioFormat = "s32",
+                audioChannelLayout = "stereo",
+                audioChannelCount = null,
+            ),
+        )
+        assertEquals(
+            "直通(dts) · 6声道",
+            nativePanelAudioOutputSummary(
+                context = testContext,
+                passthrough = true,
+                audioCodec = "dts",
+                audioFormat = "",
+                audioChannelLayout = "5.1(side)",
+                audioChannelCount = 6,
+            ),
+        )
+    }
+
+    @Test
+    fun audioOutputFallsBackToLayoutWhenNumericChannelCountIsInvalid() {
+        assertEquals(
+            "PCM 解码 · s32 · 2声道",
+            nativePanelAudioOutputSummary(
+                context = testContext,
+                passthrough = false,
+                audioCodec = "aac",
+                audioFormat = "s32",
+                audioChannelLayout = "stereo",
+                audioChannelCount = 1_401_423_373,
             ),
         )
     }
@@ -762,6 +847,62 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(false, nativePanelShouldAutoEnterPip(false, true, paused = false, false, false))
         assertEquals(false, nativePanelShouldAutoEnterPip(true, true, paused = false, true, false))
         assertEquals(false, nativePanelShouldAutoEnterPip(true, true, paused = false, false, true))
+    }
+
+    @Test
+    fun controlsAreRestoredOnlyWhenLeavingPip() {
+        assertEquals(
+            true,
+            nativePanelShouldRestoreControlsAfterPipExit(
+                wasInPip = true,
+                isInPip = false,
+            ),
+        )
+        assertEquals(false, nativePanelShouldRestoreControlsAfterPipExit(false, false))
+        assertEquals(false, nativePanelShouldRestoreControlsAfterPipExit(false, true))
+        assertEquals(false, nativePanelShouldRestoreControlsAfterPipExit(true, true))
+    }
+
+    @Test
+    fun playerExitRoutesThroughAutoPipDecision() {
+        val source = File(
+            "src/main/kotlin/com/geqian/flyplayer/fly_player/NativePlayerActivity.kt",
+        ).readText()
+
+        assertFalse(source.contains("setOnClickListener { finish() }"))
+        assertTrue(source.contains("if (!consumeBackEvent()) finishOrEnterPip()"))
+        assertTrue(source.contains("if (consumeBackEvent()) return\n        finishOrEnterPip()"))
+    }
+
+    @Test
+    fun android12AutoPipDoesNotIssueDuplicateClientRequest() {
+        val source = File(
+            "src/main/kotlin/com/geqian/flyplayer/fly_player/NativePlayerActivity.kt",
+        ).readText()
+        val onUserLeaveHint = source
+            .substringAfter("override fun onUserLeaveHint()")
+            .substringBefore("private fun toggleControls()")
+
+        assertTrue(onUserLeaveHint.contains("if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return"))
+        assertTrue(onUserLeaveHint.contains("enterPip()"))
+    }
+
+    @Test
+    fun destroyedPlayerRejectsLatePlaybackStateCallbacks() {
+        assertEquals(true, nativePanelShouldApplyPlaybackState(activityDestroying = false))
+        assertEquals(false, nativePanelShouldApplyPlaybackState(activityDestroying = true))
+    }
+
+    @Test
+    fun uninitializedControlsAreSkippedDuringEarlyDestroy() {
+        assertEquals(
+            false,
+            nativePanelShouldCancelControlsAutoHide(bottomBarInitialized = false),
+        )
+        assertEquals(
+            true,
+            nativePanelShouldCancelControlsAutoHide(bottomBarInitialized = true),
+        )
     }
 
     @Test

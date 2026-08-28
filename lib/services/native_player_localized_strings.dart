@@ -442,6 +442,8 @@ Map<String, String> buildNativePlayerLocalizedStrings(
   'player_text_0212': l10n.nativePlayerText0212,
   'player_text_0213': l10n.nativePlayerText0213,
   'player_text_0214': l10n.nativePlayerText0214,
+  'player_hwdec_enabled_fallback': l10n.nativePlayerHwdecEnabledFallback,
+  'player_hwdec_enabled_waiting': l10n.nativePlayerHwdecEnabledWaiting,
   'player_text_0215': l10n.nativePlayerText0215,
   'player_text_0216': l10n.nativePlayerText0216,
   'player_text_0217': l10n.nativePlayerText0217,

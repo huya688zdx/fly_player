@@ -31,6 +31,7 @@ import 'emby_fn_entry_login_page.dart';
 import 'fn_connect_web_login_page.dart';
 import 'login_history_screen.dart';
 import '../utils/app_confirm_dialog.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 /// 服务器族后端（Emby / Jellyfin…）共用的一套登录表单状态。
 ///
@@ -1525,11 +1526,7 @@ class _SubmitButton extends StatelessWidget {
             ? SizedBox(
                 width: 22,
                 height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.2,
-                  valueColor: AlwaysStoppedAnimation<Color>(buttonForeground),
-                  backgroundColor: buttonForeground.withValues(alpha: 0.18),
-                ),
+                child: BirdGlyph(size: 22, color: buttonForeground),
               )
             : Text(label),
       ),

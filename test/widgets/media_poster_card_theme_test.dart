@@ -5,7 +5,7 @@ import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
 
 void main() {
-  testWidgets('海报占位、边框和评分徽标跟随亮暗主题', (tester) async {
+  testWidgets('海报占位和评分徽标跟随亮暗主题且不显示外框', (tester) async {
     for (final preset in <AppThemePreset>[
       AppThemePreset.latte,
       AppThemePreset.midnight,
@@ -37,10 +37,9 @@ void main() {
         find.byKey(const ValueKey<String>('media-poster-surface')),
       );
       final surfaceDecoration = surface.decoration as BoxDecoration;
-      final foregroundDecoration =
-          surface.foregroundDecoration! as BoxDecoration;
       expect(surfaceDecoration.color, colors.surfaceStrong);
-      expect(foregroundDecoration.border, isNotNull);
+      expect(surface.foregroundDecoration, isNull);
+      expect(surfaceDecoration.border, isNull);
 
       final placeholder = tester.widget<DecoratedBox>(
         find

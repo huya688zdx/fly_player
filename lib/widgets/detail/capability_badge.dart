@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/capability_badge_mapper.dart';
 
 class CapabilityBadge extends StatelessWidget {
   final String label;
+  final bool onImage;
 
-  const CapabilityBadge({super.key, required this.label});
+  const CapabilityBadge({super.key, required this.label, this.onImage = false});
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final foreground = onImage ? const Color(0xFFF2F5F8) : colors.chipText;
     final normalized = CapabilityBadgeMapper.normalize(label);
     if (normalized.isEmpty) return const SizedBox.shrink();
     final asset = CapabilityBadgeMapper.badgeAsset(normalized);
@@ -25,7 +29,11 @@ class CapabilityBadge extends StatelessWidget {
     if (asset != null) {
       return SizedBox(
         height: badgeHeight,
-        child: SvgPicture.asset(asset, fit: BoxFit.contain),
+        child: SvgPicture.asset(
+          asset,
+          fit: BoxFit.contain,
+          colorFilter: ColorFilter.mode(foreground, BlendMode.srcIn),
+        ),
       );
     }
     return Container(
@@ -34,13 +42,13 @@ class CapabilityBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.transparent,
         borderRadius: DetailTokens.compactChipRadius,
-        border: Border.all(color: const Color(0xFFD6DEE8), width: 1),
+        border: Border.all(color: foreground.withValues(alpha: 0.76), width: 1),
       ),
       alignment: Alignment.center,
       child: Text(
         normalized,
-        style: const TextStyle(
-          color: Color(0xFFD6DEE8),
+        style: TextStyle(
+          color: foreground,
           fontSize: 9,
           fontWeight: FontWeight.w700,
           height: 1,
