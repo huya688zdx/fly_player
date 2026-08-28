@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>律动条动效预览 · 终版</title>
+<style>
+:root{ --accent:#3A82F7; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#101216;color:#fff;font-family:'PingFang SC','HarmonyOS Sans SC','Microsoft YaHei UI',sans-serif;
+  padding:40px 48px;min-height:100vh;
+  background:radial-gradient(900px 500px at 20% -10%,rgba(58,130,247,.08),transparent 60%),#101216}
+h1{font-size:20px;margin-bottom:6px}
+.sub{color:rgba(255,255,255,.55);font-size:13px;margin-bottom:28px}
+.row{display:flex;flex-direction:column;gap:26px;max-width:760px}
+.demo{background:#17191f;border-radius:16px;padding:18px 20px;display:flex;align-items:center;gap:16px;
+  border:1px solid rgba(58,130,247,.35)}
+.thumb{width:150px;height:84px;border-radius:10px;background:
+  linear-gradient(160deg,#8fb7d8 0%,#d8c9a8 55%,#7a6a4f 100%);flex:none;position:relative;overflow:hidden}
+.thumb::after{content:"";position:absolute;left:38%;bottom:22%;width:24%;height:20%;
+  background:#2c2c34;border-radius:40% 40% 0 0}
+.thumb .scrim{position:absolute;inset:0;background:rgba(0,0,0,.18)}
+.thumb canvas{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:block}
+.meta{flex:1;min-width:0}
+.meta .t{font-size:16px;font-weight:700}
+.meta .d{color:rgba(255,255,255,.45);font-size:13px;margin-top:8px}
+.status{display:flex;align-items:center;color:var(--accent);font-size:13.5px;flex:none;min-width:150px;justify-content:flex-end}
+.note{margin-top:26px;font-size:12.5px;color:rgba(255,255,255,.45)}
+.ctrl{position:fixed;right:36px;bottom:30px;background:#1b1e26;border:1px solid rgba(255,255,255,.1);
+  border-radius:14px;padding:14px 18px;display:flex;flex-direction:column;gap:10px;font-size:12.5px;color:rgba(255,255,255,.65)}
+.ctrl label{display:flex;align-items:center;gap:10px}
+.ctrl input[type=range]{width:150px;accent-color:var(--accent)}
+.ctrl b{color:var(--accent);font-family:ui-monospace,monospace;min-width:36px;text-align:right}
+</style>
+</head>
+<body>
+<h1>「播放中」律动条 · 终版</h1>
+<div class="sub">A 节奏（中线对称）· 0.5x 慢速 · 8 根细条 · 封面整图淡黑遮罩，无底衬块 —— 与 App 内实现一致</div>
+
+<div class="row">
+  <div class="demo">
+    <div class="thumb"><span class="scrim"></span><canvas id="eq" width="84" height="42"></canvas></div>
+    <div class="meta"><div class="t">第11集 解放</div><div class="d">23:40</div></div>
+    <div class="status">播放中..</div>
+  </div>
+  <div class="demo">
+    <div class="thumb" style="background:linear-gradient(150deg,#2a2f3a,#14161c 70%)"><span class="scrim"></span><canvas id="eq2" width="84" height="42"></canvas></div>
+    <div class="meta"><div class="t">第12集 寻得</div><div class="d">23:40</div></div>
+    <div class="status" style="color:rgba(255,255,255,.4)">已观看</div>
+  </div>
+</div>
+<div class="note">第二行为暗色封面对照：遮罩 + 蓝条在暗封面上的可读性。</div>
+
+<div class="ctrl">
+  <label>跳动速度 <input type="range" id="spd" min="20" max="220" value="50"><b id="spdv">0.5x</b></label>
+  <label>律动幅度 <input type="range" id="amp" min="40" max="100" value="88"><b id="ampv">88%</b></label>
+</div>
+
+<script>
+const spdEl=document.getElementById('spd'),ampEl=document.getElementById('amp');
+let speed=.5,ampPct=.88;
+spdEl.oninput=()=>{speed=spdEl.value/100;document.getElementById('spdv').textContent=speed.toFixed(1)+'x'};
+ampEl.oninput=()=>{ampPct=ampEl.value/100;document.getElementById('ampv').textContent=ampEl.value+'%'};
+
+function ctx(id){const c=document.getElementById(id);return{c,g:c.getContext('2d')}}
+const EQs=[ctx('eq'),ctx('eq2')];
+const BLUE='#3A82F7',N=8;
+
+function drawBars(g,w,h,t){
+  g.clearRect(0,0,w,h);
+  const step=w/(N*1.35), bw=Math.max(2,step*.42), r=Math.min(bw/2,2.5);
+  g.fillStyle=BLUE;g.strokeStyle=BLUE;g.lineCap='round';g.lineWidth=bw;
+  for(let i=0;i<N;i++){
+    const v=(0.12+ampPct*.88*Math.min(1,Math.abs(Math.sin(t*2.3+i*.9))));
+    const amp=v*(h/2-2.5), x=step*.7+i*step+r, cy=h/2;
+    g.beginPath();g.moveTo(x,cy-amp);g.lineTo(x,cy+amp);g.stroke();
+  }
+}
+function roundRect(g,x,y,w,h,r){
+  g.beginPath();
+  g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();
+}
+let t0=performance.now();
+(function loop(now){
+  const t=(now-t0)/1000*speed;
+  EQs.forEach(e=>drawBars(e.g,e.c.width,e.c.height,t));
+  requestAnimationFrame(loop);
+})(t0);
+</script>
+</body>
+</html>
