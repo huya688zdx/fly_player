@@ -7,6 +7,7 @@ import '../../services/storage_access_service.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
 import '../../utils/app_top_tip.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class LocalFileBrowserSheet extends StatelessWidget {
   final String title;
@@ -319,15 +320,8 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     if (_loading) {
-      return Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.2,
-            color: colors.accent,
-          ),
-        ),
+      return const Center(
+        child: SizedBox(width: 24, height: 24, child: BirdGlyph(size: 24)),
       );
     }
 

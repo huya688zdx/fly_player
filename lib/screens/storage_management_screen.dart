@@ -21,6 +21,7 @@ import '../utils/app_top_tip.dart';
 import '../utils/download_record_localizer.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class StorageManagementScreen extends StatefulWidget {
   final Future<StorageOverview> Function(AppLocalizations l10n)? overviewLoader;
@@ -516,11 +517,11 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
         ],
       ),
       body: _loading
-          ? Center(child: CircularProgressIndicator(color: colors.accent))
+          ? const Center(child: BirdLoader(size: 120))
           : overview == null && _overviewError != null
           ? AppErrorState(error: _overviewError!, onRetry: _loadOverview)
           : overview == null
-          ? Center(child: CircularProgressIndicator(color: colors.accent))
+          ? const Center(child: BirdLoader(size: 120))
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
               children: <Widget>[
@@ -2346,7 +2347,7 @@ class _PlaybackEntryPanel extends StatelessWidget {
           if (loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: BirdLoader(size: 80)),
             )
           else if (entries.isEmpty)
             Padding(
@@ -2487,7 +2488,7 @@ class _DownloadEntryPanel extends StatelessWidget {
           if (loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: BirdLoader(size: 80)),
             )
           else if (entries.isEmpty)
             Padding(

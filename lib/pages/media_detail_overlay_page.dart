@@ -49,6 +49,7 @@ class MediaDetailOverlayPage extends StatefulWidget {
     return AppSheetTransitions.showBottomSurface<void>(
       context,
       barrierDismissible: true,
+      enableDrag: true,
       barrierLabel: AppLocalizations.of(context).mediaDetailsTitle,
       barrierColor: colors.overlayScrim,
       builder: (_) => page,
@@ -119,6 +120,18 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
           ),
           child: Column(
             children: [
+              if (!isLandscape) ...[
+                Container(
+                  key: const ValueKey<String>('media-detail-drag-handle'),
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.textMuted.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Row(
                 children: [
                   Expanded(
@@ -225,33 +238,44 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
     if (variant.video != null) {
       children
         ..add(_SectionTitle(l10n.mediaDetailsVideoSection))
-        ..add(const SizedBox(height: 8))
-        ..add(_InfoCard(card: variant.video!))
-        ..add(const SizedBox(height: 14));
+        ..add(const SizedBox(height: 4))
+        ..add(
+          _InfoCard(
+            surfaceKey: const ValueKey<String>('media-detail-info-video-0'),
+            card: variant.video!,
+          ),
+        )
+        ..add(const SizedBox(height: 18));
     }
     if (variant.audios.isNotEmpty) {
       children
         ..add(_SectionTitle(l10n.mediaDetailsAudioSection))
-        ..add(const SizedBox(height: 8));
-      for (final card in variant.audios) {
+        ..add(const SizedBox(height: 4));
+      for (int i = 0; i < variant.audios.length; i++) {
         children.add(
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _InfoCard(card: card),
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _InfoCard(
+              surfaceKey: ValueKey<String>('media-detail-info-audio-$i'),
+              card: variant.audios[i],
+            ),
           ),
         );
       }
     }
     if (variant.subtitles.isNotEmpty) {
       children
-        ..add(const SizedBox(height: 4))
+        ..add(const SizedBox(height: 12))
         ..add(_SectionTitle(l10n.mediaDetailsSubtitleSection))
-        ..add(const SizedBox(height: 8));
-      for (final card in variant.subtitles) {
+        ..add(const SizedBox(height: 4));
+      for (int i = 0; i < variant.subtitles.length; i++) {
         children.add(
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _InfoCard(card: card),
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _InfoCard(
+              surfaceKey: ValueKey<String>('media-detail-info-subtitle-$i'),
+              card: variant.subtitles[i],
+            ),
           ),
         );
       }
@@ -272,8 +296,8 @@ class _SectionTitle extends StatelessWidget {
       title,
       style: TextStyle(
         color: colors.textPrimary,
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
       ),
     );
   }
@@ -281,8 +305,9 @@ class _SectionTitle extends StatelessWidget {
 
 class _InfoCard extends StatelessWidget {
   final MediaInfoCard card;
+  final Key? surfaceKey;
 
-  const _InfoCard({required this.card});
+  const _InfoCard({required this.card, this.surfaceKey});
 
   @override
   Widget build(BuildContext context) {
@@ -290,13 +315,13 @@ class _InfoCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final rows = card.fields;
     return Container(
+      key: surfaceKey,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: appModalTileColor(colors),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: appModalTileBorderColor(colors)),
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
       ),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -305,21 +330,22 @@ class _InfoCard extends StatelessWidget {
               card.header,
               style: TextStyle(
                 color: colors.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 9),
           ],
           for (int i = 0; i < rows.length; i++) ...[
             if (i > 0 && rows[i].isDivider)
-              Divider(color: colors.borderSubtle, height: 14),
+              Divider(color: colors.borderSubtle, height: 18),
             if (!rows[i].isDivider)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.symmetric(vertical: 5),
                 child: Row(
                   children: [
                     Expanded(
+                      flex: 4,
                       child: Text(
                         _label(l10n, rows[i].key),
                         style: TextStyle(
@@ -329,12 +355,14 @@ class _InfoCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 16),
                     Expanded(
+                      flex: 5,
                       child: Text(
                         _displayValue(l10n, rows[i]),
                         textAlign: TextAlign.right,
                         style: TextStyle(
-                          color: colors.textSecondary,
+                          color: colors.textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
