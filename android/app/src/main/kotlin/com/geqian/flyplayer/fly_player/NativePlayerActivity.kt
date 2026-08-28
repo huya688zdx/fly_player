@@ -54,7 +54,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.geqian.flyplayer.fly_player.mpv.AudioSpatializerSupport
 import com.geqian.flyplayer.fly_player.mpv.MpvPlaybackPhase
 import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
@@ -129,6 +128,86 @@ internal fun nativePanelDanmakuResultIsCurrent(
     matchesCurrentSeason &&
         currentEpisodeNumber > 0 &&
         resultEpisodeNumber == currentEpisodeNumber
+
+internal fun nativePanelSubtitleResolveIsCurrent(
+    resultGuid: String,
+    pendingGuid: String?,
+    selectedGuid: String,
+): Boolean =
+    resultGuid.isNotEmpty() &&
+        resultGuid == pendingGuid &&
+        resultGuid == selectedGuid
+
+internal fun nativePanelHwdecSummary(
+    context: Context,
+    current: String?,
+    requested: String?,
+): String {
+    val currentMode = current?.trim()?.lowercase().orEmpty()
+    val requestedMode = requested?.trim()?.lowercase().orEmpty()
+    val requestedEnabled =
+        requestedMode.isNotEmpty() &&
+            requestedMode !in setOf("no", "software", "soft")
+    return when (currentMode) {
+        "mediacodec" -> "MediaCodec"
+        "mediacodec-copy" -> "MediaCodec Copy"
+        "", "-" -> if (requestedEnabled) {
+            context.nativePanelString(R.string.player_hwdec_enabled_waiting)
+        } else {
+            context.nativePanelString(R.string.player_text_0206)
+        }
+        "no" -> if (requestedEnabled) {
+            context.nativePanelString(R.string.player_hwdec_enabled_fallback)
+        } else {
+            context.nativePanelString(R.string.player_text_0206)
+        }
+        else -> current?.trim().orEmpty()
+    }
+}
+
+internal fun nativePanelAudioOutputSummary(
+    context: Context,
+    passthrough: Boolean,
+    audioCodec: String,
+    audioFormat: String,
+    audioChannelLayout: String,
+    audioChannelCount: Int?,
+): String {
+    val parts = mutableListOf<String>()
+    parts += if (passthrough) {
+        context.nativePanelString(R.string.player_text_0202) +
+            audioCodec.trim().takeIf { it.isNotEmpty() }?.let { "($it)" }.orEmpty()
+    } else {
+        context.nativePanelString(R.string.player_text_0203)
+    }
+    if (!passthrough && audioFormat.isNotBlank()) {
+        parts += audioFormat.trim()
+    }
+    val channelCount = audioChannelCount?.takeIf { it in 1..64 }
+        ?: nativePanelChannelCountFromLayout(audioChannelLayout)
+    if (channelCount != null) {
+        parts += "$channelCount${context.nativePanelString(R.string.player_text_0142)}"
+    } else if (audioChannelLayout.isNotBlank()) {
+        parts += audioChannelLayout.trim()
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun nativePanelChannelCountFromLayout(raw: String): Int? {
+    val layout = raw.trim().lowercase()
+    return when (layout) {
+        "mono" -> 1
+        "stereo" -> 2
+        else -> Regex("""^(\d+(?:\.\d+)+)""")
+            .find(layout)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.split('.')
+            ?.mapNotNull(String::toIntOrNull)
+            ?.takeIf { it.isNotEmpty() }
+            ?.sum()
+    }
+}
 
 internal fun nativePanelLanguageName(context: Context, raw: String): String {
     val key = raw.trim().lowercase()
@@ -741,6 +820,17 @@ internal fun nativePanelShouldAutoEnterPip(
     finishing: Boolean,
 ): Boolean = pipAutoEnter && pipSupported && !paused && !alreadyInPip && !finishing
 
+internal fun nativePanelShouldRestoreControlsAfterPipExit(
+    wasInPip: Boolean,
+    isInPip: Boolean,
+): Boolean = wasInPip && !isInPip
+
+internal fun nativePanelShouldApplyPlaybackState(activityDestroying: Boolean): Boolean =
+    !activityDestroying
+
+internal fun nativePanelShouldCancelControlsAutoHide(bottomBarInitialized: Boolean): Boolean =
+    bottomBarInitialized
+
 internal fun nativePanelShouldUsePreloadedEpisodeResult(
     result: Any?,
     requireDanmakuFile: Boolean = true,
@@ -897,9 +987,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 弱网：服务端重载（切画质/音轨/字幕/选集）超过该时长仍未完成，升级提示文案。
         const val WEAK_NET_ESCALATE_MS = 6000L
 
-        // 配色对齐 app 主题（默认蓝 accent，与 Flutter 播放器进度条同色）。
+        // 配色对齐播放器重设计：琥珀金作为唯一强调色（进度/选中态/播放键），其余图标纯白降噪。
         // 含符号位的 ARGB 字面量是 Long，须 .toInt()，故用 val 而非 const val。
-        private val ACCENT = 0xFF3A82F7.toInt()
+        private val ACCENT = 0xFFFFB14D.toInt()
+        private val ACCENT_DEEP = 0xFFFF9328.toInt()
+        private val ACCENT_INK = 0xFF141008.toInt() // 琥珀底上的深色文字（已下载徽章）
         private val SCRIM_TOP = 0x8A000000.toInt() // 顶部信息栏渐变起点
         private val SCRIM_BOTTOM = 0xD6000000.toInt() // 底部控制条渐变终点
         private val PILL_BG = 0xB0060A10.toInt() // 中央提示/状态药丸底色
@@ -908,9 +1000,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         private const val TRACK_BG = 0x24FFFFFF // 进度条底槽
         private const val TRACK_BUFFERED = 0x52FFFFFF // 缓冲进度
         private val TEXT_DIM = 0xB8FFFFFF.toInt() // 次要文字
-        private val ACCENT_SOFT = 0x333A82F7
+        private val ACCENT_SOFT = 0x33FFB14D
         private val PANEL_BG = 0xCC000000.toInt()
-        private val ITEM_SELECTED_BG = 0x333A82F7.toInt()
+        private val ITEM_SELECTED_BG = 0x33FFB14D.toInt()
         // 与 Flutter shared_preferences 共享的播放列表视图偏好键（plugin 自带 `flutter.` 前缀）。
         private const val SHARED_PLAYLIST_VIEW_TYPE_KEY = "flutter.playlist_view_type"
         // 截图保存设置同样与 Flutter 端共享同一份偏好，避免两端各存一套漂移。
@@ -989,6 +1081,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 这里，否则面板高亮固定、续播也会回写成旧轨。字幕空串表示「关闭」。
     private var selectedAudioGuid: String = ""
     private var selectedSubtitleGuid: String = ""
+    private var pendingSubtitleResolveGuid: String? = null
     // 每次换源后置 true，待 visualPlaybackReady 时把 loadArgs 给出的初始字幕真正套用一次
     // （内置走 sid、外挂/本地走文件加载）。否则外挂初始字幕没人加载，mpv 退回默认内置轨。
     private var pendingInitialSubtitle = false
@@ -1048,6 +1141,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 默认关：离开应用不自动进小窗，只有手动点小窗按钮才进；用户可在设置里开启「划走自动小窗」。
     private var pipAutoEnter = false
     private var mediaSessionStarted = false
+    // playerSurface.release() 仍可能投递最后一次状态回调。销毁开始后必须拒绝这些回调，
+    // 否则它会重新启动已停止的前台媒体服务，把通知栏播放卡片“复活”。
+    private var activityDestroying = false
     // 仅在播放态/标题/可切集变化时刷新会话/通知，避免每帧重建前台通知；进度按 ~1s 节流刷新。
     private var lastMediaPlaying: Boolean? = null
     private var lastMediaTitle: String = ""
@@ -1072,9 +1168,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // OnBackInvokedCallback（API 33+）；用 Any? 持有，避免旧设备类加载该 API 类型。
     private var backInvokedCallback: Any? = null
     private var inPipMode = false
+    private var controlsVisibleBeforePip = true
 
     private var danmakuEnabled = true
     private lateinit var danmakuToggleButton: TextView
+    // 竖屏底部信息卡：番剧名 + 集数徽章 + 下一集入口（横屏隐藏，视频上方留白补足）。
+    private lateinit var portraitInfoSection: LinearLayout
+    private lateinit var portraitShowTitle: TextView
+    private lateinit var portraitEpChip: TextView
+    private lateinit var portraitEpTitle: TextView
+    private lateinit var portraitNextCard: LinearLayout
+    private lateinit var portraitNextLabel: TextView
     private var isAudioOnly = false
     private lateinit var listenButton: View
     private var listenLayer: FrameLayout? = null
@@ -1922,7 +2026,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
         }
         if (this::danmakuToggleButton.isInitialized) {
-            danmakuToggleButton.text = ""
             danmakuToggleButton.minWidth = dp(38)
             danmakuToggleButton.setPadding(
                 dp(if (portrait) 9 else 10),
@@ -1937,6 +2040,35 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         if (this::actionStrip.isInitialized) {
             actionStrip.setPadding(dp(if (portrait) 2 else 4), dp(2), dp(if (portrait) 2 else 4), dp(2))
+        }
+        // 竖屏补信息卡（番剧名/集数/下一集入口），横屏纯全屏沉浸。
+        if (this::portraitInfoSection.isInitialized) {
+            portraitInfoSection.visibility = if (portrait) View.VISIBLE else View.GONE
+            if (portrait) refreshPortraitInfoSection()
+        }
+    }
+
+    /** 竖屏信息卡内容：番剧名 + 集数徽章 + 下一集标题；没有下一集时隐藏入口卡片。 */
+    private fun refreshPortraitInfoSection() {
+        if (!this::portraitInfoSection.isInitialized) return
+        val series = loadArgsMap["seriesTitle"]?.toString()?.trim().orEmpty()
+        portraitShowTitle.text = series.ifEmpty { mediaTitle }
+        val epNum = (loadArgsMap["episodeNumber"] as? Number)?.toInt() ?: 0
+        portraitEpChip.visibility = if (epNum > 0) View.VISIBLE else View.GONE
+        if (epNum > 0) portraitEpChip.text = localizedString(R.string.player_episode_number, epNum)
+        val argTitle = loadArgsMap["title"]?.toString()?.trim().orEmpty()
+        portraitEpTitle.text = when {
+            argTitle.isNotEmpty() && argTitle != series -> argTitle
+            mediaTitle.isNotEmpty() && mediaTitle != series -> mediaTitle
+            else -> ""
+        }
+        val episodes = episodeList()
+        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        val currentIndex = episodes.indexOfFirst { it["itemGuid"]?.toString() == currentGuid }
+        val next = episodes.getOrNull(currentIndex + 1)
+        portraitNextCard.visibility = if (next != null && currentIndex != -1) View.VISIBLE else View.GONE
+        if (next != null) {
+            portraitNextLabel.text = nativePanelEpisodeLabel(this, next)
         }
     }
 
@@ -2234,6 +2366,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun applySubtitleByGuid(guid: String) {
+        if (pendingSubtitleResolveGuid != null && pendingSubtitleResolveGuid != guid) {
+            cancelPendingSubtitleResolve()
+        }
         if (isServerManagedPlayback()) {
             selectedSubtitleGuid = guid
             Log.d(TAG, "applySubtitleByGuid serverManaged reload guid=$guid")
@@ -2294,25 +2429,49 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return map[guid]?.toString()?.takeIf { it.isNotEmpty() }
     }
 
+    private fun cancelPendingSubtitleResolve() {
+        if (pendingSubtitleResolveGuid == null) return
+        pendingSubtitleResolveGuid = null
+        if (this::centerHint.isInitialized) {
+            hideCenterHint()
+        }
+    }
+
     private fun selectExternalSubtitle(track: Map<String, Any?>) {
         val guid = track["guid"]?.toString().orEmpty()
         val localPath = localSubtitleFilePath(guid)
         if (!localPath.isNullOrEmpty()) {
+            cancelPendingSubtitleResolve()
             playerSurface.setExternalSubtitleFile(localPath)
             return
         }
         if (guid.isEmpty()) {
+            cancelPendingSubtitleResolve()
             showTransientHint(localizedString(R.string.player_subtitle_load_failed))
             return
         }
         val format = track["format"]?.toString()?.takeIf { it.isNotEmpty() }
             ?: track["codecName"]?.toString().orEmpty()
+        if (pendingSubtitleResolveGuid != guid) {
+            cancelPendingSubtitleResolve()
+        }
+        pendingSubtitleResolveGuid = guid
         showCenterHint(localizedString(R.string.player_subtitle_loading))
         NativePlayerReverseBridge.dispatch(
             method = "resolveSubtitleFile",
             args = mapOf("guid" to guid, "format" to format),
             onResult = { result ->
                 runOnUiThread {
+                    if (!nativePanelSubtitleResolveIsCurrent(
+                            resultGuid = guid,
+                            pendingGuid = pendingSubtitleResolveGuid,
+                            selectedGuid = selectedSubtitleGuid,
+                        )
+                    ) {
+                        return@runOnUiThread
+                    }
+                    pendingSubtitleResolveGuid = null
+                    hideCenterHint()
                     val path = result?.toString()?.takeIf { it.isNotEmpty() }
                     if (path != null) {
                         playerSurface.setExternalSubtitleFile(path)
@@ -2322,7 +2481,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
             },
             onError = {
-                runOnUiThread { showTransientHint(localizedString(R.string.player_subtitle_load_failed)) }
+                runOnUiThread {
+                    if (!nativePanelSubtitleResolveIsCurrent(
+                            resultGuid = guid,
+                            pendingGuid = pendingSubtitleResolveGuid,
+                            selectedGuid = selectedSubtitleGuid,
+                        )
+                    ) {
+                        return@runOnUiThread
+                    }
+                    pendingSubtitleResolveGuid = null
+                    hideCenterHint()
+                    showTransientHint(localizedString(R.string.player_subtitle_load_failed))
+                }
             },
         )
     }
@@ -2448,6 +2619,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val loadArgs = parseJsonExtra(EXTRA_LOAD_ARGS) ?: simpleUrlLoadArgs()
         if (loadArgs == null || (loadArgs["url"]?.toString().isNullOrEmpty())) {
             Log.e(TAG, "missing or invalid loadArgs; finishing")
+            // 通知点击只负责把仍存活的播放器置顶；若播放器已退出，残留通知可能会新建一个
+            // 不带 loadArgs 的 Activity。此时立即清掉失效媒体会话，并安全结束空壳。
+            NativePlaybackMediaService.stop(this)
             finish()
             return
         }
@@ -2641,6 +2815,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         refreshSeekThumbnails()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
         selectedAudioGuid = effectiveLoadArgs["audioTrackGuid"]?.toString().orEmpty()
+        pendingSubtitleResolveGuid = null
         selectedSubtitleGuid = effectiveLoadArgs["subtitleTrackGuid"]?.toString().orEmpty()
         pendingInitialSubtitle = true
         pendingPersistedSettings = true // 换源后首帧就绪时重套已存的 mpv/画面/字幕样式设置
@@ -2654,6 +2829,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         resetPlaybackProgressTracking() // 换源后重置「已开播」兜底，让 loading 重新从切换态开始
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
+        if (this::portraitInfoSection.isInitialized && isPortrait()) refreshPortraitInfoSection()
         // 图标入口不重复显示文字；切画质/换源后同步无障碍说明即可。
         if (this::qualityButton.isInitialized) qualityButton.contentDescription = currentQualityLabel()
         refreshEpisodeEntryButton()
@@ -2766,12 +2942,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        val wasInPipMode = inPipMode
+        if (!wasInPipMode && isInPictureInPictureMode) {
+            controlsVisibleBeforePip = controlsVisible
+        }
         inPipMode = isInPictureInPictureMode
         // 进入小窗：收掉分屏副栏(系统 API31+ 自动进小窗也走这里) + 收起控制层/面板，只留画面。
         if (isInPictureInPictureMode) {
             collapseSplitForPip()
             hidePanel()
             setControlsVisible(false)
+        } else if (nativePanelShouldRestoreControlsAfterPipExit(
+                wasInPip = wasInPipMode,
+                isInPip = isInPictureInPictureMode,
+            )
+        ) {
+            // 系统退出 PIP 只恢复窗口模式，不会恢复应用自己的控制栏状态。
+            setControlsVisible(controlsVisibleBeforePip)
         }
         updatePipParams()
     }
@@ -3183,8 +3370,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setImageResource(R.drawable.ic_player_arrow_back)
             setColorFilter(Color.WHITE)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            setOnClickListener { finish() }
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            setOnClickListener { finishOrEnterPip() }
         }
         mainRow.addView(backButton, LinearLayout.LayoutParams(dp(40), dp(40)))
 
@@ -3195,16 +3382,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(8), 0, 0, 0)
         }
 
-        // 已下载 标签 (如果适用)
+        // 已下载 标签 (如果适用)：琥珀实底 + 深色文字，唯一保留的实心徽章。
         if (loadArgsMap["isDownloadedFile"] == true) {
             val chip = TextView(this).apply {
                 text = localizedString(R.string.player_text_0002)
-                setTextColor(Color.WHITE)
+                setTextColor(ACCENT_INK)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                 includeFontPadding = false
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
                 background = GradientDrawable().apply {
-                    setColor(ACCENT_SOFT)
-                    cornerRadius = dp(999).toFloat()
+                    cornerRadius = dp(6).toFloat()
+                    setColor(ACCENT)
                 }
                 setPadding(dp(8), dp(3), dp(8), dp(3))
             }
@@ -3272,6 +3460,94 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(12), dp(10), dp(12), dp(12))
             isClickable = true
         }
+
+        // 第零行：竖屏信息卡（番剧名 + 集数徽章 + 下一集入口），横屏整体隐藏。
+        portraitInfoSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            // 与下方进度条保持间距；GONE 时 padding 不占空间。
+            setPadding(0, 0, 0, dp(16))
+        }
+        portraitShowTitle = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            includeFontPadding = false
+        }
+        portraitInfoSection.addView(portraitShowTitle)
+        val epLine = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(5), 0, 0)
+        }
+        portraitEpChip = TextView(this).apply {
+            setTextColor(ACCENT)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            includeFontPadding = false
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                cornerRadius = dp(6).toFloat()
+                setColor(ACCENT_SOFT)
+                setStroke(dp(1), 0x47FFB14D)
+            }
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+        }
+        epLine.addView(portraitEpChip)
+        portraitEpTitle = TextView(this).apply {
+            setTextColor(TEXT_DIM)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            includeFontPadding = false
+            setPadding(dp(8), 0, 0, 0)
+        }
+        epLine.addView(portraitEpTitle, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        portraitInfoSection.addView(epLine)
+
+        // 下一集入口：整卡可点，直达 playNextEpisode()；没有下一集时整卡隐藏。
+        portraitNextCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = glassBackground(cornerDp = 14)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            isClickable = true
+            isFocusable = true
+            setContentDescription(localizedString(R.string.player_text_0062))
+        }
+        val nextColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        nextColumn.addView(TextView(this).apply {
+            text = localizedString(R.string.player_text_0062)
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            includeFontPadding = false
+        })
+        portraitNextLabel = TextView(this).apply {
+            setTextColor(TEXT_DIM)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            includeFontPadding = false
+        }
+        nextColumn.addView(portraitNextLabel)
+        portraitNextCard.addView(nextColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        portraitNextCard.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_player_arrow_back)
+            rotation = 180f
+            setColorFilter(ACCENT)
+        }, dp(20), dp(20))
+        portraitNextCard.setOnClickListener { playNextEpisode() }
+        portraitInfoSection.addView(
+            portraitNextCard,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(12) },
+        )
+        bar.addView(portraitInfoSection)
+        refreshPortraitInfoSection()
 
         // 第一行：进度条 + 时间
         val progressRow = LinearLayout(this).apply {
@@ -3401,9 +3677,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) },
         )
 
-        // 弹幕开关 (对应截图底栏左侧图标)
+        // 弹幕开关：纯图标（开启=琥珀），与 V2 设计一致；开关状态由 setIconActive 着色。
         danmakuToggleButton = TextView(this).apply {
-            text = localizedString(R.string.player_text_0008)
             setTextColor(if (danmakuEnabled) ACCENT else Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -3411,12 +3686,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             gravity = Gravity.CENTER
             background = subtlePressBackground()
             setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_player_danmaku_toggle, 0, 0, 0)
-            compoundDrawablePadding = dp(5)
+            compoundDrawablePadding = 0
             contentDescription = localizedString(R.string.player_text_0008)
             setPadding(dp(10), dp(8), dp(10), dp(8))
             isClickable = true
             setOnClickListener { setDanmakuEnabled(!danmakuEnabled) }
         }
+        setIconActive(danmakuToggleButton, danmakuEnabled)
         controlRow.addView(
             danmakuToggleButton,
             LinearLayout.LayoutParams(
@@ -3428,12 +3704,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 占位撑开
         controlRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
 
-        // 右侧功能键：统一收进一条轻量控制条，避免一排独立胶囊抢画面。
+        // 右侧功能键：无底色平铺一排图标（V2 去胶囊化），靠 scrim 渐变保证对比度。
         actionStrip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = controlStripBackground()
-            setPadding(dp(4), dp(2), dp(4), dp(2))
         }
         val episodeSpacer = controlActionSpacer()
         episodeEntryDivider = episodeSpacer
@@ -3650,6 +3924,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 比例须在 [1/2.39, 2.39] 内（currentPipRatio 已兜底），并带上播放控制 RemoteAction。
             enterPictureInPictureMode(buildPipParams())
         }.onFailure { showTransientHint(localizedString(R.string.player_pip_start_failed)) }
+    }
+
+    private fun finishOrEnterPip() {
+        if (this::playerSurface.isInitialized &&
+            nativePanelShouldAutoEnterPip(
+                pipAutoEnter = pipAutoEnter,
+                pipSupported = pipSupported(),
+                paused = playerSurface.state.paused,
+                alreadyInPip = inPipMode,
+                finishing = isFinishing,
+            )
+        ) {
+            enterPip()
+        } else {
+            finish()
+        }
     }
 
     private fun toggleAudioMode() {
@@ -5474,6 +5764,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun selectSubtitleFromPanel(guid: String) {
+        cancelPendingSubtitleResolve()
         selectedSubtitleGuid = guid
         NativeSubtitleImportStore.setSelectedGuid(
             context = this,
@@ -7936,41 +8227,29 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val passthrough = diag["audioPassthrough"] == true
         val audioCodec = diag["audioCodec"]?.toString().orEmpty()
         val audioOutChannels = diag["audioOutChannels"]?.toString().orEmpty()
-        val audioOut = if (passthrough) {
-            localizedString(R.string.player_text_0202) + if (audioCodec.isNotEmpty()) "($audioCodec)" else ""
-        } else {
-            val fmt = diag["audioFormat"]?.toString().orEmpty()
-            buildString {
-                append(localizedString(R.string.player_text_0203))
-                if (fmt.isNotEmpty()) append(" · $fmt")
-                if (audioOutChannels.isNotEmpty()) append(" · $audioOutChannels")
-            }
-        }
-        val dropped = (diag["droppedFrames"] as? Number)?.toLong() ?: 0L
-        val decDropped = (diag["decoderDroppedFrames"] as? Number)?.toLong() ?: 0L
-        val containerFps = (diag["containerFps"] as? Number)?.toDouble() ?: 0.0
+        val audioOut = nativePanelAudioOutputSummary(
+            context = this,
+            passthrough = passthrough,
+            audioCodec = audioCodec,
+            audioFormat = diag["audioFormat"]?.toString().orEmpty(),
+            audioChannelLayout = audioOutChannels,
+            audioChannelCount = (diag["audioOutChannelCount"] as? Number)?.toInt(),
+        )
         val fallback = if (diag["fallbackTriggered"] == true) {
             diag["fallbackReason"]?.toString()?.takeIf { it.isNotBlank() } ?: localizedString(R.string.player_text_0204)
         } else {
             localizedString(R.string.player_text_0205)
         }
-        val hwdec = diag["hwdecCurrent"]?.toString()?.takeIf { it.isNotEmpty() } ?: localizedString(R.string.player_text_0206)
-        val spatial = AudioSpatializerSupport.probe(this).summary(this)
+        val hwdec = nativePanelHwdecSummary(
+            context = this,
+            current = diag["hwdecCurrent"]?.toString(),
+            requested = diag["hwdecRequested"]?.toString(),
+        )
         val diagRows = listOfNotNull(
             infoRow(localizedString(R.string.player_text_0207), hwdec),
             infoRow(localizedString(R.string.player_text_0208), pipelineText),
             infoRow(localizedString(R.string.player_text_0209), fallback),
             infoRow(localizedString(R.string.player_text_0210), audioOut),
-            infoRow(localizedString(R.string.player_text_0211), spatial),
-            infoRow(
-                localizedString(R.string.player_text_0212),
-                "$dropped" + if (decDropped > 0) {
-                    localizedString(R.string.player_decode_dropped_suffix, decDropped)
-                } else {
-                    ""
-                },
-            ),
-            infoRow(localizedString(R.string.player_text_0213), if (containerFps > 0.0) String.format("%.3f fps", containerFps) else ""),
         )
         if (diagRows.isEmpty()) return
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0214)))
@@ -8983,13 +9262,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    private fun controlStripBackground(): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(14).toFloat()
-        setColor(0x70050A10)
-        setStroke(dp(1), 0x24FFFFFF)
-    }
-
     private fun subtlePressBackground(): android.graphics.drawable.Drawable {
         return android.graphics.drawable.StateListDrawable().apply {
             val pressed = GradientDrawable().apply {
@@ -9024,7 +9296,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             Gravity.START,
             ClipDrawable.HORIZONTAL,
         )
-        val progress = ClipDrawable(trackPiece(ACCENT), Gravity.START, ClipDrawable.HORIZONTAL)
+        // 已播放段：琥珀渐变（深→浅），与 V2 设计稿一致。
+        val progressPiece = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(999).toFloat()
+            orientation = GradientDrawable.Orientation.LEFT_RIGHT
+            colors = intArrayOf(ACCENT_DEEP, ACCENT)
+        }
+        val progress = ClipDrawable(progressPiece, Gravity.START, ClipDrawable.HORIZONTAL)
         val layer = LayerDrawable(arrayOf(bg, buffered, progress))
         layer.setId(0, android.R.id.background)
         layer.setId(1, android.R.id.secondaryProgress)
@@ -9039,7 +9318,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildSeekBarThumb(): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(Color.WHITE)
-        setSize(dp(16), dp(16))
+        // 琥珀光晕描边：拖动热区不变，视觉更贴合强调色。
+        setStroke(dp(3), (0x38 shl 24) or (ACCENT and 0xFFFFFF))
+        setSize(dp(14), dp(14))
     }
 
     // ---- 状态 → UI ----
@@ -9114,6 +9395,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun applyState(state: MpvPlayerState) {
+        if (!nativePanelShouldApplyPlaybackState(activityDestroying)) return
         lastDurationMs = state.durationMs
         speedButton.text = nativePanelPlaybackSpeedLabel(state.speed)
 
@@ -9719,6 +10001,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
         if (!this::playerSurface.isInitialized) return
         if (nativePanelShouldAutoEnterPip(
                 pipAutoEnter = pipAutoEnter,
@@ -9765,7 +10048,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun cancelControlsAutoHide() {
-        bottomBar.removeCallbacks(hideControlsRunnable)
+        if (nativePanelShouldCancelControlsAutoHide(this::bottomBar.isInitialized)) {
+            bottomBar.removeCallbacks(hideControlsRunnable)
+        }
     }
 
     // ---- 返回键 ----
@@ -9809,7 +10094,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (consumeBackEvent()) return
-        super.onBackPressed()
+        finishOrEnterPip()
     }
 
     /** 新设备（API ≥ 33，targetSdk≥35 默认启用）需主动注册返回回调，否则返回键直接退出。 */
@@ -9817,7 +10102,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (backInvokedCallback != null) return
         val callback = OnBackInvokedCallback {
-            if (!consumeBackEvent()) finish()
+            if (!consumeBackEvent()) finishOrEnterPip()
         }
         backInvokedCallback = callback
         onBackInvokedDispatcher.registerOnBackInvokedCallback(
@@ -9903,14 +10188,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
+        activityDestroying = true
+        NativeMediaCommandCoordinator.detach(this)
+        // 先停媒体服务，再释放 playerSurface。释放内核可能同步/异步回调最终状态，不能让
+        // 任何后续清理异常或迟到回调阻止通知被移除、重新把服务拉起。
+        if (mediaSessionStarted) {
+            NativePlaybackMediaService.stop(this)
+            mediaSessionStarted = false
+        }
         cancelSplitEntryVerification()
         cancelControlsAutoHide()
         cancelAutoNext()
         unregisterBatteryReceiver()
         unregisterNetworkMonitor()
         unregisterBackHandler()
-        // 退出即收掉前台媒体服务（锁屏/通知栏控制），不让通知与服务在后台滞留。
-        if (mediaSessionStarted) NativePlaybackMediaService.stop(this)
         if (this::resumeCard.isInitialized) resumeCard.removeCallbacks(resumeHideRunnable)
         if (this::playerSurface.isInitialized) {
             playerSurface.release()
