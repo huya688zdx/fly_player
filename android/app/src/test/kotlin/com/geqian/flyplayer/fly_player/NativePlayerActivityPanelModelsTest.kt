@@ -49,6 +49,24 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun playbackSpeedLabelReflectsSelectedSpeed() {
+        assertEquals("1.5x", nativePanelPlaybackSpeedLabel(1.5))
+        assertEquals("2.0x", nativePanelPlaybackSpeedLabel(2.0))
+        assertEquals("0.75x", nativePanelPlaybackSpeedLabel(0.75))
+    }
+
+    @Test
+    fun primaryControlsRemoveManualReloadEntry() {
+        val source = File(
+            "src/main/kotlin/com/geqian/flyplayer/fly_player/NativePlayerActivity.kt",
+        ).readText()
+
+        assertFalse(source.contains("makeEntryButton(localizedString(R.string.player_action_reload)"))
+        assertTrue(source.contains("speedButton = makeEntryButton(\"1.0x\")"))
+        assertTrue(source.contains("R.drawable.ic_player_episode_grid"))
+    }
+
+    @Test
     fun danmakuCurrentResultRequiresSameSeasonAndEpisode() {
         assertFalse(
             nativePanelDanmakuResultIsCurrent(
