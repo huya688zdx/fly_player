@@ -145,6 +145,45 @@ void main() {
     expect(selected, <int>[2]);
   });
 
+  testWidgets('展开态快速甩动跨多张海报并聚焦落点', (tester) async {
+    final selected = <int>[];
+    await _pumpPanel(
+      tester,
+      focusedIndex: 1,
+      itemCount: 8,
+      onItemTap: selected.add,
+    );
+
+    await tester.timedDrag(
+      _panelFinder,
+      const Offset(-480, 0),
+      const Duration(milliseconds: 150),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selected, <int>[7]);
+  });
+
+  testWidgets('收起态快速甩动仍只切换一部', (tester) async {
+    final selected = <int>[];
+    await _pumpPanel(tester, focusedIndex: 1, onItemTap: selected.add);
+
+    await tester.timedDrag(
+      _panelFinder,
+      const Offset(0, 180),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+    await tester.timedDrag(
+      _panelFinder,
+      const Offset(-480, 0),
+      const Duration(milliseconds: 150),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selected, <int>[2]);
+  });
+
   testWidgets('横屏海报面板收起后信息按切换方向位移过渡', (tester) async {
     const firstKey = ValueKey('collapsed-info-1');
     const secondKey = ValueKey('collapsed-info-2');
@@ -189,13 +228,14 @@ Future<void> _pumpPanel(
   required int focusedIndex,
   required void Function(int index) onItemTap,
   Widget collapsedContent = const Text('影片详情'),
+  int itemCount = 3,
 }) async {
   await tester.binding.setSurfaceSize(const Size(853, 384));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     _testApp(
       PosterBrowseLandscapeGesturePanel(
-        items: _items(),
+        items: _items(itemCount),
         focusedIndex: focusedIndex,
         showProgress: false,
         imageOf: (_) => MediaImageRequest.empty,
@@ -242,8 +282,8 @@ Widget _testApp(Widget child) {
   );
 }
 
-List<PosterBrowseDisplayItem> _items() {
-  return List<PosterBrowseDisplayItem>.generate(3, (index) {
+List<PosterBrowseDisplayItem> _items([int count = 3]) {
+  return List<PosterBrowseDisplayItem>.generate(count, (index) {
     final card = MediaItemCard(
       id: 'item-$index',
       title: '影片 $index',
