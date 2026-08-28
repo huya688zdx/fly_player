@@ -14,6 +14,8 @@ GENERATED_ROOT = Path(
 )
 OUTPUT_ANIMATION = GENERATED_ROOT / "refresh_story_single_character_288poses_preview.png"
 OUTPUT_CONTACT = GENERATED_ROOT / "refresh_story_single_character_288poses_contact.png"
+ASSET_ANIMATION = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading.webp"
+ASSET_STATIC = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_static.png"
 
 BASE_ATLASES = [
     PROJECT_ROOT / "assets" / "refresh" / f"shoujo_bird_frames_{start:02d}_{start + 7:02d}.png"
@@ -249,9 +251,9 @@ def pose_feature(frame: Image.Image) -> np.ndarray:
 
 
 def merge_ordered_pose_sequences(sequences: list[list[Image.Image]]) -> list[Image.Image]:
-    """在保留每套序列内部顺序的前提下，按轮廓平滑度合并四套姿势。"""
+    """在保留各序列内部顺序的前提下，按轮廓平滑度合并姿势。"""
     sequence_count = len(sequences)
-    sequence_length = len(sequences[0])
+    sequence_lengths = [len(sequence) for sequence in sequences]
     features = [[pose_feature(frame) for frame in sequence] for sequence in sequences]
 
     def transition_cost(previous: np.ndarray, current: np.ndarray) -> float:
@@ -267,7 +269,7 @@ def merge_ordered_pose_sequences(sequences: list[list[Image.Image]]) -> list[Ima
         costs[state] = 0.0
         parents[state] = None
 
-    total_frames = sequence_count * sequence_length
+    total_frames = sum(sequence_lengths)
     for consumed in range(1, total_frames):
         states = [state for state in list(costs) if sum(state[0]) == consumed]
         for counts, last_sequence in states:
@@ -275,14 +277,14 @@ def merge_ordered_pose_sequences(sequences: list[list[Image.Image]]) -> list[Ima
             previous_feature = features[last_sequence][counts[last_sequence] - 1]
             for next_sequence in range(sequence_count):
                 next_local_index = counts[next_sequence]
-                if next_local_index >= sequence_length:
+                if next_local_index >= sequence_lengths[next_sequence]:
                     continue
                 next_counts = list(counts)
                 next_counts[next_sequence] += 1
                 next_counts_tuple = tuple(next_counts)
                 current_feature = features[next_sequence][next_local_index]
                 expected_progress = consumed / max(total_frames - 1, 1)
-                local_progress = next_local_index / max(sequence_length - 1, 1)
+                local_progress = next_local_index / max(sequence_lengths[next_sequence] - 1, 1)
                 progress_penalty = abs(expected_progress - local_progress) * 0.20
                 candidate_cost = (
                     costs[state]
@@ -294,7 +296,7 @@ def merge_ordered_pose_sequences(sequences: list[list[Image.Image]]) -> list[Ima
                     costs[next_state] = candidate_cost
                     parents[next_state] = state
 
-    final_counts = tuple(sequence_length for _ in range(sequence_count))
+    final_counts = tuple(sequence_lengths)
     final_state = min(
         ((final_counts, sequence_index) for sequence_index in range(sequence_count)),
         key=lambda state: costs[state],
@@ -349,6 +351,78 @@ def render_on_stage_curve(
     return canvas
 
 
+def semantic_progress(stage_index: int, frame: Image.Image) -> float:
+    cropped = frame.crop(alpha_bbox(frame)).convert("RGBA")
+    pixels = np.asarray(cropped)
+    rgb = pixels[:, :, :3].astype(np.int16)
+    alpha = pixels[:, :, 3] > 24
+    opaque_count = max(int(np.count_nonzero(alpha)), 1)
+    red = rgb[:, :, 0]
+    green = rgb[:, :, 1]
+    blue = rgb[:, :, 2]
+
+    if stage_index == 1:
+        warm_detail = alpha & (red > 140) & (green > 65) & (green < 210) & (blue < 165) & (red > blue + 25)
+        saturated_hair = alpha & (blue > 130) & (blue > red + 45) & (blue > green + 5)
+        warm_count = int(np.count_nonzero(warm_detail))
+        hair_count = int(np.count_nonzero(saturated_hair))
+        aspect = cropped.width / max(cropped.height, 1)
+        if warm_count > 6:
+            # 仍看得到靴子或手时，先站立、再深弯和蜷缩。
+            return aspect
+        if hair_count > 6:
+            # 靴子已经收起后，再让头发逐步被布褶遮住。
+            return 2.0 - min(hair_count / opaque_count, 0.5)
+        # 完全闭合的茧永远排在所有人体细节之后。
+        return 3.0 + aspect * 0.05
+
+    if stage_index == 2:
+        aspect = cropped.width / max(cropped.height, 1)
+        if aspect < 0.62:
+            return aspect
+        yy, xx = np.indices(alpha.shape)
+        saturated_blue = alpha & (blue > red + 20) & (blue > green + 4)
+        outer_wing = saturated_blue & (
+            (xx < cropped.width * 0.38) | (xx > cropped.width * 0.62)
+        )
+        wing_count = int(np.count_nonzero(outer_wing))
+        wing_fraction = wing_count / opaque_count
+        if wing_fraction < 0.025:
+            return 0.7 + aspect
+        wing_height = float(np.mean(yy[outer_wing]) / max(cropped.height - 1, 1))
+        # 先长出翼芽，再抬翼、平展、下压，形成完整的第一轮扑翼。
+        return 1.0 + wing_height * 2.0 + min(aspect, 2.5) * 0.10
+
+    if stage_index == 5:
+        chroma = np.max(rgb, axis=2) - np.min(rgb, axis=2)
+        pale_cyan = alpha & (red > 145) & (green > 170) & (blue > 180) & (chroma < 85)
+        pale_fraction = np.count_nonzero(pale_cyan) / opaque_count
+        fill_ratio = opaque_count / max(cropped.width * cropped.height, 1)
+        # 淡青布褶核心先消失，空心翼环随后收紧成实心蓝色椭圆。
+        return (1.0 - pale_fraction) + fill_ratio * 0.6
+
+    if stage_index == 6:
+        fill_ratio = opaque_count / max(cropped.width * cropped.height, 1)
+        aspect = cropped.width / max(cropped.height, 1)
+        center_column = alpha[
+            :,
+            round(cropped.width * 0.40) : round(cropped.width * 0.60),
+        ]
+        center_column_fill = float(np.mean(center_column)) if center_column.size else 0.0
+        center_bottom = alpha[
+            round(cropped.height * 0.52) :,
+            round(cropped.width * 0.34) : round(cropped.width * 0.66),
+        ]
+        center_bottom_fill = float(np.mean(center_bottom)) if center_bottom.size else 0.0
+        if fill_ratio > 0.52 and aspect > 1.15:
+            return aspect * -0.02
+        if center_column_fill < 0.26:
+            return 1.0 + fill_ratio * 0.1
+        return 2.0 + center_bottom_fill * 0.1 + center_column_fill * 0.02
+
+    return 0.0
+
+
 def build_frames() -> list[Image.Image]:
     base_frames = load_base_frames()
     generated_pages = [
@@ -360,8 +434,70 @@ def build_frames() -> list[Image.Image]:
     for stage_index in range(9):
         first_base_index = stage_index * 8
         stage_base_frames = base_frames[first_base_index : first_base_index + 8]
-        stage_sequences = [stage_base_frames, *generated_pages[stage_index]]
-        ordered_stage_frames = merge_ordered_pose_sequences(stage_sequences)
+        # 三张生成页本身分别覆盖阶段的前、中、后段，先串成一条 24 帧序列，
+        # 再把原有 8 张主姿势按相似度嵌入，避免四路并排造成动作反复。
+        generated_sequence = [
+            frame
+            for page in generated_pages[stage_index]
+            for frame in page
+        ]
+        stage_sequences = [stage_base_frames, generated_sequence]
+        if stage_index == 6:
+            quarter, half, three_quarters = generated_pages[stage_index]
+            ordered_stage_frames = [
+                stage_base_frames[0],
+                stage_base_frames[1],
+                stage_base_frames[2],
+                quarter[0],
+                quarter[1],
+                quarter[2],
+                half[0],
+                stage_base_frames[3],
+                half[1],
+                half[2],
+                half[3],
+                half[4],
+                quarter[3],
+                half[5],
+                quarter[4],
+                stage_base_frames[4],
+                half[6],
+                stage_base_frames[5],
+                three_quarters[0],
+                three_quarters[1],
+                half[7],
+                stage_base_frames[6],
+                quarter[5],
+                three_quarters[2],
+                stage_base_frames[7],
+                quarter[6],
+                three_quarters[3],
+                quarter[7],
+                three_quarters[4],
+                three_quarters[5],
+                three_quarters[6],
+                three_quarters[7],
+            ]
+        elif stage_index == 2:
+            quarter, half, three_quarters = generated_pages[stage_index]
+            # 前三套按同一成熟度节点交错，最后一套完成整轮下压，避免翼芽反复消失。
+            ordered_stage_frames = [
+                frame
+                for local_index in range(8)
+                for frame in (
+                    quarter[local_index],
+                    half[local_index],
+                    stage_base_frames[local_index],
+                )
+            ]
+            ordered_stage_frames.extend(three_quarters)
+        elif stage_index in (1, 5):
+            ordered_stage_frames = sorted(
+                [*stage_base_frames, *generated_sequence],
+                key=lambda frame: semantic_progress(stage_index, frame),
+            )
+        else:
+            ordered_stage_frames = merge_ordered_pose_sequences(stage_sequences)
         frames.extend(
             render_on_stage_curve(
                 frame,
@@ -378,7 +514,7 @@ def build_frames() -> list[Image.Image]:
 
 def save_contact_sheet(frames: list[Image.Image]) -> None:
     columns = 24
-    rows = 12
+    rows = (len(frames) + columns - 1) // columns
     cell_size = 64
     contact = Image.new("RGB", (columns * cell_size, rows * cell_size), (22, 24, 30))
     draw = ImageDraw.Draw(contact)
@@ -393,9 +529,10 @@ def save_contact_sheet(frames: list[Image.Image]) -> None:
 
 
 def save_animation(frames: list[Image.Image]) -> None:
-    durations = [50] * len(frames)
-    durations[0] = 400
-    durations[-1] = 800
+    # 25 FPS；首尾仅做短暂停留，不降低中段动作帧率。
+    durations = [40] * len(frames)
+    durations[0] = 160
+    durations[-1] = 320
     frames[0].save(
         OUTPUT_ANIMATION,
         save_all=True,
@@ -406,6 +543,16 @@ def save_animation(frames: list[Image.Image]) -> None:
         blend=0,
         optimize=False,
     )
+    frames[0].save(
+        ASSET_ANIMATION,
+        save_all=True,
+        append_images=frames[1:],
+        duration=durations,
+        loop=0,
+        lossless=True,
+        method=6,
+    )
+    frames[216].save(ASSET_STATIC, optimize=True)
 
 
 def main() -> None:
@@ -413,9 +560,11 @@ def main() -> None:
     save_contact_sheet(frames)
     save_animation(frames)
     print(f"frames={len(frames)}")
-    print(f"duration_ms={400 + 800 + (len(frames) - 2) * 50}")
+    print(f"duration_ms={160 + 320 + (len(frames) - 2) * 40}")
     print(OUTPUT_ANIMATION)
     print(OUTPUT_CONTACT)
+    print(ASSET_ANIMATION)
+    print(ASSET_STATIC)
 
 
 if __name__ == "__main__":
