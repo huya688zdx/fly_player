@@ -67,6 +67,7 @@ import org.json.JSONObject
 import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -553,6 +554,16 @@ private fun nativePanelSpeedLabel(bytesPerSecond: Long): String {
     return "${String.format("%.${digits}f", value)} KB/s"
 }
 
+internal fun nativePanelPlaybackSpeedLabel(speed: Double): String {
+    val normalized = if (speed.isFinite() && speed > 0.0) speed else 1.0
+    val text = if (abs(normalized - normalized.roundToInt()) < 0.0001) {
+        String.format(Locale.US, "%.1f", normalized)
+    } else {
+        String.format(Locale.US, "%.2f", normalized).trimEnd('0').trimEnd('.')
+    }
+    return "${text}x"
+}
+
 private fun nativePanelQualityBitrate(quality: Map<String, Any?>): Long {
     return when (val raw = quality["bitrate"]) {
         is Number -> raw.toLong()
@@ -915,6 +926,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var bottomBar: View
     private lateinit var titleLabel: TextView
     private lateinit var playPauseButton: ImageButton
+    private lateinit var nextEpisodeButton: ImageButton
     private lateinit var positionLabel: TextView
     private lateinit var durationLabel: TextView
     private lateinit var seekBar: SeekBar
@@ -933,6 +945,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var subtitleEntrySpacer: View? = null
     private var qualityEntrySpacer: View? = null
     private lateinit var displayModeButton: ImageButton
+    private lateinit var actionStrip: LinearLayout
     private var splitVerifyRunnable: Runnable? = null
 
     private lateinit var panelContainer: FrameLayout
@@ -1832,6 +1845,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             is ImageButton -> btn.setColorFilter(color)
             is TextView -> {
                 btn.setTextColor(color)
+                btn.compoundDrawablesRelative.forEach { drawable -> drawable?.setTint(color) }
                 if (this::danmakuToggleButton.isInitialized && btn === danmakuToggleButton) {
                     btn.background = subtlePressBackground()
                 }
@@ -1880,7 +1894,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 与底栏溢出入口（音轨/字幕/画质，竖屏改从「更多」设置进入），避免拥挤与裁剪。横屏全显。
      */
     private fun applyOrientationToControls() {
-        val secondaryVis = if (isPortrait()) View.GONE else View.VISIBLE
+        val portrait = isPortrait()
+        val secondaryVis = if (portrait) View.GONE else View.VISIBLE
         pipButton?.visibility = secondaryVis
         screenshotButton?.visibility = secondaryVis
         danmakuQuickButton?.visibility = secondaryVis
@@ -1891,6 +1906,38 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         subtitleEntryButton?.visibility = secondaryVis
         qualityEntrySpacer?.visibility = secondaryVis
         if (this::qualityButton.isInitialized) qualityButton.visibility = secondaryVis
+        if (this::playPauseButton.isInitialized) {
+            playPauseButton.layoutParams =
+                (playPauseButton.layoutParams as LinearLayout.LayoutParams).apply {
+                    width = dp(if (portrait) 44 else 50)
+                    height = dp(if (portrait) 44 else 50)
+                }
+        }
+        if (this::nextEpisodeButton.isInitialized) {
+            nextEpisodeButton.layoutParams =
+                (nextEpisodeButton.layoutParams as LinearLayout.LayoutParams).apply {
+                    width = dp(if (portrait) 38 else 42)
+                    height = dp(if (portrait) 38 else 42)
+                    leftMargin = dp(if (portrait) 3 else 8)
+                }
+        }
+        if (this::danmakuToggleButton.isInitialized) {
+            danmakuToggleButton.text = ""
+            danmakuToggleButton.minWidth = dp(38)
+            danmakuToggleButton.setPadding(
+                dp(if (portrait) 9 else 10),
+                dp(8),
+                dp(if (portrait) 9 else 10),
+                dp(8),
+            )
+            (danmakuToggleButton.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+                params.leftMargin = dp(if (portrait) 5 else 10)
+                danmakuToggleButton.layoutParams = params
+            }
+        }
+        if (this::actionStrip.isInitialized) {
+            actionStrip.setPadding(dp(if (portrait) 2 else 4), dp(2), dp(if (portrait) 2 else 4), dp(2))
+        }
     }
 
     private fun splitSupported(): Boolean {
@@ -2607,8 +2654,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         resetPlaybackProgressTracking() // 换源后重置「已开播」兜底，让 loading 重新从切换态开始
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
-        // 切画质/换源后刷新画质入口按钮文案（之前只在构建时设一次，切完不变）。
-        if (this::qualityButton.isInitialized) qualityButton.text = currentQualityLabel()
+        // 图标入口不重复显示文字；切画质/换源后同步无障碍说明即可。
+        if (this::qualityButton.isInitialized) qualityButton.contentDescription = currentQualityLabel()
         refreshEpisodeEntryButton()
         playerSurface.load(effectiveLoadArgs)
         val effectiveDanmaku = danmakuPayload
@@ -2997,16 +3044,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 沉浸式隐藏)，若底栏跟它走，进度条就会上下抖一下；播放器本就隐藏系统栏，故底栏改用 cutout。
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             statusBarTopInsetPx = bars.top
-            // 横屏单侧刘海会把控制层整体推向另一侧（"太偏右"）。两侧统一取最大值对称留白，
-            // 控制层始终居中对称；竖屏 cutout.left/right 通常为 0，不受影响。
-            val sideInset = maxOf(cutout.left, cutout.right)
-            topBar.setPadding(dp(18) + sideInset, dp(12) + cutout.top, dp(18) + sideInset, dp(18))
-            bottomBar.setPadding(
-                dp(22) + sideInset,
-                dp(14),
-                dp(22) + sideInset,
-                dp(18) + cutout.bottom,
+            // 单侧挖孔只保护对应一侧；不再把 inset 镜像到另一侧，否则横屏返回键和更多按钮
+            // 会同时被推向画面中央。基础边距保持紧凑，仍完整避让真实 cutout。
+            topBar.setPadding(
+                dp(10) + cutout.left,
+                dp(4) + cutout.top,
+                dp(10) + cutout.right,
+                dp(12),
             )
+            bottomBar.setPadding(
+                dp(12) + cutout.left,
+                dp(10),
+                dp(12) + cutout.right,
+                dp(12) + cutout.bottom,
+            )
+            (lockButton.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
+                params.rightMargin = dp(12) + cutout.right
+                lockButton.layoutParams = params
+            }
             // 面板补齐安全区：竖屏底部弹窗补底部，横屏右侧面板补右侧 cutout。
             if (isPortrait()) {
                 panelContainer.setPadding(0, 0, 0, bars.bottom)
@@ -3069,7 +3124,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = scrimBackground(GradientDrawable.Orientation.TOP_BOTTOM, SCRIM_TOP)
-            setPadding(dp(18), dp(12), dp(18), dp(18))
+            setPadding(dp(10), dp(4), dp(10), dp(12))
             isClickable = true
         }
 
@@ -3115,7 +3170,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         container.addView(sysInfoRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         // 间距
-        container.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)))
+        container.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(6)))
 
         // --- 2. 标题与操作栏 (底部) ---
         val mainRow = LinearLayout(this).apply {
@@ -3131,13 +3186,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(10), dp(10), dp(10), dp(10))
             setOnClickListener { finish() }
         }
-        mainRow.addView(backButton, LinearLayout.LayoutParams(dp(42), dp(42)))
+        mainRow.addView(backButton, LinearLayout.LayoutParams(dp(40), dp(40)))
 
         // 状态标签组
         val statusLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), 0, 0, 0)
+            setPadding(dp(8), 0, 0, 0)
         }
 
         // 已下载 标签 (如果适用)
@@ -3159,7 +3214,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         titleLabel = TextView(this).apply {
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -3214,7 +3269,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = scrimBackground(GradientDrawable.Orientation.BOTTOM_TOP, SCRIM_BOTTOM)
-            setPadding(dp(22), dp(14), dp(22), dp(18))
+            setPadding(dp(12), dp(10), dp(12), dp(12))
             isClickable = true
         }
 
@@ -3333,7 +3388,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         controlRow.addView(playPauseButton, LinearLayout.LayoutParams(dp(50), dp(50)))
 
         // 下一集按钮
-        val nextButton = ImageButton(this).apply {
+        nextEpisodeButton = ImageButton(this).apply {
             background = subtlePressBackground()
             setImageResource(R.drawable.ic_player_next)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
@@ -3341,7 +3396,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(9), dp(9), dp(9), dp(9))
             setOnClickListener { playNextEpisode() }
         }
-        controlRow.addView(nextButton, LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) })
+        controlRow.addView(
+            nextEpisodeButton,
+            LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) },
+        )
 
         // 弹幕开关 (对应截图底栏左侧图标)
         danmakuToggleButton = TextView(this).apply {
@@ -3352,7 +3410,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             includeFontPadding = false
             gravity = Gravity.CENTER
             background = subtlePressBackground()
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_player_danmaku_toggle, 0, 0, 0)
+            compoundDrawablePadding = dp(5)
+            contentDescription = localizedString(R.string.player_text_0008)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
             isClickable = true
             setOnClickListener { setDanmakuEnabled(!danmakuEnabled) }
         }
@@ -3368,11 +3429,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         controlRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
 
         // 右侧功能键：统一收进一条轻量控制条，避免一排独立胶囊抢画面。
-        val actionStrip = LinearLayout(this).apply {
+        actionStrip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = null
-            setPadding(0, 0, 0, 0)
+            background = controlStripBackground()
+            setPadding(dp(4), dp(2), dp(4), dp(2))
         }
         val episodeSpacer = controlActionSpacer()
         episodeEntryDivider = episodeSpacer
@@ -3383,26 +3444,35 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             actionStrip.addView(view)
         }
 
-        addActionButton(makeEntryButton(localizedString(R.string.player_action_reload)) { reloadCurrentSource() })
         // 选集/多版本入口：多集→「选集」；单集(电影)有多版本→「多版本」；单集单版本→隐藏。
-        episodeEntryButton = makeEntryButton(localizedString(R.string.player_episode_picker_title)) { onEpisodeEntryClick() }
+        episodeEntryButton = makeEntryButton(
+            localizedString(R.string.player_episode_picker_title),
+            R.drawable.ic_player_episode_grid,
+        ) { onEpisodeEntryClick() }
         actionStrip.addView(episodeSpacer)
         actionStrip.addView(episodeEntryButton)
         refreshEpisodeEntryButton()
 
+        // 倍速保留数值文字作为状态反馈；其余二级入口已有图标，不再重复显示标签。
         speedButton = makeEntryButton("1.0x") { showSpeedPicker() }
         addActionButton(speedButton)
 
         // 音轨/字幕/画质：横屏常驻底栏；竖屏窄屏放不下且会被裁，改为隐藏并从「更多」设置进入。
         // 显式持有按钮与其前置分隔，竖屏整段连同间距一起收起（避免遗留空白）。
         audioEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        audioEntryButton = makeEntryButton(localizedString(R.string.player_audio_track_picker_title)) { showAudioPanel() }
+        audioEntryButton = makeEntryButton(
+            localizedString(R.string.player_audio_track_picker_title),
+            R.drawable.ic_player_audio_track,
+        ) { showAudioPanel() }
             .also { actionStrip.addView(it) }
         subtitleEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        subtitleEntryButton = makeEntryButton(localizedString(R.string.player_subtitle_track_picker_title)) { showSubtitlePanel() }
+        subtitleEntryButton = makeEntryButton(
+            localizedString(R.string.player_subtitle_track_picker_title),
+            R.drawable.ic_player_subtitles,
+        ) { showSubtitlePanel() }
             .also { actionStrip.addView(it) }
         qualityEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        qualityButton = makeEntryButton(currentQualityLabel()) { showQualityPanel() }
+        qualityButton = makeEntryButton(currentQualityLabel(), R.drawable.ic_player_quality) { showQualityPanel() }
         actionStrip.addView(qualityButton)
         controlRow.addView(actionStrip)
 
@@ -3544,7 +3614,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 setPadding(dp(9), dp(9), dp(9), dp(9))
                 isClickable = true
                 layoutParams = LinearLayout.LayoutParams(dp(38), dp(38)).apply {
-                    leftMargin = dp(8)
+                    leftMargin = dp(4)
                 }
                 setOnClickListener { onClick() }
             }
@@ -3562,7 +3632,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 dp(38),
-            ).apply { leftMargin = dp(8) }
+            ).apply { leftMargin = dp(4) }
             setOnClickListener { onClick() }
         }
     }
@@ -3761,22 +3831,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun updateAbMarkers() {
         markerView?.invalidate()
-    }
-
-    private fun reloadCurrentSource() {
-        val url = loadArgsMap["url"]?.toString()
-        if (url.isNullOrEmpty()) {
-            showTransientHint(localizedString(R.string.player_reload_unavailable))
-            return
-        }
-        val args = HashMap<String, Any?>(loadArgsMap).apply {
-            put("startPositionMs", playerSurface.state.positionMs)
-        }
-        pendingInitialSubtitle = true // 重载后重新套用当前字幕，避免回退默认轨
-        resetPlaybackProgressTracking() // 重载期间先回到「未开播」，等新进度推进再收 loading
-        showTransientHint(localizedString(R.string.player_reloading))
-        playerSurface.load(args)
-        scheduleControlsAutoHide()
     }
 
     private fun showEpisodePanel() {
@@ -4298,12 +4352,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (!this::episodeEntryButton.isInitialized) return
         when (episodeEntryMode()) {
             0 -> {
-                episodeEntryButton.text = localizedString(R.string.player_episode_picker_title)
+                episodeEntryButton.text = ""
+                episodeEntryButton.contentDescription = localizedString(R.string.player_episode_picker_title)
                 episodeEntryButton.visibility = View.VISIBLE
                 episodeEntryDivider?.visibility = View.VISIBLE
             }
             1 -> {
-                episodeEntryButton.text = localizedString(R.string.player_version_picker_title)
+                episodeEntryButton.text = ""
+                episodeEntryButton.contentDescription = localizedString(R.string.player_version_picker_title)
                 episodeEntryButton.visibility = View.VISIBLE
                 episodeEntryDivider?.visibility = View.VISIBLE
             }
@@ -4983,21 +5039,27 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 选集/音轨/字幕/画质 等二级入口。onClick 默认占位，已接功能的传入真实回调。 */
     private fun makeEntryButton(
         label: String,
+        iconRes: Int = 0,
         onClick: () -> Unit = {
             showTransientHint(localizedString(R.string.player_coming_soon_format, label))
             scheduleControlsAutoHide()
         },
     ): TextView {
         return TextView(this).apply {
-            text = label
+            text = if (iconRes == 0) label else ""
+            contentDescription = label
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             includeFontPadding = false
             gravity = Gravity.CENTER
             background = subtlePressBackground()
-            minWidth = dp(48)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            minWidth = dp(if (iconRes == 0) 44 else 36)
+            if (iconRes != 0) {
+                setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0)
+                compoundDrawablePadding = dp(4)
+            }
+            setPadding(dp(9), dp(8), dp(9), dp(8))
             isClickable = true
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -8917,8 +8979,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun controlActionSpacer(): View {
         return View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(12), 1)
+            layoutParams = LinearLayout.LayoutParams(dp(4), 1)
         }
+    }
+
+    private fun controlStripBackground(): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(14).toFloat()
+        setColor(0x70050A10)
+        setStroke(dp(1), 0x24FFFFFF)
     }
 
     private fun subtlePressBackground(): android.graphics.drawable.Drawable {
@@ -9046,6 +9115,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyState(state: MpvPlayerState) {
         lastDurationMs = state.durationMs
+        speedButton.text = nativePanelPlaybackSpeedLabel(state.speed)
 
         // 自适应性能阶梯反馈（级别由内核根据真实掉帧升降，强设备不掉帧则恒为 0）。
         handlePerformanceFallbackLevel(state.performanceFallbackLevel)
