@@ -27,6 +27,7 @@ import '../../widgets/detail/dynamic_page_theme_scope.dart';
 import '../play_detail_screen.dart';
 import 'poster_browse_artwork_enricher.dart';
 import 'poster_browse_artwork_prewarmer.dart';
+import 'poster_browse_backdrop_atmosphere.dart';
 import 'poster_browse_background_policy.dart';
 import 'poster_browse_catalog_load_coordinator.dart';
 import 'poster_browse_catalog_session.dart';
@@ -44,6 +45,7 @@ import 'poster_browse_screen_policy.dart';
 import 'poster_browse_session_key.dart';
 import 'poster_browse_selection_state.dart';
 import 'poster_browse_text_presenter.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 @visibleForTesting
 int clampPosterBrowseIndex(int index, int length) {
@@ -1203,7 +1205,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
               hasFocusedItem: focusedItem != null,
             )) {
               PosterBrowseScreenBody.loading => const Center(
-                child: CircularProgressIndicator(),
+                child: BirdLoader(size: 132),
               ),
               PosterBrowseScreenBody.error => _buildError(l10n),
               PosterBrowseScreenBody.shell => _buildLoadedBody(
@@ -1268,21 +1270,25 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           ),
         ),
         const SizedBox.expand(child: ColoredBox(color: Color(0x5906080E))),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              stops: <double>[0, 0.38, 0.68, 1],
-              colors: <Color>[
-                Color(0xEE06080E),
-                Color(0x8C06080E),
-                Color(0x1406080E),
-                Colors.transparent,
-              ],
+        // 横屏大屏布局信息区在左侧，保留左重渐变；竖屏全出血背景改用
+        // 「顶部压暗 + 晕影 + 颗粒」氛围组（见 backdrop_atmosphere），
+        // 避免左重渐变把整张海报压得只剩右侧一条。
+        if (!useMobileLayout)
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                stops: <double>[0, 0.38, 0.68, 1],
+                colors: <Color>[
+                  Color(0xEE06080E),
+                  Color(0x8C06080E),
+                  Color(0x1406080E),
+                  Colors.transparent,
+                ],
+              ),
             ),
           ),
-        ),
         const DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -1297,6 +1303,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
             ),
           ),
         ),
+        if (useMobileLayout) ...<Widget>[
+          const PosterBrowseBackdropTopScrim(),
+          const PosterBrowseBackdropVignette(),
+          const PosterBrowseBackdropGrain(),
+        ],
         useMobileLayout
             ? PosterBrowseMobileLayout(
                 rows: _rows,
@@ -1403,7 +1414,6 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       cacheWidth: spec.cacheWidth,
       fit: spec.fit,
       alignment: spec.alignment,
-      useCoverUnderlay: spec.useCoverUnderlay,
     );
   }
 
@@ -1435,7 +1445,6 @@ class _PosterBrowseBackdrop extends StatefulWidget {
     required this.cacheWidth,
     required this.fit,
     required this.alignment,
-    required this.useCoverUnderlay,
   });
 
   final List<String> urls;
@@ -1443,7 +1452,6 @@ class _PosterBrowseBackdrop extends StatefulWidget {
   final int cacheWidth;
   final BoxFit fit;
   final Alignment alignment;
-  final bool useCoverUnderlay;
 
   @override
   State<_PosterBrowseBackdrop> createState() => _PosterBrowseBackdropState();
@@ -1472,8 +1480,8 @@ class _PosterBrowseBackdropState extends State<_PosterBrowseBackdrop> {
       ),
     );
 
-    Widget foreground() {
-      return Image(
+    return SizedBox.expand(
+      child: Image(
         image: imageProvider,
         fit: widget.fit,
         alignment: widget.alignment,
@@ -1487,29 +1495,6 @@ class _PosterBrowseBackdropState extends State<_PosterBrowseBackdrop> {
           }
           return const SizedBox.expand();
         },
-      );
-    }
-
-    if (!widget.useCoverUnderlay) {
-      return SizedBox.expand(child: foreground());
-    }
-
-    return SizedBox.expand(
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          Image(
-            image: imageProvider,
-            fit: BoxFit.cover,
-            alignment: Alignment.center,
-            filterQuality: FilterQuality.low,
-            gaplessPlayback: true,
-            color: Colors.black.withValues(alpha: 0.42),
-            colorBlendMode: BlendMode.darken,
-            errorBuilder: (_, __, ___) => const SizedBox.expand(),
-          ),
-          foreground(),
-        ],
       ),
     );
   }
