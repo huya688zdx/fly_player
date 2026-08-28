@@ -184,7 +184,7 @@ class DanmakuSettings {
   });
 
   static const DanmakuSettings defaults = DanmakuSettings(
-    enabled: false,
+    enabled: true,
     previewEnabled: false,
     preferLocalSource: true,
     scrollEnabled: true,
@@ -313,7 +313,9 @@ class DanmakuSettings {
 
   static DanmakuSettings fromJson(Map<String, dynamic> json) {
     return defaults.copyWith(
-      enabled: json['enabled'] == true,
+      enabled: json['enabled'] is bool
+          ? json['enabled'] as bool
+          : defaults.enabled,
       previewEnabled: json['previewEnabled'] == true,
       preferLocalSource: json['preferLocalSource'] != false,
       scrollEnabled: json['scrollEnabled'] != false,
