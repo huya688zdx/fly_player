@@ -87,6 +87,54 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('矮视口大字号下两行标题卡片不溢出（横屏露底回归）', (tester) async {
+    final card = _card(id: 'overflow-1', title: '辉夜大小姐想让我告白第二季');
+    await tester.binding.setSurfaceSize(const Size(800, 360));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.35)),
+          child: child ?? const SizedBox.shrink(),
+        ),
+        home: Scaffold(
+          body: PosterBrowseLargeLayout(
+            rows: [
+              PosterBrowseRow(
+                kind: PosterBrowseRowKind.continueWatching,
+                items: [card],
+              ),
+            ],
+            displayItemOf: (card) => _displayItem(card),
+            selectedRow: 0,
+            focusedIndex: 0,
+            focusedItem: _displayItem(card),
+            logoRequest: MediaImageRequest.empty,
+            secondaryLabel: '2026',
+            metaWidgets: const <Widget>[],
+            imageOf: _loadableImageOf,
+            secondaryLabelOf: (item) => '第 1 季 第 3 集',
+            onSelectRow: (_) {},
+            onSelectItem: (_) {},
+            onRetryCurrentRow: () {},
+            onPlay: () {},
+            onDetail: () {},
+            onBack: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('海报轨使用竖版卡片显示条目焦点进度并回调点击下标', (tester) async {
     var tappedIndex = -1;
     final first = _displayItem(
