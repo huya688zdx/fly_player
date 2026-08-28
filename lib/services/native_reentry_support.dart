@@ -166,6 +166,8 @@ class NativeReentrySupport {
     NasProvider nas,
     Map<String, dynamic> progress,
   ) async {
+    // 暂停心跳只服务本地统计；飞牛回写保持旧行为（暂停重复帧原本就不上报）。
+    if (progress['pausedHeartbeat'] == true) return;
     final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
     final videoGuid = (progress['videoGuid'] ?? '').toString().trim();
