@@ -156,7 +156,7 @@ class NativePlayerSurface(
         return controller.getPlaybackVolume()
     }
 
-    /** 解码/输出诊断快照（hwdec/色彩管线/直通/丢帧/帧率），供轨道信息页排查。 */
+    /** 解码/输出诊断快照（hwdec/色彩管线/直通/输出声道），供轨道信息页排查。 */
     fun getPlaybackDiagnostics(): Map<String, Any?> {
         if (released) return emptyMap()
         return controller.getPlaybackDiagnostics()

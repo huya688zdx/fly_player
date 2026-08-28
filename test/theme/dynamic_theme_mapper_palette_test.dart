@@ -49,4 +49,28 @@ void main() {
     );
     expect(mapped.backgroundBase.computeLuminance(), lessThan(.06));
   });
+
+  test('亮暗动态取色都不覆盖承担可读性的徽章前景色', () {
+    const seed = DynamicThemeSeed(
+      backgroundSeed: Color(0xFF74613A),
+      accentSeed: Color(0xFF91C95C),
+      selectionSeed: Color(0xFF6E552A),
+      linkSeed: Color(0xFFB88724),
+      preferLightSurface: false,
+    );
+
+    for (final preset in <AppThemePreset>[
+      AppThemePreset.midnight,
+      AppThemePreset.latte,
+    ]) {
+      final base = AppThemePalette.colorsFor(preset);
+      final mapped = DynamicThemeMapper.map(
+        baseColors: base,
+        seed: seed,
+        intensity: AppDynamicThemeIntensity.medium,
+      );
+
+      expect(mapped.chipText, base.chipText, reason: preset.storageValue);
+    }
+  });
 }

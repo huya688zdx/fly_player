@@ -12,6 +12,7 @@ import '../ui/mpv_audio_eq_advanced_panel.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_top_tip.dart';
 import '../widgets/common/named_preset_save_dialog.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 const double _videoAdjustmentMin = -100;
 const double _videoAdjustmentMax = 100;
@@ -254,7 +255,7 @@ class _MpvPlayerSettingsDestinationScreenState
       final colors = context.appColors;
       return Scaffold(
         backgroundColor: colors.backgroundBase,
-        body: Center(child: CircularProgressIndicator(color: colors.accent)),
+        body: const Center(child: BirdLoader(size: 120)),
       );
     }
     return _buildTarget(settings);
@@ -812,7 +813,7 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[
@@ -1113,7 +1114,7 @@ class _MpvCustomManagementScreenState
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[
@@ -1438,7 +1439,7 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[

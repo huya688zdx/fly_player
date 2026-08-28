@@ -11,6 +11,7 @@ import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
 import '../common/app_modal_surface.dart';
 import '../common/liquid_glass.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 typedef TvEpisodePickerLoader =
     Future<TvEpisodePickerPayload> Function(String seasonGuid);
@@ -230,14 +231,11 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeOutCubic,
                       child: _modeUpdating
-                          ? SizedBox(
-                              key: const ValueKey<String>('saving'),
+                          ? const SizedBox(
+                              key: ValueKey<String>('saving'),
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: colors.accent,
-                              ),
+                              child: BirdGlyph(size: 20),
                             )
                           : Icon(
                               key: ValueKey<TvEpisodePickerMode>(_mode),
@@ -351,12 +349,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                   switchInCurve: Curves.easeOutCubic,
                   switchOutCurve: Curves.easeOutCubic,
                   child: _loading
-                      ? Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: colors.accent,
-                          ),
-                        )
+                      ? const Center(child: BirdLoader(size: 96))
                       : visibleEntries.isEmpty
                       ? _EmptySheetState(text: widget.emptyText)
                       : _mode == TvEpisodePickerMode.list

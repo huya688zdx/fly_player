@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import 'fn_web_login_bridge_script.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 /// 抓取 FN Connect 入口令牌（cookie `entry-token`）的 WebView 页。
 ///
@@ -286,9 +287,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       ),
       body: _isReady
           ? WebViewWidget(controller: _controller)
-          : const Center(
-              child: CircularProgressIndicator(color: Color(0xFF2D74D9)),
-            ),
+          : const Center(child: BirdLoader(size: 120)),
     );
   }
 }

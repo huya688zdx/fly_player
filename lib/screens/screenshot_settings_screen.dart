@@ -18,6 +18,7 @@ import '../utils/swallowed_error_logger.dart';
 import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
 import 'screenshot_preview_screen.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 String _screenshotSavePathLabel(AppLocalizations l10n, String value) {
   return switch (value) {
@@ -184,7 +185,7 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[
@@ -277,7 +278,7 @@ class _ScreenshotSettingsDestinationScreenState
       final colors = context.appColors;
       return Scaffold(
         backgroundColor: colors.backgroundBase,
-        body: Center(child: CircularProgressIndicator(color: colors.accent)),
+        body: const Center(child: BirdLoader(size: 120)),
       );
     }
     return switch (widget.target) {
@@ -511,7 +512,7 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[
@@ -1125,7 +1126,7 @@ class _ScreenshotCustomDirectoryScreenState
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[

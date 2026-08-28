@@ -10,7 +10,95 @@ import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/services/download_task_service.dart';
 
+DownloadTaskRecord _downloadedEpisode({
+  required String id,
+  required int seasonNumber,
+  required int episodeNumber,
+  required int updatedAtMs,
+}) {
+  return DownloadTaskRecord(
+    id: id,
+    remoteTaskId: '',
+    itemGuid: 'item-$id',
+    mediaGuid: 'media-$id',
+    groupId: 'series-1',
+    groupTitle: 'Series',
+    title: 'Episode $episodeNumber',
+    durationText: '24m',
+    posterUrls: const <String>[],
+    groupPosterUrls: const <String>[],
+    resolution: '1080P',
+    fileName: '$id.mkv',
+    filePath: '/tmp/$id.mkv',
+    totalBytes: 100,
+    downloadedBytes: 100,
+    status: DownloadTaskStatus.downloaded,
+    errorMessage: '',
+    createdAtMs: updatedAtMs,
+    updatedAtMs: updatedAtMs,
+    seasonNumber: seasonNumber,
+    episodeNumber: episodeNumber,
+  );
+}
+
 void main() {
+  test('已下载剧集按季号和集数升序排列，与完成时间无关', () {
+    final records =
+        <DownloadTaskRecord>[
+          _downloadedEpisode(
+            id: 'episode-13',
+            seasonNumber: 1,
+            episodeNumber: 13,
+            updatedAtMs: 600,
+          ),
+          _downloadedEpisode(
+            id: 'episode-5',
+            seasonNumber: 1,
+            episodeNumber: 5,
+            updatedAtMs: 300,
+          ),
+          _downloadedEpisode(
+            id: 'episode-12',
+            seasonNumber: 1,
+            episodeNumber: 12,
+            updatedAtMs: 500,
+          ),
+          _downloadedEpisode(
+            id: 'episode-4',
+            seasonNumber: 1,
+            episodeNumber: 4,
+            updatedAtMs: 200,
+          ),
+          _downloadedEpisode(
+            id: 'episode-11',
+            seasonNumber: 1,
+            episodeNumber: 11,
+            updatedAtMs: 400,
+          ),
+          _downloadedEpisode(
+            id: 'episode-6',
+            seasonNumber: 1,
+            episodeNumber: 6,
+            updatedAtMs: 100,
+          ),
+        ]..sort(
+          (left, right) => compareDownloadTaskRecordsForDisplay(
+            left,
+            right,
+            statusHint: DownloadTaskStatus.downloaded,
+          ),
+        );
+
+    expect(records.map((record) => record.episodeNumber), <int>[
+      4,
+      5,
+      6,
+      11,
+      12,
+      13,
+    ]);
+  });
+
   test('DownloadTaskRecord round-trips audio and subtitle tracks', () {
     const record = DownloadTaskRecord(
       id: 'record-1',

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/startup_preferences_provider.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class StartupDestinationGate extends StatefulWidget {
   const StartupDestinationGate({
@@ -70,7 +71,7 @@ class _StartupDestinationGateState extends State<StartupDestinationGate> {
     if (!preferences.isReady || _openingDestination) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(child: BirdLoader(size: 140, style: BirdLoaderStyle.logo)),
       );
     }
     return widget.child;
