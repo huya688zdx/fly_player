@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'poster_browse_display_item.dart';
+import '../../ui/media_placeholder.dart';
 
 class PosterBrowsePosterCard extends StatelessWidget {
   final PosterBrowseDisplayItem item;
