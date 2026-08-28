@@ -715,7 +715,8 @@ internal class EqualizerView(context: Context, barColor: Int) : View(context) {
         override fun run() {
             if (startedAtMs == 0L) startedAtMs = System.currentTimeMillis()
             invalidate()
-            postInvalidateOnAnimation()
+            // 必须自续调度，否则只画一帧（条不动）。
+            postDelayed(this, 33L)
         }
     }
 
