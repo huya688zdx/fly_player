@@ -6,17 +6,15 @@ import 'package:flutter/material.dart';
 
 /// 青鸟加载动效。
 ///
-/// 灵感取自《利兹与青鸟》：一只燕子沿一条闭合曲线盘旋，在顶点悬停犹豫、
-/// 振翅飞离，又沿同一条曲线无声归来 —— 循环处切线连续，零跳变。
-///
-/// 燕形为三个同构关键帧（控制点形变生成）的数值插值，扇翅频率跟随速度：
-/// 悬停时高频浅颤，滑翔时舒展慢拍。残影按固定路径间距跟飞，透明度随速度
-/// 淡入。颜色默认取 [ColorScheme.primary] 派生三档明度渐变，自动跟随
-/// 动态取色；[BirdLoaderStyle.logo] 使用品牌青绿→蓝→紫原生渐变。
+/// 使用 288 张透明手绘姿势，以 25 FPS 表现少女后退、蜷缩成茧、连续扑翼、
+/// 化为青鸟并飞远的完整过程。系统关闭动画时显示完整青鸟静态帧；素材无法
+/// 解码时回退到原有矢量青鸟，避免加载位空白。
 enum BirdLoaderStyle { theme, logo }
 
 const _loopDuration = Duration(milliseconds: 7000);
 const _birdVisualScale = 2.1;
+const _storyAnimationAsset = 'assets/refresh/shoujo_bird_loading.webp';
+const _storyStaticAsset = 'assets/refresh/shoujo_bird_loading_static.png';
 
 class BirdLoader extends StatefulWidget {
   const BirdLoader({
@@ -33,56 +31,36 @@ class BirdLoader extends StatefulWidget {
   State<BirdLoader> createState() => _BirdLoaderState();
 }
 
-class _BirdLoaderState extends State<BirdLoader>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+class _BirdLoaderState extends State<BirdLoader> {
   bool _static = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: _loopDuration);
-  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final disabled = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (disabled) {
-      if (_controller.isAnimating) _controller.stop();
-      _static = true;
-    } else {
-      _static = false;
-      if (!_controller.isAnimating) _controller.repeat();
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+    _static = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = _BirdPalette.resolve(context, widget.style);
-    Widget paint(double t) => CustomPaint(
-      painter: _BirdPainter(
-        t: t,
-        palette: palette,
-        assets: _BirdAssets.instance,
-        showEchoes: widget.size >= 56,
-        showGlow: widget.size >= 90,
-      ),
-    );
     return SizedBox.square(
       dimension: widget.size,
-      child: _static
-          ? paint(0.65)
-          : AnimatedBuilder(
-              animation: _controller,
-              builder: (_, _) => paint(_controller.value),
-            ),
+      child: Image.asset(
+        _static ? _storyStaticAsset : _storyAnimationAsset,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.medium,
+        gaplessPlayback: true,
+        isAntiAlias: true,
+        errorBuilder: (_, _, _) => CustomPaint(
+          painter: _BirdPainter(
+            t: 0.65,
+            palette: palette,
+            assets: _BirdAssets.instance,
+            showEchoes: false,
+            showGlow: false,
+          ),
+        ),
+      ),
     );
   }
 }
