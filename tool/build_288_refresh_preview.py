@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from itertools import permutations
 
 import cv2
 import numpy as np
@@ -234,75 +233,120 @@ def render_to_reference(subject: Image.Image, reference: Image.Image) -> Image.I
 
 
 def pose_feature(frame: Image.Image) -> np.ndarray:
-    alpha = np.asarray(frame.getchannel("A"), dtype=np.float32) / 255.0
-    reduced = cv2.resize(alpha, (48, 48), interpolation=cv2.INTER_AREA)
-    return reduced.reshape(-1)
+    cropped = frame.crop(alpha_bbox(frame))
+    alpha = np.asarray(cropped.getchannel("A"), dtype=np.float32) / 255.0
+    scale = min(44 / alpha.shape[1], 44 / alpha.shape[0])
+    resized = cv2.resize(
+        alpha,
+        (max(1, round(alpha.shape[1] * scale)), max(1, round(alpha.shape[0] * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+    normalized = np.zeros((48, 48), dtype=np.float32)
+    top = (48 - resized.shape[0]) // 2
+    left = (48 - resized.shape[1]) // 2
+    normalized[top : top + resized.shape[0], left : left + resized.shape[1]] = resized
+    return normalized.reshape(-1)
 
 
 def merge_ordered_pose_sequences(sequences: list[list[Image.Image]]) -> list[Image.Image]:
-    """保持八个动作节点的先后，只优化每个节点内四张姿势的排列。"""
+    """在保留每套序列内部顺序的前提下，按轮廓平滑度合并四套姿势。"""
     sequence_count = len(sequences)
     sequence_length = len(sequences[0])
     features = [[pose_feature(frame) for frame in sequence] for sequence in sequences]
-    orders = list(permutations(range(sequence_count)))
 
     def transition_cost(previous: np.ndarray, current: np.ndarray) -> float:
         return float(np.mean(np.abs(previous - current)))
 
-    costs: list[dict[tuple[int, ...], float]] = []
-    parents: list[dict[tuple[int, ...], tuple[int, ...] | None]] = []
-    for local_index in range(sequence_length):
-        node_costs: dict[tuple[int, ...], float] = {}
-        node_parents: dict[tuple[int, ...], tuple[int, ...] | None] = {}
-        for order in orders:
-            internal_cost = sum(
-                transition_cost(
-                    features[order[position]][local_index],
-                    features[order[position + 1]][local_index],
+    costs: dict[tuple[tuple[int, ...], int], float] = {}
+    parents: dict[
+        tuple[tuple[int, ...], int], tuple[tuple[int, ...], int] | None
+    ] = {}
+    for sequence_index in range(sequence_count):
+        counts = tuple(1 if index == sequence_index else 0 for index in range(sequence_count))
+        state = (counts, sequence_index)
+        costs[state] = 0.0
+        parents[state] = None
+
+    total_frames = sequence_count * sequence_length
+    for consumed in range(1, total_frames):
+        states = [state for state in list(costs) if sum(state[0]) == consumed]
+        for counts, last_sequence in states:
+            state = (counts, last_sequence)
+            previous_feature = features[last_sequence][counts[last_sequence] - 1]
+            for next_sequence in range(sequence_count):
+                next_local_index = counts[next_sequence]
+                if next_local_index >= sequence_length:
+                    continue
+                next_counts = list(counts)
+                next_counts[next_sequence] += 1
+                next_counts_tuple = tuple(next_counts)
+                current_feature = features[next_sequence][next_local_index]
+                expected_progress = consumed / max(total_frames - 1, 1)
+                local_progress = next_local_index / max(sequence_length - 1, 1)
+                progress_penalty = abs(expected_progress - local_progress) * 0.20
+                candidate_cost = (
+                    costs[state]
+                    + transition_cost(previous_feature, current_feature)
+                    + progress_penalty
                 )
-                for position in range(sequence_count - 1)
-            )
-            if local_index == 0:
-                node_costs[order] = internal_cost
-                node_parents[order] = None
-                continue
+                next_state = (next_counts_tuple, next_sequence)
+                if candidate_cost < costs.get(next_state, float("inf")):
+                    costs[next_state] = candidate_cost
+                    parents[next_state] = state
 
-            best_previous = min(
-                orders,
-                key=lambda previous_order: (
-                    costs[-1][previous_order]
-                    + transition_cost(
-                        features[previous_order[-1]][local_index - 1],
-                        features[order[0]][local_index],
-                    )
-                ),
-            )
-            node_costs[order] = (
-                costs[-1][best_previous]
-                + transition_cost(
-                    features[best_previous[-1]][local_index - 1],
-                    features[order[0]][local_index],
-                )
-                + internal_cost
-            )
-            node_parents[order] = best_previous
-        costs.append(node_costs)
-        parents.append(node_parents)
+    final_counts = tuple(sequence_length for _ in range(sequence_count))
+    final_state = min(
+        ((final_counts, sequence_index) for sequence_index in range(sequence_count)),
+        key=lambda state: costs[state],
+    )
+    ordered_positions: list[tuple[int, int]] = []
+    state: tuple[tuple[int, ...], int] | None = final_state
+    while state is not None:
+        counts, sequence_index = state
+        ordered_positions.append((sequence_index, counts[sequence_index] - 1))
+        state = parents[state]
+    ordered_positions.reverse()
+    return [sequences[sequence_index][local_index] for sequence_index, local_index in ordered_positions]
 
-    selected_orders: list[tuple[int, ...]] = []
-    selected = min(orders, key=lambda order: costs[-1][order])
-    for local_index in range(sequence_length - 1, -1, -1):
-        selected_orders.append(selected)
-        previous = parents[local_index][selected]
-        if previous is not None:
-            selected = previous
-    selected_orders.reverse()
 
-    return [
-        sequences[sequence_index][local_index]
-        for local_index, order in enumerate(selected_orders)
-        for sequence_index in order
-    ]
+def render_on_stage_curve(
+    subject: Image.Image,
+    stage_base_frames: list[Image.Image],
+    progress: float,
+) -> Image.Image:
+    position = progress * (len(stage_base_frames) - 1)
+    lower_index = min(int(position), len(stage_base_frames) - 1)
+    upper_index = min(lower_index + 1, len(stage_base_frames) - 1)
+    fraction = position - lower_index
+    lower = stage_base_frames[lower_index]
+    upper = stage_base_frames[upper_index]
+
+    target_area = alpha_area(lower) + (alpha_area(upper) - alpha_area(lower)) * fraction
+    lower_center = bbox_center(lower)
+    upper_center = bbox_center(upper)
+    target_center = (
+        lower_center[0] + (upper_center[0] - lower_center[0]) * fraction,
+        lower_center[1] + (upper_center[1] - lower_center[1]) * fraction,
+    )
+
+    source_area = max(alpha_area(subject), 1)
+    scale = float(np.sqrt(target_area / source_area))
+    scale = min(max(scale, 0.68), 1.42)
+    cropped = subject.crop(alpha_bbox(subject))
+    scale = min(scale, 472 / max(cropped.size))
+    resized = cropped.resize(
+        (max(1, round(cropped.width * scale)), max(1, round(cropped.height * scale))),
+        Image.Resampling.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
+    canvas.alpha_composite(
+        resized,
+        (
+            round(target_center[0] - resized.width / 2),
+            round(target_center[1] - resized.height / 2),
+        ),
+    )
+    return canvas
 
 
 def build_frames() -> list[Image.Image]:
@@ -316,18 +360,16 @@ def build_frames() -> list[Image.Image]:
     for stage_index in range(9):
         first_base_index = stage_index * 8
         stage_base_frames = base_frames[first_base_index : first_base_index + 8]
-        stage_sequences = [stage_base_frames]
-        for page_index in range(3):
-            stage_sequences.append(
-                [
-                    render_to_reference(
-                        generated_pages[stage_index][page_index][local_index],
-                        stage_base_frames[local_index],
-                    )
-                    for local_index in range(8)
-                ]
+        stage_sequences = [stage_base_frames, *generated_pages[stage_index]]
+        ordered_stage_frames = merge_ordered_pose_sequences(stage_sequences)
+        frames.extend(
+            render_on_stage_curve(
+                frame,
+                stage_base_frames,
+                index / max(len(ordered_stage_frames) - 1, 1),
             )
-        frames.extend(merge_ordered_pose_sequences(stage_sequences))
+            for index, frame in enumerate(ordered_stage_frames)
+        )
 
     if len(frames) != 288:
         raise ValueError(f"输出姿势数量应为 288，实际为 {len(frames)}")

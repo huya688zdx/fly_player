@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../media_backend/media_image_request.dart';
 import '../../../theme/app_theme.dart';
+import '../../../ui/media_placeholder.dart';
 import 'home_horizontal_shelf.dart';
 import 'home_section_header.dart';
 
@@ -156,11 +157,7 @@ class _LandscapeArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final fallback = ColoredBox(
-      color: colors.surfaceStrong,
-      child: Icon(Icons.live_tv_outlined, color: colors.textMuted, size: 36),
-    );
+    const fallback = MediaPlaceholder();
     if (!item.imageRequest.canLoad) return fallback;
 
     return _LandscapeNetworkImage(

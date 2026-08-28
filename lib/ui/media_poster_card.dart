@@ -8,6 +8,7 @@ import '../media_backend/media_image_request.dart';
 import '../services/app_log_service.dart';
 import '../theme/app_theme.dart';
 import 'capability_badge_mapper.dart';
+import 'media_placeholder.dart';
 
 class MediaPosterCard extends StatelessWidget {
   final MediaImageRequest images;
@@ -164,7 +165,7 @@ class MediaPosterCard extends StatelessWidget {
                 aspectRatioHint: imageAspectRatioHint,
                 autoFitByImageAspect: autoFitByImageAspect,
                 decodeWidth: decodeWidth,
-                fallback: const _PosterPlaceholder(
+                fallback: const MediaPlaceholder(
                   key: ValueKey<String>('media-poster-placeholder'),
                 ),
               ),
@@ -251,52 +252,6 @@ class MediaPosterCard extends StatelessWidget {
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PosterPlaceholder extends StatelessWidget {
-  const _PosterPlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final isLight = colors.backgroundBase.computeLuminance() >= .58;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[
-            Color.alphaBlend(
-              colors.accent.withValues(alpha: isLight ? .08 : .12),
-              colors.surfaceStrong,
-            ),
-            Color.alphaBlend(
-              colors.accentStrong.withValues(alpha: isLight ? .04 : .07),
-              colors.surface,
-            ),
-          ],
-        ),
-      ),
-      child: Center(
-        child: Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            color: colors.surface.withValues(alpha: isLight ? .72 : .46),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: colors.borderStrong.withValues(alpha: .72),
-            ),
-          ),
-          child: Icon(
-            Icons.local_movies_outlined,
-            color: colors.accentStrong.withValues(alpha: isLight ? .72 : .64),
-            size: 27,
-          ),
         ),
       ),
     );
