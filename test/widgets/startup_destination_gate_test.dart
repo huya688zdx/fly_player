@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:fly_player/providers/startup_preferences_provider.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 import 'package:fly_player/widgets/startup_destination_gate.dart';
 
 void main() {
@@ -11,7 +12,7 @@ void main() {
 
     await tester.pumpWidget(_testApp(provider));
 
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(BirdLoader), findsOneWidget);
     expect(find.text('普通首页'), findsNothing);
   });
 
