@@ -184,6 +184,88 @@ void main() {
     expect(selected, <int>[2]);
   });
 
+  testWidgets('点按屏内海报只切焦点，轨道不滚动', (tester) async {
+    const item2Key = ValueKey('poster_browse_track_item_item-2');
+    await _pumpPanel(tester, focusedIndex: 0, itemCount: 8, onItemTap: (_) {});
+    await tester.pumpAndSettle();
+    final before = tester.getTopLeft(find.byKey(item2Key)).dx;
+
+    // 模拟父级（页面）在点按后更新焦点：重新 pump 同一面板、焦点改到 2。
+    await tester.pumpWidget(
+      _testApp(
+        PosterBrowseLandscapeGesturePanel(
+          items: _items(8),
+          focusedIndex: 2,
+          showProgress: false,
+          imageOf: (_) => MediaImageRequest.empty,
+          secondaryLabelOf: (_) => '第 1 季',
+          onItemTap: (_) {},
+          collapsedContent: const Text('影片详情'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.getTopLeft(find.byKey(item2Key)).dx, before);
+  });
+
+  testWidgets('点击聚焦后轻拖一小段：轨道原地停住不切焦点', (tester) async {
+    final selected = <int>[];
+    const item5Key = ValueKey('poster_browse_track_item_item-5');
+    await _pumpPanel(
+      tester,
+      focusedIndex: 5,
+      itemCount: 20,
+      onItemTap: selected.add,
+    );
+    await tester.pumpAndSettle();
+    final before = tester.getTopLeft(find.byKey(item5Key)).dx;
+
+    await tester.timedDrag(
+      _panelFinder,
+      const Offset(-24, 0),
+      const Duration(milliseconds: 400),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selected, isEmpty);
+    // 轨道随手指移动后原地停住，不再吸附回焦点对齐位（旧行为会猛拽回去）。
+    final after = tester.getTopLeft(find.byKey(item5Key)).dx;
+    expect(after, lessThan(before));
+  });
+
+  testWidgets('聚焦后横滑切到下一个：轨道最小露出新焦点而非左对齐猛跳', (tester) async {
+    var selected = <int>[];
+    await _pumpPanel(
+      tester,
+      focusedIndex: 11,
+      itemCount: 20,
+      width: 380,
+      onItemTap: (index) => selected.add(index),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.timedDrag(
+      _panelFinder,
+      const Offset(-100, 0),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selected, <int>[12]);
+    // 新焦点完整可见，且不再被左对齐拽到视口最左缘（旧逻辑会落在 ≈2px 处）。
+    final panelLeft = tester.getTopLeft(_panelFinder).dx;
+    final left =
+        tester
+            .getTopLeft(
+              find.byKey(const ValueKey('poster_browse_track_item_item-12')),
+            )
+            .dx -
+        panelLeft;
+    expect(left, greaterThan(100));
+    expect(left + 116, lessThanOrEqualTo(380));
+  });
+
   testWidgets('横屏海报面板收起后信息按切换方向位移过渡', (tester) async {
     const firstKey = ValueKey('collapsed-info-1');
     const secondKey = ValueKey('collapsed-info-2');
@@ -229,6 +311,7 @@ Future<void> _pumpPanel(
   required void Function(int index) onItemTap,
   Widget collapsedContent = const Text('影片详情'),
   int itemCount = 3,
+  double width = 853,
 }) async {
   await tester.binding.setSurfaceSize(const Size(853, 384));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -243,6 +326,7 @@ Future<void> _pumpPanel(
         onItemTap: onItemTap,
         collapsedContent: collapsedContent,
       ),
+      width: width,
     ),
   );
 }
@@ -271,12 +355,12 @@ double _infoOpacity(WidgetTester tester) {
       .opacity;
 }
 
-Widget _testApp(Widget child) {
+Widget _testApp(Widget child, {double width = 853}) {
   return MaterialApp(
     home: Scaffold(
       body: Align(
         alignment: Alignment.bottomCenter,
-        child: SizedBox(width: 853, height: 264, child: child),
+        child: SizedBox(width: width, height: 264, child: child),
       ),
     ),
   );
