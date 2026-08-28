@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fly Player · 原生控制层 V2</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #05070a;
+      --glass: rgba(7, 12, 18, .74);
+      --line: rgba(255, 255, 255, .12);
+      --muted: rgba(245, 248, 255, .66);
+      --blue: #4b91ff;
+      --blue-soft: rgba(75, 145, 255, .18);
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      overflow-x: hidden;
+      color: #f7f9ff;
+      font-family: "MiSans", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at 18% 15%, rgba(49, 89, 151, .21), transparent 32rem),
+        radial-gradient(circle at 88% 86%, rgba(87, 114, 150, .14), transparent 30rem),
+        #0a0d12;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .23;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.12'/%3E%3C/svg%3E");
+    }
+
+    button { font: inherit; }
+    .stage { width: min(1180px, calc(100vw - 28px)); padding: 26px 0 38px; }
+    .lab-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .eyebrow { color: #79aaff; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; }
+    h1 { margin: 7px 0 0; font-family: "STZhongsong", "Source Han Serif SC", serif; font-size: clamp(24px, 3vw, 42px); font-weight: 500; letter-spacing: -.04em; }
+    .switcher { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: rgba(8, 12, 18, .7); }
+    .switcher button { border: 0; border-radius: 999px; padding: 9px 14px; color: var(--muted); background: transparent; cursor: pointer; }
+    .switcher button.active { color: white; background: rgba(255,255,255,.11); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+
+    .device-wrap { display: grid; place-items: center; min-height: 680px; perspective: 1300px; }
+    .device {
+      --ratio-w: 16;
+      --ratio-h: 9;
+      position: relative;
+      width: min(1120px, 100%);
+      aspect-ratio: var(--ratio-w) / var(--ratio-h);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 24px;
+      background: #000;
+      box-shadow: 0 42px 90px rgba(0,0,0,.56), 0 0 0 8px rgba(255,255,255,.025);
+      transition: width .6s var(--ease), aspect-ratio .6s var(--ease), border-radius .6s var(--ease);
+    }
+    .device.portrait { width: min(390px, 92vw); --ratio-w: 9; --ratio-h: 19.5; border-radius: 34px; }
+
+    .film {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(180,195,204,.85), rgba(244,244,237,.96) 25%, #d9e1e1 75%, #9faeae),
+        #dfe6e4;
+    }
+    .film::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(100deg, transparent 9%, rgba(255,255,255,.75) 37%, transparent 62%);
+      transform: translateX(-80%);
+      animation: light-pass 8s ease-in-out infinite;
+    }
+    @keyframes light-pass { 45%,100% { transform: translateX(90%); } }
+    .figures { position: absolute; inset: 18% 17% 8%; display: flex; justify-content: space-around; align-items: end; opacity: .76; filter: saturate(.72); }
+    .figure { position: relative; width: 15%; height: var(--h); border-radius: 42% 42% 10% 10%; background: var(--c); box-shadow: inset -13px 0 0 rgba(0,0,0,.08); }
+    .figure::before { content: ""; position: absolute; width: 42%; aspect-ratio: 1; left: 29%; top: -16%; border-radius: 48% 48% 43% 43%; background: #e7c6a8; box-shadow: 0 -7px 0 2px var(--hair); }
+    .figure::after { content: ""; position: absolute; left: 18%; right: 18%; top: 26%; height: 1px; background: rgba(255,255,255,.55); box-shadow: 0 7px 0 rgba(255,255,255,.3); }
+    .portrait .figures { inset: 35% -30% 25%; }
+
+    .shade-top, .shade-bottom { position: absolute; left: 0; right: 0; pointer-events: none; }
+    .shade-top { top: 0; height: 37%; background: linear-gradient(#030507 0%, rgba(3,5,7,.74) 26%, transparent 100%); }
+    .shade-bottom { bottom: 0; height: 48%; background: linear-gradient(transparent 0%, rgba(2,4,7,.68) 42%, #020407 100%); }
+
+    .top {
+      position: absolute;
+      inset: 0 0 auto;
+      padding: 10px 14px 14px;
+      z-index: 2;
+      transition: opacity .24s, transform .24s;
+    }
+    .sys { height: 20px; display: flex; align-items: center; justify-content: space-between; padding: 0 2px; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .015em; }
+    .sys-right { display: flex; gap: 12px; }
+    .title-row { display: flex; align-items: center; min-width: 0; margin-top: 5px; }
+    .icon-btn {
+      width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center;
+      padding: 0; border: 0; border-radius: 12px; color: white; background: transparent; cursor: pointer;
+      transition: background .2s, transform .2s;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,.1); }
+    .icon-btn:active { transform: scale(.9); }
+    svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .title-copy { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; padding-left: 7px; }
+    .badge { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; color: #dcebff; font-size: 10px; border: 1px solid rgba(93,156,255,.2); background: var(--blue-soft); }
+    .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 720; letter-spacing: .01em; }
+    .tools { display: flex; align-items: center; gap: 2px; padding-left: 8px; }
+
+    .bottom { position: absolute; inset: auto 0 0; z-index: 2; padding: 10px 14px 14px; transition: opacity .24s, transform .24s; }
+    .timeline { display: grid; grid-template-columns: 46px 1fr 46px 38px; align-items: center; gap: 8px; color: white; font-size: 11px; font-weight: 720; font-variant-numeric: tabular-nums; }
+    .rail { position: relative; height: 28px; cursor: pointer; }
+    .rail::before, .played { content: ""; position: absolute; top: 13px; height: 3px; border-radius: 99px; }
+    .rail::before { left: 0; right: 0; background: rgba(255,255,255,.24); }
+    .played { left: 0; width: 10.5%; background: linear-gradient(90deg, #3385ff, #67a8ff); box-shadow: 0 0 14px rgba(59,137,255,.6); }
+    .played::after { content: ""; position: absolute; right: -7px; top: -5px; width: 13px; height: 13px; border-radius: 50%; background: white; box-shadow: 0 2px 9px rgba(0,0,0,.45); }
+    .controls { display: flex; align-items: center; gap: 5px; min-width: 0; margin-top: 1px; }
+    .play { width: 46px; height: 46px; color: var(--blue); }
+    .play svg { width: 26px; height: 26px; fill: currentColor; stroke: none; }
+    .danmaku { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; margin-left: 2px; border: 0; border-radius: 11px; color: var(--blue); font-weight: 720; font-size: 12px; background: transparent; cursor: pointer; }
+    .danmaku svg { width: 17px; height: 17px; }
+    .spacer { flex: 1; min-width: 8px; }
+    .strip { display: flex; align-items: center; padding: 3px; border: 1px solid var(--line); border-radius: 15px; background: var(--glass); box-shadow: inset 0 1px rgba(255,255,255,.035), 0 12px 30px rgba(0,0,0,.2); backdrop-filter: blur(18px) saturate(130%); }
+    .entry { position: relative; height: 34px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-radius: 11px; color: #fff; background: transparent; font-weight: 690; font-size: 12px; white-space: nowrap; cursor: pointer; }
+    .entry:hover { background: rgba(255,255,255,.09); }
+    .entry svg { width: 16px; height: 16px; color: rgba(255,255,255,.84); }
+    .entry.icon-only { width: 34px; justify-content: center; padding: 0; }
+
+    .speed-menu { position: absolute; right: 100px; bottom: 68px; width: 126px; padding: 6px; border: 1px solid var(--line); border-radius: 15px; background: rgba(7,11,17,.92); box-shadow: 0 20px 55px rgba(0,0,0,.45); backdrop-filter: blur(22px); opacity: 0; transform: translateY(8px) scale(.97); pointer-events: none; transition: .2s var(--ease); }
+    .speed-menu.show { opacity: 1; transform: none; pointer-events: auto; }
+    .speed-menu button { width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; color: var(--muted); text-align: left; background: transparent; cursor: pointer; }
+    .speed-menu button:hover, .speed-menu button.active { color: white; background: var(--blue-soft); }
+
+    .device.clean .top { opacity: 0; transform: translateY(-14px); pointer-events: none; }
+    .device.clean .bottom { opacity: 0; transform: translateY(14px); pointer-events: none; }
+    .tap-hint { position: absolute; inset: 0; z-index: 1; cursor: pointer; }
+
+    .portrait .top { padding: 7px 10px 12px; }
+    .portrait .title { font-size: 14px; }
+    .portrait .tools .optional, .portrait .strip .wide { display: none; }
+    .portrait .bottom { padding: 9px 10px 12px; }
+    .portrait .timeline { grid-template-columns: 42px 1fr 42px 36px; gap: 5px; }
+    .portrait .controls { gap: 1px; }
+    .portrait .play { width: 42px; height: 42px; }
+    .portrait .danmaku { width: 36px; padding: 0; justify-content: center; }
+    .portrait .danmaku span { display: none; }
+    .portrait .entry { padding: 0 7px; gap: 4px; }
+    .portrait .speed-menu { right: 12px; bottom: 62px; }
+
+    .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+    .note { min-height: 92px; padding: 16px; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: rgba(255,255,255,.035); }
+    .note b { display: block; margin-bottom: 7px; color: #dce9ff; font-size: 13px; }
+    .note span { color: var(--muted); font-size: 12px; line-height: 1.65; }
+    @media (max-width: 760px) { .lab-head { align-items: start; flex-direction: column; } .device-wrap { min-height: 600px; } .notes { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <header class="lab-head">
+      <div><div class="eyebrow">Native player / Control surface 02</div><h1>影院边缘控制台</h1></div>
+      <div class="switcher" role="group" aria-label="预览方向">
+        <button class="active" data-mode="landscape">横屏</button>
+        <button data-mode="portrait">竖屏</button>
+      </div>
+    </header>
+
+    <section class="device-wrap">
+      <div class="device" id="device">
+        <div class="film">
+          <div class="figures">
+            <i class="figure" style="--h:82%;--c:#4f78ad;--hair:#72553d"></i>
+            <i class="figure" style="--h:70%;--c:#8884bd;--hair:#57446e"></i>
+            <i class="figure" style="--h:65%;--c:#5c8cc9;--hair:#bd674b"></i>
+            <i class="figure" style="--h:72%;--c:#6b8b83;--hair:#8c7550"></i>
+          </div>
+        </div>
+        <div class="shade-top"></div><div class="shade-bottom"></div>
+        <div class="tap-hint" id="tapHint" aria-label="显示或隐藏控制层"></div>
+
+        <div class="top">
+          <div class="sys"><span>01:22</span><span class="sys-right"><span>移动网络</span><span>95%</span></span></div>
+          <div class="title-row">
+            <button class="icon-btn" aria-label="返回"><svg><path d="M19 12H5m6-6-6 6 6 6"/></svg></button>
+            <div class="title-copy"><span class="badge">已下载</span><span class="title">异国日记 第1季 第4集 紧张</span></div>
+            <div class="tools">
+              <button class="icon-btn optional" aria-label="小窗"><svg><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M12 12h6v5h-6z"/></svg></button>
+              <button class="icon-btn" aria-label="听视频"><svg><path d="M5 13v-2a7 7 0 0 1 14 0v2M5 13H3v6h4v-6H5zm14 0h2v6h-4v-6h2z"/></svg></button>
+              <button class="icon-btn optional" aria-label="截图"><svg><path d="M5 8h3l1.5-2h5L16 8h3v10H5z"/><circle cx="12" cy="13" r="3"/></svg></button>
+              <button class="icon-btn optional" aria-label="弹幕设置"><svg><path d="M4 6.5h16V16H9l-5 3zM8 10h8m-8 3h5"/></svg></button>
+              <button class="icon-btn" aria-label="更多"><svg style="fill:currentColor;stroke:none"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="bottom">
+          <div class="timeline"><span>02:39</span><div class="rail"><i class="played"></i></div><span>23:40</span><button class="icon-btn" aria-label="旋转"><svg><path d="M7 4 4 7l13 13 3-3L7 4zm8-1a9 9 0 0 1 6 8M9 21a9 9 0 0 1-6-8"/></svg></button></div>
+          <div class="controls">
+            <button class="icon-btn play" id="playButton" aria-label="播放"><svg viewBox="0 0 24 24"><path id="playPath" d="M8 5v14l11-7z"/></svg></button>
+            <button class="icon-btn" aria-label="下一集"><svg><path d="m6 6 9 6-9 6z"/><path d="M18 6v12"/></svg></button>
+            <button class="danmaku" aria-label="弹幕"><svg><path d="M4 6.5h16V16H9l-5 3zM8 10h8m-8 3h5"/></svg></button>
+            <span class="spacer"></span>
+            <div class="strip">
+              <button class="entry icon-only" aria-label="选集"><svg><path d="M4 5h16v14H4zM8 9h3m2 0h3m-8 4h3m2 0h3"/></svg></button>
+              <button class="entry" id="speedButton"><span id="speedLabel">1.5x</span></button>
+              <button class="entry icon-only wide" aria-label="音轨"><svg><path d="M4 9v6h4l5 4V5L8 9zm12 0c1.2 1.6 1.2 4.4 0 6m3-8.5c2.8 3.1 2.8 7.9 0 11"/></svg></button>
+              <button class="entry icon-only wide" aria-label="字幕"><svg><path d="M3.5 5.5h17v13h-17zM7 11h4m3 0h3M7 15h7"/></svg></button>
+              <button class="entry icon-only wide" aria-label="原画"><svg><path d="M4 6h16v12H4zM8 10h8m-8 4h5"/></svg></button>
+            </div>
+          </div>
+          <div class="speed-menu" id="speedMenu">
+            <button data-speed="0.75x">0.75x</button><button data-speed="1.0x">1.0x</button>
+            <button data-speed="1.25x">1.25x</button><button class="active" data-speed="1.5x">1.5x</button><button data-speed="2.0x">2.0x</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="notes">
+      <div class="note"><b>边缘更贴近</b><span>顶部 10dp、底部 12dp；左右挖孔分别保护，不再把单侧安全区镜像到另一侧。</span></div>
+      <div class="note"><b>主次更清楚</b><span>播放、下一集与弹幕留在左侧；选集、倍速、音轨、字幕和画质合并成一条轻量控制组。</span></div>
+      <div class="note"><b>竖屏不再拥挤</b><span>自动收起次要入口，弹幕缩成图标；重载入口已移除，倍速标签展示真实选择值。</span></div>
+    </div>
+  </main>
+
+  <script>
+    const device = document.querySelector('#device');
+    document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-mode]').forEach(item => item.classList.toggle('active', item === button));
+      device.classList.toggle('portrait', button.dataset.mode === 'portrait');
+    }));
+
+    document.querySelector('#tapHint').addEventListener('click', () => device.classList.toggle('clean'));
+    document.querySelector('#playButton').addEventListener('click', event => {
+      event.stopPropagation();
+      const path = document.querySelector('#playPath');
+      const paused = path.getAttribute('d').startsWith('M8');
+      path.setAttribute('d', paused ? 'M7 5h4v14H7zm6 0h4v14h-4z' : 'M8 5v14l11-7z');
+    });
+
+    const speedButton = document.querySelector('#speedButton');
+    const speedMenu = document.querySelector('#speedMenu');
+    speedButton.addEventListener('click', event => { event.stopPropagation(); speedMenu.classList.toggle('show'); });
+    document.querySelectorAll('[data-speed]').forEach(button => button.addEventListener('click', event => {
+      event.stopPropagation();
+      document.querySelector('#speedLabel').textContent = button.dataset.speed;
+      document.querySelectorAll('[data-speed]').forEach(item => item.classList.toggle('active', item === button));
+      speedMenu.classList.remove('show');
+    }));
+  </script>
+</body>
+</html>
