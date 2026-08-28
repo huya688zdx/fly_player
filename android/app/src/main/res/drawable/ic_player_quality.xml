@@ -4,11 +4,14 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFFFF">
+    <!-- 画质：竖向调节滑杆 + 珠子，与字幕(矩形内文字行)明显区分 -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="#FFFFFFFF"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
         android:strokeWidth="1.8"
-        android:pathData="M4,6h16v12H4zM8,10h8M8,14h5" />
+        android:pathData="M7,4v16M12,4v16M17,4v16" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7,11.4a2.4,2.4 0 1,0 0.001,0zM12,5.6a2.4,2.4 0 1,0 0.001,0zM17,13.6a2.4,2.4 0 1,0 0.001,0z" />
 </vector>
