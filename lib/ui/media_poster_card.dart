@@ -81,8 +81,8 @@ class MediaPosterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final posterArea = heroTag == null || heroTag!.isEmpty
-        ? _buildPosterArea()
-        : Hero(tag: heroTag!, child: _buildPosterArea());
+        ? _buildPosterArea(context)
+        : Hero(tag: heroTag!, child: _buildPosterArea(context));
     // 注意：本卡片始终被宿主 ListView/SliverGrid 以 addRepaintBoundaries:true
     // 自动包裹一层 RepaintBoundary，故此处不再额外包裹，避免每卡多出一个冗余
     // 合成层（首页横向行滚动时会放大 raster 合成开销）。
@@ -134,115 +134,187 @@ class MediaPosterCard extends StatelessWidget {
     );
   }
 
-  Widget _buildPosterArea() {
-    const fallback = AppThemePalette.fallback;
+  Widget _buildPosterArea(BuildContext context) {
+    final colors = context.appColors;
+    final posterBorder = Color.alphaBlend(
+      colors.accent.withValues(alpha: .16),
+      colors.borderStrong.withValues(alpha: .82),
+    );
+    final ratingFill = Color.alphaBlend(
+      colors.accent.withValues(alpha: .92),
+      colors.surface,
+    );
+    final ratingForeground = _contrastingForeground(ratingFill);
     return SizedBox(
       width: double.infinity,
       height: expandImageToFit ? null : imageHeight,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            clipBehavior: Clip.hardEdge,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: fallback.surfaceStrong,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.18),
-                width: 0.6,
+      child: ClipRRect(
+        key: const ValueKey<String>('media-poster-visual-clip'),
+        borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              key: const ValueKey<String>('media-poster-surface'),
+              clipBehavior: Clip.hardEdge,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: colors.surfaceStrong,
               ),
-            ),
-            child: _PosterImage(
-              images: images,
-              fit: imageFit,
-              aspectRatioHint: imageAspectRatioHint,
-              autoFitByImageAspect: autoFitByImageAspect,
-              decodeWidth: decodeWidth,
-              fallback: Center(
-                child: Icon(
-                  Icons.movie,
-                  color: fallback.textMuted.withValues(alpha: 0.5),
+              foregroundDecoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: posterBorder, width: .8),
+              ),
+              child: _PosterImage(
+                images: images,
+                fit: imageFit,
+                aspectRatioHint: imageAspectRatioHint,
+                autoFitByImageAspect: autoFitByImageAspect,
+                decodeWidth: decodeWidth,
+                fallback: const _PosterPlaceholder(
+                  key: ValueKey<String>('media-poster-placeholder'),
                 ),
               ),
             ),
-          ),
-          if (rating != null && rating! > 0)
-            Positioned(
-              left: 6,
-              top: 6,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFC5A425),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  rating!.toStringAsFixed(1),
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
+            if (rating != null && rating! > 0)
+              Positioned(
+                left: 6,
+                top: 6,
+                child: Container(
+                  key: const ValueKey<String>('media-poster-rating'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: ratingFill,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: colors.accentStrong.withValues(alpha: .56),
+                      width: .6,
+                    ),
+                  ),
+                  child: Text(
+                    rating!.toStringAsFixed(1),
+                    style: TextStyle(
+                      color: ratingForeground,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
-            ),
-          if (resolutions.isNotEmpty || watched)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: FractionallySizedBox(
-                    widthFactor: 1,
-                    heightFactor: 0.60,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.12),
-                            Colors.black.withValues(alpha: 0.32),
-                          ],
-                          stops: const [0.0, 0.7, 1.0],
+            if (resolutions.isNotEmpty || watched)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: FractionallySizedBox(
+                      widthFactor: 1,
+                      heightFactor: 0.60,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.12),
+                              Colors.black.withValues(alpha: 0.32),
+                            ],
+                            stops: const [0.0, 0.7, 1.0],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          if (watched)
-            Positioned(
-              left: 6,
-              bottom: 4,
-              child: SvgPicture.asset(
-                'assets/icons/watched_selected.svg',
-                width: 16,
-                height: 16,
-                colorFilter: const ColorFilter.mode(
-                  Colors.white,
-                  BlendMode.srcIn,
+            if (watched)
+              Positioned(
+                left: 6,
+                bottom: 4,
+                child: SvgPicture.asset(
+                  'assets/icons/watched_selected.svg',
+                  width: 16,
+                  height: 16,
+                  colorFilter: const ColorFilter.mode(
+                    Colors.white,
+                    BlendMode.srcIn,
+                  ),
                 ),
               ),
-            ),
-          if (resolutions.isNotEmpty)
-            Positioned(
-              right: 0,
-              bottom: 4,
-              child: Row(
-                children: [
-                  for (int i = 0; i < resolutions.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 0),
-                    _PosterCapabilityBadge(label: resolutions[i]),
+            if (resolutions.isNotEmpty)
+              Positioned(
+                right: 0,
+                bottom: 4,
+                child: Row(
+                  children: [
+                    for (int i = 0; i < resolutions.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 0),
+                      _PosterCapabilityBadge(label: resolutions[i]),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+class _PosterPlaceholder extends StatelessWidget {
+  const _PosterPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = colors.backgroundBase.computeLuminance() >= .58;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[
+            Color.alphaBlend(
+              colors.accent.withValues(alpha: isLight ? .08 : .12),
+              colors.surfaceStrong,
+            ),
+            Color.alphaBlend(
+              colors.accentStrong.withValues(alpha: isLight ? .04 : .07),
+              colors.surface,
+            ),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: colors.surface.withValues(alpha: isLight ? .72 : .46),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: colors.borderStrong.withValues(alpha: .72),
+            ),
+          ),
+          child: Icon(
+            Icons.local_movies_outlined,
+            color: colors.accentStrong.withValues(alpha: isLight ? .72 : .64),
+            size: 27,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Color _contrastingForeground(Color background) {
+  return background.computeLuminance() >= .54
+      ? const Color(0xFF172030)
+      : Colors.white;
 }
 
 class _PosterCapabilityBadge extends StatelessWidget {
