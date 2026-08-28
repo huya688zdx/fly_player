@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../media_backend/media_image_request.dart';
 import '../../../theme/app_theme.dart';
+import '../../../ui/media_placeholder.dart';
 import 'home_horizontal_shelf.dart';
 import 'home_section_header.dart';
 
@@ -260,22 +261,15 @@ class _ContinueArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     final request = item.imageRequest;
     if (!request.canLoad) {
-      return ColoredBox(
-        color: colors.surfaceStrong,
-        child: Icon(Icons.movie_outlined, color: colors.textMuted, size: 36),
-      );
+      return const MediaPlaceholder();
     }
     return _FallbackNetworkImage(
       imageKey: ValueKey<String>('continue-image-${item.id}'),
       request: request,
       stableImageCacheWidth: stableImageCacheWidth,
-      fallback: ColoredBox(
-        color: colors.surfaceStrong,
-        child: Icon(Icons.movie_outlined, color: colors.textMuted, size: 36),
-      ),
+      fallback: const MediaPlaceholder(),
     );
   }
 }
