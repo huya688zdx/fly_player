@@ -50,6 +50,7 @@ import 'utils/route_query_json.dart';
 import 'utils/app_exception.dart';
 import 'widgets/common/app_error_state.dart';
 import 'widgets/startup_destination_gate.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 void main() {
   runZonedGuarded(
@@ -641,7 +642,7 @@ class _ProviderGate extends StatelessWidget {
     if (!provider.isReady || !session.isReady) {
       return Scaffold(
         backgroundColor: colors.backgroundBase,
-        body: const Center(child: CircularProgressIndicator()),
+        body: const Center(child: BirdLoader(size: 140)),
       );
     }
     // 飞牛已配置，或当前后端会话为服务器族且已认证，均可进入主导航；否则回登录页。

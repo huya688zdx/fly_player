@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-scheme="a" data-accent="gold" data-mode="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>默认占位 · 统一设计提案 — Fly Player</title>
+<style>
+/* ============================================================
+   基础与主题变量
+   表面/文字 token 与 lib/theme/app_theme.dart 的 AppThemePalette 对齐
+   ============================================================ */
+:root{
+  --ui-bg:#070d16;
+  --ui-panel:#0c1524;
+  --ui-line:rgba(255,255,255,.09);
+  --ui-text:#e8eef6;
+  --ui-muted:#8ea2ba;
+  --ui-serif:Georgia,"Times New Roman","Songti SC","SimSun",serif;
+  --ui-sans:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+
+  /* 强调色(默认琥珀 = 截图里的动态取色;可切换) */
+  --accent:#e8a33d;
+  --accent-strong:#f2c063;
+}
+html[data-accent="blue"]  {--accent:#3a82f7;--accent-strong:#63a0ff;}
+html[data-accent="teal"]  {--accent:#2fbf9b;--accent-strong:#57d8b8;}
+html[data-accent="violet"]{--accent:#9a6cf0;--accent-strong:#b794f5;}
+
+/* —— App 深色模式 token(与 AppThemePalette.fallback 对齐) —— */
+:root{
+  --m-bg:#09111c;
+  --m-elev:#0d1624;
+  --m-surface:#101b2a;
+  --m-subtle:#132238;
+  --m-strong:#173253;
+  --m-text:#ffffff;
+  --m-text2:#c4d0de;
+  --m-muted:#8ea2ba;
+  --m-border:rgba(255,255,255,.10);
+  --m-card:#0e1928;
+
+  /* 占位层专用变量(深色) */
+  --ph-g1:color-mix(in srgb,var(--m-strong) 82%,var(--accent) 18%);
+  --ph-g2:color-mix(in srgb,var(--m-surface) 93%,var(--accent) 7%);
+  --ph-g3:color-mix(in srgb,var(--m-surface) 97%,#000 3%);
+  --ph-glyph:color-mix(in srgb,var(--accent-strong) 88%,transparent);
+  --ph-line:rgba(255,255,255,.15);
+  --ph-dot:rgba(255,255,255,.15);
+  --ph-halo:color-mix(in srgb,var(--accent) 15%,transparent);
+  --ph-grain-o:.07;
+}
+/* —— App 浅色模式 token(与 _lightFallback 对齐) —— */
+html[data-mode="light"]{
+  --m-bg:#f3edde;
+  --m-elev:#f1ebdd;
+  --m-surface:#fffcf7;
+  --m-subtle:#f4eee2;
+  --m-strong:#e4dac6;
+  --m-text:#182132;
+  --m-text2:#4c5768;
+  --m-muted:#768091;
+  --m-border:rgba(24,33,50,.12);
+  --m-card:#fbf7ee;
+
+  --ph-g1:color-mix(in srgb,var(--m-strong) 84%,var(--accent) 16%);
+  --ph-g2:color-mix(in srgb,var(--m-subtle) 90%,var(--accent) 10%);
+  --ph-g3:var(--m-subtle);
+  --ph-glyph:color-mix(in srgb,var(--accent) 78%,#4a3a14 8%);
+  --ph-line:rgba(24,33,50,.16);
+  --ph-dot:rgba(24,33,50,.18);
+  --ph-halo:color-mix(in srgb,var(--accent) 20%,transparent);
+  --ph-grain-o:.05;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 500px at 15% -5%,rgba(58,130,247,.07),transparent 60%),
+    radial-gradient(900px 500px at 90% 0%,rgba(232,163,61,.05),transparent 55%),
+    var(--ui-bg);
+  color:var(--ui-text);
+  font-family:var(--ui-sans);
+  min-height:100vh;
+  padding:48px clamp(16px,4vw,56px) 90px;
+}
+::selection{background:color-mix(in srgb,var(--accent) 40%,transparent)}
+
+/* ============================================================
+   页头
+   ============================================================ */
+.masthead{max-width:1240px;margin:0 auto 26px}
+.masthead .kicker{
+  font-size:12px;letter-spacing:.32em;color:var(--ui-muted);
+  text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:14px;
+}
+.masthead .kicker::after{content:"";flex:0 0 72px;height:1px;background:linear-gradient(90deg,var(--accent),transparent)}
+.masthead h1{
+  font-family:var(--ui-serif);font-weight:500;
+  font-size:clamp(30px,4.4vw,46px);letter-spacing:.02em;line-height:1.15;
+}
+.masthead h1 em{font-style:normal;color:var(--accent-strong)}
+.masthead .lede{margin-top:14px;max-width:760px;color:var(--ui-muted);font-size:14px;line-height:1.9}
+.masthead .lede b{color:var(--ui-text);font-weight:600}
+
+/* —— 控制台 —— */
+.console{
+  max-width:1240px;margin:26px auto 0;position:sticky;top:14px;z-index:50;
+  background:linear-gradient(180deg,rgba(16,27,42,.92),rgba(12,21,36,.94));
+  border:1px solid var(--ui-line);border-radius:16px;
+  padding:12px 16px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;
+  backdrop-filter:blur(10px);box-shadow:0 14px 40px rgba(0,0,0,.45);
+}
+.ctl{display:flex;align-items:center;gap:10px}
+.ctl-label{font-size:11px;letter-spacing:.18em;color:var(--ui-muted)}
+.seg{display:flex;background:rgba(255,255,255,.05);border:1px solid var(--ui-line);border-radius:10px;padding:3px;gap:3px}
+.seg button{
+  appearance:none;border:0;background:transparent;color:var(--ui-muted);
+  font:600 12.5px/1 var(--ui-sans);padding:8px 13px;border-radius:8px;cursor:pointer;
+  transition:all .22s cubic-bezier(.2,.7,.3,1);letter-spacing:.04em;white-space:nowrap;
+}
+.seg button:hover{color:var(--ui-text)}
+.seg button.on{background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 26%,transparent),color-mix(in srgb,var(--accent) 14%,transparent));color:#fff;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent-strong) 55%,transparent),0 2px 10px rgba(0,0,0,.35)}
+.seg button small{display:block;font-weight:500;font-size:10px;opacity:.75;margin-top:3px}
+.dots{display:flex;gap:9px}
+.dot{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;position:relative;transition:transform .2s}
+.dot:hover{transform:scale(1.12)}
+.dot.on{border-color:#fff;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)}
+.dot.gold  {background:linear-gradient(135deg,#f2c063,#d98f2b)}
+.dot.blue  {background:linear-gradient(135deg,#63a0ff,#2f6ae0)}
+.dot.teal  {background:linear-gradient(135deg,#57d8b8,#1f9d80)}
+.dot.violet{background:linear-gradient(135deg,#b794f5,#7e4fe0)}
+
+/* ============================================================
+   占位组件 .ph —— 四套方案共用骨架,靠 ph--a/b/c/d 切换
+   ============================================================ */
+.ph{
+  container-type:inline-size;
+  position:relative;overflow:hidden;border-radius:10px;isolation:isolate;
+  background:var(--m-surface);
+  transition:background .35s;
+}
+.ph>div,.ph>svg{pointer-events:none}
+
+/* 背景层(每方案各自的渐变) */
+.ph .ph-bg{position:absolute;inset:0}
+.ph .ph-glow{position:absolute;inset:0;opacity:0;transition:opacity .4s}
+.ph .ph-vignette{position:absolute;inset:0;opacity:0}
+.ph .ph-sheen{position:absolute;inset:0;opacity:0}
+.ph .ph-sprockets{position:absolute;inset:0 auto 0 0;width:0;opacity:0}
+.ph .ph-sprockets.r{inset:0 0 0 auto}
+.ph .ph-ticks{position:absolute;inset:0;opacity:0}
+.ph .ph-ticks i{position:absolute;width:max(9px,8.5cqw);aspect-ratio:1;border:0 solid var(--ph-line)}
+.ph .ph-ticks i:nth-child(1){top:6.5%;left:6.5%;border-top-width:1.4px;border-left-width:1.4px;border-top-left-radius:3px}
+.ph .ph-ticks i:nth-child(2){top:6.5%;right:6.5%;border-top-width:1.4px;border-right-width:1.4px;border-top-right-radius:3px}
+.ph .ph-ticks i:nth-child(3){bottom:6.5%;left:6.5%;border-bottom-width:1.4px;border-left-width:1.4px;border-bottom-left-radius:3px}
+.ph .ph-ticks i:nth-child(4){bottom:6.5%;right:6.5%;border-bottom-width:1.4px;border-right-width:1.4px;border-bottom-right-radius:3px}
+
+/* 中心区:玻璃圆片 + 图标(三枚图标常驻,按方案显隐) */
+.ph .ph-center{position:absolute;inset:0;display:grid;place-items:center}
+.ph .ph-disc{
+  position:absolute;width:47cqw;aspect-ratio:1;border-radius:50%;
+  opacity:0;transform:scale(.9);transition:opacity .4s,transform .4s;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.11),rgba(255,255,255,.02)),
+    color-mix(in srgb,var(--accent) 10%,transparent);
+  border:1px solid color-mix(in srgb,#fff 17%,transparent);
+  box-shadow:0 8px 22px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.10);
+}
+html[data-mode="light"] .ph .ph-disc{
+  background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.15)),color-mix(in srgb,var(--accent) 14%,transparent);
+  border-color:rgba(24,33,50,.14);box-shadow:0 8px 18px rgba(90,70,20,.14),inset 0 1px 0 rgba(255,255,255,.7);
+}
+.ph .glyph{position:absolute;color:var(--ph-glyph);opacity:0;transition:opacity .4s}
+.ph .glyph-strip{width:23cqw}
+.ph .glyph-clap{width:26cqw}
+.ph .glyph-iris{width:33cqw}
+.ph .glyph-iris{animation:iris-spin 56s linear infinite;animation-play-state:paused}
+@keyframes iris-spin{to{transform:rotate(360deg)}}
+
+/* 颗粒 */
+.ph .ph-grain{
+  position:absolute;inset:0;opacity:var(--ph-grain-o);mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* 底部光隙(A 专属氛围) */
+.ph .ph-sweep{
+  position:absolute;left:10%;right:10%;bottom:9%;height:1px;opacity:0;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent-strong) 55%,transparent),transparent);
+}
+.ph--a .ph-sweep,.ph--d .ph-sweep{opacity:.4;animation:sweep 8s ease-in-out infinite alternate}
+@keyframes sweep{from{transform:translateX(-7%);opacity:.22}to{transform:translateX(7%);opacity:.55}}
+
+/* ---------- 方案 A · 流光片盒 ---------- */
+.ph--a .ph-bg{background:linear-gradient(152deg,var(--ph-g1) 0%,var(--ph-g2) 55%,var(--ph-g3) 100%)}
+.ph--a .ph-glow{
+  opacity:1;
+  background:
+    radial-gradient(120% 90% at 20% 8%,var(--ph-halo),transparent 56%),
+    radial-gradient(90% 70% at 88% 100%,color-mix(in srgb,var(--accent-strong) 9%,transparent),transparent 62%);
+}
+.ph--a .ph-disc{opacity:1;transform:scale(1)}
+.ph--a .glyph-strip{opacity:1}
+
+/* ---------- 方案 B · 留白剧场 ---------- */
+.ph--b .ph-bg{background:linear-gradient(180deg,color-mix(in srgb,var(--m-strong) 62%,var(--m-surface)) 0%,var(--m-surface) 78%)}
+.ph--b .ph-glow{
+  opacity:1;
+  background:radial-gradient(58% 48% at 50% 46%,var(--ph-halo),transparent 70%);
+}
+.ph--b .ph-ticks{opacity:.85}
+.ph--b .glyph-clap{opacity:.88;filter:drop-shadow(0 0 10px color-mix(in srgb,var(--accent-strong) 35%,transparent))}
+
+/* ---------- 方案 C · 胶片齿孔 ---------- */
+.ph--c .ph-bg{background:linear-gradient(158deg,var(--ph-g1) 0%,var(--ph-g2) 62%,var(--ph-g3) 100%)}
+.ph--c .ph-sheen{
+  opacity:1;
+  background:linear-gradient(115deg,transparent 32%,rgba(255,255,255,.055) 46%,transparent 60%);
+}
+.ph--c .ph-sprockets{
+  width:14%;opacity:1;
+  border-right:1px solid color-mix(in srgb,var(--accent) 20%,transparent);
+  background-image:radial-gradient(circle,var(--ph-dot) 0 26%,transparent 31%);
+  background-size:100% 13.5%;
+  background-position:center;
+}
+.ph--c .ph-sprockets.r{
+  border-right:0;border-left:1px solid color-mix(in srgb,var(--accent) 20%,transparent);
+}
+.ph--c .glyph-strip{opacity:.9;width:20cqw}
+
+/* ---------- 方案 D · 光圈聚焦 ---------- */
+.ph--d .ph-bg{background:radial-gradient(120% 120% at 50% 38%,var(--ph-g1) 0%,var(--ph-g2) 52%,var(--ph-g3) 100%)}
+.ph--d .ph-vignette{
+  opacity:1;
+  background:radial-gradient(circle at 50% 46%,transparent 52%,rgba(0,0,0,.26) 100%);
+}
+html[data-mode="light"] .ph--d .ph-vignette{
+  background:radial-gradient(circle at 50% 46%,transparent 52%,rgba(90,70,20,.10) 100%);
+}
+.ph--d .glyph-iris{opacity:.92;animation-play-state:running}
+
+/* ============================================================
+   App 场景模拟(手机 mock)
+   ============================================================ */
+.stage{max-width:1240px;margin:34px auto 0;display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+.sec-title{
+  max-width:1240px;margin:64px auto 6px;display:flex;align-items:baseline;gap:16px;
+}
+.sec-title .no{font-family:var(--ui-serif);font-size:15px;color:var(--accent-strong);letter-spacing:.1em}
+.sec-title h2{font-family:var(--ui-serif);font-weight:500;font-size:24px;letter-spacing:.03em}
+.sec-title p{color:var(--ui-muted);font-size:12.5px}
+
+.phone{
+  flex:1 1 360px;max-width:430px;min-width:320px;
+  background:var(--m-bg);border-radius:26px;padding:20px 18px 26px;
+  border:1px solid rgba(255,255,255,.07);
+  box-shadow:0 30px 70px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);
+  color:var(--m-text);
+  transition:background .35s;
+}
+html[data-mode="light"] .phone{border-color:rgba(24,33,50,.10);box-shadow:0 30px 70px rgba(60,50,20,.22)}
+.phone.wide{flex:1 1 100%;max-width:none}
+
+/* —— 详情页 hero 区 —— */
+.hero-row{display:flex;gap:16px}
+.hero-poster{flex:0 0 150px;width:150px;height:225px}
+.hero-info{flex:1;min-width:0;display:flex;flex-direction:column;padding-top:44px}
+.hero-info .title{font-size:21px;font-weight:800;letter-spacing:.01em;line-height:1.3}
+.hero-info .sub{margin-top:10px;font-size:16px;font-weight:700;color:var(--m-text)}
+.hero-info .meta{margin-top:10px;font-size:14px;color:var(--m-muted)}
+.hero-info .meta .score{color:var(--accent-strong);font-weight:700}
+.hero-info .meta .sep{margin:0 8px;opacity:.5}
+.btn-row{display:flex;gap:10px;margin-top:20px;align-items:center}
+.btn-play{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:44px;padding:0 26px;border-radius:24px;border:0;cursor:default;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 92%,#fff 8%),color-mix(in srgb,var(--accent) 88%,#000 12%));
+  color:#241a06;font-size:15px;font-weight:800;letter-spacing:.05em;
+  box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 30%,transparent);
+  white-space:nowrap;
+}
+html[data-mode="light"] .btn-play{color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.15)}
+html[data-accent="blue"] .btn-play,html[data-accent="teal"] .btn-play,html[data-accent="violet"] .btn-play{color:#fff}
+.btn-orb{
+  width:44px;height:44px;border-radius:50%;flex:0 0 44px;
+  background:color-mix(in srgb,var(--m-strong) 55%,var(--m-surface));
+  border:1px solid var(--m-border);display:grid;place-items:center;color:var(--m-text2);
+}
+.btn-orb svg{width:19px;height:19px}
+
+/* —— 区块头 + 季 tabs + 选集行 —— */
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin-top:30px}
+.sec-head .h{font-size:19px;font-weight:800}
+.sec-head .chip{
+  display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:10px;
+  background:color-mix(in srgb,var(--m-strong) 45%,transparent);border:1px solid var(--m-border);
+  font-size:13px;font-weight:600;color:var(--m-text2);
+}
+.season-tabs{display:flex;gap:14px;margin-top:16px;font-size:14.5px;font-weight:700;color:var(--m-muted)}
+.season-tabs .on{color:var(--accent-strong)}
+.season-tabs .slash{opacity:.4;font-weight:400}
+.ep-row{display:flex;gap:12px;margin-top:14px;overflow:hidden}
+.ep-card{flex:0 0 200px;width:200px}
+.ep-thumb{position:relative;width:200px;height:112px}
+.ep-thumb .badge{
+  position:absolute;right:5px;bottom:5px;z-index:3;
+  border:1px solid rgba(214,222,232,.85);border-radius:5px;padding:1px 4px;
+  font-size:9.5px;font-weight:700;color:#d6dee8;letter-spacing:.03em;
+  background:rgba(6,12,20,.35);backdrop-filter:blur(2px);
+}
+html[data-mode="light"] .ep-thumb .badge{color:#3a4a63;border-color:rgba(58,74,99,.6);background:rgba(255,255,255,.5)}
+.ep-thumb .watched{
+  position:absolute;left:6px;bottom:6px;z-index:3;width:15px;height:15px;
+  border-radius:50%;background:var(--accent);display:grid;place-items:center;
+}
+.ep-thumb .watched svg{width:9px;height:9px;color:#241a06}
+html[data-accent="blue"] .ep-thumb .watched svg,html[data-accent="teal"] .ep-thumb .watched svg,html[data-accent="violet"] .ep-thumb .watched svg{color:#fff}
+.ep-thumb .prog{position:absolute;left:0;bottom:0;z-index:3;height:4px;width:38%;background:var(--accent)}
+.ep-title{margin-top:9px;font-size:14.5px;font-weight:600;color:var(--m-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ep-summary{margin-top:4px;font-size:12.5px;color:var(--m-muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ep-summary b{color:var(--accent-strong);font-weight:600}
+.ep-time{margin-top:5px;font-size:12.5px;color:var(--m-muted)}
+
+/* —— 季卡行 —— */
+.season-head{font-size:21px;font-weight:800;margin-bottom:16px}
+.season-row{display:flex;gap:12px}
+.season-card{flex:0 0 116px;width:116px}
+.season-card .ph{width:116px;height:170px}
+.season-card .name{margin-top:8px;text-align:center;font-size:13.5px;font-weight:700;color:var(--m-text)}
+
+/* —— 媒体库横条 —— */
+.tile{
+  display:flex;gap:14px;align-items:center;padding:12px;border-radius:14px;
+  background:var(--m-card);border:1px solid var(--m-border);max-width:520px;
+}
+.tile .ph{flex:0 0 120px;width:120px;height:68px}
+.tile .t-name{font-size:15.5px;font-weight:700;color:var(--m-text)}
+.tile .t-dur{margin-top:7px;font-size:13px;color:var(--m-muted)}
+.tile-col{flex:1;min-width:0}
+
+/* ============================================================
+   四方案对照区
+   ============================================================ */
+.compare{max-width:1240px;margin:22px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px}
+.cmp-card{
+  background:linear-gradient(180deg,rgba(255,255,255,.028),rgba(255,255,255,.012));
+  border:1px solid var(--ui-line);border-radius:18px;padding:18px 16px 16px;position:relative;
+  transition:border-color .3s,transform .3s;
+}
+.cmp-card:hover{border-color:color-mix(in srgb,var(--accent) 45%,transparent);transform:translateY(-3px)}
+.cmp-card .rec{
+  position:absolute;top:-11px;right:14px;height:22px;padding:0 11px;border-radius:11px;
+  background:linear-gradient(180deg,var(--accent-strong),var(--accent));color:#241a06;
+  font-size:11px;font-weight:800;display:flex;align-items:center;letter-spacing:.06em;
+  box-shadow:0 4px 14px color-mix(in srgb,var(--accent) 40%,transparent);
+}
+html[data-accent="blue"] .cmp-card .rec,html[data-accent="teal"] .cmp-card .rec,html[data-accent="violet"] .cmp-card .rec{color:#fff}
+.cmp-card h3{font-family:var(--ui-serif);font-weight:500;font-size:17px;letter-spacing:.04em}
+.cmp-card h3 span{color:var(--accent-strong);margin-right:8px}
+.cmp-card .desc{margin-top:6px;color:var(--ui-muted);font-size:12px;line-height:1.8;min-height:64px}
+.cmp-samples{margin-top:14px;display:flex;gap:12px;align-items:flex-end}
+.cmp-samples .p1{width:104px;height:156px;flex:0 0 104px}
+.cmp-samples .p2{width:132px;height:74px;flex:0 0 132px}
+.cmp-tag{margin-top:12px;font-size:11px;color:var(--ui-muted);letter-spacing:.08em;border-top:1px dashed var(--ui-line);padding-top:10px}
+.cmp-tag b{color:var(--ui-text)}
+
+/* ============================================================
+   方案说明 & 实施说明
+   ============================================================ */
+.notes{max-width:1240px;margin:64px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.note{
+  border:1px solid var(--ui-line);border-radius:16px;padding:20px 22px;
+  background:linear-gradient(180deg,rgba(255,255,255,.02),transparent);
+}
+.note h4{font-family:var(--ui-serif);font-weight:500;font-size:16px;margin-bottom:10px;color:var(--accent-strong)}
+.note p,.note li{font-size:12.5px;line-height:2;color:var(--ui-muted)}
+.note ul{padding-left:18px}
+.note code{font-family:Consolas,monospace;font-size:11.5px;color:var(--ui-text);background:rgba(255,255,255,.06);padding:1px 6px;border-radius:5px}
+
+.foot{max-width:1240px;margin:60px auto 0;text-align:center;color:var(--ui-muted);font-size:12px;letter-spacing:.14em}
+.foot .line{width:120px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);margin:0 auto 18px}
+
+/* 入场动画 */
+.reveal{animation:fadeUp .8s cubic-bezier(.2,.7,.3,1) both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.d1{animation-delay:.05s}.d2{animation-delay:.12s}.d3{animation-delay:.2s}.d4{animation-delay:.28s}.d5{animation-delay:.36s}
+
+@media (max-width:760px){
+  .console{position:static}
+  .hero-info{padding-top:8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= 页头 ================= -->
+<header class="masthead reveal d1">
+  <div class="kicker">FLY PLAYER · DESIGN PROPOSAL</div>
+  <h1>占位即氛围 <em>·</em> 默认占位统一提案</h1>
+  <p class="lede">
+    现状:全 App 共 <b>7 处</b>无图占位、<b>5 种</b>互不一致的样式(海报卡的圆圈胶片、详情/选集卡的场记板、续看卡的小图标、媒体库的实心胶片、海报浏览的纯色块)。
+    本提案将它们收口为<b>一套共享组件、四种气质方向</b>,全部由主题 token 驱动 —— 强调色、明暗模式变化时占位自动跟随,无需逐处适配。
+    下方所有 mock 已用统一后的占位渲染,可直接以真实场景拍板。
+  </p>
+</header>
+
+<!-- ================= 控制台 ================= -->
+<div class="console reveal d2">
+  <div class="ctl">
+    <span class="ctl-label">方案</span>
+    <div class="seg" id="segScheme">
+      <button data-scheme="a" class="on">A · 流光片盒</button>
+      <button data-scheme="b">B · 留白剧场</button>
+      <button data-scheme="c">C · 胶片齿孔</button>
+      <button data-scheme="d">D · 光圈聚焦</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <span class="ctl-label">强调色</span>
+    <div class="dots" id="dotsAccent">
+      <span class="dot gold on" data-accent="gold"  title="琥珀(动态取色)"></span>
+      <span class="dot blue" data-accent="blue"  title="深蓝(默认主题)"></span>
+      <span class="dot teal" data-accent="teal"  title="青绿"></span>
+      <span class="dot violet" data-accent="violet" title="绛紫"></span>
+    </div>
+  </div>
+  <div class="ctl">
+    <span class="ctl-label">模式</span>
+    <div class="seg" id="segMode">
+      <button data-mode="dark" class="on">深色</button>
+      <button data-mode="light">浅色</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 场景一:详情页(竖屏) ================= -->
+<div class="sec-title reveal d3">
+  <span class="no">01</span><h2>详情页 · 主海报 + 选集卡</h2>
+  <p>对应截图中的 <code style="font-size:11px">DetailHeroImage</code> 占位与选集 <code style="font-size:11px">_EpisodePoster</code> 占位</p>
+</div>
+<section class="stage">
+  <div class="phone reveal d3">
+    <div class="hero-row">
+      <div class="hero-poster ph ph--a" data-clone>
+        <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+        <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+        <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+        <div class="ph-center"><div class="ph-disc"></div>
+          <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+          <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+          <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+        </div>
+        <div class="ph-grain"></div><div class="ph-sweep"></div>
+      </div>
+      <div class="hero-info">
+        <div class="title">中二病也要谈恋爱!</div>
+        <div class="sub">Specials</div>
+        <div class="meta"><span class="score">8.1 分</span><span class="sep">/</span>2012</div>
+        <div class="btn-row">
+          <button class="btn-play" tabindex="-1">
+            <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><path d="M11.2 6.1c.7.4.7 1.4 0 1.8L1.9 13.4c-.7.4-1.5-.1-1.5-.9V1.5C.4.7 1.2.2 1.9.6z"/></svg>
+            第 1 集
+          </button>
+          <span class="btn-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.5-1.5 2-3.2 2-4.5A4.5 4.5 0 0 0 12 6.3 4.5 4.5 0 0 0 3 9.5c0 1.3.5 3 2 4.5l7 6.5z"/></svg></span>
+          <span class="btn-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12m0 0 5-5m-5 5-5-5M4 20h16"/></svg></span>
+          <span class="btn-orb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/><path d="m4 20 16-16"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-head">
+      <span class="h">选集</span>
+      <span class="chip">共 13 集 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg></span>
+    </div>
+    <div class="season-tabs"><span class="on">Specials</span><span class="slash">/</span><span>第 1 季</span><span class="slash">/</span><span>第 2 季</span></div>
+
+    <div class="ep-row">
+      <div class="ep-card">
+        <div class="ep-thumb">
+          <div class="ph ph--a" style="width:100%;height:100%" data-clone>
+            <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+            <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+            <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+            <div class="ph-center"><div class="ph-disc"></div>
+              <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+              <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+              <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+            </div>
+            <div class="ph-grain"></div><div class="ph-sweep"></div>
+          </div>
+          <span class="badge">1080</span>
+        </div>
+        <div class="ep-title">1.排球</div>
+        <div class="ep-summary">中二病也要谈恋爱!Lite 第 1 话…<b>详情</b></div>
+        <div class="ep-time">5 分钟 21 秒</div>
+      </div>
+      <div class="ep-card">
+        <div class="ep-thumb">
+          <div class="ph ph--a" style="width:100%;height:100%" data-clone>
+            <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+            <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+            <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+            <div class="ph-center"><div class="ph-disc"></div>
+              <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+              <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+              <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+            </div>
+            <div class="ph-grain"></div><div class="ph-sweep"></div>
+          </div>
+          <span class="badge">1080</span>
+          <span class="prog"></span>
+        </div>
+        <div class="ep-title">2.邪王真眼 · 黎明篇</div>
+        <div class="ep-summary">中二病也要谈恋爱!Lite 第 2 话…<b>详情</b></div>
+        <div class="ep-time">5 分钟 20 秒</div>
+      </div>
+      <div class="ep-card">
+        <div class="ep-thumb">
+          <div class="ph ph--a" style="width:100%;height:100%" data-clone>
+            <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+            <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+            <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+            <div class="ph-center"><div class="ph-disc"></div>
+              <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+              <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+              <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+            </div>
+            <div class="ph-grain"></div><div class="ph-sweep"></div>
+          </div>
+          <span class="watched"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 6.2 2.6 2.6L10 3.4"/></svg></span>
+        </div>
+        <div class="ep-title">3.智音的夏日祭</div>
+        <div class="ep-summary">中二病也要谈恋爱!Lite 第 3 话…<b>详情</b></div>
+        <div class="ep-time">5 分钟 19 秒</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- —— 季卡 mock —— -->
+  <div class="phone reveal d4">
+    <div class="season-head">共 3 季</div>
+    <div class="season-row">
+      <div class="season-card">
+        <div class="ph ph--a" style="width:100%;height:100%" data-clone>
+          <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+          <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+          <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+          <div class="ph-center"><div class="ph-disc"></div>
+            <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+            <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+            <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+          </div>
+          <div class="ph-grain"></div><div class="ph-sweep"></div>
+        </div>
+        <div class="name">Specials</div>
+      </div>
+      <div class="season-card">
+        <div class="ph ph--a" style="width:100%;height:100%" data-clone>
+          <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+          <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+          <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+          <div class="ph-center"><div class="ph-disc"></div>
+            <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+            <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+            <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+          </div>
+          <div class="ph-grain"></div><div class="ph-sweep"></div>
+        </div>
+        <div class="name">第 1 季</div>
+      </div>
+      <div class="season-card">
+        <div class="ph ph--a" style="width:100%;height:100%" data-clone>
+          <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+          <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+          <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+          <div class="ph-center"><div class="ph-disc"></div>
+            <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+            <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+            <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+          </div>
+          <div class="ph-grain"></div><div class="ph-sweep"></div>
+        </div>
+        <div class="name">第 2 季</div>
+      </div>
+    </div>
+
+    <div class="sec-head" style="margin-top:34px"><span class="h">媒体库 · 列表</span></div>
+    <div class="tile" style="margin-top:14px">
+      <div class="ph ph--a" style="flex:0 0 120px;width:120px;height:68px;border-radius:8px" data-clone>
+        <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+        <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+        <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+        <div class="ph-center"><div class="ph-disc"></div>
+          <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+          <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+          <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+        </div>
+        <div class="ph-grain"></div><div class="ph-sweep"></div>
+      </div>
+      <div class="tile-col">
+        <div class="t-name">1.排球</div>
+        <div class="t-dur">5 分钟 21 秒</div>
+      </div>
+    </div>
+    <div class="tile" style="margin-top:10px">
+      <div class="ph ph--a" style="flex:0 0 120px;width:120px;height:68px;border-radius:8px" data-clone>
+        <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+        <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+        <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+        <div class="ph-center"><div class="ph-disc"></div>
+          <svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>
+          <svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>
+          <svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>
+        </div>
+        <div class="ph-grain"></div><div class="ph-sweep"></div>
+      </div>
+      <div class="tile-col">
+        <div class="t-name">2.邪王真眼 · 黎明篇</div>
+        <div class="t-dur">5 分钟 20 秒</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 四方案对照 ================= -->
+<div class="sec-title reveal d4">
+  <span class="no">02</span><h2>四方案并排对照</h2>
+  <p>此区固定展示全部方案,不受顶部切换影响</p>
+</div>
+<section class="compare reveal d4" id="compare"></section>
+
+<!-- ================= 说明 ================= -->
+<div class="notes reveal d5">
+  <div class="note">
+    <h4>统一策略</h4>
+    <ul>
+      <li>新建共享组件 <code>lib/ui/media_placeholder.dart</code>,七处占位全部替换引用</li>
+      <li>颜色全部来自 <code>AppThemeColors</code> token(accent / surfaceStrong / surface…),动态取色主题下自动同频</li>
+      <li>尺寸用容器宽度比例(以 <code>LayoutBuilder</code> 实现),竖版海报、横版选集、小缩略图一套缩放规则</li>
+      <li>颗粒/氛围光用一层 <code>CustomPainter</code> 预渲染位图复用,不做逐帧动画;D 方案光圈缓旋可选、默认关闭省电</li>
+      <li>浅色模式同步适配(提案页顶部可切浅色预览)</li>
+    </ul>
+  </div>
+  <div class="note">
+    <h4>替换点位(现状 5 种样式 → 1 种)</h4>
+    <ul>
+      <li><code>media_poster_card.dart</code> — _PosterPlaceholder(季卡/海报网格)</li>
+      <li><code>media_detail_components.dart</code> — DetailHeroImage 占位(详情海报/选集卡)</li>
+      <li><code>home_continue_watching_section.dart</code> — 续看小卡占位</li>
+      <li><code>media_library_list_tile.dart</code> / <code>media_collection_browser.dart</code> — 媒体库列表/合集</li>
+      <li><code>poster_browse_poster_card.dart</code> — 海报浏览(现为纯色块)</li>
+      <li><code>immersive_detail_background.dart</code> — 详情 hero 背景兜底色</li>
+    </ul>
+  </div>
+</div>
+
+<div class="foot reveal d5">
+  <div class="line"></div>
+  FLY PLAYER · 默认占位统一设计提案 · 选定方案后即可进入 Flutter 实装
+</div>
+
+<script>
+/* —— 四方案对照区数据驱动渲染 —— */
+const SCHEMES=[
+  {key:'a',name:'流光片盒',en:'AURORA CASE',rec:true,
+   desc:'对现有"圆圈"语义的高端化:琥珀氛围光 + 胶片颗粒 + 玻璃圆片托起细线胶片图标。层次最多、最"贵",与任意强调色都能融。',
+   tag:'气质 <b>氛围奢华</b> · 复杂度 <b>中</b> · 动效 <b>底部光隙缓移</b>'},
+  {key:'b',name:'留白剧场',en:'SILENT STAGE',rec:false,
+   desc:'极简留白:无容器,细线场记板悬浮于中心光晕上,四角取景框角标暗示"画幅"。最克制、最不像"加载失败",远看近乎纯色。',
+   tag:'气质 <b>克制安静</b> · 复杂度 <b>低</b> · 动效 <b>无</b>'},
+  {key:'c',name:'胶片齿孔',en:'FILM EDGE',rec:false,
+   desc:'左右胶片齿孔边 + 斜向光泽,中间细线胶片图标。叙事感最强,一眼"电影";小尺寸下齿孔自动退隐为纹理。',
+   tag:'气质 <b>复古影院</b> · 复杂度 <b>中</b> · 动效 <b>无</b>'},
+  {key:'d',name:'光圈聚焦',en:'APERTURE',rec:false,
+   desc:'镜头光圈叶片 + 中心提亮 + 四周暗角,光圈极缓旋转(可关)。最具"设备感/高级镜头"的隐喻,科技味最浓。',
+   tag:'气质 <b>精密镜头</b> · 复杂度 <b>中高</b> · 动效 <b>光圈缓旋(可选)</b>'},
+];
+const GLYPHS={
+  strip:'<svg class="glyph glyph-strip" viewBox="0 0 36 36" fill="none"><rect x="6.75" y="9.75" width="22.5" height="16.5" rx="3.2" stroke="currentColor" stroke-width="1.5"/><rect x="10.2" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="10.2" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="12.7" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="16.8" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><rect x="23.4" y="20.9" width="2.4" height="2.4" rx="0.7" fill="currentColor"/><path d="M16 14.6v6.8l6-3.4z" fill="currentColor"/></svg>',
+  clap:'<svg class="glyph glyph-clap" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6.75" y="10.25" width="22.5" height="5.2" rx="1.8" stroke-width="1.5"/><rect x="6.75" y="17.75" width="22.5" height="8.5" rx="1.8" stroke-width="1.5"/><path d="m11.6 11.2-2.1 3.8M17.6 11.2l-2.1 3.8M23.6 11.2l-2.1 3.8" stroke-width="1.3"/></svg>',
+  iris:'<svg class="glyph glyph-iris" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="18" cy="18" r="12.25" stroke-width="1.5"/><path d="M18 5.75 22.7 13.8M29.5 12.3l-8.6 4.8M28.4 25.5l-9.5-5.4M18 30.25l-4.7-8.05M6.5 23.7l8.6-4.8M7.6 10.5l9.5 5.4" stroke-width="1.3"/></svg>'
+};
+function phHTML(scheme,style){
+  return `<div class="ph ph--${scheme} ph--lock" ${style?`style="${style}"`:''}>
+    <div class="ph-bg"></div><div class="ph-glow"></div><div class="ph-vignette"></div>
+    <div class="ph-sheen"></div><div class="ph-sprockets"></div><div class="ph-sprockets r"></div>
+    <div class="ph-ticks"><i></i><i></i><i></i><i></i></div>
+    <div class="ph-center"><div class="ph-disc"></div>${GLYPHS.strip}${GLYPHS.clap}${GLYPHS.iris}</div>
+    <div class="ph-grain"></div><div class="ph-sweep"></div>
+  </div>`;
+}
+document.getElementById('compare').innerHTML=SCHEMES.map(s=>`
+  <div class="cmp-card">
+    ${s.rec?'<span class="rec">推荐</span>':''}
+    <h3><span>${s.key.toUpperCase()}</span>${s.name}</h3>
+    <div class="desc">${s.desc}</div>
+    <div class="cmp-samples">
+      ${phHTML(s.key,'width:104px;height:156px;border-radius:10px')}
+      ${phHTML(s.key,'width:132px;height:74px;border-radius:8px')}
+    </div>
+    <div class="cmp-tag">${s.tag}</div>
+  </div>`).join('');
+
+/* —— 全局切换:顶部选方案时,同步所有非锁定(data-clone 会跟随)占位 —— */
+const SCHEME_KEYS=['a','b','c','d'];
+function applyScheme(key){
+  document.querySelectorAll('.ph:not(.ph--lock)').forEach(el=>{
+    SCHEME_KEYS.forEach(k=>el.classList.remove('ph--'+k));
+    el.classList.add('ph--'+key);
+  });
+  document.querySelectorAll('#segScheme button').forEach(b=>b.classList.toggle('on',b.dataset.scheme===key));
+}
+document.querySelectorAll('#segScheme button').forEach(b=>
+  b.addEventListener('click',()=>applyScheme(b.dataset.scheme)));
+
+document.querySelectorAll('#dotsAccent .dot').forEach(d=>
+  d.addEventListener('click',()=>{
+    document.documentElement.dataset.accent=d.dataset.accent;
+    document.querySelectorAll('#dotsAccent .dot').forEach(x=>x.classList.toggle('on',x===d));
+  }));
+document.querySelectorAll('#segMode button').forEach(b=>
+  b.addEventListener('click',()=>{
+    document.documentElement.dataset.mode=b.dataset.mode;
+    document.querySelectorAll('#segMode button').forEach(x=>x.classList.toggle('on',x===b));
+  }));
+</script>
+</body>
+</html>

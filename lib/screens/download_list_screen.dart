@@ -28,6 +28,7 @@ import '../utils/async_action_guard.dart';
 import '../utils/app_top_tip.dart';
 import '../utils/download_record_localizer.dart';
 import '../utils/swallowed_error_logger.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 enum DownloadListTab { downloaded, downloading }
 
@@ -2136,13 +2137,10 @@ class _DownloadRecordRow extends StatelessWidget {
                         ],
                         if (busy) ...<Widget>[
                           const SizedBox(width: 10),
-                          SizedBox(
+                          const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: colors.selectionStrong,
-                            ),
+                            child: BirdGlyph(size: 16),
                           ),
                         ],
                         if (trailingAction != null) ...<Widget>[
@@ -2198,14 +2196,11 @@ class _TopActionButton extends StatelessWidget {
         width: 36,
         height: 36,
         child: busy
-            ? Center(
+            ? const Center(
                 child: SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: colors.textPrimary,
-                  ),
+                  child: BirdGlyph(size: 18),
                 ),
               )
             : Icon(

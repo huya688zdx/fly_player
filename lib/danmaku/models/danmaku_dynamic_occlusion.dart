@@ -129,10 +129,9 @@ class DanmakuDynamicOcclusionState {
       unavailableReason: _readText(raw['unavailableReason']),
       captureBackend: _readText(raw['captureBackend']) ?? 'none',
       degradationLevel: _readText(raw['degradationLevel']) ?? 'none',
-      effectiveSampleIntervalMs:
-          _readInt(raw['effectiveSampleIntervalMs']) <= 0
-              ? disabled.effectiveSampleIntervalMs
-              : _readInt(raw['effectiveSampleIntervalMs']),
+      effectiveSampleIntervalMs: _readInt(raw['effectiveSampleIntervalMs']) <= 0
+          ? disabled.effectiveSampleIntervalMs
+          : _readInt(raw['effectiveSampleIntervalMs']),
       effectiveInputWidth: _readInt(raw['effectiveInputWidth']) <= 0
           ? disabled.effectiveInputWidth
           : _readInt(raw['effectiveInputWidth']),

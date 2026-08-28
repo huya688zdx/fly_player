@@ -445,7 +445,9 @@
     <string name="player_text_0211">空间音频</string>
     <string name="player_text_0212">丢帧</string>
     <string name="player_text_0213">帧率</string>
-    <string name="player_text_0214">帧率</string>
+    <string name="player_text_0214">播放输出</string>
+    <string name="player_hwdec_enabled_fallback">软解（硬解已开启，但当前格式或设备不支持）</string>
+    <string name="player_hwdec_enabled_waiting">已开启（等待实际解码器）</string>
     <string name="player_text_0215">显示调节</string>
     <string name="player_text_0216">显示区域</string>
     <string name="player_text_0217">不透明度</string>

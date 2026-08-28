@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/detail/media_source_info.dart';
 import '../../theme/app_theme.dart';
-import '../common/liquid_glass.dart';
+import 'detail_surface.dart';
 
 /// 「视频信息」区块的后端中立数据——已格式化好的三行（视频 / 音频 / 字幕）文本。
 ///
@@ -55,14 +55,14 @@ class VideoInfoSection extends StatelessWidget {
           l10n.detailVideoInfoTitle,
           style: TextStyle(
             color: colors.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 12),
-        LiquidGlass(
-          radius: 18,
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
+        DetailSurface(
+          key: const ValueKey<String>('video-info-surface'),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -138,7 +138,7 @@ class _InfoRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: colors.textMuted, size: 18),
+        Icon(icon, color: colors.accentStrong, size: 18),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
@@ -147,7 +147,7 @@ class _InfoRow extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  color: colors.textMuted,
+                  color: colors.textSecondary,
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
@@ -156,7 +156,7 @@ class _InfoRow extends StatelessWidget {
               Text(
                 value.isEmpty ? '-' : value,
                 style: TextStyle(
-                  color: colors.textSecondary,
+                  color: colors.textPrimary,
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   height: 1.2,

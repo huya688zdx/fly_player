@@ -1,5 +1,6 @@
 package com.geqian.flyplayer.fly_player.mpv
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,5 +39,46 @@ class MpvPlaybackModelsTest {
             )
 
         assertFalse(source.startPaused)
+    }
+
+    @Test
+    fun mpvSourcePreservesInitialPlaybackSpeed() {
+        val source =
+            MpvSource.fromMap(
+                mapOf(
+                    "url" to "https://example.com/video.mp4",
+                    "playbackSpeed" to 1.5,
+                ),
+            )
+
+        assertEquals(1.5, source.playbackSpeed, 0.0)
+    }
+
+    @Test
+    fun localFileShowsTheWholeFileAsBuffered() {
+        assertEquals(
+            1_440_000L,
+            resolveBufferedPositionMs(
+                sourceUrl = "file:///storage/emulated/0/Download/episode.mkv",
+                positionMs = 120_000L,
+                durationMs = 1_440_000L,
+                observedCacheDurationMs = 300_000L,
+                persistentCacheBufferedPositionMs = 0L,
+            ),
+        )
+    }
+
+    @Test
+    fun networkSourceStillShowsOnlyTheActuallyBufferedRange() {
+        assertEquals(
+            420_000L,
+            resolveBufferedPositionMs(
+                sourceUrl = "https://example.com/episode.mkv",
+                positionMs = 120_000L,
+                durationMs = 1_440_000L,
+                observedCacheDurationMs = 300_000L,
+                persistentCacheBufferedPositionMs = 0L,
+            ),
+        )
     }
 }

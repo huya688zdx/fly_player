@@ -9,6 +9,27 @@ import java.util.Locale
 
 private val RESOLUTION_DIGIT_PATTERN = Regex("(\\d{3,4})")
 
+internal fun resolveBufferedPositionMs(
+    sourceUrl: String,
+    positionMs: Long,
+    durationMs: Long,
+    observedCacheDurationMs: Long,
+    persistentCacheBufferedPositionMs: Long,
+): Long {
+    val scheme = runCatching { java.net.URI(sourceUrl).scheme?.lowercase(Locale.US) }
+        .getOrNull()
+        .orEmpty()
+    if (durationMs > 0L && (scheme == "file" || scheme == "content")) {
+        return durationMs
+    }
+    val demuxerBufferedPositionMs = if (positionMs <= 0L) {
+        observedCacheDurationMs.coerceAtLeast(0L)
+    } else {
+        (positionMs + observedCacheDurationMs).coerceAtLeast(positionMs)
+    }
+    return maxOf(demuxerBufferedPositionMs, persistentCacheBufferedPositionMs)
+}
+
 data class MpvSource(
     val loadNonce: Int,
     val itemGuid: String,

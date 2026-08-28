@@ -335,9 +335,8 @@ class DownloadTaskService extends ChangeNotifier {
             .toList(growable: false)
           ..sort(
             (a, b) => compareDownloadTaskRecordsForDisplay(
-              a.leadRecord,
-              b.leadRecord,
-              statusHint: status,
+              a.latestRecord,
+              b.latestRecord,
             ),
           );
     return groups;

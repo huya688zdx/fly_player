@@ -12,6 +12,7 @@ import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../utils/swallowed_error_logger.dart';
 import 'danmaku_manager_screen.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class DanmakuSettingsScreen extends StatefulWidget {
   final Future<void> Function(DanmakuSettings settings)? saveSettings;
@@ -164,7 +165,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
         child: SafeArea(
           top: false,
           child: _loading
-              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              ? const Center(child: BirdLoader(size: 120))
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[

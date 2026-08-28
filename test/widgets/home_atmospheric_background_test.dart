@@ -1,9 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
 
 void main() {
+  testWidgets('氛围页按亮暗底色切换系统栏图标明暗', (tester) async {
+    for (final preset in <AppThemePreset>[
+      AppThemePreset.latte,
+      AppThemePreset.midnight,
+    ]) {
+      final base = AppThemePalette.colorsFor(preset);
+      final palette = AppAtmospherePalette.resolve(
+        baseColors: base,
+        effectiveColors: base,
+        hasDynamicTheme: false,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AppAtmosphericBackground(
+            palette: palette,
+            child: const SizedBox.expand(),
+          ),
+        ),
+      );
+
+      final region = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+        find.byKey(const ValueKey<String>('app-atmosphere-system-ui')),
+      );
+      final expected = preset == AppThemePreset.latte
+          ? Brightness.dark
+          : Brightness.light;
+      expect(region.value.statusBarIconBrightness, expected);
+      expect(region.value.systemNavigationBarIconBrightness, expected);
+    }
+  });
+
   testWidgets('首页动态背景保持暗中性底并叠加三种独立取色光晕', (tester) async {
     const warmRed = Color(0xFFD85867);
     const coldBlue = Color(0xFF4B7FD8);

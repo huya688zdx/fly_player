@@ -90,6 +90,7 @@ class NativePlaybackMediaService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_UPDATE -> {
+                if (released) return START_NOT_STICKY
                 val next = SessionState.fromIntent(intent)
                 if (next != null) {
                     val prev = state
@@ -122,6 +123,7 @@ class NativePlaybackMediaService : Service() {
                 // 触发 onDestroy 之前，延迟到达的封面结果重新 startForeground 把通知复活。
                 released = true
                 stopForegroundCompat()
+                getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
                 stopSelf()
             }
 
@@ -142,6 +144,7 @@ class NativePlaybackMediaService : Service() {
             mediaSession.release()
         }
         stopForegroundCompat()
+        getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
 
@@ -447,6 +450,11 @@ class NativePlaybackMediaService : Service() {
             }
             runCatching {
                 context.stopService(Intent(context, NativePlaybackMediaService::class.java))
+            }
+            // 某些系统在前台服务停止与 MediaStyle 通知移除之间存在延迟；调用方同步兜底取消，
+            // 保证播放页退出后通知点击入口不会继续残留。
+            runCatching {
+                context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
             }
         }
     }

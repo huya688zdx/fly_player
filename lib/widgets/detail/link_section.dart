@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
-import '../common/liquid_glass.dart';
+import 'detail_surface.dart';
 
 class LinkSection extends StatelessWidget {
   final String imdbId;
@@ -58,10 +58,11 @@ class _LinkButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return LiquidGlass(
-      radius: 8,
+    return DetailSurface(
+      key: ValueKey<String>('detail-link-surface-$label'),
+      radius: 14,
       onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
       child: Text(
         label,
         style: TextStyle(

@@ -10,6 +10,7 @@ import '../l10n/generated/app_localizations.dart';
 import 'fn_web_login_bridge_script.dart';
 import '../utils/login_error_resolver.dart';
 import '../utils/swallowed_error_logger.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class FnConnectWebLoginSessionPolicy {
   static const bool preserveCookiesByDefault = true;
@@ -596,9 +597,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       ),
       body: _isReady
           ? WebViewWidget(controller: _controller)
-          : const Center(
-              child: CircularProgressIndicator(color: Color(0xFF2D74D9)),
-            ),
+          : const Center(child: BirdLoader(size: 120)),
     );
   }
 }

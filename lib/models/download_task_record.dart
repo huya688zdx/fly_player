@@ -23,6 +23,18 @@ int compareDownloadTaskRecordsForDisplay(
   DownloadTaskRecord rhs, {
   DownloadTaskStatus? statusHint,
 }) {
+  if (statusHint == DownloadTaskStatus.downloaded) {
+    final seasonCompare = _compareKnownEpisodeNumber(
+      lhs.seasonNumber,
+      rhs.seasonNumber,
+    );
+    if (seasonCompare != 0) return seasonCompare;
+    final episodeCompare = _compareKnownEpisodeNumber(
+      lhs.episodeNumber,
+      rhs.episodeNumber,
+    );
+    if (episodeCompare != 0) return episodeCompare;
+  }
   final keepCreationOrder =
       statusHint == DownloadTaskStatus.downloading ||
       statusHint == DownloadTaskStatus.paused ||
@@ -43,6 +55,13 @@ int compareDownloadTaskRecordsForDisplay(
   final createdAtCompare = rhs.createdAtMs.compareTo(lhs.createdAtMs);
   if (createdAtCompare != 0) return createdAtCompare;
   return rhs.id.compareTo(lhs.id);
+}
+
+int _compareKnownEpisodeNumber(int lhs, int rhs) {
+  if (lhs > 0 && rhs > 0) return lhs.compareTo(rhs);
+  if (lhs > 0) return -1;
+  if (rhs > 0) return 1;
+  return 0;
 }
 
 class DownloadTaskRecord {
@@ -339,6 +358,13 @@ class DownloadTaskGroup {
   int get itemCount => records.length;
 
   DownloadTaskRecord get leadRecord => records.first;
+
+  DownloadTaskRecord get latestRecord => records.reduce(
+    (current, candidate) =>
+        compareDownloadTaskRecordsForDisplay(candidate, current) < 0
+        ? candidate
+        : current,
+  );
 }
 
 class DownloadActionState {

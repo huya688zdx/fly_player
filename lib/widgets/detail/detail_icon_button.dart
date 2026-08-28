@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../common/liquid_glass.dart';
+import 'detail_surface.dart';
 
 enum DetailIconButtonStyle { top, circle }
 
@@ -48,6 +49,47 @@ class DetailIconButton extends StatelessWidget {
         ? LiquidGlassTone.accent
         : (isTop ? LiquidGlassTone.strong : LiquidGlassTone.neutral);
 
+    final content = SizedBox(
+      width: size,
+      height: size,
+      child: Center(
+        child: (isHeart && selected)
+            ? Icon(Icons.favorite, color: colors.danger, size: 24)
+            : SvgPicture.asset(
+                resolvedIconAsset,
+                width: iconSize,
+                height: iconSize,
+                colorFilter: ColorFilter.mode(
+                  (selected && !isHeart)
+                      ? accentForeground
+                      : colors.textPrimary,
+                  BlendMode.srcIn,
+                ),
+              ),
+      ),
+    );
+
+    if (isTop) {
+      final borderRadius = BorderRadius.circular(radius);
+      return RepaintBoundary(
+        child: DecoratedBox(
+          key: const ValueKey<String>('detail-top-control-surface'),
+          decoration: detailFloatingControlDecoration(context, radius: radius),
+          child: ClipRRect(
+            borderRadius: borderRadius,
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: borderRadius,
+                child: content,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return LiquidGlass(
       radius: radius,
       tone: tone,
@@ -56,25 +98,7 @@ class DetailIconButton extends StatelessWidget {
       // 液态挡位下圆形按钮转真实背景模糊；其余挡位退化为静态磨砂。
       blurSigma: 16,
       onTap: onTap,
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Center(
-          child: (isHeart && selected)
-              ? Icon(Icons.favorite, color: colors.danger, size: 24)
-              : SvgPicture.asset(
-                  resolvedIconAsset,
-                  width: iconSize,
-                  height: iconSize,
-                  colorFilter: ColorFilter.mode(
-                    (selected && !isHeart)
-                        ? accentForeground
-                        : colors.textPrimary,
-                    BlendMode.srcIn,
-                  ),
-                ),
-        ),
-      ),
+      child: content,
     );
   }
 }

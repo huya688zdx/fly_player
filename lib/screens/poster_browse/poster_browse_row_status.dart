@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import 'poster_browse_rows.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class PosterBrowseRowStatus extends StatelessWidget {
   final PosterBrowseRow? row;
@@ -32,8 +33,9 @@ class PosterBrowseRowStatus extends StatelessWidget {
           l10n.posterBrowseCatalogEmpty,
           style: const TextStyle(color: Colors.white70),
         ),
-        _ => const CircularProgressIndicator(
+        _ => const BirdGlyph(
           key: ValueKey('poster_browse_row_loading'),
+          size: 28,
         ),
       },
     );

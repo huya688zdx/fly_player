@@ -2412,17 +2412,18 @@ class MpvPlaybackController(
     }
 
     private fun bufferedPositionFor(positionMs: Long): Long {
-        val demuxerBufferedPositionMs = if (positionMs <= 0L) {
-            observedCacheDurationMs.coerceAtLeast(0L)
-        } else {
-            (positionMs + observedCacheDurationMs).coerceAtLeast(positionMs)
-        }
         val extremeBufferedPositionMs = sourceResolver.activeBufferedPositionMs(
             source = source,
             positionMs = positionMs,
             durationMs = state.durationMs,
         ) ?: 0L
-        return maxOf(demuxerBufferedPositionMs, extremeBufferedPositionMs)
+        return resolveBufferedPositionMs(
+            sourceUrl = source.url,
+            positionMs = positionMs,
+            durationMs = state.durationMs,
+            observedCacheDurationMs = observedCacheDurationMs,
+            persistentCacheBufferedPositionMs = extremeBufferedPositionMs,
+        )
     }
 
     override fun event(eventId: Int) {
@@ -3093,44 +3094,43 @@ class MpvPlaybackController(
     }
 
     /**
-     * 解码/输出诊断快照（供轨道信息页排查用）：实际 hwdec、色彩管线、是否触发过自动回退、
-     * 音频输出路径（直通编码 / PCM 解码）、丢帧数、容器帧率。直接读 mpv 属性，缺失项为 null。
+     * 解码/输出诊断快照（供轨道信息页排查用）：实际与请求的 hwdec、色彩管线、
+     * 自动回退及音频输出路径。所有 mpv 属性统一在播放线程读取。
      */
     fun getPlaybackDiagnostics(): Map<String, Any?> {
-        val forcedHwdec = videoOutputController.forcedHwdecMode
-        val forcedPipeline = videoOutputController.forcedColorPipeline
-        val fallbackReasons = mutableListOf<String>()
-        if (forcedHwdec != null) fallbackReasons += "hwdec→$forcedHwdec"
-        if (forcedPipeline != null) fallbackReasons +=
-            context.localizedString(R.string.mpv_fallback_reason_color, forcedPipeline)
-        // 直通仅对 spdif 可位流的压缩编码生效（见 AudioPassthroughSupport.ALL_CODECS：
-        // ac3/eac3/dts/dts-hd/truehd）。FLAC/PCM/AAC/Opus 等即便配置开了直通也会被解码成 PCM，
-        // 故诊断按「设置开直通 且 当前轨编码本身能位流」上报，避免把解码中的 FLAC 误标「直通(flac)」。
-        val audioCodecName = currentMpvString("audio-codec-name")
-        val passthroughCapableCodec = audioCodecName?.lowercase()?.let { name ->
-            name in PASSTHROUGH_CAPABLE_CODECS || name.startsWith("dts")
-        } ?: false
-        val passthroughActive =
-            advancedSettingsController.isAudioPassthroughActive() && passthroughCapableCodec
-        return mapOf(
-            "hwdecCurrent" to currentMpvString("hwdec-current"),
-            "colorPipeline" to videoOutputController.activeColorPipeline.name,
-            "windowColorMode" to videoOutputController.currentWindowColorMode(),
-            "fallbackTriggered" to fallbackReasons.isNotEmpty(),
-            "fallbackReason" to fallbackReasons.joinToString(" / "),
-            "audioPassthrough" to passthroughActive,
-            "audioCodec" to audioCodecName,
-            "audioFormat" to currentMpvString("audio-params/format"),
-            "audioOut" to currentMpvString("current-ao"),
-            "audioChannels" to currentMpvString("audio-params/channels"),
-            "audioOutChannels" to currentMpvString("audio-out-params/channels"),
-            "audioChannels" to currentMpvString("audio-params/channels"),
-            "audioOutChannels" to currentMpvString("audio-out-params/channels"),
-            "containerFps" to (runCatching { mpv.getPropertyDouble("container-fps") }.getOrNull()),
-            "estimatedFps" to (runCatching { mpv.getPropertyDouble("estimated-vf-fps") }.getOrNull()),
-            "droppedFrames" to currentPerformanceCounter("frame-drop-count"),
-            "decoderDroppedFrames" to currentPerformanceCounter("decoder-frame-drop-count"),
-        )
+        if (disposed) return emptyMap()
+        return callOnPlaybackThread {
+            val forcedHwdec = videoOutputController.forcedHwdecMode
+            val forcedPipeline = videoOutputController.forcedColorPipeline
+            val fallbackReasons = mutableListOf<String>()
+            if (forcedHwdec != null) fallbackReasons += "hwdec→$forcedHwdec"
+            if (forcedPipeline != null) fallbackReasons +=
+                context.localizedString(R.string.mpv_fallback_reason_color, forcedPipeline)
+            // 直通仅对 spdif 可位流的压缩编码生效（见 AudioPassthroughSupport.ALL_CODECS：
+            // ac3/eac3/dts/dts-hd/truehd）。FLAC/PCM/AAC/Opus 等即便配置开了直通也会被解码成 PCM，
+            // 故诊断按「设置开直通 且 当前轨编码本身能位流」上报，避免把解码中的 FLAC 误标「直通(flac)」。
+            val audioCodecName = currentMpvString("audio-codec-name")
+            val passthroughCapableCodec = audioCodecName?.lowercase()?.let { name ->
+                name in PASSTHROUGH_CAPABLE_CODECS || name.startsWith("dts")
+            } ?: false
+            val passthroughActive =
+                advancedSettingsController.isAudioPassthroughActive() && passthroughCapableCodec
+            mapOf(
+                "hwdecCurrent" to currentMpvString("hwdec-current"),
+                "hwdecRequested" to videoOutputController.activeHwdecMode,
+                "colorPipeline" to videoOutputController.activeColorPipeline.name,
+                "windowColorMode" to videoOutputController.currentWindowColorMode(),
+                "fallbackTriggered" to fallbackReasons.isNotEmpty(),
+                "fallbackReason" to fallbackReasons.joinToString(" / "),
+                "audioPassthrough" to passthroughActive,
+                "audioCodec" to audioCodecName,
+                "audioFormat" to currentMpvString("audio-params/format"),
+                "audioOutChannels" to currentMpvString("audio-out-params/channels"),
+                "audioOutChannelCount" to currentMpvInt("audio-out-params/channel-count"),
+                // 信息面板不再展示帧率，但真刷新率切换仍依赖该值。
+                "containerFps" to runCatching { mpv.getPropertyDouble("container-fps") }.getOrNull(),
+            )
+        }
     }
 
 

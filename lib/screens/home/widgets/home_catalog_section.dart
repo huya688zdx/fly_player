@@ -303,18 +303,10 @@ class _FeiniuCatalogCardBody extends StatelessWidget {
                 },
               ),
             ),
-            const DecoratedBox(
+            DecoratedBox(
+              key: ValueKey<String>('catalog-caption-overlay-${item.id}'),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[
-                    Colors.transparent,
-                    Color(0x15000000),
-                    Color(0xD9000000),
-                  ],
-                  stops: <double>[.40, .58, 1],
-                ),
+                gradient: _catalogCaptionGradient(colors),
               ),
             ),
             Align(
@@ -327,14 +319,12 @@ class _FeiniuCatalogCardBody extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     height: 1.1,
-                    shadows: <Shadow>[
-                      Shadow(color: Colors.black87, blurRadius: 8),
-                    ],
+                    shadows: _catalogCaptionShadows(colors),
                   ),
                 ),
               ),
@@ -344,6 +334,29 @@ class _FeiniuCatalogCardBody extends StatelessWidget {
       ),
     );
   }
+}
+
+LinearGradient _catalogCaptionGradient(AppThemeColors colors) {
+  final isLight = colors.backgroundBase.computeLuminance() >= .55;
+  final captionBase = isLight ? colors.surface : colors.backgroundBase;
+  return LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: <Color>[
+      Colors.transparent,
+      captionBase.withValues(alpha: isLight ? .18 : .20),
+      captionBase.withValues(alpha: isLight ? .96 : .94),
+    ],
+    stops: const <double>[.48, .70, 1],
+  );
+}
+
+List<Shadow> _catalogCaptionShadows(AppThemeColors colors) {
+  final isLight = colors.backgroundBase.computeLuminance() >= .55;
+  if (isLight) return const <Shadow>[];
+  return <Shadow>[
+    Shadow(color: Colors.black.withValues(alpha: .48), blurRadius: 7),
+  ];
 }
 
 class _EmbyCatalogCardBody extends StatelessWidget {
@@ -366,19 +379,9 @@ class _EmbyCatalogCardBody extends StatelessWidget {
           item: item,
           stableImageCacheWidth: stableImageCacheWidth,
         ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: <Color>[
-                Colors.transparent,
-                Color(0x18000000),
-                Color(0xE6000000),
-              ],
-              stops: <double>[.32, .56, 1],
-            ),
-          ),
+        DecoratedBox(
+          key: ValueKey<String>('catalog-caption-overlay-${item.id}'),
+          decoration: BoxDecoration(gradient: _catalogCaptionGradient(colors)),
         ),
         Align(
           alignment: Alignment.bottomLeft,
@@ -389,12 +392,12 @@ class _EmbyCatalogCardBody extends StatelessWidget {
               key: ValueKey<String>('catalog-title-${item.id}'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: colors.textPrimary,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 height: 1.1,
-                shadows: <Shadow>[Shadow(color: Colors.black87, blurRadius: 8)],
+                shadows: _catalogCaptionShadows(colors),
               ),
             ),
           ),
