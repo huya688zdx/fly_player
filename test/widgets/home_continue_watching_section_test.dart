@@ -100,6 +100,38 @@ Future<void> _withPendingNetworkImageClient(
 }
 
 void main() {
+  testWidgets('续看图片框在亮暗主题下都有清晰的语义描边', (tester) async {
+    for (final preset in <AppThemePreset>[
+      AppThemePreset.latte,
+      AppThemePreset.midnight,
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppThemeBuilder.build(preset),
+          home: const Scaffold(
+            body: SizedBox(
+              width: 390,
+              child: HomeContinueWatchingSection(
+                items: <HomeContinueCardData>[continueFixture],
+                onOpenDetail: _ignoreContinueCard,
+                onPlay: _ignoreContinueCard,
+                onLongPress: _ignoreContinueCard,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final frame = tester.widget<DecoratedBox>(
+        find.byKey(const ValueKey<String>('continue-artwork-frame-item-1')),
+      );
+      final decoration = frame.decoration as BoxDecoration;
+      expect(decoration.border, isNotNull);
+      expect(decoration.borderRadius, BorderRadius.circular(14));
+      expect(tester.takeException(), isNull, reason: preset.storageValue);
+    }
+  });
+
   testWidgets('续看卡主体、播放键、长按分别调用独立回调', (tester) async {
     var detail = 0;
     var play = 0;
@@ -647,3 +679,5 @@ void main() {
     );
   });
 }
+
+void _ignoreContinueCard(HomeContinueCardData _) {}
