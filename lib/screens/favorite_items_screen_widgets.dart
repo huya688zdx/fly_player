@@ -237,7 +237,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
     final data = _dataOf(tab);
     final colors = context.appColors;
     if (data.isLoading && data.items.isEmpty) {
-      return Center(child: CircularProgressIndicator(color: colors.accent));
+      return const Center(child: BirdLoader(size: 120));
     }
     if (data.error != null) {
       return AppErrorState(
@@ -401,7 +401,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
       children: <Widget>[
         content,
         if (data.isLoadingMore)
-          Positioned(
+          const Positioned(
             left: 0,
             right: 0,
             bottom: 8,
@@ -409,10 +409,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               child: SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: colors.accent,
-                ),
+                child: BirdGlyph(size: 20),
               ),
             ),
           ),

@@ -7,6 +7,7 @@ import '../ui/adaptive_text.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class AppLogScreen extends StatefulWidget {
   const AppLogScreen({super.key});
@@ -118,7 +119,7 @@ class _AppLogScreenState extends State<AppLogScreen> {
             future: _initializeFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
+                return const Center(child: BirdLoader(size: 120));
               }
               return AnimatedBuilder(
                 animation: AppLogService.instance,

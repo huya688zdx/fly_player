@@ -29,9 +29,11 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/app_catalog_query_sheets.dart';
 import '../widgets/app_atmospheric_background.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 
 class CategoryItemsScreen extends StatefulWidget {
   final MediaItem category;
@@ -513,102 +515,42 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     }
   }
 
-  TextStyle get _bold12 => const TextStyle(
-    color: Colors.white70,
-    fontSize: 16,
-    fontWeight: FontWeight.w700,
-  );
-
   Future<void> _openSortSheet() async {
-    final colors = context.appColors;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.appModalBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  AppLocalizations.of(context).listSortTitle,
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: 36,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                for (final column in _sortColumns)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    minVerticalPadding: 0,
-                    visualDensity: const VisualDensity(vertical: -1),
-                    title: Text(
-                      _filterLocalizer.sortLabel(column),
-                      style: TextStyle(
-                        color: column == _sortColumn
-                            ? colors.textPrimary
-                            : colors.textSecondary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 17,
-                      ),
-                    ),
-                    trailing: column == _sortColumn
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _sortType == 'ASC'
-                                    ? '${AppLocalizations.of(context).listSortAsc} ^'
-                                    : '${AppLocalizations.of(context).listSortDesc} v',
-                                style: TextStyle(
-                                  color: colors.textSecondary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ],
-                          )
-                        : null,
-                    onTap: () async {
-                      if (column == _sortColumn) {
-                        _sortType = _sortType == 'ASC' ? 'DESC' : 'ASC';
-                      } else {
-                        _sortColumn = column;
-                        _sortType = 'DESC';
-                      }
-                      Navigator.of(context).pop();
-                      if (widget.category.id.trim().isNotEmpty &&
-                          _isFeiniuBackend) {
-                        await FeiniuApi(
-                          context.read<NasProvider>(),
-                        ).setUserListSetting(
-                          widget.category.id,
-                          sortField: _sortColumn,
-                          sortType: _sortType,
-                          viewType: _viewType.storageValue,
-                        );
-                      }
-                      _fetch();
-                    },
-                  ),
-              ],
-            ),
+    final localizer = _filterLocalizer;
+    final nasProvider = context.read<NasProvider>();
+    final result = await AppCatalogSortSheet.show(
+      context,
+      options: <AppCatalogSortOption>[
+        for (final column in _sortColumns)
+          AppCatalogSortOption(
+            field: column,
+            label: localizer.sortLabel(column),
           ),
-        );
-      },
+      ],
+      selectedField: _sortColumn,
+      sortType: _sortType,
     );
+    if (!mounted || result == null) return;
+
+    setState(() {
+      _sortColumn = result.field;
+      _sortType = result.sortType;
+    });
+    if (widget.category.id.trim().isNotEmpty && _isFeiniuBackend) {
+      await FeiniuApi(nasProvider).setUserListSetting(
+        widget.category.id,
+        sortField: _sortColumn,
+        sortType: _sortType,
+        viewType: _viewType.storageValue,
+      );
+    }
+    if (!mounted) return;
+    _fetch();
   }
 
   bool _filterSheetOpen = false;
 
-  /// 重入守卫：快速连点（或 await _loadMeta 期间再次点击）会各自走到 showModalBottomSheet
+  /// 重入守卫：快速连点（或 await _loadMeta 期间再次点击）会各自打开筛选弹层，
   /// 叠出多个筛选弹窗。整个打开流程串行化，开着时忽略后续点击。
   Future<void> _openFilterSheet() async {
     if (_filterSheetOpen) return;
@@ -623,195 +565,41 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   Future<void> _openFilterSheetInner() async {
     if (!_metaLoaded) await _loadMeta();
     if (!mounted) return;
-    final colors = context.appColors;
     final localizer = _filterLocalizer;
-
-    // 复制当前选择，弹窗内编辑，确认后回写。
-    final temp = <String, Set<String>>{
-      for (final entry in _selection.entries)
-        entry.key: Set<String>.from(entry.value),
-    };
-    Set<String> tempFor(String key) => temp.putIfAbsent(key, () => <String>{});
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: context.appModalBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModal) {
-            Widget chip(String label, bool selected, VoidCallback onTap) {
-              return GestureDetector(
-                onTap: onTap,
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8, bottom: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+    final result = await AppCatalogFilterSheet.show(
+      context,
+      sections: <AppCatalogFilterSection>[
+        for (final dimension in _schema.dimensions)
+          if (!(dimension.key == 'type' && _typeLocked) &&
+              dimension.options.isNotEmpty)
+            AppCatalogFilterSection(
+              key: dimension.key,
+              title: localizer.dimensionTitle(dimension),
+              options: <AppCatalogFilterOption>[
+                for (final option in dimension.options)
+                  AppCatalogFilterOption(
+                    value: option.value,
+                    label: localizer.optionLabel(dimension, option),
                   ),
-                  decoration: BoxDecoration(
-                    color: selected ? colors.selection : colors.chipBackground,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: selected ? colors.selection : colors.chipBorder,
-                    ),
-                  ),
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: selected ? colors.textPrimary : colors.chipText,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            Widget section(MediaFilterDimension dimension) {
-              if (dimension.key == 'type' && _typeLocked) {
-                return const SizedBox.shrink();
-              }
-              final options = dimension.options;
-              if (options.isEmpty) return const SizedBox.shrink();
-              final selected = tempFor(dimension.key);
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(localizer.dimensionTitle(dimension), style: _bold12),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    children: [
-                      chip(
-                        AppLocalizations.of(context).listFilterAll,
-                        selected.isEmpty,
-                        () => setModal(() => selected.clear()),
-                      ),
-                      for (final option in options)
-                        chip(
-                          localizer.optionLabel(dimension, option),
-                          selected.contains(option.value),
-                          () => setModal(() {
-                            if (selected.contains(option.value)) {
-                              selected.clear();
-                            } else {
-                              selected
-                                ..clear()
-                                ..add(option.value);
-                            }
-                          }),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              );
-            }
-
-            return SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                child: SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.78,
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          const Spacer(),
-                          Text(
-                            AppLocalizations.of(context).listFilterButton,
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: Icon(
-                              Icons.close,
-                              color: colors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Expanded(
-                        child: ListView(
-                          children: [
-                            for (final dimension in _schema.dimensions)
-                              section(dimension),
-                          ],
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () {
-                                setModal(() {
-                                  for (final values in temp.values) {
-                                    values.clear();
-                                  }
-                                });
-                              },
-                              style: OutlinedButton.styleFrom(
-                                side: BorderSide(color: colors.chipBorder),
-                                foregroundColor: colors.textSecondary,
-                                minimumSize: const Size.fromHeight(44),
-                              ),
-                              child: Text(
-                                AppLocalizations.of(
-                                  context,
-                                ).listFilterResetButton,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () {
-                                Navigator.of(context).pop();
-                                setState(() {
-                                  _selection
-                                    ..clear()
-                                    ..addAll(<String, Set<String>>{
-                                      for (final entry in temp.entries)
-                                        entry.key: Set<String>.from(
-                                          entry.value,
-                                        ),
-                                    });
-                                });
-                                _fetch();
-                              },
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(44),
-                              ),
-                              child: Text(
-                                AppLocalizations.of(context).commonConfirm,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+              ],
+              selectedValues: Set<Object>.from(
+                _selection[dimension.key] ?? const <String>{},
               ),
-            );
-          },
-        );
-      },
+              multiSelect: dimension.multiSelect,
+            ),
+      ],
     );
+    if (!mounted || result == null) return;
+
+    setState(() {
+      _selection
+        ..clear()
+        ..addAll(<String, Set<String>>{
+          for (final entry in result.entries)
+            entry.key: entry.value.map((value) => '$value').toSet(),
+        });
+    });
+    _fetch();
   }
 
   @override
@@ -863,7 +651,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   Widget _buildBody(String baseUrl, String token, String accessCode) {
     final layout = MediaLayoutProfile.of(context);
     final colors = context.appColors;
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_isLoading) return const Center(child: BirdLoader(size: 132));
     if (_error != null) {
       return AppErrorState(
         error: _error!,
@@ -1130,7 +918,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                     child: SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: BirdGlyph(size: 20),
                     ),
                   ),
                 ),

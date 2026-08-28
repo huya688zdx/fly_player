@@ -64,6 +64,5 @@ void main() {
       expect(decoded.danmakuAutoSearchAllowed, isTrue);
       expect(decoded.externalLocalFileSizeBytes, 0);
     });
-
   });
 }

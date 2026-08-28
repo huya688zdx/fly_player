@@ -208,7 +208,9 @@ class DynamicThemeMapper {
         tint: scheme.outlineVariant,
         alpha: isLight ? 0.18 : 0.22,
       ),
-      chipText: isLight ? linkScheme.onPrimaryContainer : baseColors.chipText,
+      // 徽章会同时出现在正文、列表卡和版本 chip 上，不能跟随海报链接色漂移；
+      // 保留基础主题已经校准过的亮暗前景，动态色只负责底色和边框。
+      chipText: baseColors.chipText,
       overlayScrim: _toneSurface(
         baseColors.overlayScrim,
         tint: scheme.scrim,
@@ -331,7 +333,9 @@ class DynamicThemeMapper {
         tint: backdropScheme.outlineVariant,
         alpha: borderSubtleAlpha,
       ),
-      chipText: linkScheme.onPrimaryContainer,
+      // 海报取色可能让 onPrimaryContainer 与当前中性表面同亮度，造成规格文字
+      // 在亮/暗主题下分别发白或发黑。可读性语义色保持基础主题值。
+      chipText: baseColors.chipText,
       textPrimary: Color.lerp(baseColors.textPrimary, scheme.onSurface, .22),
       textSecondary: Color.lerp(
         baseColors.textSecondary,
