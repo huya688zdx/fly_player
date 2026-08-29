@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
