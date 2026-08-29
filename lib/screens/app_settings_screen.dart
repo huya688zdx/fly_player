@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../playback/settings/mpv_settings_l10n.dart';
 import '../playback/settings/mpv_settings_store.dart';
@@ -553,6 +554,247 @@ class AppSettingsScreen extends StatelessWidget {
     return l10n.settingsMpvTitle;
   }
 
+  // ---------------------------------------------------------------------------
+  // 设置首页条目（单栏列表与桌面双栏右栏共用，行为必须保持一致）。
+  // ---------------------------------------------------------------------------
+
+  Widget _themeEntryTile(
+    BuildContext context,
+    AppLocalizations l10n,
+    AppThemeProvider themeProvider,
+  ) {
+    return _SettingsEntryTile(
+      icon: Icons.palette_outlined,
+      title: l10n.settingsThemeTitle,
+      subtitle: l10n.settingsThemeSubtitle(
+        AppThemeL10n.currentThemeTitle(l10n, themeProvider),
+        AppThemeL10n.currentThemeSubtitle(l10n, themeProvider),
+      ),
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(context, SettingsDestinationRoutes.theme),
+        );
+      },
+    );
+  }
+
+  Widget _languageEntryTile(
+    BuildContext context,
+    AppLocalizations l10n,
+    AppLocaleProvider localeProvider,
+  ) {
+    return _SettingsEntryTile(
+      icon: Icons.language_rounded,
+      title: l10n.settingsLanguageTitle,
+      subtitle: localeProvider.mode == AppLocaleMode.zhCN
+          ? l10n.settingsLanguageSubtitleZhCN
+          : l10n.settingsLanguageSubtitleSystem,
+      onTap: () {
+        unawaited(_openLanguageSheet(context));
+      },
+    );
+  }
+
+  Widget _startupPosterHomeEntryTile(
+    BuildContext context,
+    AppLocalizations l10n,
+    StartupPreferencesProvider startupPreferences,
+  ) {
+    return _SettingsSwitchTile(
+      icon: Icons.slideshow_rounded,
+      title: l10n.settingsStartupPosterHomeTitle,
+      subtitle: l10n.settingsStartupPosterHomeSubtitle,
+      value: startupPreferences.openPosterHomeOnStartup,
+      onChanged: startupPreferences.isReady
+          ? (value) => unawaited(
+              _setStartupPosterHome(context, startupPreferences, value),
+            )
+          : null,
+    );
+  }
+
+  Widget _mpvEntryTile(BuildContext context, AppLocalizations l10n) {
+    return _SettingsEntryTile(
+      icon: Icons.video_settings_rounded,
+      title: l10n.settingsMpvTitle,
+      subtitle: l10n.settingsMpvSubtitle,
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(context, SettingsDestinationRoutes.mpv),
+        );
+      },
+    );
+  }
+
+  Widget _parallelWindowEntryTile(
+    BuildContext context,
+    AppLocalizations l10n,
+    String parallelSummary,
+  ) {
+    return _SettingsEntryTile(
+      icon: Icons.splitscreen_outlined,
+      title: l10n.settingsParallelWindowTitle,
+      subtitle: parallelSummary,
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(
+            context,
+            SettingsDestinationRoutes.parallelWindow,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _storageEntryTile(BuildContext context, AppLocalizations l10n) {
+    return _SettingsEntryTile(
+      icon: Icons.storage_rounded,
+      title: l10n.settingsStorageTitle,
+      subtitle: l10n.settingsStorageSubtitle,
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(context, SettingsDestinationRoutes.storage),
+        );
+      },
+    );
+  }
+
+  Widget _downloadsEntryTile(BuildContext context, AppLocalizations l10n) {
+    return _SettingsEntryTile(
+      icon: Icons.download_rounded,
+      title: l10n.settingsDownloadTitle,
+      subtitle: l10n.settingsDownloadSubtitle,
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(
+            context,
+            SettingsDestinationRoutes.downloads,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _playStatsEntryTile(BuildContext context, AppLocalizations l10n) {
+    return _SettingsEntryTile(
+      icon: Icons.bar_chart_rounded,
+      title: l10n.settingsPlayStatsTitle,
+      subtitle: l10n.settingsPlayStatsSubtitle,
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(
+            context,
+            SettingsDestinationRoutes.playStats,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _otherEntryTile(BuildContext context, AppLocalizations l10n) {
+    return _SettingsEntryTile(
+      icon: Icons.more_horiz_rounded,
+      title: l10n.settingsOtherTitle,
+      subtitle: l10n.settingsOtherSubtitle,
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(context, SettingsDestinationRoutes.other),
+        );
+      },
+    );
+  }
+
+  Widget _logsEntryTile(BuildContext context, AppLocalizations l10n) {
+    return _SettingsEntryTile(
+      icon: Icons.receipt_long_outlined,
+      title: l10n.settingsLogTitle,
+      subtitle: l10n.settingsLogSubtitle,
+      onTap: () {
+        unawaited(
+          _openSettingsDestination(context, SettingsDestinationRoutes.logs),
+        );
+      },
+    );
+  }
+
+  Widget _fnConnectReloginEntryTile(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) {
+    return _SettingsEntryTile(
+      icon: Icons.cloud_sync_outlined,
+      title: l10n.fnConnectReloginTitle,
+      subtitle: l10n.fnConnectReloginShortSubtitle,
+      onTap: () {
+        unawaited(_resetFnConnectWebLoginState(context));
+      },
+    );
+  }
+
+  /// 桌面双栏左栏的分类定义：由现有根级条目 / destination 列表派生。
+  List<_SettingsCategorySection> _buildDesktopSettingsSections(
+    BuildContext context, {
+    required AppLocalizations l10n,
+    required AppLocaleProvider localeProvider,
+    required AppThemeProvider themeProvider,
+    required StartupPreferencesProvider startupPreferences,
+    required bool parallelWindowSupported,
+    required String parallelSummary,
+  }) {
+    return <_SettingsCategorySection>[
+      // 语言 / 启动直达 / FN Connect 重登等根级常驻项。
+      _SettingsCategorySection(
+        id: 'general',
+        icon: Icons.tune_rounded,
+        title: l10n.settingsSearchFrequent,
+        entries: <Widget>[
+          _languageEntryTile(context, l10n, localeProvider),
+          _startupPosterHomeEntryTile(context, l10n, startupPreferences),
+          _fnConnectReloginEntryTile(context, l10n),
+        ],
+      ),
+      // 主题外观（对应 destination：/screen/settings/theme）。
+      _SettingsCategorySection(
+        id: 'appearance',
+        icon: Icons.palette_outlined,
+        title: l10n.settingsThemeTitle,
+        entries: <Widget>[_themeEntryTile(context, l10n, themeProvider)],
+      ),
+      // 播放器与窗口（对应 destination：mpv / parallel-window）。
+      _SettingsCategorySection(
+        id: 'player',
+        icon: Icons.video_settings_rounded,
+        title: l10n.settingsMpvTitle,
+        entries: <Widget>[
+          _mpvEntryTile(context, l10n),
+          if (parallelWindowSupported)
+            _parallelWindowEntryTile(context, l10n, parallelSummary),
+        ],
+      ),
+      // 存储与数据（对应 destination：storage / downloads / play-stats）。
+      _SettingsCategorySection(
+        id: 'data',
+        icon: Icons.storage_rounded,
+        title: l10n.settingsStorageTitle,
+        entries: <Widget>[
+          _storageEntryTile(context, l10n),
+          _downloadsEntryTile(context, l10n),
+          _playStatsEntryTile(context, l10n),
+        ],
+      ),
+      // 更多管理（对应 destination：other / logs）。
+      _SettingsCategorySection(
+        id: 'system',
+        icon: Icons.more_horiz_rounded,
+        title: l10n.settingsOtherTitle,
+        entries: <Widget>[
+          _otherEntryTile(context, l10n),
+          _logsEntryTile(context, l10n),
+        ],
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -625,6 +867,31 @@ class AppSettingsScreen extends StatelessWidget {
               top: false,
               child: LayoutBuilder(
                 builder: (context, constraints) {
+                  // 桌面端宽视口：双栏布局（左分类导航 + 右内容）；
+                  // 移动端 / 嵌入 pane 等窄视口自然回落到既有单栏列表。
+                  final useDesktopTwoPane =
+                      DesktopEnvironment.isDesktopPlatform &&
+                      constraints.maxWidth >=
+                          DesktopBreakpoints.sidebarMinWidth;
+                  if (useDesktopTwoPane) {
+                    return _DesktopSettingsTwoPane(
+                      key: const ValueKey<String>('desktop_settings_two_pane'),
+                      sections: _buildDesktopSettingsSections(
+                        context,
+                        l10n: l10n,
+                        localeProvider: localeProvider,
+                        themeProvider: themeProvider,
+                        startupPreferences: startupPreferences,
+                        parallelWindowSupported: parallelWindowSupported,
+                        parallelSummary: parallelSummary,
+                      ),
+                      bottomInset: secondaryHost
+                          ? (compact ? 24 : 32)
+                          : MainNavigationMetrics.contentBottomInset(
+                              media.viewPadding.bottom,
+                            ),
+                    );
+                  }
                   final maxContentWidth = constraints.maxWidth >= 1080
                       ? 960.0
                       : 760.0;
@@ -650,170 +917,41 @@ class AppSettingsScreen extends StatelessWidget {
                           children: <Widget>[
                             _SettingsGroupCard(
                               children: <Widget>[
-                                _SettingsEntryTile(
-                                  icon: Icons.palette_outlined,
-                                  title: l10n.settingsThemeTitle,
-                                  subtitle: l10n.settingsThemeSubtitle(
-                                    AppThemeL10n.currentThemeTitle(
-                                      l10n,
-                                      themeProvider,
-                                    ),
-                                    AppThemeL10n.currentThemeSubtitle(
-                                      l10n,
-                                      themeProvider,
-                                    ),
-                                  ),
-                                  onTap: () {
-                                    unawaited(
-                                      _openSettingsDestination(
-                                        context,
-                                        SettingsDestinationRoutes.theme,
-                                      ),
-                                    );
-                                  },
+                                _themeEntryTile(context, l10n, themeProvider),
+                                const _SettingsGroupDivider(),
+                                _languageEntryTile(
+                                  context,
+                                  l10n,
+                                  localeProvider,
                                 ),
                                 const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.language_rounded,
-                                  title: l10n.settingsLanguageTitle,
-                                  subtitle:
-                                      localeProvider.mode == AppLocaleMode.zhCN
-                                      ? l10n.settingsLanguageSubtitleZhCN
-                                      : l10n.settingsLanguageSubtitleSystem,
-                                  onTap: () {
-                                    unawaited(_openLanguageSheet(context));
-                                  },
+                                _startupPosterHomeEntryTile(
+                                  context,
+                                  l10n,
+                                  startupPreferences,
                                 ),
                                 const _SettingsGroupDivider(),
-                                _SettingsSwitchTile(
-                                  icon: Icons.slideshow_rounded,
-                                  title: l10n.settingsStartupPosterHomeTitle,
-                                  subtitle:
-                                      l10n.settingsStartupPosterHomeSubtitle,
-                                  value: startupPreferences
-                                      .openPosterHomeOnStartup,
-                                  onChanged: startupPreferences.isReady
-                                      ? (value) => unawaited(
-                                          _setStartupPosterHome(
-                                            context,
-                                            startupPreferences,
-                                            value,
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                                const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.video_settings_rounded,
-                                  title: l10n.settingsMpvTitle,
-                                  subtitle: l10n.settingsMpvSubtitle,
-                                  onTap: () {
-                                    unawaited(
-                                      _openSettingsDestination(
-                                        context,
-                                        SettingsDestinationRoutes.mpv,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                _mpvEntryTile(context, l10n),
                                 if (parallelWindowSupported) ...<Widget>[
                                   const _SettingsGroupDivider(),
-                                  _SettingsEntryTile(
-                                    icon: Icons.splitscreen_outlined,
-                                    title: l10n.settingsParallelWindowTitle,
-                                    subtitle: parallelSummary,
-                                    onTap: () {
-                                      unawaited(
-                                        _openSettingsDestination(
-                                          context,
-                                          SettingsDestinationRoutes
-                                              .parallelWindow,
-                                        ),
-                                      );
-                                    },
+                                  _parallelWindowEntryTile(
+                                    context,
+                                    l10n,
+                                    parallelSummary,
                                   ),
                                 ],
                                 const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.storage_rounded,
-                                  title: l10n.settingsStorageTitle,
-                                  subtitle: l10n.settingsStorageSubtitle,
-                                  onTap: () {
-                                    unawaited(
-                                      _openSettingsDestination(
-                                        context,
-                                        SettingsDestinationRoutes.storage,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                _storageEntryTile(context, l10n),
                                 const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.download_rounded,
-                                  title: l10n.settingsDownloadTitle,
-                                  subtitle: l10n.settingsDownloadSubtitle,
-                                  onTap: () {
-                                    unawaited(
-                                      _openSettingsDestination(
-                                        context,
-                                        SettingsDestinationRoutes.downloads,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                _downloadsEntryTile(context, l10n),
                                 const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.bar_chart_rounded,
-                                  title: l10n.settingsPlayStatsTitle,
-                                  subtitle: l10n.settingsPlayStatsSubtitle,
-                                  onTap: () {
-                                    unawaited(
-                                      _openSettingsDestination(
-                                        context,
-                                        SettingsDestinationRoutes.playStats,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                _playStatsEntryTile(context, l10n),
                                 const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.more_horiz_rounded,
-                                  title: l10n.settingsOtherTitle,
-                                  subtitle: l10n.settingsOtherSubtitle,
-                                  onTap: () {
-                                    unawaited(
-                                      _openSettingsDestination(
-                                        context,
-                                        SettingsDestinationRoutes.other,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                _otherEntryTile(context, l10n),
                                 const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.receipt_long_outlined,
-                                  title: l10n.settingsLogTitle,
-                                  subtitle: l10n.settingsLogSubtitle,
-                                  onTap: () {
-                                    unawaited(
-                                      _openSettingsDestination(
-                                        context,
-                                        SettingsDestinationRoutes.logs,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                _logsEntryTile(context, l10n),
                                 const _SettingsGroupDivider(),
-                                _SettingsEntryTile(
-                                  icon: Icons.cloud_sync_outlined,
-                                  title: l10n.fnConnectReloginTitle,
-                                  subtitle: l10n.fnConnectReloginShortSubtitle,
-                                  onTap: () {
-                                    unawaited(
-                                      _resetFnConnectWebLoginState(context),
-                                    );
-                                  },
-                                ),
+                                _fnConnectReloginEntryTile(context, l10n),
                               ],
                             ),
                           ],
@@ -1045,6 +1183,227 @@ class _SettingsSwitchTile extends StatelessWidget {
               onChanged: onChanged,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 桌面双栏设置的一个分类：由既有根级条目 / destination 列表派生。
+class _SettingsCategorySection {
+  final String id;
+  final IconData icon;
+  final String title;
+  final List<Widget> entries;
+
+  const _SettingsCategorySection({
+    required this.id,
+    required this.icon,
+    required this.title,
+    required this.entries,
+  });
+
+  /// 复用 [_SettingsGroupCard] 的分组样式：条目间插入既有分组分割线。
+  List<Widget> buildGroupChildren() {
+    final children = <Widget>[];
+    for (var i = 0; i < entries.length; i++) {
+      if (i > 0) children.add(const _SettingsGroupDivider());
+      children.add(entries[i]);
+    }
+    return children;
+  }
+}
+
+/// 桌面端（≥ [DesktopBreakpoints.sidebarMinWidth]）双栏设置布局：
+/// 左栏分类导航，右栏为选中分类的既有内容组件，切换无页面转场。
+class _DesktopSettingsTwoPane extends StatefulWidget {
+  final List<_SettingsCategorySection> sections;
+
+  /// 主窗口需为悬浮底栏预留的高度；分屏副窗维持原有留白。
+  final double bottomInset;
+
+  const _DesktopSettingsTwoPane({
+    super.key,
+    required this.sections,
+    required this.bottomInset,
+  });
+
+  @override
+  State<_DesktopSettingsTwoPane> createState() =>
+      _DesktopSettingsTwoPaneState();
+}
+
+class _DesktopSettingsTwoPaneState extends State<_DesktopSettingsTwoPane> {
+  /// 左栏宽度（任务规格约 220-240）。
+  static const double _navWidth = 232;
+
+  /// 右栏内容最大宽度，与单栏路径的宽屏档一致。
+  static const double _contentMaxWidth = 960;
+
+  static const double _desktopPanePadding = 28;
+
+  int _selectedIndex = 0;
+  final ScrollController _contentController = ScrollController();
+
+  @override
+  void dispose() {
+    _contentController.dispose();
+    super.dispose();
+  }
+
+  void _selectCategory(int index) {
+    if (index == _selectedIndex) return;
+    setState(() => _selectedIndex = index);
+    // 切换分类后右栏回到顶部，避免停留在上一分类的滚动位置。
+    if (_contentController.hasClients) {
+      _contentController.jumpTo(0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final sections = widget.sections;
+    if (sections.isEmpty) {
+      return const SizedBox.expand();
+    }
+    var selected = _selectedIndex;
+    if (selected >= sections.length) selected = sections.length - 1;
+    if (selected < 0) selected = 0;
+    final activeSection = sections[selected];
+
+    return Row(
+      key: const ValueKey<String>('desktop_settings_two_pane_row'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        SizedBox(
+          width: _navWidth,
+          child: ListView(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, widget.bottomInset),
+            children: <Widget>[
+              for (var i = 0; i < sections.length; i++) ...<Widget>[
+                if (i > 0) const SizedBox(height: 4),
+                _DesktopSettingsNavItem(
+                  key: ValueKey<String>(
+                    'desktop_settings_nav_${sections[i].id}',
+                  ),
+                  icon: sections[i].icon,
+                  title: sections[i].title,
+                  selected: i == selected,
+                  onTap: () => _selectCategory(i),
+                ),
+              ],
+            ],
+          ),
+        ),
+        // 左右栏之间的 1px 竖向分割线。
+        Container(width: 1, color: colors.borderSubtle),
+        Expanded(
+          child: SingleChildScrollView(
+            controller: _contentController,
+            padding: EdgeInsets.fromLTRB(
+              _desktopPanePadding,
+              16,
+              _desktopPanePadding,
+              widget.bottomInset,
+            ),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: _contentMaxWidth),
+                child: _SettingsGroupCard(
+                  children: activeSection.buildGroupChildren(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 桌面左栏分类行：图标 + 标题，选中态 selectionSoft 背景 + selection 左竖条。
+class _DesktopSettingsNavItem extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DesktopSettingsNavItem({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  State<_DesktopSettingsNavItem> createState() =>
+      _DesktopSettingsNavItemState();
+}
+
+class _DesktopSettingsNavItemState extends State<_DesktopSettingsNavItem> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final selected = widget.selected;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: DesktopTokens.hoverDuration,
+          curve: Curves.easeOutCubic,
+          height: DesktopTokens.sidebarItemHeight,
+          decoration: BoxDecoration(
+            color: selected
+                ? colors.selectionSoft
+                : (_hovering ? colors.surfaceSubtle : Colors.transparent),
+            borderRadius: BorderRadius.circular(
+              DesktopTokens.sidebarItemRadius,
+            ),
+          ),
+          child: Row(
+            children: <Widget>[
+              // 左竖条：选中时着 selection 色，未选中占位保持图标对齐。
+              AnimatedContainer(
+                width: 3,
+                height: 18,
+                duration: DesktopTokens.hoverDuration,
+                curve: Curves.easeOutCubic,
+                decoration: BoxDecoration(
+                  color: selected ? colors.selection : Colors.transparent,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Icon(
+                widget.icon,
+                size: 18,
+                color: selected ? colors.textPrimary : colors.textSecondary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected ? colors.textPrimary : colors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(13.5),
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
         ),
       ),
     );
