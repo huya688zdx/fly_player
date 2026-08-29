@@ -296,9 +296,18 @@ class _DesktopSideBarSplitToggleState
                     ),
                     SizedBox(
                       height: 26,
+                      // 显式取 AppThemeColors：Material 默认 Switch 读
+                      // ColorScheme.primary，动态取色只更新 ThemeExtension，
+                      // 不显式着色会永远停在静态主题色。
                       child: Switch(
                         value: widget.controller.enabled,
                         onChanged: (value) => widget.controller.enabled = value,
+                        activeThumbColor: colors.selection,
+                        activeTrackColor: colors.selection.withValues(
+                          alpha: 0.45,
+                        ),
+                        inactiveThumbColor: colors.textMuted,
+                        inactiveTrackColor: colors.surface,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                     ),
