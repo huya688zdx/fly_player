@@ -1,8 +1,9 @@
 /// 弹幕源类型。
 /// - [localFile]：用户**主动从文件导入**的弹幕（高优先，排在网络源之上）。
 /// - [danDanPlay]：在线 DanDanPlay 网络源。
-/// - [downloadedFile]：**随片下载**的弹幕缓存（最低优先，仅在网络源拿不到时兜底，
-///   离线可用）。与 [localFile] 区分，避免下载缓存把网络源顶掉。
+/// - [downloadedFile]：**随片下载**的弹幕缓存（与 [localFile] 区分，避免下载缓存把
+///   用户手动导入的源顶掉）。解析时本地优先：新鲜（下载后 48h 内）直接使用、不联网；
+///   过期先联网刷新，刷新失败仍回落本地（离线可用）。见 `NativeDanmakuPrefetch`。
 enum DanmakuSavedSourceType { localFile, danDanPlay, downloadedFile }
 
 class DanmakuSavedSource {
