@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import math
-import statistics
+import inspect
+import struct
 import unittest
 from pathlib import Path
 
-import cv2
 import numpy as np
 from PIL import Image
 
@@ -16,191 +15,86 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ANIMATION_ASSET = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading.webp"
 
 
-def central_body_bottom(frame: Image.Image) -> tuple[float, float]:
-    alpha = np.asarray(frame.convert("RGBA"))[:, :, 3]
-    y_coordinates, x_coordinates = np.where(alpha > 24)
-    left = int(x_coordinates.min())
-    right = int(x_coordinates.max())
-    horizontal_center = (left + right) / 2
-    half_band = max(8, min(28, round((right - left + 1) * 0.1)))
-    central_mask = (
-        (alpha > 24)
-        & (np.indices(alpha.shape)[1] >= horizontal_center - half_band)
-        & (np.indices(alpha.shape)[1] <= horizontal_center + half_band)
-    )
-    central_y, central_x = np.where(central_mask)
-    return float(np.median(central_x)), float(np.quantile(central_y, 0.94))
-
-
-def alpha_bbox_center(frame: Image.Image) -> tuple[float, float]:
-    bbox = frame.convert("RGBA").getchannel("A").getbbox()
-    if bbox is None:
-        raise AssertionError("检测到空白动画帧")
-    left, top, right, bottom = bbox
-    return (left + right) / 2, (top + bottom) / 2
-
-
 def alpha_area(frame: Image.Image) -> int:
     alpha = np.asarray(frame.convert("RGBA"))[:, :, 3]
     return int(np.count_nonzero(alpha > 24))
 
 
-def silhouette_metrics(frame: Image.Image) -> tuple[float, float, float]:
-    pixels = np.asarray(frame.convert("RGBA"))
-    alpha_mask = pixels[:, :, 3] > 24
-    y_coordinates, x_coordinates = np.where(alpha_mask)
-    width = int(x_coordinates.max() - x_coordinates.min() + 1)
-    height = int(y_coordinates.max() - y_coordinates.min() + 1)
-    cropped_alpha = alpha_mask[
-        y_coordinates.min() : y_coordinates.max() + 1,
-        x_coordinates.min() : x_coordinates.max() + 1,
-    ]
-    rgb = pixels[:, :, :3]
-    pale_mask = (
-        alpha_mask
-        & (rgb[:, :, 0] > 145)
-        & (rgb[:, :, 1] > 165)
-        & (rgb[:, :, 2] > 165)
-    )
-    pale_ratio = float(np.count_nonzero(pale_mask)) / max(
-        int(np.count_nonzero(alpha_mask)), 1
-    )
-    return width / height, float(np.mean(cropped_alpha)), pale_ratio
+def alpha_bbox_center_y(frame: Image.Image) -> float:
+    bbox = frame.convert("RGBA").getchannel("A").getbbox()
+    if bbox is None:
+        raise AssertionError("检测到空白动画帧")
+    return (bbox[1] + bbox[3]) / 2
 
 
-def normalized_silhouette(frame: Image.Image) -> np.ndarray:
-    alpha = np.asarray(frame.convert("RGBA"))[:, :, 3]
-    y_coordinates, x_coordinates = np.where(alpha > 24)
-    cropped = alpha[
-        y_coordinates.min() : y_coordinates.max() + 1,
-        x_coordinates.min() : x_coordinates.max() + 1,
-    ]
-    return cv2.resize(cropped, (64, 64), interpolation=cv2.INTER_AREA) / 255.0
+def webp_frame_durations(path: Path) -> list[int]:
+    data = path.read_bytes()
+    durations: list[int] = []
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_type = data[offset : offset + 4]
+        chunk_size = struct.unpack_from("<I", data, offset + 4)[0]
+        chunk = data[offset + 8 : offset + 8 + chunk_size]
+        if chunk_type == b"ANMF":
+            durations.append(int.from_bytes(chunk[12:15], "little"))
+        offset += 8 + chunk_size + (chunk_size & 1)
+    return durations
 
 
-class RefreshAnimationStabilityTest(unittest.TestCase):
+class RefreshAnimationSequenceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.frames = animation_builder.build_frames()
 
-    def test_transition_center_moves_continuously(self) -> None:
-        centers = [alpha_bbox_center(frame) for frame in self.frames[:192]]
-        maximum_step = max(
-            math.dist(previous, current)
-            for previous, current in zip(centers, centers[1:])
-        )
+    def test_uses_only_drawn_and_original_video_frames(self) -> None:
+        source = inspect.getsource(animation_builder)
+        self.assertNotIn("calcOpticalFlowFarneback", source)
+        self.assertNotIn("interpolate_poses", source)
+
+    def test_output_keeps_near_360_frames(self) -> None:
+        self.assertGreaterEqual(len(self.frames), 340)
+        self.assertLessEqual(len(self.frames), 380)
+        self.assertTrue(all(frame.size == (512, 512) for frame in self.frames))
+
+    def test_no_frame_is_blank_or_cut_by_the_canvas(self) -> None:
+        for index, frame in enumerate(self.frames):
+            self.assertGreater(alpha_area(frame), 20, f"第 {index + 1} 帧为空")
+            left, top, right, bottom = frame.getchannel("A").getbbox()
+            self.assertGreater(left, 0, f"第 {index + 1} 帧碰到左边界")
+            self.assertGreater(top, 0, f"第 {index + 1} 帧碰到上边界")
+            self.assertLess(right, 512, f"第 {index + 1} 帧碰到右边界")
+            self.assertLess(bottom, 512, f"第 {index + 1} 帧碰到下边界")
+
+    def test_ring_collapses_to_a_point_then_reopens_as_a_bird(self) -> None:
+        point_area = min(alpha_area(frame) for frame in self.frames[250:278])
+        reopened_area = max(alpha_area(frame) for frame in self.frames[278:305])
+        self.assertLessEqual(point_area, 700)
+        self.assertGreaterEqual(reopened_area, 3000)
+
+    def test_final_bird_flies_up_and_away(self) -> None:
+        self.assertLessEqual(alpha_area(self.frames[-1]), 200)
         self.assertLessEqual(
-            maximum_step,
-            4.0,
-            f"变形主体发生 {maximum_step:.1f}px 的相邻帧跳动",
+            alpha_bbox_center_y(self.frames[-1]),
+            alpha_bbox_center_y(self.frames[300]) - 120,
         )
 
-    def test_bird_body_follows_a_smooth_flight_path(self) -> None:
-        anchors = [central_body_bottom(frame) for frame in self.frames[192:288]]
+    def test_timing_keeps_25_fps_for_original_video_frames(self) -> None:
+        durations = animation_builder.frame_durations(self.frames)
+        human_frame_count = len(self.frames) - animation_builder.SOURCE_VIDEO_FRAME_COUNT
+        self.assertTrue(all(value == 80 for value in durations[1:human_frame_count]))
+        self.assertTrue(all(value == 40 for value in durations[human_frame_count:-1]))
 
-        for start, end in ((0, 48), (48, 96)):
-            maximum_acceleration = max(
-                math.dist(
-                    anchors[index],
-                    (
-                        anchors[index - 1][0] * 2 - anchors[index - 2][0],
-                        anchors[index - 1][1] * 2 - anchors[index - 2][1],
-                    ),
-                )
-                for index in range(start + 2, end)
-            )
-            self.assertLessEqual(
-                maximum_acceleration,
-                8.0,
-                f"鸟身运动轨迹出现 {maximum_acceleration:.1f}px 的速度突变",
-            )
-
-    def test_semantic_stage_boundaries_keep_the_original_continuity(self) -> None:
-        # 光流段没有硬切阶段；每 32 帧抽查一次，并检查变形转飞行的边界。
-        for boundary in (32, 64, 96, 128, 160, 192):
-            step = math.dist(
-                alpha_bbox_center(self.frames[boundary - 1]),
-                alpha_bbox_center(self.frames[boundary]),
-            )
-            self.assertLessEqual(
-                step,
-                25.0,
-                f"第 {boundary}→{boundary + 1} 帧边界跳动 {step:.1f}px",
-            )
-
-    def test_early_stages_do_not_pump_the_character_size(self) -> None:
-        early_stage_ranges = ((0, 32), (32, 64), (64, 96), (96, 120), (120, 144))
-        for stage_index, (start, end) in enumerate(early_stage_ranges):
-            stage_areas = [alpha_area(frame) for frame in self.frames[start:end]]
-            coefficient_of_variation = statistics.pstdev(stage_areas) / statistics.mean(
-                stage_areas
-            )
-            self.assertLessEqual(
-                coefficient_of_variation,
-                0.16,
-                f"第 {stage_index + 1} 段尺寸波动达到 {coefficient_of_variation:.1%}",
-            )
-
-    def test_flight_uses_a_repeatable_silhouette_cycle(self) -> None:
-        silhouettes = [normalized_silhouette(frame) for frame in self.frames[192:288]]
-
-        cycle_errors = [
-            float(np.mean(np.abs(silhouettes[index] - silhouettes[index + 16])))
-            for index in range(len(silhouettes) - 16)
-        ]
-        self.assertLessEqual(
-            max(cycle_errors),
-            0.12,
-            f"飞鸟循环轮廓最大偏差达到 {max(cycle_errors):.3f}",
-        )
-
-    def test_exported_webp_keeps_near_300_frames(self) -> None:
+    def test_exported_webp_keeps_the_complete_sequence(self) -> None:
         with Image.open(ANIMATION_ASSET) as animation:
-            self.assertGreaterEqual(animation.n_frames, 270)
-            self.assertLessEqual(animation.n_frames, 288)
+            # WebP 会把完全相同的持帧合并；有效帧接近 300 即可，
+            # 总时长必须与未合并的 358 帧时间轴一致。
+            self.assertGreaterEqual(animation.n_frames, 280)
+            self.assertLessEqual(animation.n_frames, 320)
             self.assertEqual(animation.size, (512, 512))
-
-    def test_transition_does_not_hold_an_egg_silhouette(self) -> None:
-        longest_egg_hold = 0
-        current_egg_hold = 0
-        for frame in self.frames[32:192]:
-            aspect, fill_ratio, pale_ratio = silhouette_metrics(frame)
-            is_egg = (
-                0.48 <= aspect <= 0.72
-                and fill_ratio >= 0.78
-                and pale_ratio >= 0.83
-            )
-            current_egg_hold = current_egg_hold + 1 if is_egg else 0
-            longest_egg_hold = max(longest_egg_hold, current_egg_hold)
-
-        self.assertLessEqual(
-            longest_egg_hold,
-            3,
-            f"蛋状封闭轮廓连续停留了 {longest_egg_hold} 帧",
+        self.assertEqual(
+            sum(webp_frame_durations(ANIMATION_ASSET)),
+            sum(animation_builder.frame_durations(self.frames)),
         )
-
-    def test_transition_has_no_large_aspect_reset(self) -> None:
-        aspects = [silhouette_metrics(frame)[0] for frame in self.frames[96:192]]
-        largest_ratio = max(
-            max(previous, current) / max(min(previous, current), 0.01)
-            for previous, current in zip(aspects, aspects[1:])
-        )
-        self.assertLessEqual(
-            largest_ratio,
-            1.60,
-            f"变鸟阶段相邻轮廓宽高比突变达到 {largest_ratio:.2f} 倍",
-        )
-
-    def test_bird_finishes_by_flying_farther_away(self) -> None:
-        first_frame = self.frames[192]
-        final_frame = self.frames[-1]
-        first_area = alpha_area(first_frame)
-        final_area = alpha_area(final_frame)
-        first_y = alpha_bbox_center(first_frame)[1]
-        final_y = alpha_bbox_center(final_frame)[1]
-
-        self.assertLessEqual(final_area, first_area * 0.40)
-        self.assertLessEqual(final_y, first_y - 35.0)
 
 
 if __name__ == "__main__":
