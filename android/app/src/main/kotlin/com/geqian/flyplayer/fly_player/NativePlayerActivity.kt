@@ -4816,8 +4816,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 Glide.with(this)
                     .load(model)
                     .transform(CenterCrop(), RoundedCorners(dp(8)))
-                    // 面板每次打开都重建列表并重新 load：默认 300ms 交叉淡入会让缓存命中
-                    // 也闪一下（首次进入等网络时更明显）。保留当前帧当占位 + 关闭动画直上屏。
+                    // 面板每次打开都重建列表并重新 load，两个闪动来源都要掐掉：
+                    // 1) 默认 300ms 交叉淡入（缓存命中也闪）→ dontAnimate 直接上屏；
+                    // 2) 新 ImageView 未测量时 into() 要等 onPreDraw 拿尺寸 → 第一帧先画深底
+                    //    第二帧才上图（整列齐闪一帧）→ override 显式尺寸让命中在首帧前同步完成。
+                    .override(thumbWidth, thumbHeight)
                     .placeholder(thumbnail.drawable)
                     .dontAnimate()
                     .into(thumbnail)
