@@ -16,12 +16,24 @@ OUTPUT_ANIMATION = GENERATED_ROOT / "refresh_story_single_character_288poses_pre
 OUTPUT_CONTACT = GENERATED_ROOT / "refresh_story_single_character_288poses_contact.png"
 ASSET_ANIMATION = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading.webp"
 ASSET_STATIC = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_static.png"
-OFFICIAL_TRANSITION_ATLAS = (
+HUMAN_TO_BALL_ATLAS = (
     PROJECT_ROOT
     / "assets"
     / "refresh"
-    / "shoujo_bird_official_transition_01_16.png"
+    / "shoujo_bird_human_to_ball_01_16.png"
 )
+HUMAN_TO_BALL_INBETWEEN_ATLAS = (
+    PROJECT_ROOT
+    / "assets"
+    / "refresh"
+    / "shoujo_bird_human_to_ball_inbetweens_01_16.png"
+)
+SOURCE_VIDEO = Path(r"F:\mp\bili_video_d_1787919698203.mp4")
+SOURCE_VIDEO_2 = Path(r"F:\mp\bili_video_d_1787920057392.mp4")
+SOURCE_VIDEO_FIRST_FRAME = 340
+SOURCE_VIDEO_2_FIRST_FRAME = 247
+SOURCE_VIDEO_FRAME_COUNT = 320
+SOURCE_CROP = (510, 0, 1410, 900)
 
 BASE_ATLASES = [
     PROJECT_ROOT / "assets" / "refresh" / f"shoujo_bird_frames_{start:02d}_{start + 7:02d}.png"
@@ -132,195 +144,8 @@ def bbox_center(frame: Image.Image) -> tuple[float, float]:
     return ((left + right) / 2, (top + bottom) / 2)
 
 
-def central_body_mask(frame: Image.Image) -> np.ndarray:
-    alpha = np.asarray(frame.getchannel("A"))
-    opaque = alpha > 24
-    y_coordinates, x_coordinates = np.where(opaque)
-    left = int(x_coordinates.min())
-    right = int(x_coordinates.max())
-    horizontal_center = (left + right) / 2
-    half_band = max(8, min(28, round((right - left + 1) * 0.1)))
-    x_grid = np.indices(alpha.shape)[1]
-    return (
-        opaque
-        & (x_grid >= horizontal_center - half_band)
-        & (x_grid <= horizontal_center + half_band)
-    ).astype(np.uint8)
-
-
-def source_body_anchor(
-    frame: Image.Image,
-    stage_index: int,
-) -> tuple[float, float]:
-    if stage_index in (7, 8):
-        mask = central_body_mask(frame)
-        y_coordinates, x_coordinates = np.where(mask)
-        return (
-            float(np.median(x_coordinates)),
-            float(np.quantile(y_coordinates, 0.94)),
-        )
-    return bbox_center(frame)
-
-
-def linear_anchor_segment(
-    anchors: list[tuple[float, float]],
-) -> list[tuple[float, float]]:
-    start = anchors[0]
-    end = anchors[-1]
-    last_index = max(len(anchors) - 1, 1)
-    return [
-        (
-            start[0] + (end[0] - start[0]) * index / last_index,
-            start[1] + (end[1] - start[1]) * index / last_index,
-        )
-        for index in range(len(anchors))
-    ]
-
-
-def stabilize_body_motion(
-    frames: list[Image.Image],
-    stage_indices: list[int],
-    semantic_ranges: list[tuple[int, int]],
-) -> list[Image.Image]:
-    anchors = [
-        source_body_anchor(frame, stage_index)
-        for frame, stage_index in zip(frames, stage_indices)
-    ]
-    # 每个语义段首尾完全沿用原关键帧位置，仅平滑中间轨迹；既不吞掉
-    # 人物深弯等主动位移，也不会在翅膀张合时反复搬动身体。
-    target_anchors: list[tuple[float, float]] = []
-    for start, end in semantic_ranges:
-        target_anchors.extend(linear_anchor_segment(anchors[start:end]))
-
-    stabilized: list[Image.Image] = []
-    for frame, source_anchor, target_anchor in zip(frames, anchors, target_anchors):
-        offset = (
-            round(target_anchor[0] - source_anchor[0]),
-            round(target_anchor[1] - source_anchor[1]),
-        )
-        canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-        canvas.alpha_composite(frame, offset)
-        stabilized.append(canvas)
-    return stabilized
-
-
-def flight_cycle_sources(base_frames: list[Image.Image]) -> list[Image.Image]:
-    flight_cycle = [
-        base_frames[56],
-        base_frames[58],
-        base_frames[59],
-        base_frames[60],
-        base_frames[59],
-        base_frames[56],
-        base_frames[57],
-        base_frames[57],
-    ]
-    return [pose for pose in flight_cycle * 3 for _ in range(2)]
-
-
-def to_premultiplied(image: Image.Image) -> np.ndarray:
-    array = np.asarray(image.convert("RGBA"), dtype=np.float32) / 255.0
-    array[:, :, :3] *= array[:, :, 3:4]
-    return array
-
-
-def from_premultiplied(array: np.ndarray) -> Image.Image:
-    alpha = np.clip(array[:, :, 3:4], 0.0, 1.0)
-    rgb = np.zeros_like(array[:, :, :3])
-    np.divide(
-        np.clip(array[:, :, :3], 0.0, 1.0),
-        np.maximum(alpha, 1e-6),
-        out=rgb,
-        where=alpha > 1e-6,
-    )
-    rgba = np.concatenate((rgb, alpha), axis=2)
-    return Image.fromarray(np.round(rgba * 255).astype(np.uint8), "RGBA")
-
-
-def optical_flow_pair(
-    first: Image.Image,
-    second: Image.Image,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    first_array = np.asarray(first.convert("RGBA"))
-    second_array = np.asarray(second.convert("RGBA"))
-    forward = cv2.calcOpticalFlowFarneback(
-        first_array[:, :, 3],
-        second_array[:, :, 3],
-        None,
-        0.5,
-        4,
-        31,
-        4,
-        7,
-        1.5,
-        cv2.OPTFLOW_FARNEBACK_GAUSSIAN,
-    )
-    backward = cv2.calcOpticalFlowFarneback(
-        second_array[:, :, 3],
-        first_array[:, :, 3],
-        None,
-        0.5,
-        4,
-        31,
-        4,
-        7,
-        1.5,
-        cv2.OPTFLOW_FARNEBACK_GAUSSIAN,
-    )
-    return to_premultiplied(first), to_premultiplied(second), forward, backward
-
-
-FLOW_GRID_X, FLOW_GRID_Y = np.meshgrid(
-    np.arange(FRAME_SIZE, dtype=np.float32),
-    np.arange(FRAME_SIZE, dtype=np.float32),
-)
-
-
 def smootherstep(value: float) -> float:
     return value**3 * (value * (value * 6 - 15) + 10)
-
-
-def morph_pair(
-    pair: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
-    progress: float,
-) -> Image.Image:
-    first, second, forward, backward = pair
-    warped_first = cv2.remap(
-        first,
-        FLOW_GRID_X - forward[:, :, 0] * progress,
-        FLOW_GRID_Y - forward[:, :, 1] * progress,
-        cv2.INTER_CUBIC,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0,
-    )
-    warped_second = cv2.remap(
-        second,
-        FLOW_GRID_X - backward[:, :, 0] * (1.0 - progress),
-        FLOW_GRID_Y - backward[:, :, 1] * (1.0 - progress),
-        cv2.INTER_CUBIC,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=0,
-    )
-    return from_premultiplied(
-        warped_first * (1.0 - progress) + warped_second * progress
-    )
-
-
-def interpolate_poses(
-    keyframes: list[Image.Image],
-    frame_count: int,
-) -> list[Image.Image]:
-    pairs = [
-        optical_flow_pair(keyframes[index], keyframes[index + 1])
-        for index in range(len(keyframes) - 1)
-    ]
-    frames: list[Image.Image] = []
-    for output_index in range(frame_count):
-        position = output_index * (len(keyframes) - 1) / max(frame_count - 1, 1)
-        lower_index = min(int(position), len(keyframes) - 2)
-        local_progress = smootherstep(position - lower_index)
-        frames.append(morph_pair(pairs[lower_index], local_progress))
-    return frames
 
 
 def render_transition_pose(subject: Image.Image, progress: float) -> Image.Image:
@@ -344,140 +169,182 @@ def render_transition_pose(subject: Image.Image, progress: float) -> Image.Image
     return canvas
 
 
-def apply_flight_departure(
-    frames: list[Image.Image],
-) -> list[Image.Image]:
-    departing: list[Image.Image] = []
-    for index, frame in enumerate(frames):
-        progress = smootherstep(index / max(len(frames) - 1, 1))
-        scale = 1.0 - progress * 0.40
-        cropped = frame.crop(alpha_bbox(frame))
-        resized = cropped.resize(
-            (
-                max(1, round(cropped.width * scale)),
-                max(1, round(cropped.height * scale)),
-            ),
-            Image.Resampling.LANCZOS,
-        )
-        center_x, center_y = bbox_center(frame)
-        canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-        canvas.alpha_composite(
-            resized,
-            (
-                round(center_x - resized.width / 2),
-                round(center_y - progress * 20 - resized.height / 2),
-            ),
-        )
-        departing.append(canvas)
-    return stabilize_body_motion(
-        departing,
-        [8] * len(departing),
-        [(0, len(departing))],
-    )
-
-
-def render_on_stage_curve(
-    subject: Image.Image,
-    stage_base_frames: list[Image.Image],
-    progress: float,
+def original_video_subject(
+    frame_bgr: np.ndarray,
+    source_index: int,
+    remove_upper_figure: bool,
 ) -> Image.Image:
-    position = progress * (len(stage_base_frames) - 1)
-    lower_index = min(int(position), len(stage_base_frames) - 1)
-    upper_index = min(lower_index + 1, len(stage_base_frames) - 1)
-    fraction = position - lower_index
-    lower = stage_base_frames[lower_index]
-    upper = stage_base_frames[upper_index]
+    left, top, right, bottom = SOURCE_CROP
+    crop = frame_bgr[top:bottom, left:right]
+    blue, green, red = cv2.split(crop)
+    blue_delta = blue.astype(np.int16) - red.astype(np.int16)
+    green_delta = green.astype(np.int16) - red.astype(np.int16)
 
-    target_area = alpha_area(lower) + (alpha_area(upper) - alpha_area(lower)) * fraction
-    lower_center = bbox_center(lower)
-    upper_center = bbox_center(upper)
-    target_center = (
-        lower_center[0] + (upper_center[0] - lower_center[0]) * fraction,
-        lower_center[1] + (upper_center[1] - lower_center[1]) * fraction,
+    # 只保留原画中的蓝青色角色/翅膀，以及成鸟后偏暖的身体；
+    # 白色背景与上方白色人形不会进入种子蒙版。
+    blue_seed = (blue_delta > 7) & (green_delta > 1) & (blue > 120)
+    warm_body_seed = (
+        (red.astype(np.int16) - blue.astype(np.int16) > 10)
+        & (green.astype(np.int16) - blue.astype(np.int16) > 5)
+        & (red > 150)
     )
+    seed = (blue_seed | warm_body_seed).astype(np.uint8)
 
-    source_area = max(alpha_area(subject), 1)
-    scale = float(np.sqrt(target_area / source_area))
-    scale = min(max(scale, 0.68), 1.42)
-    cropped = subject.crop(alpha_bbox(subject))
-    scale = min(scale, 472 / max(cropped.size))
-    resized = cropped.resize(
-        (max(1, round(cropped.width * scale)), max(1, round(cropped.height * scale))),
-        Image.Resampling.LANCZOS,
+    component_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        seed,
+        8,
     )
-    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-    canvas.alpha_composite(
-        resized,
-        (
-            round(target_center[0] - resized.width / 2),
-            round(target_center[1] - resized.height / 2),
-        ),
+    crop_center = np.array([crop.shape[1] / 2, crop.shape[0] / 2])
+    selected = np.zeros(seed.shape, dtype=np.uint8)
+    for label in range(1, component_count):
+        x, y, width, height, area = stats[label]
+        if area < 2:
+            continue
+        # 变形初段的人形轮廓会落到裁切底边，不能因此整帧丢弃；
+        # 左右/顶边仍视为远处背景色块。
+        if x == 0 or y == 0 or x + width == crop.shape[1]:
+            continue
+        maximum_distance = 330 if remove_upper_figure else 500
+        if np.linalg.norm(centroids[label] - crop_center) > maximum_distance:
+            continue
+        if area / max(width * height, 1) < 0.025:
+            continue
+        selected[labels == label] = 255
+
+    if np.count_nonzero(selected) < 20 and not remove_upper_figure:
+        # 第二段结尾的远景鸟只有几十个浅色像素，蓝色饱和度不足；
+        # 此处改用与纯白背景的亮度差，并限制在画面上半部排除字幕噪点。
+        rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.int16)
+        distant_seed = (np.max(255 - rgb, axis=2) > 6).astype(np.uint8)
+        count, distant_labels, distant_stats, distant_centroids = (
+            cv2.connectedComponentsWithStats(distant_seed, 8)
+        )
+        for label in range(1, count):
+            x, y, width, height, area = distant_stats[label]
+            center_x, center_y = distant_centroids[label]
+            if area < 2 or center_y >= crop.shape[0] / 2:
+                continue
+            if x == 0 or x + width == crop.shape[1]:
+                continue
+            if area / max(width * height, 1) < 0.015:
+                continue
+            selected[distant_labels == label] = 255
+
+    if np.count_nonzero(selected) < 2:
+        raise ValueError("原视频主体蒙版为空")
+
+    # 将紧邻色块的深色线稿一并收进蒙版，不扩张到远处背景。
+    near_subject = cv2.dilate(selected, np.ones((3, 3), np.uint8), iterations=2)
+    not_white = np.min(crop, axis=2) < 244
+    alpha = np.where((selected > 0) | ((near_subject > 0) & not_white), 255, 0)
+
+    # 原片 300 帧附近球体上方还有浅色人形。它占据中央窄带，而真正
+    # 展开的双翼位于两侧；逐步收窄中央遮罩可去掉该元素并保留翼芽生长。
+    if remove_upper_figure and source_index < 400:
+        reveal_progress = (source_index - SOURCE_VIDEO_FIRST_FRAME) / 60
+        half_width = round(82 * max(0.0, 1.0 - reveal_progress))
+        y_grid, x_grid = np.indices(alpha.shape)
+        remove_upper_figure = (
+            (y_grid < 390)
+            & (np.abs(x_grid - alpha.shape[1] / 2) < half_width)
+        )
+        alpha[remove_upper_figure] = 0
+    alpha = cv2.GaussianBlur(alpha.astype(np.uint8), (3, 3), 0)
+
+    rgba = cv2.cvtColor(crop, cv2.COLOR_BGR2RGBA)
+    rgba[:, :, 3] = alpha
+    subject = Image.fromarray(rgba, "RGBA")
+    return subject.resize((FRAME_SIZE, FRAME_SIZE), Image.Resampling.LANCZOS)
+
+
+def load_video_range(
+    path: Path,
+    first_frame: int,
+    remove_upper_figure: bool,
+    last_frame_exclusive: int | None = None,
+) -> list[Image.Image]:
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise ValueError(f"无法打开原视频：{path}")
+
+    decoded_frames: list[Image.Image] = []
+    source_index = 0
+    try:
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            if last_frame_exclusive is not None and source_index >= last_frame_exclusive:
+                break
+            if source_index >= first_frame:
+                decoded_frames.append(
+                    original_video_subject(
+                        frame,
+                        source_index,
+                        remove_upper_figure,
+                    )
+                )
+            source_index += 1
+    finally:
+        capture.release()
+
+    return decoded_frames
+
+
+def load_original_video_frames() -> list[Image.Image]:
+    first_video = load_video_range(
+        SOURCE_VIDEO,
+        SOURCE_VIDEO_FIRST_FRAME,
+        remove_upper_figure=True,
     )
-    return canvas
+    second_video = load_video_range(
+        SOURCE_VIDEO_2,
+        SOURCE_VIDEO_2_FIRST_FRAME,
+        remove_upper_figure=False,
+        last_frame_exclusive=360,
+    )
+    frames = [*first_video, *second_video]
+    if len(frames) != SOURCE_VIDEO_FRAME_COUNT:
+        raise ValueError(
+            f"两段原视频连续帧应为 {SOURCE_VIDEO_FRAME_COUNT}，实际为 {len(frames)}"
+        )
+    return frames
 
 
 def build_frames() -> list[Image.Image]:
     base_frames = load_base_frames()
-    transition_poses = extract_grid_subjects(
-        OFFICIAL_TRANSITION_ATLAS,
+    human_to_ball = extract_grid_subjects(
+        HUMAN_TO_BALL_ATLAS,
         columns=4,
         rows=4,
         minimum_component_area=80,
     )
-    # 第 5 格仍偏封闭椭圆，不符合官方参考中的轮廓消解过程；跳过它，
-    # 由光流在相邻人体姿势之间生成连续收拢，不再经过“蛋”状态。
-    transition_sources = [
-        *base_frames[:8],
-        *transition_poses[:4],
-        transition_poses[5],
-        *transition_poses[6:13],
-    ]
-    rendered_transition_sources = [
+    human_inbetweens = extract_grid_subjects(
+        HUMAN_TO_BALL_INBETWEEN_ATLAS,
+        columns=4,
+        rows=4,
+        minimum_component_area=80,
+    )
+
+    # 前段只使用真实绘制姿势；前 12 个中割姿势与主姿势交错，
+    # 后四格按主姿势单向压成圆球，不再经过光流或液体溶解效果。
+    human_sources = [*base_frames[:10]]
+    for index, pose in enumerate(human_to_ball):
+        human_sources.append(pose)
+        if index < 12:
+            human_sources.append(human_inbetweens[index])
+
+    human_frames = [
         render_transition_pose(
             frame,
-            index / max(len(transition_sources) - 1, 1),
+            index / max(len(human_sources) - 1, 1),
         )
-        for index, frame in enumerate(transition_sources)
+        for index, frame in enumerate(human_sources)
     ]
-    transformation_frames = interpolate_poses(
-        rendered_transition_sources,
-        frame_count=192,
-    )
-    transformation_frames = stabilize_body_motion(
-        transformation_frames,
-        [0] * len(transformation_frames),
-        [(0, len(transformation_frames))],
-    )
+    frames = [*human_frames, *load_original_video_frames()]
 
-    flight_frames: list[Image.Image] = []
-    flight_stage_indices: list[int] = []
-    flight_sources = flight_cycle_sources(base_frames)
-    for stage_index in (7, 8):
-        first_base_index = stage_index * 8
-        stage_base_frames = base_frames[first_base_index : first_base_index + 8]
-        rendered_stage = [
-            render_on_stage_curve(
-                frame,
-                stage_base_frames,
-                index / max(len(flight_sources) - 1, 1),
-            )
-            for index, frame in enumerate(flight_sources)
-        ]
-        flight_frames.extend(rendered_stage)
-        flight_stage_indices.extend([stage_index] * len(rendered_stage))
-
-    flight_frames = stabilize_body_motion(
-        flight_frames,
-        flight_stage_indices,
-        [(0, len(flight_frames))],
-    )
-    frames = [
-        *transformation_frames,
-        *apply_flight_departure(flight_frames),
-    ]
-
-    if len(frames) != 288:
-        raise ValueError(f"输出姿势数量应为 288，实际为 {len(frames)}")
+    if not 340 <= len(frames) <= 380:
+        raise ValueError(f"输出姿势数量应约为 360，实际为 {len(frames)}")
     return frames
 
 
@@ -497,11 +364,18 @@ def save_contact_sheet(frames: list[Image.Image]) -> None:
     contact.save(OUTPUT_CONTACT)
 
 
-def save_animation(frames: list[Image.Image]) -> None:
-    # 25 FPS；首尾仅做短暂停留，不降低中段动作帧率。
-    durations = [40] * len(frames)
+def frame_durations(frames: list[Image.Image]) -> list[int]:
+    human_frame_count = len(frames) - SOURCE_VIDEO_FRAME_COUNT
+    # 手绘人物段按 12.5 张有效画/秒展示；原视频连续帧按 25 FPS 展示，
+    # 整体比 60 FPS 原片更慢，但不制造任何补间帧。
+    durations = [80] * human_frame_count + [40] * SOURCE_VIDEO_FRAME_COUNT
     durations[0] = 160
     durations[-1] = 320
+    return durations
+
+
+def save_animation(frames: list[Image.Image]) -> None:
+    durations = frame_durations(frames)
     frames[0].save(
         OUTPUT_ANIMATION,
         save_all=True,
@@ -521,7 +395,7 @@ def save_animation(frames: list[Image.Image]) -> None:
         lossless=True,
         method=6,
     )
-    frames[216].save(ASSET_STATIC, optimize=True)
+    frames[-40].save(ASSET_STATIC, optimize=True)
 
 
 def main() -> None:
@@ -529,7 +403,7 @@ def main() -> None:
     save_contact_sheet(frames)
     save_animation(frames)
     print(f"frames={len(frames)}")
-    print(f"duration_ms={160 + 320 + (len(frames) - 2) * 40}")
+    print(f"duration_ms={sum(frame_durations(frames))}")
     print(OUTPUT_ANIMATION)
     print(OUTPUT_CONTACT)
     print(ASSET_ANIMATION)
