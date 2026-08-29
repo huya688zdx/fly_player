@@ -61,6 +61,11 @@ class AppSettingsScreen extends StatelessWidget {
     BuildContext context,
     String routeName,
   ) async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      // 桌面端：子页在设置区内部导航中打开，保留左侧应用侧栏与浏览上下文。
+      unawaited(Navigator.of(context).pushNamed(routeName));
+      return;
+    }
     await EmbeddedDetailLauncher.openSettings(
       context: context,
       destinationRoute: routeName,
@@ -731,8 +736,9 @@ class AppSettingsScreen extends StatelessWidget {
     );
   }
 
-  /// 桌面双栏左栏的分类定义：由现有根级条目 / destination 列表派生。
-  List<_SettingsCategorySection> _buildDesktopSettingsSections(
+  /// 桌面端设置分组定义：由既有根级条目 / destination 列表派生，
+  /// 条目组件与移动端单栏列表完全共用。
+  List<_SettingsSection> _buildDesktopSettingsSections(
     BuildContext context, {
     required AppLocalizations l10n,
     required AppLocaleProvider localeProvider,
@@ -741,52 +747,46 @@ class AppSettingsScreen extends StatelessWidget {
     required bool parallelWindowSupported,
     required String parallelSummary,
   }) {
-    return <_SettingsCategorySection>[
-      // 语言 / 启动直达 / FN Connect 重登等根级常驻项。
-      _SettingsCategorySection(
+    return <_SettingsSection>[
+      // 通用：语言 / 启动直达 / FN Connect 重登。
+      _SettingsSection(
         id: 'general',
         icon: Icons.tune_rounded,
-        title: l10n.settingsSearchFrequent,
+        title: l10n.settingsSectionGeneral,
         entries: <Widget>[
           _languageEntryTile(context, l10n, localeProvider),
           _startupPosterHomeEntryTile(context, l10n, startupPreferences),
           _fnConnectReloginEntryTile(context, l10n),
         ],
       ),
-      // 主题外观（对应 destination：/screen/settings/theme）。
-      _SettingsCategorySection(
-        id: 'appearance',
-        icon: Icons.palette_outlined,
-        title: l10n.settingsThemeTitle,
-        entries: <Widget>[_themeEntryTile(context, l10n, themeProvider)],
-      ),
-      // 播放器与窗口（对应 destination：mpv / parallel-window）。
-      _SettingsCategorySection(
-        id: 'player',
+      // 外观与播放：主题 / MPV / 分屏窗口。
+      _SettingsSection(
+        id: 'playback',
         icon: Icons.video_settings_rounded,
-        title: l10n.settingsMpvTitle,
+        title: l10n.settingsSectionPlayback,
         entries: <Widget>[
+          _themeEntryTile(context, l10n, themeProvider),
           _mpvEntryTile(context, l10n),
           if (parallelWindowSupported)
             _parallelWindowEntryTile(context, l10n, parallelSummary),
         ],
       ),
-      // 存储与数据（对应 destination：storage / downloads / play-stats）。
-      _SettingsCategorySection(
+      // 数据与下载：储存 / 下载 / 播放统计。
+      _SettingsSection(
         id: 'data',
         icon: Icons.storage_rounded,
-        title: l10n.settingsStorageTitle,
+        title: l10n.settingsSectionData,
         entries: <Widget>[
           _storageEntryTile(context, l10n),
           _downloadsEntryTile(context, l10n),
           _playStatsEntryTile(context, l10n),
         ],
       ),
-      // 更多管理（对应 destination：other / logs）。
-      _SettingsCategorySection(
+      // 系统：其他 / 日志。
+      _SettingsSection(
         id: 'system',
         icon: Icons.more_horiz_rounded,
-        title: l10n.settingsOtherTitle,
+        title: l10n.settingsSectionSystem,
         entries: <Widget>[
           _otherEntryTile(context, l10n),
           _logsEntryTile(context, l10n),
@@ -819,6 +819,36 @@ class AppSettingsScreen extends StatelessWidget {
                   ? l10n.settingsParallelSummaryEnabledLeft
                   : l10n.settingsParallelSummaryEnabledRight)
             : l10n.settingsParallelSummaryDisabled;
+
+        if (DesktopEnvironment.isDesktopPlatform &&
+            !secondaryHost &&
+            media.size.width >= DesktopBreakpoints.sidebarMinWidth) {
+          // 桌面端：设置区自带 AppBar 与内部导航（分组卡片网格首页），
+          // 子页在该 Navigator 内推入，只替换内容区、保留左侧应用侧栏。
+          return _DesktopSettingsArea(
+            key: const ValueKey<String>('desktop_settings_area'),
+            bottomInset: MainNavigationMetrics.contentBottomInset(
+              media.viewPadding.bottom,
+            ),
+            buildSections:
+                (context) => _buildDesktopSettingsSections(
+                  context,
+                  l10n: AppLocalizations.of(context),
+                  localeProvider: context.watch<AppLocaleProvider>(),
+                  themeProvider: context.watch<AppThemeProvider>(),
+                  startupPreferences: context.watch<StartupPreferencesProvider>(),
+                  parallelWindowSupported: parallelWindowSupported,
+                  parallelSummary: parallelSummary,
+                ),
+            onOpenSearch:
+                (context) => _openSettingsSearch(
+                  context,
+                  context.watch<AppThemeProvider>(),
+                  parallelSummary,
+                  parallelWindowSupported,
+                ),
+          );
+        }
 
         return Scaffold(
           backgroundColor: colors.backgroundBase,
@@ -867,31 +897,8 @@ class AppSettingsScreen extends StatelessWidget {
               top: false,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  // 桌面端宽视口：双栏布局（左分类导航 + 右内容）；
-                  // 移动端 / 嵌入 pane 等窄视口自然回落到既有单栏列表。
-                  final useDesktopTwoPane =
-                      DesktopEnvironment.isDesktopPlatform &&
-                      constraints.maxWidth >=
-                          DesktopBreakpoints.sidebarMinWidth;
-                  if (useDesktopTwoPane) {
-                    return _DesktopSettingsTwoPane(
-                      key: const ValueKey<String>('desktop_settings_two_pane'),
-                      sections: _buildDesktopSettingsSections(
-                        context,
-                        l10n: l10n,
-                        localeProvider: localeProvider,
-                        themeProvider: themeProvider,
-                        startupPreferences: startupPreferences,
-                        parallelWindowSupported: parallelWindowSupported,
-                        parallelSummary: parallelSummary,
-                      ),
-                      bottomInset: secondaryHost
-                          ? (compact ? 24 : 32)
-                          : MainNavigationMetrics.contentBottomInset(
-                              media.viewPadding.bottom,
-                            ),
-                    );
-                  }
+                  // 单栏设置列表：桌面宽视口由 maxWidth 收窄居中，
+                  // 移动端 / 嵌入 pane 等窄视口同构，行为保持一致。
                   final maxContentWidth = constraints.maxWidth >= 1080
                       ? 960.0
                       : 760.0;
@@ -1189,14 +1196,14 @@ class _SettingsSwitchTile extends StatelessWidget {
   }
 }
 
-/// 桌面双栏设置的一个分类：由既有根级条目 / destination 列表派生。
-class _SettingsCategorySection {
+/// 桌面端设置分组：标题 + 图标 + 一组既有条目组件。
+class _SettingsSection {
   final String id;
   final IconData icon;
   final String title;
   final List<Widget> entries;
 
-  const _SettingsCategorySection({
+  const _SettingsSection({
     required this.id,
     required this.icon,
     required this.title,
@@ -1214,196 +1221,209 @@ class _SettingsCategorySection {
   }
 }
 
-/// 桌面端（≥ [DesktopBreakpoints.sidebarMinWidth]）双栏设置布局：
-/// 左栏分类导航，右栏为选中分类的既有内容组件，切换无页面转场。
-class _DesktopSettingsTwoPane extends StatefulWidget {
-  final List<_SettingsCategorySection> sections;
-
-  /// 主窗口需为悬浮底栏预留的高度；分屏副窗维持原有留白。
+/// 桌面端设置区：自带 AppBar 的独立导航范围。
+/// 首页为分组卡片网格；设置子页在该 Navigator 内推入，
+/// 只替换右侧内容区，保留左侧应用侧栏。
+class _DesktopSettingsArea extends StatelessWidget {
   final double bottomInset;
+  final List<_SettingsSection> Function(BuildContext) buildSections;
+  final void Function(BuildContext) onOpenSearch;
 
-  const _DesktopSettingsTwoPane({
+  const _DesktopSettingsArea({
     super.key,
-    required this.sections,
     required this.bottomInset,
+    required this.buildSections,
+    required this.onOpenSearch,
   });
 
   @override
-  State<_DesktopSettingsTwoPane> createState() =>
-      _DesktopSettingsTwoPaneState();
+  Widget build(BuildContext context) {
+    return Navigator(
+      key: const ValueKey<String>('desktop_settings_navigator'),
+      onGenerateRoute: _onGenerateRoute,
+      onUnknownRoute: _onGenerateRoute,
+    );
+  }
+
+  Route<dynamic> _gridRoute(RouteSettings settings) {
+    return PageRouteBuilder<void>(
+      settings: settings,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (context, _, __) => _DesktopSettingsGrid(
+        sections: buildSections(context),
+        bottomInset: bottomInset,
+        onOpenSearch: () => onOpenSearch(context),
+      ),
+    );
+  }
+
+  Route<dynamic> _onGenerateRoute(RouteSettings settings) {
+    final name = settings.name ?? '/';
+    if (name == '/' || name == SettingsDestinationRoutes.home) {
+      return _gridRoute(settings);
+    }
+    final destination = SettingsDestinationRoutes.buildRoute(name);
+    if (destination == null) {
+      return _gridRoute(settings);
+    }
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      _DesktopSettingsSubPage(child: destination),
+      settings: settings,
+    );
+  }
 }
 
-class _DesktopSettingsTwoPaneState extends State<_DesktopSettingsTwoPane> {
-  /// 左栏宽度（任务规格约 220-240）。
-  static const double _navWidth = 232;
+/// 设置区首页：分组卡片网格（宽视口双列，窄视口单列），
+/// 单击条目经内部导航直达子页。
+class _DesktopSettingsGrid extends StatelessWidget {
+  final List<_SettingsSection> sections;
+  final double bottomInset;
+  final VoidCallback onOpenSearch;
 
-  /// 右栏内容最大宽度，与单栏路径的宽屏档一致。
-  static const double _contentMaxWidth = 960;
+  static const double _gridMaxWidth = 1240;
+  static const double _twoColumnMinWidth = 1000;
 
-  static const double _desktopPanePadding = 28;
-
-  int _selectedIndex = 0;
-  final ScrollController _contentController = ScrollController();
-
-  @override
-  void dispose() {
-    _contentController.dispose();
-    super.dispose();
-  }
-
-  void _selectCategory(int index) {
-    if (index == _selectedIndex) return;
-    setState(() => _selectedIndex = index);
-    // 切换分类后右栏回到顶部，避免停留在上一分类的滚动位置。
-    if (_contentController.hasClients) {
-      _contentController.jumpTo(0);
-    }
-  }
+  const _DesktopSettingsGrid({
+    required this.sections,
+    required this.bottomInset,
+    required this.onOpenSearch,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final sections = widget.sections;
-    if (sections.isEmpty) {
-      return const SizedBox.expand();
-    }
-    var selected = _selectedIndex;
-    if (selected >= sections.length) selected = sections.length - 1;
-    if (selected < 0) selected = 0;
-    final activeSection = sections[selected];
-
-    return Row(
-      key: const ValueKey<String>('desktop_settings_two_pane_row'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        SizedBox(
-          width: _navWidth,
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(14, 12, 14, widget.bottomInset),
-            children: <Widget>[
-              for (var i = 0; i < sections.length; i++) ...<Widget>[
-                if (i > 0) const SizedBox(height: 4),
-                _DesktopSettingsNavItem(
-                  key: ValueKey<String>(
-                    'desktop_settings_nav_${sections[i].id}',
+    final l10n = AppLocalizations.of(context);
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      appBar: AppBar(
+        title: Text(
+          l10n.settingsTitle,
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: AdaptiveText.roleSize(21, role: AdaptiveFontRole.title),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        actions: <Widget>[
+          IconButton(
+            onPressed: onOpenSearch,
+            icon: const Icon(Icons.search_rounded),
+            tooltip: l10n.settingsSearchTooltip,
+          ),
+        ],
+      ),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final twoColumns = constraints.maxWidth >= _twoColumnMinWidth;
+              final leftSections = <_SettingsSection>[];
+              final rightSections = <_SettingsSection>[];
+              for (var i = 0; i < sections.length; i++) {
+                (i.isEven ? leftSections : rightSections).add(sections[i]);
+              }
+              final Widget content = twoColumns
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Expanded(
+                          child: _buildSectionColumn(context, leftSections),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: _buildSectionColumn(context, rightSections),
+                        ),
+                      ],
+                    )
+                  : _buildSectionColumn(context, sections);
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(28, 6, 28, bottomInset + 20),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: _gridMaxWidth),
+                    child: content,
                   ),
-                  icon: sections[i].icon,
-                  title: sections[i].title,
-                  selected: i == selected,
-                  onTap: () => _selectCategory(i),
                 ),
-              ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionColumn(
+    BuildContext context,
+    List<_SettingsSection> list,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (var i = 0; i < list.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(height: 24),
+          _buildSection(context, list[i]),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSection(BuildContext context, _SettingsSection section) {
+    final colors = context.appColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 0, 6, 10),
+          child: Row(
+            children: <Widget>[
+              Icon(section.icon, size: 16, color: colors.textSecondary),
+              const SizedBox(width: 8),
+              Text(
+                section.title,
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: AdaptiveText.roleSize(13.2),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
             ],
           ),
         ),
-        // 左右栏之间的 1px 竖向分割线。
-        Container(width: 1, color: colors.borderSubtle),
-        Expanded(
-          child: SingleChildScrollView(
-            controller: _contentController,
-            padding: EdgeInsets.fromLTRB(
-              _desktopPanePadding,
-              16,
-              _desktopPanePadding,
-              widget.bottomInset,
-            ),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: _contentMaxWidth),
-                child: _SettingsGroupCard(
-                  children: activeSection.buildGroupChildren(),
-                ),
-              ),
-            ),
-          ),
-        ),
+        _SettingsGroupCard(children: section.buildGroupChildren()),
       ],
     );
   }
 }
 
-/// 桌面左栏分类行：图标 + 标题，选中态 selectionSoft 背景 + selection 左竖条。
-class _DesktopSettingsNavItem extends StatefulWidget {
-  final IconData icon;
-  final String title;
-  final bool selected;
-  final VoidCallback onTap;
+/// 设置子页容器：桌面宽窗口下把子页内容收敛到适中宽度并水平居中，
+/// 避免整窗拉伸；子页自身仍是完整 Scaffold（含返回栏）。
+class _DesktopSettingsSubPage extends StatelessWidget {
+  final Widget child;
 
-  const _DesktopSettingsNavItem({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  State<_DesktopSettingsNavItem> createState() =>
-      _DesktopSettingsNavItemState();
-}
-
-class _DesktopSettingsNavItemState extends State<_DesktopSettingsNavItem> {
-  bool _hovering = false;
+  const _DesktopSettingsSubPage({required this.child});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final selected = widget.selected;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: DesktopTokens.hoverDuration,
-          curve: Curves.easeOutCubic,
-          height: DesktopTokens.sidebarItemHeight,
-          decoration: BoxDecoration(
-            color: selected
-                ? colors.selectionSoft
-                : (_hovering ? colors.surfaceSubtle : Colors.transparent),
-            borderRadius: BorderRadius.circular(
-              DesktopTokens.sidebarItemRadius,
-            ),
-          ),
-          child: Row(
-            children: <Widget>[
-              // 左竖条：选中时着 selection 色，未选中占位保持图标对齐。
-              AnimatedContainer(
-                width: 3,
-                height: 18,
-                duration: DesktopTokens.hoverDuration,
-                curve: Curves.easeOutCubic,
-                decoration: BoxDecoration(
-                  color: selected ? colors.selection : Colors.transparent,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 11),
-              Icon(
-                widget.icon,
-                size: 18,
-                color: selected ? colors.textPrimary : colors.textSecondary,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: selected ? colors.textPrimary : colors.textSecondary,
-                    fontSize: AdaptiveText.roleSize(13.5),
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-          ),
+    return Container(
+      color: colors.backgroundBase,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1160),
+          child: child,
         ),
       ),
     );

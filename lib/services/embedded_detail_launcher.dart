@@ -31,6 +31,8 @@ class EmbeddedDetailLauncher {
           false;
     } on PlatformException {
       return false;
+    } on MissingPluginException {
+      return false;
     }
   }
 
@@ -67,6 +69,8 @@ class EmbeddedDetailLauncher {
       return await _channel.invokeMethod<bool>('isParallelWindowSupported') ??
           false;
     } on PlatformException {
+      return false;
+    } on MissingPluginException {
       return false;
     }
   }
