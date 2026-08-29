@@ -126,27 +126,32 @@ void main() {
     expect(find.byIcon(Icons.search_rounded), findsOneWidget);
   });
 
-  testWidgets('桌面端点击条目在设置区内部导航打开子页，网格被替换', (tester) async {
+  testWidgets('桌面端点击条目在右侧子页列打开三级页，网格保持可见', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     await pumpSettings(tester, size: const Size(1400, 900));
 
     await tester.tap(find.text('主题设置'));
     await tester.pumpAndSettle();
 
-    // 子页在设置区 Navigator 内打开（真实 ThemeSettingsScreen），
-    // 网格首页被替换。
+    // 三栏形态：子页（ThemeSettingsScreen）在右栏打开，
+    // 中间网格（通用分组）保持可见。
     expect(find.byType(ThemeSettingsScreen), findsOneWidget);
-    expect(find.text('通用'), findsNothing);
+    expect(find.text('通用'), findsOneWidget);
 
-    // 子页返回后网格恢复。
+    // 右栏返回后子页列收起，网格不受影响。
     tester
         .state<NavigatorState>(
-          find.byKey(const ValueKey<String>('desktop_settings_navigator')),
+          find.descendant(
+            of: find.byKey(
+              const ValueKey<String>('desktop_settings_navigator'),
+            ),
+            matching: find.byType(Navigator),
+          ),
         )
         .pop();
     await tester.pumpAndSettle();
+    expect(find.byType(ThemeSettingsScreen), findsNothing);
     expect(find.text('通用'), findsOneWidget);
-    expect(find.text('主题设置'), findsOneWidget);
   });
 
   testWidgets('窄视口回落既有单栏列表：无分组网格', (tester) async {
