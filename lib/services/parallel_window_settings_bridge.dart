@@ -89,6 +89,16 @@ class ParallelWindowSettingsBridge {
         defaultPlaybackFullscreen: true,
         immersiveStatusBar: true,
       );
+    } on MissingPluginException {
+      // 桌面端等无宿主实现的环境：沿用默认值，不让异常外溢。
+      return const ParallelWindowSettings(
+        enabled: true,
+        preferredPrimaryPaneSide: 'left',
+        preferredPlaybackPrimaryPaneSide: 'right',
+        splitRatioPreset: 'balanced',
+        defaultPlaybackFullscreen: true,
+        immersiveStatusBar: true,
+      );
     }
   }
 
@@ -125,6 +135,15 @@ class ParallelWindowSettingsBridge {
       }
       return ParallelWindowSettings.fromMap(_normalizeMap(result));
     } on PlatformException {
+      return ParallelWindowSettings(
+        enabled: enabled,
+        preferredPrimaryPaneSide: preferredPrimaryPaneSide,
+        preferredPlaybackPrimaryPaneSide: preferredPlaybackPrimaryPaneSide,
+        splitRatioPreset: splitRatioPreset,
+        defaultPlaybackFullscreen: defaultPlaybackFullscreen,
+        immersiveStatusBar: immersiveStatusBar,
+      );
+    } on MissingPluginException {
       return ParallelWindowSettings(
         enabled: enabled,
         preferredPrimaryPaneSide: preferredPrimaryPaneSide,
