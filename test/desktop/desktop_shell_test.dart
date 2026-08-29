@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fly_player/desktop/desktop_detail_pane_host.dart';
 import 'package:fly_player/desktop/desktop_side_bar.dart';
 import 'package:fly_player/desktop/desktop_shell.dart';
 import 'package:fly_player/desktop/desktop_split_controller.dart';
@@ -112,7 +113,7 @@ void main() {
       expect(find.text('搜索页'), findsOneWidget);
     });
 
-    testWidgets('分屏开关：占位右栏出现、比例 chip 可调、关闭后恢复', (tester) async {
+    testWidgets('分屏开关：右栏详情宿主出现、比例 chip 可调、关闭后恢复', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -128,7 +129,8 @@ void main() {
       await tester.tap(find.text('浏览 | 详情'));
       await tester.pump();
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
-      expect(find.text('分屏详情宿主待接入（desktop-detail-pane）'), findsOneWidget);
+      // 分屏详情宿主已接线（feat/desktop-detail-pane）：右栏渲染真实宿主而非占位。
+      expect(find.byType(DesktopDetailPaneHost), findsOneWidget);
 
       final controller = tester
           .element(find.text('42%'))
@@ -151,7 +153,7 @@ void main() {
       );
       await tester.pump();
       expect(controller.enabled, isFalse);
-      expect(find.text('分屏详情宿主待接入（desktop-detail-pane）'), findsNothing);
+      expect(find.byType(DesktopDetailPaneHost), findsNothing);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     });
 

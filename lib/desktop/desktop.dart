@@ -5,7 +5,10 @@ library;
 
 export 'desktop_breakpoints.dart';
 export 'desktop_context_menu.dart';
+export 'desktop_detail_pane_host.dart';
 export 'desktop_environment.dart';
+export 'desktop_shell.dart';
+export 'desktop_side_bar.dart';
 export 'desktop_split_controller.dart';
 export 'desktop_tokens.dart';
 export 'hover_lift.dart';
