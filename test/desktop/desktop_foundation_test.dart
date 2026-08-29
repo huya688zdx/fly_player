@@ -19,8 +19,14 @@ void main() {
 
   group('DesktopBreakpoints', () {
     test('断点单调递增且分屏最小宽度包含侧栏场景', () {
-      expect(DesktopBreakpoints.sidebarMinWidth, lessThan(DesktopBreakpoints.splitMinWidth));
-      expect(DesktopBreakpoints.splitMinWidth, lessThan(DesktopBreakpoints.wideContentWidth));
+      expect(
+        DesktopBreakpoints.sidebarMinWidth,
+        lessThan(DesktopBreakpoints.splitMinWidth),
+      );
+      expect(
+        DesktopBreakpoints.splitMinWidth,
+        lessThan(DesktopBreakpoints.wideContentWidth),
+      );
       expect(DesktopBreakpoints.paneMinWidth, greaterThan(0));
     });
   });
@@ -31,7 +37,10 @@ void main() {
       var notifications = 0;
       controller.addListener(() => notifications++);
       expect(controller.enabled, isFalse);
-      expect(controller.paneFraction, DesktopSplitController.defaultPaneFraction);
+      expect(
+        controller.paneFraction,
+        DesktopSplitController.defaultPaneFraction,
+      );
 
       controller.enabled = true;
       controller.enabled = true; // 重复赋值不通知
@@ -57,7 +66,10 @@ void main() {
 
   group('HoverLift', () {
     Widget host({ThemeData? theme, bool enabled = true}) {
-      Widget child = HoverLift(enabled: enabled, child: const SizedBox(width: 40, height: 60));
+      Widget child = HoverLift(
+        enabled: enabled,
+        child: const SizedBox(width: 40, height: 60),
+      );
       if (theme != null) child = Theme(data: theme, child: child);
       return MaterialApp(
         theme: theme,
@@ -66,7 +78,9 @@ void main() {
     }
 
     testWidgets('悬停放大到桌面档位，移出复原', (tester) async {
-      await tester.pumpWidget(host(theme: AppThemeBuilder.build(AppThemePreset.midnight)));
+      await tester.pumpWidget(
+        host(theme: AppThemeBuilder.build(AppThemePreset.midnight)),
+      );
       final center = tester.getCenter(find.byType(HoverLift));
       final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await gesture.addPointer(location: center);
@@ -75,7 +89,10 @@ void main() {
       await tester.pumpAndSettle();
       final scale = tester
           .widget<AnimatedScale>(
-            find.descendant(of: find.byType(HoverLift), matching: find.byType(AnimatedScale)),
+            find.descendant(
+              of: find.byType(HoverLift),
+              matching: find.byType(AnimatedScale),
+            ),
           )
           .scale;
       expect(scale, DesktopTokens.hoverLiftScale);
@@ -83,7 +100,10 @@ void main() {
       await tester.pumpAndSettle();
       final scaleAfter = tester
           .widget<AnimatedScale>(
-            find.descendant(of: find.byType(HoverLift), matching: find.byType(AnimatedScale)),
+            find.descendant(
+              of: find.byType(HoverLift),
+              matching: find.byType(AnimatedScale),
+            ),
           )
           .scale;
       expect(scaleAfter, 1.0);
@@ -92,7 +112,10 @@ void main() {
     testWidgets('enabled=false 时直通不包裹手势（触屏布局零开销）', (tester) async {
       await tester.pumpWidget(host(enabled: false));
       expect(
-        find.descendant(of: find.byType(HoverLift), matching: find.byType(MouseRegion)),
+        find.descendant(
+          of: find.byType(HoverLift),
+          matching: find.byType(MouseRegion),
+        ),
         findsNothing,
       );
     });
@@ -100,7 +123,9 @@ void main() {
     testWidgets('主题扩展缺失时退化为仅缩放不抛错', (tester) async {
       await tester.pumpWidget(host());
       final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
-      await gesture.addPointer(location: tester.getCenter(find.byType(HoverLift)));
+      await gesture.addPointer(
+        location: tester.getCenter(find.byType(HoverLift)),
+      );
       addTearDown(gesture.removePointer);
       await gesture.moveTo(tester.getCenter(find.byType(HoverLift)));
       await tester.pumpAndSettle();

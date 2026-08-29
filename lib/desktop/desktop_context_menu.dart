@@ -39,7 +39,8 @@ Future<void> showDesktopContextMenu(
     ),
     elevation: 8,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-    color: theme.extension<AppThemeColors>()?.surfaceStrong ??
+    color:
+        theme.extension<AppThemeColors>()?.surfaceStrong ??
         theme.colorScheme.surface,
     items: [
       for (var i = 0; i < entries.length; i++)
