@@ -424,6 +424,15 @@
   "settingsSectionPlayback": "外观与播放",
   "settingsSectionData": "数据与下载",
   "settingsSectionSystem": "系统",
+  "settingsDesktopSummary": "{groups} 个分组 · {items} 项配置",
+  "@settingsDesktopSummary": {
+    "placeholders": {
+      "groups": { "type": "int" },
+      "items": { "type": "int" }
+    }
+  },
+  "settingsDesktopSummaryHint": "行尾实时显示当前值，单击进入子页",
+  "settingsDesktopSearchEmpty": "没有找到相关设置项，换个关键词试试",
   "settingsSearchHint": "搜索设置项",
   "settingsSearchEmptyResults": "没有找到相关设置项。",
   "settingsSearchEmptyPrompt": "先输入关键字，或从常用入口开始。",
