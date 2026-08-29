@@ -28,6 +28,8 @@ dependencies:
   material_color_utilities: 0.13.0
   webview_flutter: ^4.13.1
   photo_view: ^0.15.0
+  # Windows DPAPI 凭据后端（secure_credential_store_windows）的 calloc/Struct。
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:
