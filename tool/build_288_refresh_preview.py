@@ -183,6 +183,109 @@ def bbox_center(frame: Image.Image) -> tuple[float, float]:
     return ((left + right) / 2, (top + bottom) / 2)
 
 
+def pale_body_mask(frame: Image.Image) -> np.ndarray:
+    pixels = np.asarray(frame.convert("RGBA"))
+    rgb = pixels[:, :, :3]
+    return (
+        (pixels[:, :, 3] > 24)
+        & (rgb[:, :, 0] > 145)
+        & (rgb[:, :, 1] > 165)
+        & (rgb[:, :, 2] > 165)
+    ).astype(np.uint8)
+
+
+def central_body_mask(frame: Image.Image) -> np.ndarray:
+    alpha = np.asarray(frame.getchannel("A"))
+    opaque = alpha > 24
+    y_coordinates, x_coordinates = np.where(opaque)
+    left = int(x_coordinates.min())
+    right = int(x_coordinates.max())
+    horizontal_center = (left + right) / 2
+    half_band = max(8, min(28, round((right - left + 1) * 0.1)))
+    x_grid = np.indices(alpha.shape)[1]
+    return (
+        opaque
+        & (x_grid >= horizontal_center - half_band)
+        & (x_grid <= horizontal_center + half_band)
+    ).astype(np.uint8)
+
+
+def source_body_anchor(
+    frame: Image.Image,
+    stage_index: int,
+) -> tuple[float, float]:
+    if stage_index in (0, 1):
+        return bbox_center(frame)
+
+    if stage_index in (2, 3, 4):
+        mask = pale_body_mask(frame)
+        y_coordinates, x_coordinates = np.where(mask)
+        if len(x_coordinates) >= 50:
+            return (
+                float(np.median(x_coordinates)),
+                float(np.median(y_coordinates)),
+            )
+
+    if stage_index in (7, 8):
+        mask = central_body_mask(frame)
+        y_coordinates, x_coordinates = np.where(mask)
+        return (
+            float(np.median(x_coordinates)),
+            float(np.quantile(y_coordinates, 0.94)),
+        )
+
+    alpha = (np.asarray(frame.getchannel("A")) > 24).astype(np.uint8)
+    central_mask = central_body_mask(frame)
+    distance = cv2.distanceTransform(alpha, cv2.DIST_L2, 5)
+    weights = np.square(distance) * central_mask
+    weight_sum = float(weights.sum())
+    if weight_sum <= 0:
+        return bbox_center(frame)
+    y_grid, x_grid = np.indices(alpha.shape)
+    return (
+        float((x_grid * weights).sum() / weight_sum),
+        float((y_grid * weights).sum() / weight_sum),
+    )
+
+
+def linear_anchor_segment(
+    anchors: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    start = anchors[0]
+    end = anchors[-1]
+    last_index = max(len(anchors) - 1, 1)
+    return [
+        (
+            start[0] + (end[0] - start[0]) * index / last_index,
+            start[1] + (end[1] - start[1]) * index / last_index,
+        )
+        for index in range(len(anchors))
+    ]
+
+
+def stabilize_body_motion(frames: list[Image.Image]) -> list[Image.Image]:
+    anchors = [
+        source_body_anchor(frame, index // 32)
+        for index, frame in enumerate(frames)
+    ]
+    # 每个语义段首尾完全沿用原关键帧位置，仅平滑中间轨迹；既不吞掉
+    # 人物深弯等主动位移，也不会在翅膀张合时反复搬动身体。
+    target_anchors: list[tuple[float, float]] = []
+    for start, end in ((0, 32), (32, 64), (64, 160), (160, 224), (224, 288)):
+        target_anchors.extend(linear_anchor_segment(anchors[start:end]))
+
+    stabilized: list[Image.Image] = []
+    for frame, source_anchor, target_anchor in zip(frames, anchors, target_anchors):
+        offset = (
+            round(target_anchor[0] - source_anchor[0]),
+            round(target_anchor[1] - source_anchor[1]),
+        )
+        canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
+        canvas.alpha_composite(frame, offset)
+        stabilized.append(canvas)
+    return stabilized
+
+
 def render_intermediate(
     subject: Image.Image,
     current: Image.Image,
@@ -509,7 +612,7 @@ def build_frames() -> list[Image.Image]:
 
     if len(frames) != 288:
         raise ValueError(f"输出姿势数量应为 288，实际为 {len(frames)}")
-    return frames
+    return stabilize_body_motion(frames)
 
 
 def save_contact_sheet(frames: list[Image.Image]) -> None:
