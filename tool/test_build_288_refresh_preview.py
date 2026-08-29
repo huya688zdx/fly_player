@@ -16,21 +16,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ANIMATION_ASSET = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading.webp"
 
 
-def pale_body_center(frame: Image.Image) -> tuple[float, float]:
-    pixels = np.asarray(frame.convert("RGBA"))
-    rgb = pixels[:, :, :3]
-    mask = (
-        (pixels[:, :, 3] > 24)
-        & (rgb[:, :, 0] > 145)
-        & (rgb[:, :, 1] > 165)
-        & (rgb[:, :, 2] > 165)
-    )
-    y_coordinates, x_coordinates = np.where(mask)
-    if len(x_coordinates) < 50:
-        raise AssertionError("未检测到足够的浅色身体像素")
-    return float(np.median(x_coordinates)), float(np.median(y_coordinates))
-
-
 def central_body_bottom(frame: Image.Image) -> tuple[float, float]:
     alpha = np.asarray(frame.convert("RGBA"))[:, :, 3]
     y_coordinates, x_coordinates = np.where(alpha > 24)
@@ -60,19 +45,16 @@ def alpha_area(frame: Image.Image) -> int:
     return int(np.count_nonzero(alpha > 24))
 
 
-def normalized_silhouette(frame: Image.Image) -> np.ndarray:
-    alpha = np.asarray(frame.convert("RGBA"))[:, :, 3]
-    y_coordinates, x_coordinates = np.where(alpha > 24)
-    cropped = alpha[
+def silhouette_metrics(frame: Image.Image) -> tuple[float, float, float]:
+    pixels = np.asarray(frame.convert("RGBA"))
+    alpha_mask = pixels[:, :, 3] > 24
+    y_coordinates, x_coordinates = np.where(alpha_mask)
+    width = int(x_coordinates.max() - x_coordinates.min() + 1)
+    height = int(y_coordinates.max() - y_coordinates.min() + 1)
+    cropped_alpha = alpha_mask[
         y_coordinates.min() : y_coordinates.max() + 1,
         x_coordinates.min() : x_coordinates.max() + 1,
     ]
-    return cv2.resize(cropped, (64, 64), interpolation=cv2.INTER_AREA) / 255.0
-
-
-def cocoon_state(frame: Image.Image) -> str:
-    pixels = np.asarray(frame.convert("RGBA"))
-    alpha_mask = pixels[:, :, 3] > 24
     rgb = pixels[:, :, :3]
     pale_mask = (
         alpha_mask
@@ -83,13 +65,17 @@ def cocoon_state(frame: Image.Image) -> str:
     pale_ratio = float(np.count_nonzero(pale_mask)) / max(
         int(np.count_nonzero(alpha_mask)), 1
     )
-    y_coordinates, _ = np.where(alpha_mask)
-    height = int(y_coordinates.max() - y_coordinates.min() + 1)
-    if pale_ratio < 0.65:
-        return "compact"
-    if pale_ratio > 0.69 and height > 200:
-        return "winged"
-    return "transition"
+    return width / height, float(np.mean(cropped_alpha)), pale_ratio
+
+
+def normalized_silhouette(frame: Image.Image) -> np.ndarray:
+    alpha = np.asarray(frame.convert("RGBA"))[:, :, 3]
+    y_coordinates, x_coordinates = np.where(alpha > 24)
+    cropped = alpha[
+        y_coordinates.min() : y_coordinates.max() + 1,
+        x_coordinates.min() : x_coordinates.max() + 1,
+    ]
+    return cv2.resize(cropped, (64, 64), interpolation=cv2.INTER_AREA) / 255.0
 
 
 class RefreshAnimationStabilityTest(unittest.TestCase):
@@ -97,20 +83,17 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.frames = animation_builder.build_frames()
 
-    def test_cocoon_body_stays_stable_while_wings_flap(self) -> None:
-        centers = [pale_body_center(frame) for frame in self.frames[96:144]]
-
-        stage_ranges = ((0, 24), (24, 48))
-        for start, end in stage_ranges:
-            maximum_step = max(
-                math.dist(centers[index - 1], centers[index])
-                for index in range(start + 1, end)
-            )
-            self.assertLessEqual(
-                maximum_step,
-                6.0,
-                f"茧身核心发生 {maximum_step:.1f}px 的相邻帧跳动",
-            )
+    def test_transition_center_moves_continuously(self) -> None:
+        centers = [alpha_bbox_center(frame) for frame in self.frames[:192]]
+        maximum_step = max(
+            math.dist(previous, current)
+            for previous, current in zip(centers, centers[1:])
+        )
+        self.assertLessEqual(
+            maximum_step,
+            4.0,
+            f"变形主体发生 {maximum_step:.1f}px 的相邻帧跳动",
+        )
 
     def test_bird_body_follows_a_smooth_flight_path(self) -> None:
         anchors = [central_body_bottom(frame) for frame in self.frames[192:288]]
@@ -133,9 +116,8 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
             )
 
     def test_semantic_stage_boundaries_keep_the_original_continuity(self) -> None:
-        # 96 处只是翅膀姿势页切换，外框会随翼展自然变化；
-        # 这里检查人物、茧身、变鸟和成鸟四个真正的语义边界。
-        for boundary in (32, 64, 144, 192):
+        # 光流段没有硬切阶段；每 32 帧抽查一次，并检查变形转飞行的边界。
+        for boundary in (32, 64, 96, 128, 160, 192):
             step = math.dist(
                 alpha_bbox_center(self.frames[boundary - 1]),
                 alpha_bbox_center(self.frames[boundary]),
@@ -159,16 +141,6 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
                 f"第 {stage_index + 1} 段尺寸波动达到 {coefficient_of_variation:.1%}",
             )
 
-    def test_cocoon_does_not_reopen_after_contraction_starts(self) -> None:
-        states = [cocoon_state(frame) for frame in self.frames[96:120]]
-
-        first_compact = states.index("compact")
-        self.assertNotIn(
-            "winged",
-            states[first_compact + 1 :],
-            "茧体开始收拢后又退回完整有翼状态",
-        )
-
     def test_flight_uses_a_repeatable_silhouette_cycle(self) -> None:
         silhouettes = [normalized_silhouette(frame) for frame in self.frames[192:288]]
 
@@ -187,6 +159,48 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
             self.assertGreaterEqual(animation.n_frames, 270)
             self.assertLessEqual(animation.n_frames, 288)
             self.assertEqual(animation.size, (512, 512))
+
+    def test_transition_does_not_hold_an_egg_silhouette(self) -> None:
+        longest_egg_hold = 0
+        current_egg_hold = 0
+        for frame in self.frames[32:192]:
+            aspect, fill_ratio, pale_ratio = silhouette_metrics(frame)
+            is_egg = (
+                0.48 <= aspect <= 0.72
+                and fill_ratio >= 0.78
+                and pale_ratio >= 0.83
+            )
+            current_egg_hold = current_egg_hold + 1 if is_egg else 0
+            longest_egg_hold = max(longest_egg_hold, current_egg_hold)
+
+        self.assertLessEqual(
+            longest_egg_hold,
+            3,
+            f"蛋状封闭轮廓连续停留了 {longest_egg_hold} 帧",
+        )
+
+    def test_transition_has_no_large_aspect_reset(self) -> None:
+        aspects = [silhouette_metrics(frame)[0] for frame in self.frames[96:192]]
+        largest_ratio = max(
+            max(previous, current) / max(min(previous, current), 0.01)
+            for previous, current in zip(aspects, aspects[1:])
+        )
+        self.assertLessEqual(
+            largest_ratio,
+            1.60,
+            f"变鸟阶段相邻轮廓宽高比突变达到 {largest_ratio:.2f} 倍",
+        )
+
+    def test_bird_finishes_by_flying_farther_away(self) -> None:
+        first_frame = self.frames[192]
+        final_frame = self.frames[-1]
+        first_area = alpha_area(first_frame)
+        final_area = alpha_area(final_frame)
+        first_y = alpha_bbox_center(first_frame)[1]
+        final_y = alpha_bbox_center(final_frame)[1]
+
+        self.assertLessEqual(final_area, first_area * 0.40)
+        self.assertLessEqual(final_y, first_y - 35.0)
 
 
 if __name__ == "__main__":
