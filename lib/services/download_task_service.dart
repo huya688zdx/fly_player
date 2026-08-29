@@ -3706,9 +3706,9 @@ class DownloadTaskService extends ChangeNotifier {
 
   /// 下载时/恢复时把弹幕源写入保存库。这些源都是**自动注册**（随片下载缓存或下载时
   /// 在线匹配到的网络源），不是用户手动选择，**绝不**主动设为 active 源——active 槽位只留
-  /// 给用户在播放页手动点选的源（优先级：手动 > 本地导入 > 网络 > 本地下载，由
-  /// `_tryLoadPreferredDanmakuSource` / `NativeDanmakuPrefetch` 解析）。这里仅在已存在
-  /// 用户手动 active 源时确保不被覆盖。
+  /// 给用户在播放页手动点选的源（优先级：手动 > 本地导入 > 随片下载(新鲜)/网络 >
+  /// 过期随片下载先回源再落回本地，由 `NativeDanmakuPrefetch.resolveToFile` 解析）。
+  /// 这里仅在已存在用户手动 active 源时确保不被覆盖。
   Future<void> _saveDanmakuSourceWithLocalPriority({
     required DanmakuSavedSourceStore store,
     required DanmakuSavedSource source,
