@@ -8,6 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'danmaku/settings/danmaku_saved_source_store.dart';
+import 'desktop/desktop_breakpoints.dart';
+import 'desktop/desktop_environment.dart';
+import 'desktop/desktop_shell.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
 import 'models/media_library_item.dart';
@@ -1039,6 +1042,13 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    // 桌面端宽窗口改走侧栏 Shell（feat/desktop-nav）；Android / 窄窗口保持
+    // 底部胶囊导航路径与既有行为完全一致。
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    if (DesktopEnvironment.isDesktopPlatform &&
+        viewportWidth >= DesktopBreakpoints.sidebarMinWidth) {
+      return DesktopShell(initialTab: _selectedTab.tabIndex);
+    }
     const pages = <Widget>[MediaListScreen(), AppSettingsScreen()];
     final l10n = AppLocalizations.of(context);
 
