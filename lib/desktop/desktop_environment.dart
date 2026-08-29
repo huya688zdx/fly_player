@@ -9,8 +9,7 @@ import 'package:flutter/foundation.dart';
 /// 保证 Android / 窄窗口路径与既有行为完全一致。
 abstract final class DesktopEnvironment {
   static bool get isDesktopPlatform =>
-      !kIsWeb &&
-      (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+      !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
   static bool get isWindows => !kIsWeb && Platform.isWindows;
 
