@@ -263,15 +263,19 @@ def linear_anchor_segment(
     ]
 
 
-def stabilize_body_motion(frames: list[Image.Image]) -> list[Image.Image]:
+def stabilize_body_motion(
+    frames: list[Image.Image],
+    stage_indices: list[int],
+    semantic_ranges: list[tuple[int, int]],
+) -> list[Image.Image]:
     anchors = [
-        source_body_anchor(frame, index // 32)
-        for index, frame in enumerate(frames)
+        source_body_anchor(frame, stage_index)
+        for frame, stage_index in zip(frames, stage_indices)
     ]
     # 每个语义段首尾完全沿用原关键帧位置，仅平滑中间轨迹；既不吞掉
     # 人物深弯等主动位移，也不会在翅膀张合时反复搬动身体。
     target_anchors: list[tuple[float, float]] = []
-    for start, end in ((0, 32), (32, 64), (64, 160), (160, 224), (224, 288)):
+    for start, end in semantic_ranges:
         target_anchors.extend(linear_anchor_segment(anchors[start:end]))
 
     stabilized: list[Image.Image] = []
@@ -286,132 +290,35 @@ def stabilize_body_motion(frames: list[Image.Image]) -> list[Image.Image]:
     return stabilized
 
 
-def render_intermediate(
-    subject: Image.Image,
-    current: Image.Image,
-    following: Image.Image,
-    progress: float,
-) -> Image.Image:
-    current_area = alpha_area(current)
-    following_area = alpha_area(following)
-    target_area = current_area + (following_area - current_area) * progress
-    source_area = max(alpha_area(subject), 1)
-    scale = float(np.sqrt(target_area / source_area))
-    scale = min(max(scale, 0.72), 1.35)
-
-    maximum_extent = max(subject.size)
-    scale = min(scale, 472 / maximum_extent)
-    resized = subject.resize(
-        (max(1, round(subject.width * scale)), max(1, round(subject.height * scale))),
-        Image.Resampling.LANCZOS,
-    )
-
-    current_center = bbox_center(current)
-    following_center = bbox_center(following)
-    target_x = current_center[0] + (following_center[0] - current_center[0]) * progress
-    target_y = current_center[1] + (following_center[1] - current_center[1]) * progress
-
-    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-    left = round(target_x - resized.width / 2)
-    top = round(target_y - resized.height / 2)
-    canvas.alpha_composite(resized, (left, top))
-    return canvas
+def hold_poses(poses: list[Image.Image], repeat_count: int) -> list[Image.Image]:
+    return [pose for pose in poses for _ in range(repeat_count)]
 
 
-def render_to_reference(subject: Image.Image, reference: Image.Image) -> Image.Image:
-    reference_area = alpha_area(reference)
-    source_area = max(alpha_area(subject), 1)
-    scale = float(np.sqrt(reference_area / source_area))
-    scale = min(max(scale, 0.72), 1.35)
-    scale = min(scale, 472 / max(subject.size))
-    resized = subject.resize(
-        (max(1, round(subject.width * scale)), max(1, round(subject.height * scale))),
-        Image.Resampling.LANCZOS,
-    )
-    target_x, target_y = bbox_center(reference)
-    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-    canvas.alpha_composite(
-        resized,
-        (round(target_x - resized.width / 2), round(target_y - resized.height / 2)),
-    )
-    return canvas
+def curated_stage_sources(
+    stage_index: int,
+    base_frames: list[Image.Image],
+    generated_stage_frames: dict[int, list[Image.Image]],
+) -> list[Image.Image]:
+    first_base_index = stage_index * 8
+    stage_base_frames = base_frames[first_base_index : first_base_index + 8]
+    if stage_index <= 2:
+        return hold_poses(stage_base_frames, 4)
+    if stage_index in (3, 4):
+        return hold_poses(generated_stage_frames[stage_index], 3)
+    if stage_index in (5, 6):
+        return hold_poses(stage_base_frames, 3)
 
-
-def pose_feature(frame: Image.Image) -> np.ndarray:
-    cropped = frame.crop(alpha_bbox(frame))
-    alpha = np.asarray(cropped.getchannel("A"), dtype=np.float32) / 255.0
-    scale = min(44 / alpha.shape[1], 44 / alpha.shape[0])
-    resized = cv2.resize(
-        alpha,
-        (max(1, round(alpha.shape[1] * scale)), max(1, round(alpha.shape[0] * scale))),
-        interpolation=cv2.INTER_AREA,
-    )
-    normalized = np.zeros((48, 48), dtype=np.float32)
-    top = (48 - resized.shape[0]) // 2
-    left = (48 - resized.shape[1]) // 2
-    normalized[top : top + resized.shape[0], left : left + resized.shape[1]] = resized
-    return normalized.reshape(-1)
-
-
-def merge_ordered_pose_sequences(sequences: list[list[Image.Image]]) -> list[Image.Image]:
-    """在保留各序列内部顺序的前提下，按轮廓平滑度合并姿势。"""
-    sequence_count = len(sequences)
-    sequence_lengths = [len(sequence) for sequence in sequences]
-    features = [[pose_feature(frame) for frame in sequence] for sequence in sequences]
-
-    def transition_cost(previous: np.ndarray, current: np.ndarray) -> float:
-        return float(np.mean(np.abs(previous - current)))
-
-    costs: dict[tuple[tuple[int, ...], int], float] = {}
-    parents: dict[
-        tuple[tuple[int, ...], int], tuple[tuple[int, ...], int] | None
-    ] = {}
-    for sequence_index in range(sequence_count):
-        counts = tuple(1 if index == sequence_index else 0 for index in range(sequence_count))
-        state = (counts, sequence_index)
-        costs[state] = 0.0
-        parents[state] = None
-
-    total_frames = sum(sequence_lengths)
-    for consumed in range(1, total_frames):
-        states = [state for state in list(costs) if sum(state[0]) == consumed]
-        for counts, last_sequence in states:
-            state = (counts, last_sequence)
-            previous_feature = features[last_sequence][counts[last_sequence] - 1]
-            for next_sequence in range(sequence_count):
-                next_local_index = counts[next_sequence]
-                if next_local_index >= sequence_lengths[next_sequence]:
-                    continue
-                next_counts = list(counts)
-                next_counts[next_sequence] += 1
-                next_counts_tuple = tuple(next_counts)
-                current_feature = features[next_sequence][next_local_index]
-                expected_progress = consumed / max(total_frames - 1, 1)
-                local_progress = next_local_index / max(sequence_lengths[next_sequence] - 1, 1)
-                progress_penalty = abs(expected_progress - local_progress) * 0.20
-                candidate_cost = (
-                    costs[state]
-                    + transition_cost(previous_feature, current_feature)
-                    + progress_penalty
-                )
-                next_state = (next_counts_tuple, next_sequence)
-                if candidate_cost < costs.get(next_state, float("inf")):
-                    costs[next_state] = candidate_cost
-                    parents[next_state] = state
-
-    final_counts = tuple(sequence_lengths)
-    final_state = min(
-        ((final_counts, sequence_index) for sequence_index in range(sequence_count)),
-        key=lambda state: costs[state],
-    )
-    ordered_positions: list[tuple[int, int]] = []
-    state: tuple[tuple[int, ...], int] | None = final_state
-    while state is not None:
-        counts, sequence_index = state
-        ordered_positions.append((sequence_index, counts[sequence_index] - 1))
-        state = parents[state]
-    ordered_positions.reverse()
-    return [sequences[sequence_index][local_index] for sequence_index, local_index in ordered_positions]
+    flight_cycle = [
+        base_frames[57],
+        base_frames[56],
+        base_frames[58],
+        base_frames[59],
+        base_frames[60],
+        base_frames[59],
+        base_frames[56],
+        base_frames[57],
+    ]
+    return hold_poses(flight_cycle * 3, 2)
 
 
 def render_on_stage_curve(
@@ -454,165 +361,47 @@ def render_on_stage_curve(
     return canvas
 
 
-def semantic_progress(stage_index: int, frame: Image.Image) -> float:
-    cropped = frame.crop(alpha_bbox(frame)).convert("RGBA")
-    pixels = np.asarray(cropped)
-    rgb = pixels[:, :, :3].astype(np.int16)
-    alpha = pixels[:, :, 3] > 24
-    opaque_count = max(int(np.count_nonzero(alpha)), 1)
-    red = rgb[:, :, 0]
-    green = rgb[:, :, 1]
-    blue = rgb[:, :, 2]
-
-    if stage_index == 1:
-        warm_detail = alpha & (red > 140) & (green > 65) & (green < 210) & (blue < 165) & (red > blue + 25)
-        saturated_hair = alpha & (blue > 130) & (blue > red + 45) & (blue > green + 5)
-        warm_count = int(np.count_nonzero(warm_detail))
-        hair_count = int(np.count_nonzero(saturated_hair))
-        aspect = cropped.width / max(cropped.height, 1)
-        if warm_count > 6:
-            # 仍看得到靴子或手时，先站立、再深弯和蜷缩。
-            return aspect
-        if hair_count > 6:
-            # 靴子已经收起后，再让头发逐步被布褶遮住。
-            return 2.0 - min(hair_count / opaque_count, 0.5)
-        # 完全闭合的茧永远排在所有人体细节之后。
-        return 3.0 + aspect * 0.05
-
-    if stage_index == 2:
-        aspect = cropped.width / max(cropped.height, 1)
-        if aspect < 0.62:
-            return aspect
-        yy, xx = np.indices(alpha.shape)
-        saturated_blue = alpha & (blue > red + 20) & (blue > green + 4)
-        outer_wing = saturated_blue & (
-            (xx < cropped.width * 0.38) | (xx > cropped.width * 0.62)
-        )
-        wing_count = int(np.count_nonzero(outer_wing))
-        wing_fraction = wing_count / opaque_count
-        if wing_fraction < 0.025:
-            return 0.7 + aspect
-        wing_height = float(np.mean(yy[outer_wing]) / max(cropped.height - 1, 1))
-        # 先长出翼芽，再抬翼、平展、下压，形成完整的第一轮扑翼。
-        return 1.0 + wing_height * 2.0 + min(aspect, 2.5) * 0.10
-
-    if stage_index == 5:
-        chroma = np.max(rgb, axis=2) - np.min(rgb, axis=2)
-        pale_cyan = alpha & (red > 145) & (green > 170) & (blue > 180) & (chroma < 85)
-        pale_fraction = np.count_nonzero(pale_cyan) / opaque_count
-        fill_ratio = opaque_count / max(cropped.width * cropped.height, 1)
-        # 淡青布褶核心先消失，空心翼环随后收紧成实心蓝色椭圆。
-        return (1.0 - pale_fraction) + fill_ratio * 0.6
-
-    if stage_index == 6:
-        fill_ratio = opaque_count / max(cropped.width * cropped.height, 1)
-        aspect = cropped.width / max(cropped.height, 1)
-        center_column = alpha[
-            :,
-            round(cropped.width * 0.40) : round(cropped.width * 0.60),
-        ]
-        center_column_fill = float(np.mean(center_column)) if center_column.size else 0.0
-        center_bottom = alpha[
-            round(cropped.height * 0.52) :,
-            round(cropped.width * 0.34) : round(cropped.width * 0.66),
-        ]
-        center_bottom_fill = float(np.mean(center_bottom)) if center_bottom.size else 0.0
-        if fill_ratio > 0.52 and aspect > 1.15:
-            return aspect * -0.02
-        if center_column_fill < 0.26:
-            return 1.0 + fill_ratio * 0.1
-        return 2.0 + center_bottom_fill * 0.1 + center_column_fill * 0.02
-
-    return 0.0
-
-
 def build_frames() -> list[Image.Image]:
     base_frames = load_base_frames()
-    generated_pages = [
-        [extract_page_subjects(path) for path in stage_pages]
-        for stage_pages in INBETWEEN_PAGES
-    ]
+    generated_stage_frames = {
+        3: extract_page_subjects(INBETWEEN_PAGES[3][1]),
+        4: extract_page_subjects(INBETWEEN_PAGES[4][0]),
+    }
 
     frames: list[Image.Image] = []
+    stage_indices: list[int] = []
+    stage_ranges: list[tuple[int, int]] = []
     for stage_index in range(9):
         first_base_index = stage_index * 8
         stage_base_frames = base_frames[first_base_index : first_base_index + 8]
-        # 三张生成页本身分别覆盖阶段的前、中、后段，先串成一条 24 帧序列，
-        # 再把原有 8 张主姿势按相似度嵌入，避免四路并排造成动作反复。
-        generated_sequence = [
-            frame
-            for page in generated_pages[stage_index]
-            for frame in page
-        ]
-        stage_sequences = [stage_base_frames, generated_sequence]
-        if stage_index == 6:
-            quarter, half, three_quarters = generated_pages[stage_index]
-            ordered_stage_frames = [
-                stage_base_frames[0],
-                stage_base_frames[1],
-                stage_base_frames[2],
-                quarter[0],
-                quarter[1],
-                quarter[2],
-                half[0],
-                stage_base_frames[3],
-                half[1],
-                half[2],
-                half[3],
-                half[4],
-                quarter[3],
-                half[5],
-                quarter[4],
-                stage_base_frames[4],
-                half[6],
-                stage_base_frames[5],
-                three_quarters[0],
-                three_quarters[1],
-                half[7],
-                stage_base_frames[6],
-                quarter[5],
-                three_quarters[2],
-                stage_base_frames[7],
-                quarter[6],
-                three_quarters[3],
-                quarter[7],
-                three_quarters[4],
-                three_quarters[5],
-                three_quarters[6],
-                three_quarters[7],
-            ]
-        elif stage_index == 2:
-            quarter, half, three_quarters = generated_pages[stage_index]
-            # 前三套按同一成熟度节点交错，最后一套完成整轮下压，避免翼芽反复消失。
-            ordered_stage_frames = [
-                frame
-                for local_index in range(8)
-                for frame in (
-                    quarter[local_index],
-                    half[local_index],
-                    stage_base_frames[local_index],
-                )
-            ]
-            ordered_stage_frames.extend(three_quarters)
-        elif stage_index in (1, 5):
-            ordered_stage_frames = sorted(
-                [*stage_base_frames, *generated_sequence],
-                key=lambda frame: semantic_progress(stage_index, frame),
-            )
-        else:
-            ordered_stage_frames = merge_ordered_pose_sequences(stage_sequences)
-        frames.extend(
+        stage_sources = curated_stage_sources(
+            stage_index,
+            base_frames,
+            generated_stage_frames,
+        )
+        stage_start = len(frames)
+        rendered_stage = [
             render_on_stage_curve(
                 frame,
                 stage_base_frames,
-                index / max(len(ordered_stage_frames) - 1, 1),
+                index / max(len(stage_sources) - 1, 1),
             )
-            for index, frame in enumerate(ordered_stage_frames)
-        )
+            for index, frame in enumerate(stage_sources)
+        ]
+        frames.extend(rendered_stage)
+        stage_indices.extend([stage_index] * len(rendered_stage))
+        stage_ranges.append((stage_start, len(frames)))
 
     if len(frames) != 288:
         raise ValueError(f"输出姿势数量应为 288，实际为 {len(frames)}")
-    return stabilize_body_motion(frames)
+    semantic_ranges = [
+        stage_ranges[0],
+        stage_ranges[1],
+        (stage_ranges[2][0], stage_ranges[4][1]),
+        (stage_ranges[5][0], stage_ranges[6][1]),
+        (stage_ranges[7][0], stage_ranges[8][1]),
+    ]
+    return stabilize_body_motion(frames, stage_indices, semantic_ranges)
 
 
 def save_contact_sheet(frames: list[Image.Image]) -> None:
