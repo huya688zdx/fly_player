@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../desktop/desktop.dart';
+
 class MediaLayoutProfile {
   /// 首页目录图片请求的稳定宽度，供布局 fallback 与数据层 fresh 请求共用。
   static const int homeCatalogRequestWidthValue = 440;
@@ -91,14 +93,23 @@ class MediaLayoutProfile {
   double get categoryGridRowHeight =>
       categoryGridImageHeight + (isTablet ? 62 : 60);
 
+  /// 是否命中桌面密度档（与 [of] 的桌面分支同口径：仅按窗口宽度判定）。
+  bool get isDesktopTier => screenWidth >= DesktopBreakpoints.sidebarMinWidth;
+
   static MediaLayoutProfile of(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final width = size.width;
     final shortest = size.shortestSide;
     final tablet = shortest >= 600;
 
+    // 桌面密度档：仅当窗口宽度达到桌面侧栏断点时生效；<1024 的所有数值
+    // 与旧公式逐字节一致（手机 / 平板零回归，既有测试是守卫）。
+    final desktop = width >= DesktopBreakpoints.sidebarMinWidth;
+
     int columns;
-    if (width >= 1400) {
+    if (width >= DesktopBreakpoints.wideContentWidth) {
+      columns = 8;
+    } else if (width >= 1400) {
       columns = 7;
     } else if (width >= 1200) {
       columns = 6;
@@ -110,9 +121,11 @@ class MediaLayoutProfile {
       columns = 3;
     }
 
-    final hp = tablet ? 12.0 : 8.0;
-    final gap = tablet ? 10.0 : 8.0;
-    final posterW = tablet
+    final hp = desktop ? 28.0 : (tablet ? 12.0 : 8.0);
+    final gap = desktop ? 12.0 : (tablet ? 10.0 : 8.0);
+    final posterW = desktop
+        ? (width / (columns + 0.8)).clamp(132.0, 190.0)
+        : tablet
         ? (width / (columns + 0.8)).clamp(122.0, 176.0)
         : 115.0;
     final posterImgH = posterW * 1.48;
@@ -121,7 +134,7 @@ class MediaLayoutProfile {
       screenWidth: width,
       isTablet: tablet,
       pageHorizontalPadding: hp,
-      sectionGap: tablet ? 14 : 12,
+      sectionGap: desktop ? 18.0 : (tablet ? 14 : 12),
       itemGap: gap,
       homePosterCardWidth: posterW,
       homePosterImageHeight: posterImgH,
