@@ -4816,6 +4816,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 Glide.with(this)
                     .load(model)
                     .transform(CenterCrop(), RoundedCorners(dp(8)))
+                    // 面板每次打开都重建列表并重新 load：默认 300ms 交叉淡入会让缓存命中
+                    // 也闪一下（首次进入等网络时更明显）。保留当前帧当占位 + 关闭动画直上屏。
+                    .placeholder(thumbnail.drawable)
+                    .dontAnimate()
                     .into(thumbnail)
             }
 
