@@ -65,3 +65,7 @@ App requires Feiniu NAS credentials on first launch (stored in SharedPreferences
 ## Tests
 
 24 test files in `test/`, primarily focused on player controllers, danmaku parsing, play stats, and settings stores. Tests use `flutter_test` SDK. No integration/e2e tests found in the repo.
+
+### Desktop module (`lib/desktop/`)
+
+Windows/macOS/Linux 桌面端浏览与管理 UI（播放页暂缓，见 `design/desktop/IMPLEMENTATION_PLAN.md`）。基础模块提供 `DesktopEnvironment`（平台判定）、`DesktopBreakpoints`（≥1024 侧栏 / ≥1180 分屏）、`DesktopSplitController`（浏览|详情 分屏状态与 42/58、50/50、35/65 预设）、`HoverLift`（悬停浮起）、`showDesktopContextMenu`（右键菜单，复用移动端动作表）。颜色一律 `context.appColors`；桌面布局分支必须先过 `DesktopEnvironment.isDesktopPlatform` + 宽度断点，保证 Android 行为不变。
