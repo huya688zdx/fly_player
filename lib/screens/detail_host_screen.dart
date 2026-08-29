@@ -5,23 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../l10n/generated/app_localizations.dart';
-import '../models/media_item.dart';
-import '../models/media_library_item.dart';
 import '../providers/app_theme_provider.dart';
-import '../services/detail_route_payload_store.dart';
 import '../ui/app_transitions.dart';
-import '../ui/detail_presentation.dart';
-import '../utils/route_query_json.dart';
-import 'detail_route_bodies.dart';
-import 'app_settings_screen.dart';
-import 'category_items_screen.dart';
-import 'download_list_screen.dart';
-import 'favorite_items_screen.dart';
-import 'media_list_screen.dart';
-import 'parallel_placeholder_screen.dart';
-import 'person_detail_screen.dart';
-import 'search_screen.dart';
+// 路由映射已提取为公共构建器（与桌面分屏详情宿主共用）：detail_route_builder.dart。
+import '../ui/detail_route_builder.dart';
 import 'settings_destination_routes.dart';
 
 class DetailHostScreen extends StatefulWidget {
@@ -133,33 +120,7 @@ class DetailHostScreenState extends State<DetailHostScreen> {
     return path.isEmpty ? '/parallel/placeholder' : path;
   }
 
-  String _routeTargetKey(String routeName) {
-    final normalized = _normalizeRoute(routeName);
-    final uri = Uri.tryParse(normalized);
-    if (uri == null) return normalized;
-    final path = uri.path.trim();
-    switch (path) {
-      case '/detail/item':
-        return [
-          path,
-          uri.queryParameters['itemGuid']?.trim() ?? '',
-          uri.queryParameters['seriesGuid']?.trim() ?? '',
-        ].join('|');
-      case '/detail/person':
-        return [
-          path,
-          uri.queryParameters['personGuid']?.trim() ?? '',
-        ].join('|');
-      case '/detail/season':
-        return [
-          path,
-          uri.queryParameters['parentGuid']?.trim() ?? '',
-          uri.queryParameters['seasonGuid']?.trim() ?? '',
-        ].join('|');
-      default:
-        return normalized;
-    }
-  }
+  String _routeTargetKey(String routeName) => routeTargetKeyFor(routeName);
 
   bool _sameRouteTarget(String a, String b) {
     if (a.trim().isEmpty || b.trim().isEmpty) return false;
@@ -402,7 +363,7 @@ class DetailHostScreenState extends State<DetailHostScreen> {
             AppTransitions.paneCardPage<void>(
               key: ValueKey<String>('detail-host-$routeName'),
               name: routeName,
-              child: _buildRouteChild(
+              child: buildDetailRouteChild(
                 routeName,
                 isActiveRoute: index == _routeStack.length - 1,
               ),
@@ -429,246 +390,6 @@ class DetailHostScreenState extends State<DetailHostScreen> {
           key: _navigatorKey,
           pages: pages,
           onDidRemovePage: _handleDidRemovePage,
-        ),
-      ),
-    );
-  }
-}
-
-Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
-  final normalizedRoute = routeName.trim().isEmpty
-      ? '/parallel/placeholder'
-      : routeName.trim();
-  final uri = Uri.tryParse(normalizedRoute);
-  if (uri == null) {
-    return const _DetailHostRouteError(
-      kind: _DetailHostRouteErrorKind.invalidFormat,
-    );
-  }
-
-  if (uri.path == '/detail/item') {
-    final itemGuid = uri.queryParameters['itemGuid'] ?? '';
-    final payloadToken = DetailRoutePayloadStore.payloadTokenFromUri(uri);
-    final rawInitialItemDetail = payloadToken == null
-        ? (uri.queryParameters['initialItemDetail'] ?? '')
-        : '';
-    final decodedInitialItemDetail = RouteQueryJson.tryDecodeMap(
-      rawInitialItemDetail,
-    );
-    if (itemGuid.trim().isEmpty) {
-      return const _DetailHostRouteError(
-        kind: _DetailHostRouteErrorKind.missingDetail,
-      );
-    }
-    return DetailItemRouteBody(
-      key: ValueKey<String>(routeName),
-      itemGuid: itemGuid,
-      seriesGuid: uri.queryParameters['seriesGuid'] ?? '',
-      initialItemDetail: decodedInitialItemDetail,
-      payloadToken: payloadToken,
-      presentation: DetailPresentation.pane,
-    );
-  }
-
-  if (uri.path == '/detail/season') {
-    final payloadToken = DetailRoutePayloadStore.payloadTokenFromUri(uri);
-    final rawSeasonItem = payloadToken == null
-        ? (uri.queryParameters['seasonItem'] ?? '')
-        : '';
-    final decodedSeasonItem =
-        RouteQueryJson.tryDecodeMap(rawSeasonItem) ?? const <String, dynamic>{};
-    final parentGuid = uri.queryParameters['parentGuid'] ?? '';
-    final seasonItem = decodedSeasonItem.isEmpty
-        ? null
-        : MediaLibraryItem.fromJson(decodedSeasonItem);
-    final seasonGuid = uri.queryParameters['seasonGuid'] ?? '';
-    if (parentGuid.trim().isEmpty ||
-        (((seasonItem?.guid ?? '').trim().isEmpty) &&
-            seasonGuid.trim().isEmpty)) {
-      return const _DetailHostRouteError(
-        kind: _DetailHostRouteErrorKind.missingSeason,
-      );
-    }
-    return DetailSeasonRouteBody(
-      key: ValueKey<String>(routeName),
-      parentGuid: parentGuid,
-      seriesTitle: uri.queryParameters['seriesTitle'] ?? '',
-      backdropPath: uri.queryParameters['backdropPath'] ?? '',
-      seasonItem: seasonItem,
-      seasonGuid: seasonGuid,
-      payloadToken: payloadToken,
-      presentation: DetailPresentation.pane,
-    );
-  }
-
-  if (uri.path == '/detail/person') {
-    final personGuid = uri.queryParameters['personGuid'] ?? '';
-    if (personGuid.trim().isEmpty) {
-      return const _DetailHostRouteError(
-        kind: _DetailHostRouteErrorKind.missingPerson,
-      );
-    }
-    return PersonDetailScreen(
-      key: ValueKey<String>(routeName),
-      personGuid: personGuid,
-      initialName: uri.queryParameters['initialName'] ?? '',
-      presentation: DetailPresentation.pane,
-    );
-  }
-
-  if (uri.path == '/screen/search') {
-    return const SearchScreen(
-      key: ValueKey<String>('/screen/search'),
-      secondaryHost: true,
-    );
-  }
-
-  if (uri.path == '/screen/favorites') {
-    return const FavoriteItemsScreen.secondaryHost(
-      key: ValueKey<String>('/screen/favorites'),
-    );
-  }
-
-  if (uri.path == '/screen/category') {
-    final rawCategory = uri.queryParameters['category'] ?? '';
-    final rawTypes = uri.queryParameters['types'] ?? '';
-    final decodedCategory =
-        RouteQueryJson.tryDecodeMap(rawCategory) ?? const <String, dynamic>{};
-    final decodedTypes = RouteQueryJson.tryDecodeStringList(rawTypes);
-    return CategoryItemsScreen(
-      key: ValueKey<String>(routeName),
-      category: MediaItem.fromJson(decodedCategory),
-      initialTypeTags: decodedTypes,
-      secondaryHost: true,
-    );
-  }
-
-  if (uri.path == '/screen/downloads') {
-    return DownloadListScreen(
-      key: ValueKey<String>(routeName),
-      initialTab: DownloadListTabX.fromRouteValue(
-        uri.queryParameters['tab'] ?? '',
-      ),
-    );
-  }
-
-  if (uri.path == '/screen/downloads/detail') {
-    final groupId = uri.queryParameters['groupId'] ?? '';
-    if (groupId.trim().isEmpty) {
-      return const _DetailHostRouteError(
-        kind: _DetailHostRouteErrorKind.missingDownload,
-      );
-    }
-    return DownloadGroupDetailScreen(
-      key: ValueKey<String>(routeName),
-      groupId: groupId,
-      initialTab: DownloadListTabX.fromRouteValue(
-        uri.queryParameters['tab'] ?? '',
-      ),
-    );
-  }
-
-  final settingsDestination = SettingsDestinationRoutes.buildRoute(
-    routeName,
-    key: ValueKey<String>(routeName),
-  );
-  if (settingsDestination != null) {
-    return settingsDestination;
-  }
-
-  if (uri.path == SettingsDestinationRoutes.home) {
-    return const AppSettingsScreen(
-      key: ValueKey<String>(SettingsDestinationRoutes.home),
-      secondaryHost: true,
-    );
-  }
-
-  if (uri.path == '/screen/home') {
-    return _DeferredRouteChild(
-      active: isActiveRoute,
-      child: const MediaListScreen(
-        key: ValueKey<String>('/screen/home'),
-        secondaryHost: true,
-      ),
-    );
-  }
-
-  if (uri.path == '/parallel/placeholder') {
-    return const ParallelPlaceholderScreen(
-      key: ValueKey<String>('/parallel/placeholder'),
-    );
-  }
-
-  return const _DetailHostRouteError(
-    kind: _DetailHostRouteErrorKind.pageNotFound,
-  );
-}
-
-class _DeferredRouteChild extends StatefulWidget {
-  final bool active;
-  final Widget child;
-
-  const _DeferredRouteChild({required this.active, required this.child});
-
-  @override
-  State<_DeferredRouteChild> createState() => _DeferredRouteChildState();
-}
-
-class _DeferredRouteChildState extends State<_DeferredRouteChild> {
-  late bool _activated = widget.active;
-
-  @override
-  void didUpdateWidget(covariant _DeferredRouteChild oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!_activated && widget.active) {
-      setState(() {
-        _activated = true;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_activated) {
-      return const SizedBox.expand();
-    }
-    return widget.child;
-  }
-}
-
-enum _DetailHostRouteErrorKind {
-  invalidFormat,
-  missingDetail,
-  missingSeason,
-  missingPerson,
-  missingDownload,
-  pageNotFound,
-}
-
-class _DetailHostRouteError extends StatelessWidget {
-  final _DetailHostRouteErrorKind kind;
-
-  const _DetailHostRouteError({required this.kind});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context);
-    final message = switch (kind) {
-      _DetailHostRouteErrorKind.invalidFormat => l10n.routeErrorInvalidFormat,
-      _DetailHostRouteErrorKind.missingDetail => l10n.routeErrorMissingDetail,
-      _DetailHostRouteErrorKind.missingSeason => l10n.routeErrorMissingSeason,
-      _DetailHostRouteErrorKind.missingPerson => l10n.routeErrorMissingPerson,
-      _DetailHostRouteErrorKind.missingDownload =>
-        l10n.routeErrorMissingDownload,
-      _DetailHostRouteErrorKind.pageNotFound => l10n.routeErrorPageNotFound,
-    };
-    return Scaffold(
-      backgroundColor: colors.surface,
-      body: Center(
-        child: Text(
-          message,
-          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 16),
         ),
       ),
     );
