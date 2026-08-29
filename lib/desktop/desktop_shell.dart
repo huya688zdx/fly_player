@@ -8,6 +8,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../screens/app_settings_screen.dart';
 import '../screens/media_list_screen.dart';
 import '../theme/app_theme.dart';
+import 'desktop_detail_pane_host.dart';
 import 'desktop_side_bar.dart';
 import 'desktop_split_controller.dart';
 
@@ -15,8 +16,8 @@ import 'desktop_split_controller.dart';
 /// MainNavigation 的底部胶囊路径复用同一组页面），宽窗口下替代底部导航。
 ///
 /// 分屏「浏览 | 详情」状态经 [ChangeNotifierProvider] 注入
-/// [DesktopSplitController]；分屏详情宿主（desktop-detail-pane）合入时接线
-/// [DesktopSplitController.paneHostBuilder]，未接线时右栏渲染占位组件。
+/// [DesktopSplitController]；开启分屏后右栏由 [DesktopDetailPaneHost]
+/// 承载（经 [DesktopSplitController.paneHostBuilder] 接线）。
 class DesktopShell extends StatefulWidget {
   const DesktopShell({super.key, this.initialTab = 0, this.pages});
 
@@ -33,8 +34,14 @@ class DesktopShell extends StatefulWidget {
 }
 
 class _DesktopShellState extends State<DesktopShell> {
-  late final DesktopSplitController _splitController = DesktopSplitController();
+  // 接线分屏详情宿主（feat/desktop-detail-pane）：开启分屏后右栏由
+  // DesktopDetailPaneHost 承载，共享同一 DesktopSplitController。
+  late final DesktopSplitController _splitController = DesktopSplitController()
+    ..paneHostBuilder = _buildPaneHost;
   late int _selectedTab = widget.initialTab;
+
+  Widget _buildPaneHost(BuildContext context) =>
+      DesktopDetailPaneHost(splitController: _splitController);
 
   @override
   void didUpdateWidget(covariant DesktopShell oldWidget) {
