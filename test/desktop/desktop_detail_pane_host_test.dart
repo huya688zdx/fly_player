@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/controllers/item_playback_launcher.dart';
 import 'package:fly_player/controllers/tv_season_playback_launcher.dart';
 import 'package:fly_player/desktop/desktop.dart';
-import 'package:fly_player/desktop/desktop_detail_pane_host.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/theme/app_theme.dart';

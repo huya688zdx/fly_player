@@ -325,6 +325,7 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
           _buildFractionChips(colors),
           IconButton(
             tooltip: '关闭',
+            key: const ValueKey<String>('desktop_pane_close'),
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,

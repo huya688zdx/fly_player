@@ -55,10 +55,10 @@ main (9500db2)
 
 | # | 内容 | 完成判据 |
 |---|---|---|
-| M1 | 主干基础模块 + windows 平台目录 | analyze/test 与基线持平；windows/ 可生成 |
-| M2 | A 合入：桌面 Shell 生效 | 宽窗口出侧栏，窄窗口/Android 行为与 main 一致 |
-| M3 | B/C/D 合入 | 各自测试绿；三后端表现测试通过 |
-| M4 | trunk 终验 | 全量 analyze/test 与基线对比无退化；Android 路径行为不变 |
+| M1 | 主干基础模块 + windows 平台目录 | ✅ c5c8f56 + 1d3adbe |
+| M2 | A 合入：桌面 Shell 生效 | ✅ 8b16aed（feat/desktop-nav d59c826） |
+| M3 | B/C/D 合入 | ✅ 575b3a3（B）/ a2b3259（D）/ 16099b9（C），D 宿主已在 Shell 接线 |
+| M4 | trunk 终验 | ✅ analyze 1 issue = 基线既有 warning；test 1054 过 / 2 失败（与基线相同 2 条），新增 34 测试全绿 |
 
 ## 六、明确不做（本轮）
 
