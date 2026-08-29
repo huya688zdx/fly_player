@@ -5,8 +5,11 @@ import statistics
 import unittest
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PIL import Image
+
+from tool import build_288_refresh_preview as animation_builder
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -57,15 +60,47 @@ def alpha_area(frame: Image.Image) -> int:
     return int(np.count_nonzero(alpha > 24))
 
 
-class RefreshAnimationStabilityTest(unittest.TestCase):
-    def test_cocoon_body_stays_stable_while_wings_flap(self) -> None:
-        animation = Image.open(ANIMATION_ASSET)
-        centers: list[tuple[float, float]] = []
-        for frame_index in range(96, 160):
-            animation.seek(frame_index)
-            centers.append(pale_body_center(animation.copy()))
+def normalized_silhouette(frame: Image.Image) -> np.ndarray:
+    alpha = np.asarray(frame.convert("RGBA"))[:, :, 3]
+    y_coordinates, x_coordinates = np.where(alpha > 24)
+    cropped = alpha[
+        y_coordinates.min() : y_coordinates.max() + 1,
+        x_coordinates.min() : x_coordinates.max() + 1,
+    ]
+    return cv2.resize(cropped, (64, 64), interpolation=cv2.INTER_AREA) / 255.0
 
-        stage_ranges = ((0, 32), (32, 64))
+
+def cocoon_state(frame: Image.Image) -> str:
+    pixels = np.asarray(frame.convert("RGBA"))
+    alpha_mask = pixels[:, :, 3] > 24
+    rgb = pixels[:, :, :3]
+    pale_mask = (
+        alpha_mask
+        & (rgb[:, :, 0] > 145)
+        & (rgb[:, :, 1] > 165)
+        & (rgb[:, :, 2] > 165)
+    )
+    pale_ratio = float(np.count_nonzero(pale_mask)) / max(
+        int(np.count_nonzero(alpha_mask)), 1
+    )
+    y_coordinates, _ = np.where(alpha_mask)
+    height = int(y_coordinates.max() - y_coordinates.min() + 1)
+    if pale_ratio < 0.65:
+        return "compact"
+    if pale_ratio > 0.69 and height > 200:
+        return "winged"
+    return "transition"
+
+
+class RefreshAnimationStabilityTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.frames = animation_builder.build_frames()
+
+    def test_cocoon_body_stays_stable_while_wings_flap(self) -> None:
+        centers = [pale_body_center(frame) for frame in self.frames[96:144]]
+
+        stage_ranges = ((0, 24), (24, 48))
         for start, end in stage_ranges:
             maximum_step = max(
                 math.dist(centers[index - 1], centers[index])
@@ -78,13 +113,9 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
             )
 
     def test_bird_body_follows_a_smooth_flight_path(self) -> None:
-        animation = Image.open(ANIMATION_ASSET)
-        anchors: list[tuple[float, float]] = []
-        for frame_index in range(224, 288):
-            animation.seek(frame_index)
-            anchors.append(central_body_bottom(animation.copy()))
+        anchors = [central_body_bottom(frame) for frame in self.frames[192:288]]
 
-        for start, end in ((0, 32), (32, 64)):
+        for start, end in ((0, 48), (48, 96)):
             maximum_acceleration = max(
                 math.dist(
                     anchors[index],
@@ -102,18 +133,12 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
             )
 
     def test_semantic_stage_boundaries_keep_the_original_continuity(self) -> None:
-        animation = Image.open(ANIMATION_ASSET)
-        frames: list[Image.Image] = []
-        for frame_index in range(288):
-            animation.seek(frame_index)
-            frames.append(animation.copy())
-
-        # 96/128/192/256 处只是翅膀姿势页切换，外框会随翼展自然变化；
+        # 96 处只是翅膀姿势页切换，外框会随翼展自然变化；
         # 这里检查人物、茧身、变鸟和成鸟四个真正的语义边界。
-        for boundary in (32, 64, 160, 224):
+        for boundary in (32, 64, 144, 192):
             step = math.dist(
-                alpha_bbox_center(frames[boundary - 1]),
-                alpha_bbox_center(frames[boundary]),
+                alpha_bbox_center(self.frames[boundary - 1]),
+                alpha_bbox_center(self.frames[boundary]),
             )
             self.assertLessEqual(
                 step,
@@ -122,14 +147,9 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
             )
 
     def test_early_stages_do_not_pump_the_character_size(self) -> None:
-        animation = Image.open(ANIMATION_ASSET)
-        areas: list[int] = []
-        for frame_index in range(160):
-            animation.seek(frame_index)
-            areas.append(alpha_area(animation.copy()))
-
-        for stage_index in range(5):
-            stage_areas = areas[stage_index * 32 : (stage_index + 1) * 32]
+        early_stage_ranges = ((0, 32), (32, 64), (64, 96), (96, 120), (120, 144))
+        for stage_index, (start, end) in enumerate(early_stage_ranges):
+            stage_areas = [alpha_area(frame) for frame in self.frames[start:end]]
             coefficient_of_variation = statistics.pstdev(stage_areas) / statistics.mean(
                 stage_areas
             )
@@ -138,6 +158,35 @@ class RefreshAnimationStabilityTest(unittest.TestCase):
                 0.16,
                 f"第 {stage_index + 1} 段尺寸波动达到 {coefficient_of_variation:.1%}",
             )
+
+    def test_cocoon_does_not_reopen_after_contraction_starts(self) -> None:
+        states = [cocoon_state(frame) for frame in self.frames[96:120]]
+
+        first_compact = states.index("compact")
+        self.assertNotIn(
+            "winged",
+            states[first_compact + 1 :],
+            "茧体开始收拢后又退回完整有翼状态",
+        )
+
+    def test_flight_uses_a_repeatable_silhouette_cycle(self) -> None:
+        silhouettes = [normalized_silhouette(frame) for frame in self.frames[192:288]]
+
+        cycle_errors = [
+            float(np.mean(np.abs(silhouettes[index] - silhouettes[index + 16])))
+            for index in range(len(silhouettes) - 16)
+        ]
+        self.assertLessEqual(
+            max(cycle_errors),
+            0.12,
+            f"飞鸟循环轮廓最大偏差达到 {max(cycle_errors):.3f}",
+        )
+
+    def test_exported_webp_keeps_near_300_frames(self) -> None:
+        with Image.open(ANIMATION_ASSET) as animation:
+            self.assertGreaterEqual(animation.n_frames, 270)
+            self.assertLessEqual(animation.n_frames, 288)
+            self.assertEqual(animation.size, (512, 512))
 
 
 if __name__ == "__main__":
