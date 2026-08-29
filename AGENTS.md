@@ -73,3 +73,5 @@ Windows/macOS/Linux 桌面端浏览与管理 UI（播放页暂缓，见 `design/
 已落地：`DesktopShell`/`DesktopSideBar`（≥1024px 侧栏替代底部胶囊导航，Ctrl+K/数字键/Esc 快捷键）、`DesktopDetailPaneHost`（「浏览|详情」分屏，实现 `PlayerPaneHostController`，复用 `DetailPresentation.pane` 详情页与 `EmbeddedDetailLauncher` Flutter 侧 pane 通道）、首页/设置桌面密度档。播放入口在 `*playback_launcher` 有桌面守卫（内核选型未定）。
 
 凭据存储：Android 走 `fly_player/secret_store` 原生通道；Windows 由 `lib/services/secure_credential_store_windows.dart` 的 DPAPI 后端承担（`SecureCredentialStore` 按平台选默认后端）。新平台接入时必须同步补 `SecureCredentialBackend` 实现，否则 NasProvider 启动恢复凭据会抛「加载失败」。
+
+储存管理：Android 走 `fly_player/storage` 原生通道；桌面端由 `lib/services/storage_management_host.dart` 的 Dart 等价宿主承担（`StorageManagementService` 按平台选默认宿主，三桌面平台通用，Android 专属统计按 0/未受限返回）。播放内核接入后桌面播放缓存统计在该宿主内补齐；业务层禁止直连通道。
