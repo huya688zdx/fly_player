@@ -30,9 +30,9 @@ HUMAN_TO_BALL_INBETWEEN_ATLAS = (
 )
 SOURCE_VIDEO = Path(r"F:\mp\bili_video_d_1787919698203.mp4")
 SOURCE_VIDEO_2 = Path(r"F:\mp\bili_video_d_1787920057392.mp4")
-SOURCE_VIDEO_FIRST_FRAME = 340
+SOURCE_VIDEO_FIRST_FRAME = 360
 SOURCE_VIDEO_2_FIRST_FRAME = 247
-SOURCE_VIDEO_FRAME_COUNT = 320
+SOURCE_VIDEO_FRAME_COUNT = 300
 SOURCE_CROP = (510, 0, 1410, 900)
 
 BASE_ATLASES = [
@@ -171,8 +171,6 @@ def render_transition_pose(subject: Image.Image, progress: float) -> Image.Image
 
 def original_video_subject(
     frame_bgr: np.ndarray,
-    source_index: int,
-    remove_upper_figure: bool,
 ) -> Image.Image:
     left, top, right, bottom = SOURCE_CROP
     crop = frame_bgr[top:bottom, left:right]
@@ -204,14 +202,13 @@ def original_video_subject(
         # 左右/顶边仍视为远处背景色块。
         if x == 0 or y == 0 or x + width == crop.shape[1]:
             continue
-        maximum_distance = 330 if remove_upper_figure else 500
-        if np.linalg.norm(centroids[label] - crop_center) > maximum_distance:
+        if np.linalg.norm(centroids[label] - crop_center) > 500:
             continue
         if area / max(width * height, 1) < 0.025:
             continue
         selected[labels == label] = 255
 
-    if np.count_nonzero(selected) < 20 and not remove_upper_figure:
+    if np.count_nonzero(selected) < 20:
         # 第二段结尾的远景鸟只有几十个浅色像素，蓝色饱和度不足；
         # 此处改用与纯白背景的亮度差，并限制在画面上半部排除字幕噪点。
         rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.int16)
@@ -238,17 +235,6 @@ def original_video_subject(
     not_white = np.min(crop, axis=2) < 244
     alpha = np.where((selected > 0) | ((near_subject > 0) & not_white), 255, 0)
 
-    # 原片 300 帧附近球体上方还有浅色人形。它占据中央窄带，而真正
-    # 展开的双翼位于两侧；逐步收窄中央遮罩可去掉该元素并保留翼芽生长。
-    if remove_upper_figure and source_index < 400:
-        reveal_progress = (source_index - SOURCE_VIDEO_FIRST_FRAME) / 60
-        half_width = round(82 * max(0.0, 1.0 - reveal_progress))
-        y_grid, x_grid = np.indices(alpha.shape)
-        remove_upper_figure = (
-            (y_grid < 390)
-            & (np.abs(x_grid - alpha.shape[1] / 2) < half_width)
-        )
-        alpha[remove_upper_figure] = 0
     alpha = cv2.GaussianBlur(alpha.astype(np.uint8), (3, 3), 0)
 
     rgba = cv2.cvtColor(crop, cv2.COLOR_BGR2RGBA)
@@ -260,7 +246,6 @@ def original_video_subject(
 def load_video_range(
     path: Path,
     first_frame: int,
-    remove_upper_figure: bool,
     last_frame_exclusive: int | None = None,
 ) -> list[Image.Image]:
     capture = cv2.VideoCapture(str(path))
@@ -278,11 +263,7 @@ def load_video_range(
                 break
             if source_index >= first_frame:
                 decoded_frames.append(
-                    original_video_subject(
-                        frame,
-                        source_index,
-                        remove_upper_figure,
-                    )
+                    original_video_subject(frame)
                 )
             source_index += 1
     finally:
@@ -295,12 +276,10 @@ def load_original_video_frames() -> list[Image.Image]:
     first_video = load_video_range(
         SOURCE_VIDEO,
         SOURCE_VIDEO_FIRST_FRAME,
-        remove_upper_figure=True,
     )
     second_video = load_video_range(
         SOURCE_VIDEO_2,
         SOURCE_VIDEO_2_FIRST_FRAME,
-        remove_upper_figure=False,
         last_frame_exclusive=360,
     )
     frames = [*first_video, *second_video]
@@ -343,8 +322,8 @@ def build_frames() -> list[Image.Image]:
     ]
     frames = [*human_frames, *load_original_video_frames()]
 
-    if not 340 <= len(frames) <= 380:
-        raise ValueError(f"输出姿势数量应约为 360，实际为 {len(frames)}")
+    if not 320 <= len(frames) <= 360:
+        raise ValueError(f"输出姿势数量应约为 340，实际为 {len(frames)}")
     return frames
 
 

@@ -27,6 +27,12 @@ def alpha_bbox_center_y(frame: Image.Image) -> float:
     return (bbox[1] + bbox[3]) / 2
 
 
+def maximum_upper_vertical_edge(frame: Image.Image) -> int:
+    alpha = np.asarray(frame.convert("RGBA"))[:, :, 3] > 24
+    vertical_edges = np.logical_xor(alpha[:260, :-1], alpha[:260, 1:])
+    return int(vertical_edges.sum(axis=0).max())
+
+
 def webp_frame_durations(path: Path) -> list[int]:
     data = path.read_bytes()
     durations: list[int] = []
@@ -51,9 +57,9 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
         self.assertNotIn("calcOpticalFlowFarneback", source)
         self.assertNotIn("interpolate_poses", source)
 
-    def test_output_keeps_near_360_frames(self) -> None:
-        self.assertGreaterEqual(len(self.frames), 340)
-        self.assertLessEqual(len(self.frames), 380)
+    def test_output_keeps_near_340_frames(self) -> None:
+        self.assertGreaterEqual(len(self.frames), 320)
+        self.assertLessEqual(len(self.frames), 360)
         self.assertTrue(all(frame.size == (512, 512) for frame in self.frames))
 
     def test_no_frame_is_blank_or_cut_by_the_canvas(self) -> None:
@@ -65,17 +71,37 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
             self.assertLess(right, 512, f"第 {index + 1} 帧碰到右边界")
             self.assertLess(bottom, 512, f"第 {index + 1} 帧碰到下边界")
 
+    def test_winged_ball_is_not_sliced_by_a_rectangular_mask(self) -> None:
+        human_frame_count = len(self.frames) - animation_builder.SOURCE_VIDEO_FRAME_COUNT
+        first_winged_ball_frames = self.frames[
+            human_frame_count : human_frame_count + 30
+        ]
+        self.assertLessEqual(
+            max(maximum_upper_vertical_edge(frame) for frame in first_winged_ball_frames),
+            70,
+        )
+
     def test_ring_collapses_to_a_point_then_reopens_as_a_bird(self) -> None:
-        point_area = min(alpha_area(frame) for frame in self.frames[250:278])
-        reopened_area = max(alpha_area(frame) for frame in self.frames[278:305])
+        second_video_frame_count = 360 - animation_builder.SOURCE_VIDEO_2_FIRST_FRAME
+        second_video_start = len(self.frames) - second_video_frame_count
+        point_area = min(
+            alpha_area(frame)
+            for frame in self.frames[second_video_start + 5 : second_video_start + 33]
+        )
+        reopened_area = max(
+            alpha_area(frame)
+            for frame in self.frames[second_video_start + 33 : second_video_start + 60]
+        )
         self.assertLessEqual(point_area, 700)
         self.assertGreaterEqual(reopened_area, 3000)
 
     def test_final_bird_flies_up_and_away(self) -> None:
+        second_video_frame_count = 360 - animation_builder.SOURCE_VIDEO_2_FIRST_FRAME
+        second_video_start = len(self.frames) - second_video_frame_count
         self.assertLessEqual(alpha_area(self.frames[-1]), 200)
         self.assertLessEqual(
             alpha_bbox_center_y(self.frames[-1]),
-            alpha_bbox_center_y(self.frames[300]) - 120,
+            alpha_bbox_center_y(self.frames[second_video_start + 75]) - 120,
         )
 
     def test_timing_keeps_25_fps_for_original_video_frames(self) -> None:
@@ -86,10 +112,10 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
 
     def test_exported_webp_keeps_the_complete_sequence(self) -> None:
         with Image.open(ANIMATION_ASSET) as animation:
-            # WebP 会把完全相同的持帧合并；有效帧接近 300 即可，
-            # 总时长必须与未合并的 358 帧时间轴一致。
-            self.assertGreaterEqual(animation.n_frames, 280)
-            self.assertLessEqual(animation.n_frames, 320)
+            # WebP 会把完全相同的持帧合并；总时间轴仍有约 340 帧，
+            # 编码后保留约 270 个有效画面且总时长必须完整。
+            self.assertGreaterEqual(animation.n_frames, 260)
+            self.assertLessEqual(animation.n_frames, 300)
             self.assertEqual(animation.size, (512, 512))
         self.assertEqual(
             sum(webp_frame_durations(ANIMATION_ASSET)),
