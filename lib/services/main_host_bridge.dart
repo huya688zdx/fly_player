@@ -18,6 +18,9 @@ class MainHostBridge {
           false;
     } on PlatformException {
       return false;
+    } on MissingPluginException {
+      // 桌面端等无宿主实现的环境：视为未处理，交由调用方本地兜底。
+      return false;
     }
   }
 
@@ -34,6 +37,9 @@ class MainHostBridge {
           ) ??
           false;
     } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      // 无宿主实现时抛 MissingPluginException（如 Windows），按未处理兜底。
       return false;
     }
   }
