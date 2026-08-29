@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/media_backend.dart';
@@ -33,6 +34,11 @@ import '../services/download_task_service.dart';
 class ItemPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
 
+  /// 桌面端播放入口提示文案。桌面播放内核尚未选型（需兼顾 Linux/macOS，
+  /// 见 design/desktop/IMPLEMENTATION_PLAN.md），MethodChannel 无 handler，
+  /// 入口处直接拦截；暂以常量承载，后续可迁移 l10n。
+  static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
+
   /// 创建一个条目播放拉起器实例。
   const ItemPlaybackLauncher();
 
@@ -48,6 +54,16 @@ class ItemPlaybackLauncher {
     String? audioTrackId,
     String? subtitleTrackId,
   }) async {
+    // 桌面守卫：不发起原生播放（MethodChannel 无 handler 会抛 MissingPluginException），
+    // 走既有轻提示通道并按失败语义返回 null，调用方 UI 不悬挂。
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _topTip.show(
+        context,
+        message: desktopPlaybackBlockedMessage,
+        color: context.appColors.warning,
+      );
+      return null;
+    }
     return AsyncActionGuard.run<PlayDetailPlayerReturnData?>(
       'item_playback:${itemGuid.trim()}:${startFromBeginning ? 'restart' : 'default'}',
       settleDuration: const Duration(milliseconds: 500),
