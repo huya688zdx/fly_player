@@ -95,8 +95,10 @@ class _HoverScrollArrowsState extends State<HoverScrollArrows> {
   @override
   Widget build(BuildContext context) {
     // 整架悬停检测走自愈校验容器：内容移动（分屏挤压、转场）下不会卡在
-    // 「箭头常显」。
+    // 「箭头常显」；校验边界按按钮外伸量外扩——鼠标挪到伸出至页面留白的
+    // 按钮上时悬停维持，按钮不再「闪一下就被清」。
     return DesktopHoverRegion(
+      hoverBoundsInsets: EdgeInsets.symmetric(horizontal: widget.edgePadding),
       builder: (context, hovering) {
         return Stack(
           clipBehavior: Clip.none,
