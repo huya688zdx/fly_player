@@ -18,6 +18,7 @@ import '../services/play_stats/play_stats_models.dart';
 import '../theme/app_theme.dart';
 import '../ui/player_pane_host_scope.dart';
 import 'desktop_detail_pane_host.dart';
+import 'desktop_hover_region.dart';
 import 'desktop_side_bar.dart';
 import 'desktop_split_controller.dart';
 
@@ -323,70 +324,83 @@ class _DesktopShellState extends State<DesktopShell> {
             // 详情页可在右栏打开（分屏由设置页控制）。
             child: PlayerPaneHostScope(
               controller: _paneHostProxy,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  DesktopSideBar(
-                    selectedTabIndex: _selectedTab,
-                    onTabSelected: _selectTab,
-                    catalogs: _sidebarCatalogs,
-                    favoriteCount: _sidebarFavorite,
-                    totalItems: _sidebarTotal,
-                    movieCount: _sidebarMovie,
-                    tvCount: _sidebarTv,
-                    otherCount: _sidebarOther,
-                    onOpenSearch: (context) =>
-                        _openContentRoute('/screen/search'),
-                    onOpenFavorites: (context) =>
-                        _openContentRoute('/screen/favorites'),
-                    onOpenDownloads: (context) =>
-                        _openContentRoute('/screen/downloads'),
-                    onOpenCatalog: (context, catalog) =>
-                        _openSidebarCatalog(context, catalog),
-                    onOpenAllItems: (context) => _openSidebarCategory(
-                      context,
-                      name: AppLocalizations.of(context).mediaAllItemsTitle,
-                    ),
-                    onOpenByType: (context, name, typeTags) =>
-                        _openSidebarCategory(
+              // 壳层自绘主题底色：侧栏与各页签间隙不再透出窗口黑底，
+              // 亮色主题下侧栏随之变白（此前深色主题恰好看不出差异）。
+              child: ColoredBox(
+                color: colors.backgroundBase,
+                // 指针位置采集：DesktopHoverRegion 悬停自愈校验依赖真实指针位置
+                // （指针静止而内容移动时 MouseRegion exit 不派发）。
+                child: DesktopPointerPositionTracker(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      DesktopSideBar(
+                        selectedTabIndex: _selectedTab,
+                        onTabSelected: _selectTab,
+                        catalogs: _sidebarCatalogs,
+                        favoriteCount: _sidebarFavorite,
+                        totalItems: _sidebarTotal,
+                        movieCount: _sidebarMovie,
+                        tvCount: _sidebarTv,
+                        otherCount: _sidebarOther,
+                        onOpenSearch: (context) =>
+                            _openContentRoute('/screen/search'),
+                        onOpenFavorites: (context) =>
+                            _openContentRoute('/screen/favorites'),
+                        onOpenDownloads: (context) =>
+                            _openContentRoute('/screen/downloads'),
+                        onOpenCatalog: (context, catalog) =>
+                            _openSidebarCatalog(context, catalog),
+                        onOpenAllItems: (context) => _openSidebarCategory(
                           context,
-                          name: name,
-                          typeTags: typeTags,
+                          name: AppLocalizations.of(context).mediaAllItemsTitle,
                         ),
+                        onOpenByType: (context, name, typeTags) =>
+                            _openSidebarCategory(
+                              context,
+                              name: name,
+                              typeTags: typeTags,
+                            ),
+                      ),
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        color: dividerColor,
+                      ),
+                      Expanded(
+                        child: ListenableBuilder(
+                          listenable: _splitController,
+                          builder: (context, _) {
+                            if (!_splitController.enabled) {
+                              return _buildTabStack();
+                            }
+                            // paneFraction 为详情栏（右栏）宽度占比，按 flex 换算。
+                            final paneFlex =
+                                (_splitController.paneFraction * 100).round();
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                Expanded(
+                                  flex: 100 - paneFlex,
+                                  child: _buildTabStack(),
+                                ),
+                                VerticalDivider(
+                                  width: 1,
+                                  thickness: 1,
+                                  color: dividerColor,
+                                ),
+                                Expanded(
+                                  flex: paneFlex,
+                                  child: _buildDetailPane(context),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                  VerticalDivider(width: 1, thickness: 1, color: dividerColor),
-                  Expanded(
-                    child: ListenableBuilder(
-                      listenable: _splitController,
-                      builder: (context, _) {
-                        if (!_splitController.enabled) {
-                          return _buildTabStack();
-                        }
-                        // paneFraction 为详情栏（右栏）宽度占比，按 flex 换算。
-                        final paneFlex = (_splitController.paneFraction * 100)
-                            .round();
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            Expanded(
-                              flex: 100 - paneFlex,
-                              child: _buildTabStack(),
-                            ),
-                            VerticalDivider(
-                              width: 1,
-                              thickness: 1,
-                              color: dividerColor,
-                            ),
-                            Expanded(
-                              flex: paneFlex,
-                              child: _buildDetailPane(context),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
