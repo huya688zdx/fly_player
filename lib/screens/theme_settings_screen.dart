@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../providers/app_theme_provider.dart';
+import '../ui/layout_adaptive.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_l10n.dart';
 import '../ui/app_transitions.dart';
@@ -57,21 +59,26 @@ class ThemeSettingsScreen extends StatelessWidget {
               const SizedBox(height: 12),
               SizedBox(
                 height: 212,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: AppThemePreset.values.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final preset = AppThemePreset.values[index];
-                    return ThemeSettingsPresetCard(
-                      title: AppThemeL10n.presetTitle(l10n, preset),
-                      subtitle: AppThemeL10n.presetSubtitle(l10n, preset),
-                      previewColors: provider.previewColorsForPreset(preset),
-                      selected:
-                          provider.isPresetActive && provider.preset == preset,
-                      onTap: () => provider.applyPreset(preset),
-                    );
-                  },
+                child: HoverScrollRow(
+                  enabled: MediaLayoutProfile.of(context).isDesktopTier,
+                  builder: (controller) => ListView.separated(
+                    controller: controller,
+                    scrollDirection: Axis.horizontal,
+                    itemCount: AppThemePreset.values.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (context, index) {
+                      final preset = AppThemePreset.values[index];
+                      return ThemeSettingsPresetCard(
+                        title: AppThemeL10n.presetTitle(l10n, preset),
+                        subtitle: AppThemeL10n.presetSubtitle(l10n, preset),
+                        previewColors: provider.previewColorsForPreset(preset),
+                        selected:
+                            provider.isPresetActive &&
+                            provider.preset == preset,
+                        onTap: () => provider.applyPreset(preset),
+                      );
+                    },
+                  ),
                 ),
               ),
               const SizedBox(height: 22),
@@ -87,19 +94,23 @@ class ThemeSettingsScreen extends StatelessWidget {
                 const SizedBox(height: 14),
                 SizedBox(
                   height: 212,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: provider.savedThemes.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (context, index) {
-                      final savedTheme = provider.savedThemes[index];
-                      return _SavedThemeCard(
-                        theme: savedTheme,
-                        selected:
-                            provider.isSavedThemeActive &&
-                            provider.activeSavedThemeId == savedTheme.id,
-                      );
-                    },
+                  child: HoverScrollRow(
+                    enabled: MediaLayoutProfile.of(context).isDesktopTier,
+                    builder: (controller) => ListView.separated(
+                      controller: controller,
+                      scrollDirection: Axis.horizontal,
+                      itemCount: provider.savedThemes.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 12),
+                      itemBuilder: (context, index) {
+                        final savedTheme = provider.savedThemes[index];
+                        return _SavedThemeCard(
+                          theme: savedTheme,
+                          selected:
+                              provider.isSavedThemeActive &&
+                              provider.activeSavedThemeId == savedTheme.id,
+                        );
+                      },
+                    ),
                   ),
                 ),
               ] else ...<Widget>[
