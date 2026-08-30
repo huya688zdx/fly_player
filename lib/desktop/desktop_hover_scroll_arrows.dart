@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'desktop_hover_region.dart';
 import 'desktop_tokens.dart';
 
 /// 桌面档横向滚动架的悬浮箭头容器：左右两端各覆盖一条**整行高**的
@@ -29,7 +30,6 @@ class HoverScrollArrows extends StatefulWidget {
 }
 
 class _HoverScrollArrowsState extends State<HoverScrollArrows> {
-  bool _hovering = false;
   bool _canScrollLeft = false;
   bool _canScrollRight = false;
 
@@ -94,40 +94,41 @@ class _HoverScrollArrowsState extends State<HoverScrollArrows> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      // 负向定位的按钮要画出 Stack 之外（盖住页面留白贴到窗口边），关裁剪。
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: <Widget>[
-          widget.child,
-          Positioned(
-            left: -widget.edgePadding,
-            top: 0,
-            bottom: 0,
-            width: _stripWidth + widget.edgePadding,
-            child: _ScrollArrow(
-              visible: _hovering && _canScrollLeft,
-              icon: Icons.chevron_left,
-              alignLeft: true,
-              onTap: () => _scrollByViewport(forward: false),
+    // 整架悬停检测走自愈校验容器：内容移动（分屏挤压、转场）下不会卡在
+    // 「箭头常显」。
+    return DesktopHoverRegion(
+      builder: (context, hovering) {
+        return Stack(
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            widget.child,
+            Positioned(
+              left: -widget.edgePadding,
+              top: 0,
+              bottom: 0,
+              width: _stripWidth + widget.edgePadding,
+              child: _ScrollArrow(
+                visible: hovering && _canScrollLeft,
+                icon: Icons.chevron_left,
+                alignLeft: true,
+                onTap: () => _scrollByViewport(forward: false),
+              ),
             ),
-          ),
-          Positioned(
-            right: -widget.edgePadding,
-            top: 0,
-            bottom: 0,
-            width: _stripWidth + widget.edgePadding,
-            child: _ScrollArrow(
-              visible: _hovering && _canScrollRight,
-              icon: Icons.chevron_right,
-              alignLeft: false,
-              onTap: () => _scrollByViewport(forward: true),
+            Positioned(
+              right: -widget.edgePadding,
+              top: 0,
+              bottom: 0,
+              width: _stripWidth + widget.edgePadding,
+              child: _ScrollArrow(
+                visible: hovering && _canScrollRight,
+                icon: Icons.chevron_right,
+                alignLeft: false,
+                onTap: () => _scrollByViewport(forward: true),
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
@@ -177,7 +178,10 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
   }
 }
 
-/// 边缘滚动按钮：透明黑渐变条带 + 居中箭头；不可见时淡出并忽略指针。
+/// 边缘滚动按钮：整行高、贴内容区边缘的主题色药丸条带 + 居中箭头。
+/// 用主题底色而非黑色渐变——黑色渐变压在浅色主题的留白/浅色内容上
+/// 会显成一条怪异的灰黑带；主题底色在 7 套预设与亮暗模式下都成立。
+/// 不可见时淡出并忽略指针。
 class _ScrollArrow extends StatefulWidget {
   const _ScrollArrow({
     required this.visible,
@@ -203,6 +207,15 @@ class _ScrollArrowState extends State<_ScrollArrow> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    // 外缘贴窗口边不倒角，内缘倒角——读作一个贴边的滚动控件而不是色带。
+    final radius = BorderRadius.horizontal(
+      left: widget.alignLeft
+          ? Radius.zero
+          : const Radius.circular(DesktopTokens.cardRadius + 2),
+      right: widget.alignLeft
+          ? const Radius.circular(DesktopTokens.cardRadius + 2)
+          : Radius.zero,
+    );
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
@@ -216,19 +229,20 @@ class _ScrollArrowState extends State<_ScrollArrow> {
           child: AnimatedContainer(
             duration: DesktopTokens.hoverDuration,
             curve: Curves.easeOutCubic,
+            foregroundDecoration: BoxDecoration(
+              borderRadius: radius,
+              border: Border.all(color: colors.borderSubtle),
+            ),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: widget.alignLeft
-                    ? Alignment.centerLeft
-                    : Alignment.centerRight,
-                end: widget.alignLeft
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                colors: <Color>[
-                  Colors.black.withValues(alpha: _hovering ? .58 : .34),
-                  Colors.transparent,
-                ],
-              ),
+              color: _hovering ? colors.selectionSoft : colors.surfaceStrong,
+              borderRadius: radius,
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .18),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Center(
               child: Icon(widget.icon, size: 26, color: colors.textPrimary),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_catalog.dart';
 import '../theme/app_theme.dart';
+import 'desktop_hover_region.dart';
 import 'desktop_tokens.dart';
 
 /// 桌面侧栏（宽 216，对应原型 styles.css 的 .side-nav）。
@@ -257,7 +258,7 @@ class _DesktopSideBarBrand extends StatelessWidget {
   }
 }
 
-class _DesktopSideBarRow extends StatefulWidget {
+class _DesktopSideBarRow extends StatelessWidget {
   const _DesktopSideBarRow({
     required this.icon,
     required this.label,
@@ -275,34 +276,25 @@ class _DesktopSideBarRow extends StatefulWidget {
   final int? count;
 
   @override
-  State<_DesktopSideBarRow> createState() => _DesktopSideBarRowState();
-}
-
-class _DesktopSideBarRowState extends State<_DesktopSideBarRow> {
-  bool _hovering = false;
-
-  @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final selected = widget.selected;
-    final foreground = selected ? colors.textPrimary : colors.textSecondary;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovering = true),
-        onExit: (_) => setState(() => _hovering = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: AnimatedContainer(
+      child: DesktopHoverRegion(
+        onTap: onTap,
+        builder: (context, hovering) {
+          final colors = context.appColors;
+          final selected = this.selected;
+          final foreground = selected
+              ? colors.textPrimary
+              : colors.textSecondary;
+          return AnimatedContainer(
             duration: DesktopTokens.hoverDuration,
             curve: Curves.easeOutCubic,
             height: DesktopTokens.sidebarItemHeight,
             decoration: BoxDecoration(
               color: selected
                   ? colors.selectionSoft
-                  : _hovering
+                  : hovering
                   ? colors.surface
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(
@@ -322,11 +314,11 @@ class _DesktopSideBarRowState extends State<_DesktopSideBarRow> {
                   ),
                 ),
                 const SizedBox(width: 9),
-                Icon(widget.icon, size: 20, color: foreground),
+                Icon(icon, size: 20, color: foreground),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    widget.label,
+                    label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textScaler: TextScaler.noScaling,
@@ -337,10 +329,10 @@ class _DesktopSideBarRowState extends State<_DesktopSideBarRow> {
                     ),
                   ),
                 ),
-                if (widget.count != null) ...<Widget>[
+                if (count != null) ...<Widget>[
                   const SizedBox(width: 6),
                   Text(
-                    '${widget.count}',
+                    '$count',
                     maxLines: 1,
                     textScaler: TextScaler.noScaling,
                     style: TextStyle(
@@ -352,8 +344,8 @@ class _DesktopSideBarRowState extends State<_DesktopSideBarRow> {
                 ],
               ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
