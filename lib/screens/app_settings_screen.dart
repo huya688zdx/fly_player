@@ -917,7 +917,10 @@ class AppSettingsScreen extends StatelessWidget {
     return FutureBuilder<bool>(
       future: EmbeddedDetailLauncher.isParallelWindowSupported(),
       builder: (context, snapshot) {
-        final parallelWindowSupported = snapshot.data ?? false;
+        // 桌面端分屏由本壳层实现（设置开关 ↔ DesktopSplitController），
+        // 不依赖 Android 宿主通道应答，「分屏窗口」入口常驻。
+        final parallelWindowSupported =
+            snapshot.data == true || DesktopEnvironment.isDesktopPlatform;
         final parallelSummary = parallelSettings.enabled
             ? (parallelSettings.primaryOnLeft
                   ? l10n.settingsParallelSummaryEnabledLeft

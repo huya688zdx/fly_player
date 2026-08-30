@@ -443,6 +443,7 @@
   },
   "settingsDesktopSummaryHint": "行尾实时显示当前值，单击进入子页",
   "settingsDesktopSearchEmpty": "没有找到相关设置项，换个关键词试试",
+  "sidebarCategorySectionLabel": "分类",
   "settingsSearchHint": "搜索设置项",
   "settingsSearchEmptyResults": "没有找到相关设置项。",
   "settingsSearchEmptyPrompt": "先输入关键字，或从常用入口开始。",

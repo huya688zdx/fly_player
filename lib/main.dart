@@ -1047,7 +1047,12 @@ class _MainNavigationState extends State<MainNavigation> {
     final viewportWidth = MediaQuery.sizeOf(context).width;
     if (DesktopEnvironment.isDesktopPlatform &&
         viewportWidth >= DesktopBreakpoints.sidebarMinWidth) {
-      return DesktopShell(initialTab: _selectedTab.tabIndex);
+      // 内容区内嵌导航复用 App 根路由表：侧栏 / 首页的二级页
+      // （媒体库、分类、搜索、收藏、下载）在侧栏常驻的内容区打开。
+      return DesktopShell(
+        initialTab: _selectedTab.tabIndex,
+        contentRouteFactory: _buildRoute,
+      );
     }
     const pages = <Widget>[MediaListScreen(), AppSettingsScreen()];
     final l10n = AppLocalizations.of(context);
