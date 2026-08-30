@@ -153,10 +153,7 @@ void main() {
       // 设置类路由：切到设置页签，不往内容区塞整套 MainNavigation。
       await proxy.openRoute('/screen/settings/appearance');
       await tester.pump();
-      expect(
-        tester.widget<IndexedStack>(find.byType(IndexedStack)).index,
-        1,
-      );
+      expect(tester.widget<IndexedStack>(find.byType(IndexedStack)).index, 1);
       expect(find.text('content:/screen/settings/appearance'), findsNothing);
     });
 
