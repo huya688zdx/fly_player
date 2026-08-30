@@ -6,7 +6,10 @@ import 'package:fly_player/theme/app_theme.dart';
 
 double _opacityOf(WidgetTester tester, IconData icon) => tester
     .widget<AnimatedOpacity>(
-      find.ancestor(of: find.byIcon(icon), matching: find.byType(AnimatedOpacity)),
+      find.ancestor(
+        of: find.byIcon(icon),
+        matching: find.byType(AnimatedOpacity),
+      ),
     )
     .opacity;
 

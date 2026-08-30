@@ -1937,33 +1937,20 @@ class _DesktopRevealState extends State<_DesktopReveal> {
 
 /// 桌面紧凑设置行：34px 图标位 + 标题/描述 + 行尾当前值或开关。
 /// 悬停时图标「点亮」为强调色，chevron 右移。
-class _DesktopSettingsRow extends StatefulWidget {
+class _DesktopSettingsRow extends StatelessWidget {
   final _DesktopRowData data;
 
   const _DesktopSettingsRow({required this.data});
 
   @override
-  State<_DesktopSettingsRow> createState() => _DesktopSettingsRowState();
-}
-
-class _DesktopSettingsRowState extends State<_DesktopSettingsRow> {
-  bool _hovering = false;
-
-  @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final data = widget.data;
-    final interactive = data.onTap != null;
-    return MouseRegion(
-      cursor: interactive ? SystemMouseCursors.click : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: data.onTap,
-        child: AnimatedContainer(
+    return DesktopHoverRegion(
+      onTap: data.onTap,
+      builder: (context, hovering) {
+        final colors = context.appColors;
+        return AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          color: _hovering ? colors.surfaceSubtle : Colors.transparent,
+          color: hovering ? colors.surfaceSubtle : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             children: <Widget>[
@@ -1974,19 +1961,17 @@ class _DesktopSettingsRowState extends State<_DesktopSettingsRow> {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: _hovering
-                      ? colors.selectionSoft
-                      : colors.surfaceSubtle,
+                  color: hovering ? colors.selectionSoft : colors.surfaceSubtle,
                   borderRadius: BorderRadius.circular(9),
                   border: Border.all(
-                    color: _hovering ? colors.selection : colors.borderSubtle,
+                    color: hovering ? colors.selection : colors.borderSubtle,
                   ),
                 ),
                 alignment: Alignment.center,
                 child: Icon(
                   data.icon,
                   size: 16,
-                  color: _hovering ? colors.selection : colors.textSecondary,
+                  color: hovering ? colors.selection : colors.textSecondary,
                 ),
               ),
               const SizedBox(width: 14),
@@ -2046,28 +2031,26 @@ class _DesktopSettingsRowState extends State<_DesktopSettingsRow> {
                       ),
                     ),
                   ),
-                if (interactive) const SizedBox(width: 10),
-                if (interactive)
+                if (data.onTap != null) const SizedBox(width: 10),
+                if (data.onTap != null)
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 140),
                     transform: Matrix4.translationValues(
-                      _hovering ? 3 : 0,
+                      hovering ? 3 : 0,
                       0,
                       0,
                     ),
                     child: Icon(
                       Icons.chevron_right_rounded,
                       size: 16,
-                      color: _hovering
-                          ? colors.textSecondary
-                          : colors.textMuted,
+                      color: hovering ? colors.textSecondary : colors.textMuted,
                     ),
                   ),
               ],
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
