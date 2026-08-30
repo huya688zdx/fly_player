@@ -1,24 +1,36 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/media_catalog.dart';
 import '../theme/app_theme.dart';
-import 'desktop_breakpoints.dart';
-import 'desktop_split_controller.dart';
+import 'desktop_hover_region.dart';
 import 'desktop_tokens.dart';
 
 /// 桌面侧栏（宽 216，对应原型 styles.css 的 .side-nav）。
 ///
-/// 顶部品牌区 + 两项主导航（tab 级，选中态 selectionSoft 底色 + 左侧 3px
-/// selection 竖条）+ 分隔线下的次级入口（rootNavigator 具名路由）+ 底部
-/// 「浏览 | 详情」分屏开关（仅窗口 ≥ [DesktopBreakpoints.splitMinWidth] 时显示）。
+/// 参考飞牛桌面端布局：主导航（影视 / 搜索 / 收藏 / 下载 / 大屏浏览 / 设置）
+/// + 「媒体库」分组（后端媒体库入口）+ 「分类」分组（全部 / 电影 / 电视剧 /
+/// 其他，行尾计数）。媒体库、分类与搜索/收藏/下载在影视内容区内打开，
+/// 侧栏永远可见；分屏开关在「设置 → 分屏窗口」（与安卓一致）。
 ///
-/// 颜色一律经 [AppThemeColors] 读取，7 套预设与亮暗模式自动跟随。
+/// 颜色一律经 [AppThemeColors] 读取，7 套预设、动态取色与亮暗模式自动跟随。
 class DesktopSideBar extends StatelessWidget {
   const DesktopSideBar({
     super.key,
     required this.selectedTabIndex,
     required this.onTabSelected,
-    this.splitController,
+    this.catalogs = const <MediaCatalog>[],
+    this.favoriteCount = 0,
+    this.totalItems = 0,
+    this.movieCount = 0,
+    this.tvCount = 0,
+    this.otherCount = 0,
+    this.onOpenSearch,
+    this.onOpenFavorites,
+    this.onOpenDownloads,
+    this.onOpenCatalog,
+    this.onOpenAllItems,
+    this.onOpenByType,
   });
 
   /// 当前主导航页签序号（0=影视、1=设置，与 MainPrimaryTab.tabIndex 对齐）。
@@ -27,8 +39,31 @@ class DesktopSideBar extends StatelessWidget {
   /// 点击主导航项回调，参数为目标页签序号。
   final ValueChanged<int> onTabSelected;
 
-  /// 分屏状态；为 null 时不渲染底部开关（Shell 内注入，保持可独立预览）。
-  final DesktopSplitController? splitController;
+  /// 「媒体库」分组：后端媒体库入口列表。
+  final List<MediaCatalog> catalogs;
+
+  /// 「分类」分组计数（来自首页概要；后端不可用时为 0）。
+  final int favoriteCount;
+  final int totalItems;
+  final int movieCount;
+  final int tvCount;
+  final int otherCount;
+
+  /// 内容区入口（搜索 / 收藏 / 下载）。
+  final void Function(BuildContext context)? onOpenSearch;
+  final void Function(BuildContext context)? onOpenFavorites;
+  final void Function(BuildContext context)? onOpenDownloads;
+
+  /// 打开某个媒体库入口（内容区）。
+  final void Function(BuildContext context, MediaCatalog catalog)?
+  onOpenCatalog;
+
+  /// 打开「全部影视」（内容区）。
+  final void Function(BuildContext context)? onOpenAllItems;
+
+  /// 按类型打开分类（内容区）：name 为显示名，typeTags 为中立类型标签。
+  final void Function(BuildContext context, String name, List<String> typeTags)?
+  onOpenByType;
 
   void _openSecondary(BuildContext context, String routeName) {
     Navigator.of(context, rootNavigator: true).pushNamed(routeName);
@@ -37,9 +72,6 @@ class DesktopSideBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final showSplitToggle =
-        splitController != null &&
-        MediaQuery.widthOf(context) >= DesktopBreakpoints.splitMinWidth;
 
     return SizedBox(
       width: DesktopTokens.sidebarWidth,
@@ -49,51 +81,131 @@ class DesktopSideBar extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             _DesktopSideBarBrand(title: l10n.appTitle),
-            _DesktopSideBarRow(
-              icon: Icons.video_library_outlined,
-              label: l10n.navMovies,
-              selected: selectedTabIndex == 0,
-              onTap: () => onTabSelected(0),
-            ),
-            _DesktopSideBarRow(
-              icon: Icons.tune_rounded,
-              label: l10n.navSettings,
-              selected: selectedTabIndex == 1,
-              onTap: () => onTabSelected(1),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Divider(
-                height: 1,
-                thickness: 1,
-                color: context.appColors.borderSubtle,
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _DesktopSideBarRow(
+                      icon: Icons.video_library_outlined,
+                      label: l10n.navMovies,
+                      selected: selectedTabIndex == 0,
+                      onTap: () => onTabSelected(0),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.search_rounded,
+                      label: l10n.searchPlaceholder,
+                      onTap: () => onOpenSearch?.call(context),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.favorite_border_rounded,
+                      label: l10n.listFilterFavorite,
+                      count: favoriteCount > 0 ? favoriteCount : null,
+                      onTap: () => onOpenFavorites?.call(context),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.download_outlined,
+                      label: l10n.downloadListTitle,
+                      onTap: () => onOpenDownloads?.call(context),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.connected_tv,
+                      label: l10n.posterBrowseEntryTooltip,
+                      onTap: () =>
+                          _openSecondary(context, '/screen/poster-browse'),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.tune_rounded,
+                      label: l10n.navSettings,
+                      selected: selectedTabIndex == 1,
+                      onTap: () => onTabSelected(1),
+                    ),
+                    if (catalogs.isNotEmpty) ...<Widget>[
+                      _DesktopSideBarGroupHeader(
+                        label: l10n.posterBrowseRowCatalogs,
+                      ),
+                      for (final catalog in catalogs)
+                        _DesktopSideBarRow(
+                          icon: Icons.library_books_outlined,
+                          label: catalog.title,
+                          onTap: () => onOpenCatalog?.call(context, catalog),
+                        ),
+                    ],
+                    _DesktopSideBarGroupHeader(
+                      label: l10n.sidebarCategorySectionLabel,
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.apps_rounded,
+                      label: l10n.mediaAllItemsTitle,
+                      count: totalItems > 0 ? totalItems : null,
+                      onTap: () => onOpenAllItems?.call(context),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.movie_outlined,
+                      label: l10n.listTypeMovie,
+                      count: movieCount > 0 ? movieCount : null,
+                      onTap: () => onOpenByType?.call(
+                        context,
+                        l10n.listTypeMovie,
+                        const <String>['Movie'],
+                      ),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.tv_outlined,
+                      label: l10n.listTypeTv,
+                      count: tvCount > 0 ? tvCount : null,
+                      onTap: () => onOpenByType?.call(
+                        context,
+                        l10n.listTypeTv,
+                        const <String>['TV'],
+                      ),
+                    ),
+                    _DesktopSideBarRow(
+                      icon: Icons.folder_outlined,
+                      label: l10n.commonOther,
+                      count: otherCount > 0 ? otherCount : null,
+                      onTap: () => onOpenByType?.call(
+                        context,
+                        l10n.commonOther,
+                        const <String>['Directory', 'Video'],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            // 次级入口：与首页 AppBar 的搜索/大屏浏览入口同目的地，走 rootNavigator。
-            _DesktopSideBarRow(
-              icon: Icons.connected_tv,
-              label: l10n.posterBrowseEntryTooltip,
-              onTap: () => _openSecondary(context, '/screen/poster-browse'),
-            ),
-            _DesktopSideBarRow(
-              icon: Icons.search_rounded,
-              label: l10n.searchPlaceholder,
-              onTap: () => _openSecondary(context, '/screen/search'),
-            ),
-            _DesktopSideBarRow(
-              icon: Icons.favorite_border_rounded,
-              label: l10n.listFilterFavorite,
-              onTap: () => _openSecondary(context, '/screen/favorites'),
-            ),
-            _DesktopSideBarRow(
-              icon: Icons.download_outlined,
-              label: l10n.downloadListTitle,
-              onTap: () => _openSecondary(context, '/screen/downloads'),
-            ),
-            const Spacer(),
-            if (showSplitToggle)
-              _DesktopSideBarSplitToggle(controller: splitController!),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 分组标题行：媒体库 / 分类。
+class _DesktopSideBarGroupHeader extends StatelessWidget {
+  const _DesktopSideBarGroupHeader({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 14, 16, 6),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textScaler: TextScaler.noScaling,
+          style: TextStyle(
+            color: colors.textMuted,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
+          ),
         ),
       ),
     );
@@ -146,12 +258,13 @@ class _DesktopSideBarBrand extends StatelessWidget {
   }
 }
 
-class _DesktopSideBarRow extends StatefulWidget {
+class _DesktopSideBarRow extends StatelessWidget {
   const _DesktopSideBarRow({
     required this.icon,
     required this.label,
     required this.onTap,
     this.selected = false,
+    this.count,
   });
 
   final IconData icon;
@@ -159,35 +272,29 @@ class _DesktopSideBarRow extends StatefulWidget {
   final VoidCallback onTap;
   final bool selected;
 
-  @override
-  State<_DesktopSideBarRow> createState() => _DesktopSideBarRowState();
-}
-
-class _DesktopSideBarRowState extends State<_DesktopSideBarRow> {
-  bool _hovering = false;
+  /// 行尾计数（null 不显示）。
+  final int? count;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final selected = widget.selected;
-    final foreground = selected ? colors.textPrimary : colors.textSecondary;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovering = true),
-        onExit: (_) => setState(() => _hovering = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: AnimatedContainer(
+      child: DesktopHoverRegion(
+        onTap: onTap,
+        builder: (context, hovering) {
+          final colors = context.appColors;
+          final selected = this.selected;
+          final foreground = selected
+              ? colors.textPrimary
+              : colors.textSecondary;
+          return AnimatedContainer(
             duration: DesktopTokens.hoverDuration,
             curve: Curves.easeOutCubic,
             height: DesktopTokens.sidebarItemHeight,
             decoration: BoxDecoration(
               color: selected
                   ? colors.selectionSoft
-                  : _hovering
+                  : hovering
                   ? colors.surface
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(
@@ -207,11 +314,11 @@ class _DesktopSideBarRowState extends State<_DesktopSideBarRow> {
                   ),
                 ),
                 const SizedBox(width: 9),
-                Icon(widget.icon, size: 20, color: foreground),
+                Icon(icon, size: 20, color: foreground),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    widget.label,
+                    label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textScaler: TextScaler.noScaling,
@@ -222,89 +329,20 @@ class _DesktopSideBarRowState extends State<_DesktopSideBarRow> {
                     ),
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DesktopSideBarSplitToggle extends StatefulWidget {
-  const _DesktopSideBarSplitToggle({required this.controller});
-
-  final DesktopSplitController controller;
-
-  @override
-  State<_DesktopSideBarSplitToggle> createState() =>
-      _DesktopSideBarSplitToggleState();
-}
-
-class _DesktopSideBarSplitToggleState
-    extends State<_DesktopSideBarSplitToggle> {
-  bool _hovering = false;
-
-  // 「浏览 | 详情」为分屏开关的固定组合标签，无对应 l10n key（两侧语义随语言变化
-  // 也难以整句翻译），按约定使用中文常量。
-  static const String _splitToggleLabel = '浏览 | 详情';
-
-  void _toggle() {
-    widget.controller.enabled = !widget.controller.enabled;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
-      child: ListenableBuilder(
-        listenable: widget.controller,
-        builder: (context, _) {
-          return MouseRegion(
-            cursor: SystemMouseCursors.click,
-            onEnter: (_) => setState(() => _hovering = true),
-            onExit: (_) => setState(() => _hovering = false),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _toggle,
-              child: AnimatedContainer(
-                duration: DesktopTokens.hoverDuration,
-                curve: Curves.easeOutCubic,
-                height: DesktopTokens.sidebarItemHeight,
-                decoration: BoxDecoration(
-                  color: _hovering ? colors.surface : Colors.transparent,
-                  borderRadius: BorderRadius.circular(
-                    DesktopTokens.sidebarItemRadius,
+                if (count != null) ...<Widget>[
+                  const SizedBox(width: 6),
+                  Text(
+                    '$count',
+                    maxLines: 1,
+                    textScaler: TextScaler.noScaling,
+                    style: TextStyle(
+                      color: colors.textMuted,
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    ),
                   ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        _splitToggleLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textScaler: TextScaler.noScaling,
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      height: 26,
-                      child: Switch(
-                        value: widget.controller.enabled,
-                        onChanged: (value) => widget.controller.enabled = value,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                ],
+              ],
             ),
           );
         },

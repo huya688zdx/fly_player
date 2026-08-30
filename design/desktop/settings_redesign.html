@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>飞翔播放器 · 桌面设置页重设计提案</title>
+<style>
+  /* ============================================================
+     飞翔播放器 · 桌面设置页 设计提案 v3 「放映控制台」
+     延续 midnight 主题基因：深海军蓝 + 放映光束 + 发丝分割线
+     ============================================================ */
+  :root {
+    --bg: #09111c;
+    --bg-deep: #060c15;
+    --surface: #0f1a2a;
+    --surface-2: #121e30;
+    --hover: rgba(255, 255, 255, 0.028);
+    --border: rgba(154, 170, 196, 0.09);
+    --border-strong: rgba(154, 170, 196, 0.16);
+    --text: #e8eef8;
+    --text-2: #9aa9bf;
+    --muted: #61708a;
+    --accent: #3a82f7;
+    --accent-2: #6ba3ff;
+    --accent-soft: rgba(58, 130, 247, 0.13);
+    --green: #34d399;
+    --shadow: 0 18px 50px -18px rgba(0, 0, 0, 0.65);
+    --radius: 12px;
+    --font-disp: "Bahnschrift", "Segoe UI Semibold", "Microsoft YaHei", sans-serif;
+    --font-body: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    --font-mono: "Cascadia Mono", "Consolas", monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    overflow: hidden;
+    font-size: 14px;
+  }
+
+  /* 放映光束：从右上斜投的冷光 + 底部暗角，营造影厅纵深 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(1100px 520px at 82% -8%, rgba(58, 130, 247, 0.075), transparent 62%),
+      radial-gradient(900px 480px at -6% 108%, rgba(26, 60, 110, 0.16), transparent 60%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 26%);
+    z-index: 0;
+  }
+  /* 胶片颗粒 */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    z-index: 2147483646;
+  }
+
+  /* ================= 侧栏（应用既有结构，保持不变） ================= */
+  .sidebar {
+    width: 232px;
+    min-width: 232px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #070d17, #080f1a);
+    border-right: 1px solid var(--border);
+    padding: 22px 14px 18px;
+    z-index: 2;
+    user-select: none;
+  }
+  .logo { display: flex; align-items: center; gap: 11px; padding: 0 8px 24px; }
+  .logo-mark {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg, #3a82f7, #2456c9);
+    display: grid; place-items: center;
+    box-shadow: 0 4px 16px -4px rgba(58, 130, 247, 0.55);
+  }
+  .logo-mark svg { width: 18px; height: 18px; }
+  .logo-name { font-family: var(--font-disp); font-size: 16.5px; font-weight: 700; letter-spacing: 0.06em; }
+  .logo-sub { font-family: var(--font-mono); font-size: 8.5px; color: var(--muted); letter-spacing: 0.42em; margin-top: 2px; }
+
+  .nav { display: flex; flex-direction: column; gap: 3px; }
+  .nav-item {
+    position: relative;
+    display: flex; align-items: center; gap: 11px;
+    height: 38px; padding: 0 12px;
+    border-radius: 9px;
+    color: var(--text-2);
+    font-size: 13.5px; font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .nav-item svg { width: 17px; height: 17px; opacity: 0.85; }
+  .nav-item:hover { background: rgba(255, 255, 255, 0.035); color: var(--text); }
+  .nav-item.active {
+    background: linear-gradient(90deg, rgba(58, 130, 247, 0.16), rgba(58, 130, 247, 0.05));
+    color: var(--text); font-weight: 600;
+  }
+  .nav-item.active::before {
+    content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 16px; border-radius: 3px; background: var(--accent);
+  }
+  .nav-divider { height: 1px; background: var(--border); margin: 10px 8px; }
+
+  .sidebar-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
+  .pane-mode { font-size: 12.5px; color: var(--text-2); }
+  .pane-mode i { font-style: normal; color: var(--muted); margin: 0 3px; }
+
+  .mini-switch {
+    width: 42px; height: 23px; border-radius: 99px;
+    background: #182c49; border: 1px solid rgba(107, 163, 255, 0.35);
+    position: relative; cursor: pointer; transition: background 0.2s;
+  }
+  .mini-switch::after {
+    content: ""; position: absolute; top: 2px; left: 3px;
+    width: 17px; height: 17px; border-radius: 50%;
+    background: #0a3a7f; border: 1px solid rgba(255, 255, 255, 0.25);
+    transition: transform 0.2s, background 0.2s;
+  }
+  .mini-switch.on { background: rgba(58, 130, 247, 0.55); }
+  .mini-switch.on::after { transform: translateX(18px); background: #dce9ff; }
+
+  /* ================= 内容区 ================= */
+  .content {
+    flex: 1; height: 100%; overflow-y: auto; position: relative; z-index: 1;
+    scrollbar-width: thin; scrollbar-color: rgba(154, 170, 196, 0.22) transparent;
+  }
+  .content::-webkit-scrollbar { width: 9px; }
+  .content::-webkit-scrollbar-thumb { background: rgba(154, 170, 196, 0.18); border-radius: 8px; border: 2px solid var(--bg); }
+
+  .page {
+    max-width: 1128px;
+    margin: 0 auto;
+    padding: 34px 40px 64px;
+    animation: pageIn 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  @keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- 首页头部 ---------- */
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+  .page-head h1 {
+    font-family: var(--font-disp);
+    font-size: 26px; font-weight: 700; letter-spacing: 0.04em;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .page-head h1::after {
+    content: ""; width: 26px; height: 3px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+  .page-sub { color: var(--muted); font-size: 12.5px; margin-top: 8px; letter-spacing: 0.02em; }
+  .page-sub b { color: var(--text-2); font-weight: 600; }
+
+  .search {
+    display: flex; align-items: center; gap: 9px;
+    width: 292px; height: 38px; padding: 0 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: border-color 0.18s, box-shadow 0.18s;
+  }
+  .search:focus-within { border-color: rgba(58, 130, 247, 0.55); box-shadow: 0 0 0 3px rgba(58, 130, 247, 0.14); }
+  .search svg { width: 15px; height: 15px; color: var(--muted); flex: none; }
+  .search input {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text); font-size: 13px; font-family: var(--font-body);
+  }
+  .search input::placeholder { color: var(--muted); }
+  .search kbd {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    background: rgba(255, 255, 255, 0.045); border: 1px solid var(--border);
+    border-radius: 5px; padding: 2px 6px; letter-spacing: 0.04em;
+  }
+
+  /* ---------- 分组网格 ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(486px, 1fr)); gap: 30px 28px; }
+
+  .group { animation: groupIn 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  .group:nth-child(2) { animation-delay: 0.05s; }
+  .group:nth-child(3) { animation-delay: 0.1s; }
+  .group:nth-child(4) { animation-delay: 0.15s; }
+  @keyframes groupIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+  .group-head { display: flex; align-items: center; gap: 9px; padding: 0 4px 10px; }
+  .group-ic {
+    width: 24px; height: 24px; border-radius: 7px;
+    background: var(--accent-soft); color: var(--accent-2);
+    display: grid; place-items: center;
+  }
+  .group-ic svg { width: 13px; height: 13px; }
+  .group-head h2 { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-2); }
+  .group-head .count { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+
+  .card {
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  /* ---------- 条目行：34px 图标位 · 标题/描述 · 当前值 · 悬停点亮 ---------- */
+  .row {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 58px;
+    padding: 10px 16px;
+    background: none; border: none;
+    color: var(--text); text-align: left;
+    font-family: var(--font-body);
+    cursor: pointer;
+    transition: background 0.14s;
+  }
+  .row + .row::before {
+    content: ""; position: absolute; top: 0; left: 64px; right: 16px;
+    height: 1px; background: var(--border);
+  }
+  .row:hover, .row:focus-visible { background: var(--hover); outline: none; }
+  .row:focus-visible { box-shadow: inset 0 0 0 2px rgba(58, 130, 247, 0.6); }
+
+  .row-ic {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    display: grid; place-items: center;
+    transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s;
+  }
+  .row-ic svg { width: 16px; height: 16px; }
+  .row:hover .row-ic {
+    background: var(--accent-soft); border-color: rgba(58, 130, 247, 0.4);
+    color: var(--accent-2);
+    box-shadow: 0 0 14px -2px rgba(58, 130, 247, 0.45);
+  }
+
+  .row-main b { display: block; font-size: 13.8px; font-weight: 600; letter-spacing: 0.01em; }
+  .row-main i { display: block; font-style: normal; font-size: 12px; color: var(--text-2); margin-top: 3px; }
+
+  .row-value {
+    font-size: 12px; color: var(--muted);
+    max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--font-mono);
+  }
+  .row-value.on { color: var(--accent-2); }
+
+  .chev { width: 15px; height: 15px; color: var(--muted); transition: transform 0.16s, color 0.16s; }
+  .row:hover .chev { transform: translateX(3px); color: var(--text-2); }
+
+  /* 开关行 */
+  .switch {
+    width: 40px; height: 22px; border-radius: 99px;
+    background: #1a2740; border: 1px solid var(--border-strong);
+    position: relative; transition: background 0.2s, border-color 0.2s;
+    flex: none;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 3px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #566a86;
+    transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.2, 1.4), background 0.2s;
+  }
+  .switch.on { background: rgba(58, 130, 247, 0.75); border-color: rgba(107, 163, 255, 0.6); }
+  .switch.on::after { transform: translateX(17px); background: #eaf2ff; }
+
+  /* ---------- 子页（设置区内导航演示） ---------- */
+  .sub-page { display: none; }
+  .sub-page.show { display: block; }
+
+  .crumb { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+  .back-btn {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-2); cursor: pointer;
+    display: grid; place-items: center;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .back-btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+  .back-btn svg { width: 15px; height: 15px; }
+  .crumb-path { font-size: 12.5px; color: var(--muted); }
+  .crumb-path b { color: var(--text-2); font-weight: 600; }
+  .crumb-path span { margin: 0 7px; opacity: 0.5; }
+
+  .sub-head { margin-bottom: 26px; }
+  .sub-head h1 { font-family: var(--font-disp); font-size: 23px; font-weight: 700; letter-spacing: 0.03em; }
+  .sub-head p { color: var(--muted); font-size: 12.5px; margin-top: 7px; }
+
+  .sub-body { max-width: 880px; display: flex; flex-direction: column; gap: 28px; }
+
+  .seg { display: flex; gap: 10px; padding: 14px 16px; flex-wrap: wrap; }
+  .seg-item {
+    border: 1px solid var(--border); border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 10px 16px; color: var(--text-2);
+    font-size: 12.5px; font-weight: 600; font-family: var(--font-body);
+    cursor: pointer; transition: all 0.16s;
+  }
+  .seg-item small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .seg-item:hover { border-color: var(--border-strong); color: var(--text); }
+  .seg-item.sel {
+    border-color: rgba(58, 130, 247, 0.65); color: var(--text);
+    background: linear-gradient(180deg, rgba(58, 130, 247, 0.16), rgba(58, 130, 247, 0.06));
+    box-shadow: 0 0 0 1px rgba(58, 130, 247, 0.35), 0 6px 18px -6px rgba(58, 130, 247, 0.35);
+  }
+  .swatch { display: inline-block; width: 26px; height: 14px; border-radius: 4px; margin-right: 8px; vertical-align: -2px; border: 1px solid rgba(255,255,255,0.14); }
+
+  .dots { display: flex; gap: 12px; padding: 15px 16px; align-items: center; }
+  .dot { width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.15s, border-color 0.15s; }
+  .dot:hover { transform: scale(1.12); }
+  .dot.sel { border-color: #fff; box-shadow: 0 0 0 3px rgba(58, 130, 247, 0.4); }
+
+  .ghost-btn {
+    margin-left: auto;
+    height: 32px; padding: 0 14px; border-radius: 9px;
+    background: none; border: 1px solid var(--border-strong);
+    color: var(--text-2); font-size: 12.5px; font-weight: 600;
+    font-family: var(--font-body); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ghost-btn:hover { color: var(--text); border-color: rgba(107, 163, 255, 0.5); background: rgba(58, 130, 247, 0.08); }
+  .head-actions { display: flex; align-items: center; }
+
+  /* ---------- 搜索空态 / Toast / 说明 ---------- */
+  .empty {
+    display: none;
+    text-align: center; color: var(--muted); font-size: 13px;
+    padding: 70px 0 30px;
+  }
+  .empty.show { display: block; animation: pageIn 0.2s both; }
+  .empty svg { width: 34px; height: 34px; opacity: 0.4; margin-bottom: 12px; }
+
+  .toast {
+    position: fixed; bottom: 34px; left: 50%; transform: translateX(-50%) translateY(16px);
+    background: #15243c; border: 1px solid rgba(107, 163, 255, 0.4);
+    color: var(--text); font-size: 12.5px;
+    padding: 10px 18px; border-radius: 10px;
+    box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.6);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.22s, transform 0.22s;
+    z-index: 99;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .notes-fab {
+    position: fixed; right: 26px; bottom: 26px; z-index: 98;
+    height: 34px; padding: 0 16px; border-radius: 99px;
+    background: rgba(21, 36, 60, 0.92); border: 1px solid rgba(107, 163, 255, 0.45);
+    color: var(--accent-2); font-size: 12.5px; font-weight: 600;
+    font-family: var(--font-body); cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: all 0.16s;
+  }
+  .notes-fab:hover { background: rgba(30, 50, 82, 0.95); }
+
+  .notes {
+    position: fixed; right: 26px; bottom: 70px; z-index: 98;
+    width: 348px;
+    background: rgba(13, 22, 37, 0.96); border: 1px solid var(--border-strong);
+    border-radius: 14px; padding: 18px 20px;
+    box-shadow: var(--shadow); backdrop-filter: blur(10px);
+    display: none;
+  }
+  .notes.show { display: block; animation: pageIn 0.22s both; }
+  .notes h3 { font-size: 13px; letter-spacing: 0.08em; color: var(--accent-2); margin-bottom: 10px; }
+  .notes li { list-style: none; font-size: 12.3px; color: var(--text-2); line-height: 1.75; padding-left: 16px; position: relative; }
+  .notes li::before { content: "·"; position: absolute; left: 2px; color: var(--accent); font-weight: 700; }
+  .notes b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+
+  <!-- ================= 侧栏：应用既有导航（所有设置子页打开时保持可见） ================= -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>
+      </div>
+      <div>
+        <div class="logo-name">飞翔播放器</div>
+        <div class="logo-sub">FLY PLAYER</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3Z" fill="currentColor" stroke="none"/></svg>影视</div>
+      <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h10M4 16h7"/><path d="M17 5v14M17 12h4" opacity=".55"/><circle cx="17" cy="8" r="2.2"/><circle cx="14" cy="16" r="2.2"/></svg>设置</div>
+      <div class="nav-divider"></div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="13" rx="2.5"/><path d="M8 21h8"/></svg>大屏浏览</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>搜索</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.7-9.3-9A5.2 5.2 0 0 1 12 6.7a5.2 5.2 0 0 1 9.3 4.8c-1.8 4.3-9.3 9-9.3 9Z"/></svg>收藏</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>下载列表</div>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="pane-mode">浏览 <i>|</i> 详情</div>
+      <div class="mini-switch" id="paneSwitch"></div>
+    </div>
+  </aside>
+
+  <!-- ================= 内容区：设置首页 ⇄ 子页（区内导航） ================= -->
+  <main class="content" id="content">
+
+    <!-- ---------- 设置首页：分组卡片网格 ---------- -->
+    <section class="page" id="page-home">
+      <header class="page-head">
+        <div>
+          <h1>设置</h1>
+          <p class="page-sub"><b>4 个分组 · 10 项配置</b>　行尾实时显示当前值，单击进入子页</p>
+        </div>
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="searchInput" type="text" placeholder="搜索设置项…" />
+          <kbd>Ctrl K</kbd>
+        </label>
+      </header>
+
+      <div class="grid" id="grid">
+        <!-- 通用 -->
+        <section class="group" data-group="通用 应用语言 启动直达 FN Connect 语言 海报首页">
+          <header class="group-head">
+            <span class="group-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h10M4 16h7"/><path d="M17 5v14" opacity=".55"/><circle cx="17" cy="8" r="2.2"/><circle cx="14" cy="16" r="2.2"/></svg></span>
+            <h2>通用</h2><span class="count">3</span>
+          </header>
+          <div class="card">
+            <button class="row" data-keywords="语言 locale language">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>
+              <span class="row-main"><b>应用语言</b><i>界面与弹幕匹配语言</i></span>
+              <span class="row-value">跟随系统</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+            <button class="row" data-keywords="启动 海报 首页 startup poster">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="3"/><path d="m10 8.5 4.5 2.5-4.5 2.5Z" fill="currentColor" stroke="none"/></svg></span>
+              <span class="row-main"><b>启动直达海报首页</b><i>已有登录会话时跳过首页直接沉浸浏览</i></span>
+              <span class="switch" data-switch></span>
+            </button>
+            <button class="row" data-keywords="fn connect 飞牛 重登 登录">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v5h-5"/></svg></span>
+              <span class="row-main"><b>重新登录 FN Connect</b><i>清除网页登录态并退出当前连接</i></span>
+              <span class="row-value on">已连接</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <!-- 外观与播放 -->
+        <section class="group" data-group="外观 播放 主题 mpv 播放器 分屏">
+          <header class="group-head">
+            <span class="group-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="17" height="13" rx="2.5"/><path d="m8.5 9 4 2.5-4 2.5Z" fill="currentColor" stroke="none"/><path d="M21 8v7"/></svg></span>
+            <h2>外观与播放</h2><span class="count">2</span>
+          </header>
+          <div class="card">
+            <button class="row" data-open="theme" data-keywords="主题 theme 配色 外观 深色">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18h1.8a2.2 2.2 0 0 0 1.6-3.7c-.9-1-.2-2.3 1.1-2.3H19a3 3 0 0 0 3-3c0-5-4.5-9-10-9Z"/><circle cx="7.8" cy="10.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="16.2" cy="10.5" r="1.1" fill="currentColor" stroke="none"/></svg></span>
+              <span class="row-main"><b>主题设置</b><i>预设主题 · 强调色 · 动态取色</i></span>
+              <span class="row-value">午夜</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+            <button class="row" data-open="mpv" data-keywords="mpv 播放器 画质 音质 解码 缓存">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="16" height="13" rx="2.5"/><path d="m7.5 9 4 2.5-4 2.5Z" fill="currentColor" stroke="none"/><circle cx="19.5" cy="16.5" r="3.2"/><path d="M19.5 15v1.7l1.2.8" stroke-width="1.6"/></svg></span>
+              <span class="row-main"><b>MPV 播放器设置</b><i>画质预设 · 音频输出 · 缓存与兼容</i></span>
+              <span class="row-value">默认方案</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <!-- 数据与下载 -->
+        <section class="group" data-group="数据 下载 储存 缓存 统计">
+          <header class="group-head">
+            <span class="group-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+            <h2>数据与下载</h2><span class="count">3</span>
+          </header>
+          <div class="card">
+            <button class="row" data-keywords="储存 缓存 storage 清理">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+              <span class="row-main"><b>储存管理</b><i>缓存 · 截图 · 日志与应用数据</i></span>
+              <span class="row-value">缓存 1.2 GB</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+            <button class="row" data-keywords="下载 下载管理 任务">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+              <span class="row-main"><b>下载管理</b><i>已下载与下载中内容管理</i></span>
+              <span class="row-value on">2 个进行中</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+            <button class="row" data-keywords="统计 播放数据 观看历史">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20v-6M12 20V6M19 20v-9"/></svg></span>
+              <span class="row-main"><b>全局播放数据统计</b><i>本地播放统计与历史记录</i></span>
+              <span class="row-value">共 85 部</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <!-- 系统 -->
+        <section class="group" data-group="系统 其他 日志 书签 弹幕 截图">
+          <header class="group-head">
+            <span class="group-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg></span>
+            <h2>系统</h2><span class="count">2</span>
+          </header>
+          <div class="card">
+            <button class="row" data-keywords="其他 书签 弹幕 截图">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg></span>
+              <span class="row-main"><b>其他</b><i>书签 · 弹幕与截图设置</i></span>
+              <span class="row-value">书签 11 · 弹幕开</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+            <button class="row" data-keywords="日志 log 导出">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6Z"/><path d="M15 3v4h4M9 12h6M9 16h6"/></svg></span>
+              <span class="row-main"><b>日志信息</b><i>应用日志与导出</i></span>
+              <span class="row-value">Debug 构建</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div class="empty" id="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8.5 11h5"/></svg>
+        <div>没有找到相关设置项，换个关键词试试</div>
+      </div>
+    </section>
+
+    <!-- ---------- 子页演示：主题设置 ---------- -->
+    <section class="page sub-page" id="page-theme">
+      <div class="crumb">
+        <button class="back-btn" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+        <span class="crumb-path"><b>设置</b><span>/</span>主题设置</span>
+      </div>
+      <div class="sub-head">
+        <h1>主题设置</h1>
+        <p>预设主题、强调色与动态取色 —— 当前：午夜 · 蓝色强调</p>
+      </div>
+      <div class="sub-body">
+        <section class="group">
+          <header class="group-head"><h2>主题方案</h2><span class="head-actions"><button class="ghost-btn">恢复默认</button></span></header>
+          <div class="card seg">
+            <span class="seg-item sel"><span class="swatch" style="background:linear-gradient(135deg,#0c1524,#22447e)"></span>午夜<small>深夜影院感，层次稳重</small></span>
+            <span class="seg-item"><span class="swatch" style="background:linear-gradient(135deg,#0a1626,#0f4c5c)"></span>深海<small>冷调青蓝，安静克制</small></span>
+            <span class="seg-item"><span class="swatch" style="background:linear-gradient(135deg,#101a14,#2f5d3a)"></span>苍郁<small>低饱和墨绿，护眼</small></span>
+            <span class="seg-item"><span class="swatch" style="background:linear-gradient(135deg,#e8e2d4,#c9b99a)"></span>曙光<small>暖纸感浅色，日间阅读</small></span>
+          </div>
+        </section>
+        <section class="group">
+          <header class="group-head"><h2>强调色</h2></header>
+          <div class="card dots">
+            <span class="dot sel" style="background:#3a82f7"></span>
+            <span class="dot" style="background:#22b8cf"></span>
+            <span class="dot" style="background:#34d399"></span>
+            <span class="dot" style="background:#f59e0b"></span>
+            <span class="dot" style="background:#f472b6"></span>
+            <span class="dot" style="background:#a78bfa"></span>
+          </div>
+        </section>
+        <section class="group">
+          <header class="group-head"><h2>动态取色</h2></header>
+          <div class="card">
+            <button class="row" data-keywords="">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg></span>
+              <span class="row-main"><b>按封面动态取色</b><i>详情页主题跟随海报主色</i></span>
+              <span class="switch on" data-switch></span>
+            </button>
+            <button class="row" data-keywords="">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+              <span class="row-main"><b>跟随系统深浅</b><i>系统切换浅色时自动换用曙光主题</i></span>
+              <span class="switch" data-switch></span>
+            </button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ---------- 子页演示：MPV 播放器设置 ---------- -->
+    <section class="page sub-page" id="page-mpv">
+      <div class="crumb">
+        <button class="back-btn" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+        <span class="crumb-path"><b>设置</b><span>/</span>MPV 播放器设置</span>
+      </div>
+      <div class="sub-head">
+        <h1>MPV 播放器设置</h1>
+        <p>画质、音频与缓存 —— 当前方案：默认（兼容性与稳定性优先）</p>
+      </div>
+      <div class="sub-body">
+        <section class="group">
+          <header class="group-head"><h2>画质快速预设</h2><span class="head-actions"><button class="ghost-btn">恢复默认</button></span></header>
+          <div class="card seg">
+            <span class="seg-item sel">默认<small>关闭额外增强，稳定优先</small></span>
+            <span class="seg-item">动画清晰<small>突出线条感，轻锐化</small></span>
+            <span class="seg-item">影院柔和<small>偏影院观感，避免过算</small></span>
+            <span class="seg-item">流畅优先<small>轻量流畅，不带插帧</small></span>
+          </div>
+        </section>
+        <section class="group">
+          <header class="group-head"><h2>渲染与解码</h2></header>
+          <div class="card">
+            <button class="row" data-keywords="">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg></span>
+              <span class="row-main"><b>硬件解码</b><i>优先使用 GPU 解码，故障时可关闭</i></span>
+              <span class="switch on" data-switch></span>
+            </button>
+            <button class="row" data-keywords="">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 8.5 5 3-5 3Z" fill="currentColor" stroke="none"/><rect x="3" y="5" width="18" height="14" rx="3"/></svg></span>
+              <span class="row-main"><b>插帧</b><i>运动补偿补帧，低配设备建议关闭</i></span>
+              <span class="switch" data-switch></span>
+            </button>
+            <button class="row" data-keywords="">
+              <span class="row-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+              <span class="row-main"><b>缓存策略</b><i>拖动响应与播放稳定性的平衡</i></span>
+              <span class="row-value">自动</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+            </button>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toastEl"></div>
+  <button class="notes-fab" id="notesFab">设计说明</button>
+  <div class="notes" id="notes">
+    <h3>设计说明</h3>
+    <ul>
+      <li><b>密度</b>：行高压到 ~58px、图标 34px，一屏可见 8+ 条目，不再是「手机放大」的松散感。</li>
+      <li><b>当前值外露</b>：每行右侧等宽字体显示实时值（跟随系统 / 午夜 / 缓存 1.2GB），不进子页即可掌握配置状态。</li>
+      <li><b>层级</b>：分组标题移出卡片 + 计数徽标；圆角收到 12px、分割线对齐图标栏，减少气泡感。</li>
+      <li><b>区内导航</b>：单击主题 / MPV 体验子页 —— 左侧栏始终保留，内容宽度收敛 880px 居中，返回或 Esc 回首页。</li>
+      <li><b>氛围</b>：延续午夜主题的放映光束与胶片颗粒，悬停时图标「点亮」如放映机开灯。</li>
+    </ul>
+  </div>
+
+<script>
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  /* ---- 首页 ⇄ 子页 切换（演示区内导航：左侧栏不动） ---- */
+  function openPage(name) {
+    $('#page-home').style.display = 'none';
+    $$('.sub-page').forEach(p => p.classList.remove('show'));
+    const target = $('#page-' + name);
+    if (!target) return;
+    target.classList.add('show');
+    $('#content').scrollTop = 0;
+  }
+  function backHome() {
+    $$('.sub-page').forEach(p => p.classList.remove('show'));
+    $('#page-home').style.display = '';
+    $('#content').scrollTop = 0;
+  }
+  $$('[data-open]').forEach(row => row.addEventListener('click', () => openPage(row.dataset.open)));
+  $$('[data-back]').forEach(btn => btn.addEventListener('click', backHome));
+
+  /* ---- 开关 ---- */
+  $$('[data-switch]').forEach(sw => sw.addEventListener('click', e => {
+    e.stopPropagation();
+    sw.classList.toggle('on');
+    toast(sw.classList.contains('on') ? '已开启（演示）' : '已关闭（演示）');
+  }));
+
+  /* ---- 侧栏分屏开关（装饰） ---- */
+  $('#paneSwitch').addEventListener('click', () => $('#paneSwitch').classList.toggle('on'));
+
+  /* ---- 分段选择 / 色点（演示） ---- */
+  $$('.seg').forEach(seg => $$('.seg-item', seg).forEach(item => item.addEventListener('click', () => {
+    $$('.seg-item', seg).forEach(i => i.classList.remove('sel'));
+    item.classList.add('sel');
+  })));
+  $$('.dots').forEach(dots => $$('.dot', dots).forEach(dot => dot.addEventListener('click', () => {
+    $$('.dot', dots).forEach(d => d.classList.remove('sel'));
+    dot.classList.add('sel');
+    toast('强调色已切换（演示）');
+  })));
+
+  /* ---- 搜索过滤 ---- */
+  const input = $('#searchInput');
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    let any = false;
+    $$('#grid .group').forEach(group => {
+      let visible = 0;
+      $$('.row', group).forEach(row => {
+        const hay = (row.textContent + (group.dataset.group || '')).toLowerCase();
+        const hit = !q || hay.includes(q);
+        row.style.display = hit ? '' : 'none';
+        if (hit) visible++;
+      });
+      group.style.display = visible ? '' : 'none';
+      if (visible) any = true;
+    });
+    $('#empty').classList.toggle('show', !any);
+  });
+
+  /* ---- 快捷键 ---- */
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); input.focus(); input.select(); }
+    if (e.key === 'Escape') backHome();
+  });
+
+  /* ---- Toast ---- */
+  let toastTimer;
+  function toast(msg) {
+    const el = $('#toastEl');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+  }
+
+  /* ---- 设计说明 ---- */
+  $('#notesFab').addEventListener('click', () => $('#notes').classList.toggle('show'));
+</script>
+</body>
+</html>

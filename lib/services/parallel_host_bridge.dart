@@ -75,6 +75,14 @@ class ParallelHostBridge {
         hostRole: 'fullscreen',
         preferredPrimaryPaneSide: 'left',
       );
+    } on MissingPluginException {
+      // 桌面端等无宿主实现的环境：按独立窗口兜底，不让异常外溢。
+      return const ParallelHostContext(
+        surface: 'standalone',
+        paneSide: 'fullscreen',
+        hostRole: 'fullscreen',
+        preferredPrimaryPaneSide: 'left',
+      );
     }
   }
 
