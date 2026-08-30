@@ -22,7 +22,7 @@ void main() {
       }
     });
 
-    test('播放入口通过 PlaybackHost 调度原生播放', () {
+    test('四个播放入口统一通过平台宿主选择器调度', () {
       final playbackEntryFiles = <String>[
         'lib/controllers/item_playback_launcher.dart',
         'lib/controllers/tv_season_playback_launcher.dart',
@@ -32,7 +32,13 @@ void main() {
 
       for (final path in playbackEntryFiles) {
         final source = File(path).readAsStringSync();
-        expect(source, contains('NativePlaybackHost'));
+        expect(
+          source,
+          contains(
+            RegExp(r'playbackHostFor\s*\(\s*context\s*,?\s*\)\s*\.launch\s*\('),
+          ),
+        );
+        expect(source, isNot(contains('NativePlaybackHost().launch(')));
         expect(
           source,
           isNot(
@@ -44,17 +50,40 @@ void main() {
       }
     });
 
-    test('详情页仅在原生宿主启动成功时提前返回', () {
+    test('详情页仅在平台宿主启动成功时提前返回', () {
       final source = File('lib/pages/play_detail_page.dart').readAsStringSync();
 
       expect(
         source,
         contains(
-          RegExp(
-            r'if\s*\(\s*await\s+const\s+NativePlaybackHost\(\)\.launch\s*\(',
-          ),
+          RegExp(r'if\s*\(\s*await\s+playbackHostFor\(context\)\.launch\s*\('),
         ),
       );
+    });
+
+    test('Windows 宿主负责初始化桌面内核并推入根 Navigator', () {
+      const selectorPath = 'lib/playback/platform_playback_host.dart';
+      const desktopHostPath = 'lib/desktop/playback/desktop_playback_host.dart';
+      expect(File(selectorPath).existsSync(), isTrue);
+      expect(File(desktopHostPath).existsSync(), isTrue);
+      if (!File(selectorPath).existsSync() ||
+          !File(desktopHostPath).existsSync()) {
+        return;
+      }
+
+      final selector = File(selectorPath).readAsStringSync();
+      final desktopHost = File(desktopHostPath).readAsStringSync();
+      final nativeHost = File(
+        'lib/playback/native_playback_host.dart',
+      ).readAsStringSync();
+
+      expect(selector, contains('DesktopEnvironment.isWindows'));
+      expect(selector, contains('DesktopPlaybackHost(context)'));
+      expect(selector, contains('NativePlaybackHost'));
+      expect(desktopHost, contains('MediaKit.ensureInitialized()'));
+      expect(desktopHost, contains('rootNavigator: true'));
+      expect(desktopHost, contains('DesktopPlaybackScreen('));
+      expect(nativeHost, isNot(contains('media_kit')));
     });
 
     test('能力模型用语义化 getter 区分飞牛遗留族与服务器族', () {

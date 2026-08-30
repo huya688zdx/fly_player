@@ -19,7 +19,7 @@ import '../services/native_reentry_support.dart';
 import '../services/native_player_bridge.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
-import '../playback/native_playback_host.dart';
+import '../playback/platform_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
@@ -34,9 +34,7 @@ import '../services/download_task_service.dart';
 class ItemPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
 
-  /// 桌面端播放入口提示文案。桌面播放内核尚未选型（需兼顾 Linux/macOS，
-  /// 见 design/desktop/IMPLEMENTATION_PLAN.md），MethodChannel 无 handler，
-  /// 入口处直接拦截；暂以常量承载，后续可迁移 l10n。
+  /// 非 Windows 桌面端的播放入口提示文案，暂以常量承载。
   static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
 
   /// 创建一个条目播放拉起器实例。
@@ -54,9 +52,8 @@ class ItemPlaybackLauncher {
     String? audioTrackId,
     String? subtitleTrackId,
   }) async {
-    // 桌面守卫：不发起原生播放（MethodChannel 无 handler 会抛 MissingPluginException），
-    // 走既有轻提示通道并按失败语义返回 null，调用方 UI 不悬挂。
-    if (DesktopEnvironment.isDesktopPlatform) {
+    // Linux/macOS 本轮仍未接入，避免落入 Android MethodChannel。
+    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
       _topTip.show(
         context,
         message: desktopPlaybackBlockedMessage,
@@ -89,11 +86,26 @@ class ItemPlaybackLauncher {
         final source = resolved.source;
 
         if (!context.mounted) return null;
-        // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
-        // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
-        // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
-        // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
-        if (NativePlayerBridge.preferNativePlayerShell) {
+        // 服务器族单集起播需带上本季 episodes，桌面与 Android 宿主共用。
+        final serverEpisodes = isFeiniu
+            ? null
+            : await _serverNativeEpisodes(backend, source);
+        if (!context.mounted) return null;
+
+        // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
+        if (DesktopEnvironment.isWindows) {
+          if (await playbackHostFor(context).launch(
+            source: source,
+            episodes: serverEpisodes,
+            nas: isFeiniu ? nas : null,
+          )) {
+            return null;
+          }
+        } else if (NativePlayerBridge.preferNativePlayerShell) {
+          // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
+          // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
+          // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
+          // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
           NativePlaybackReentry.bind(
             backend: backend,
             nas: nas,
@@ -133,14 +145,8 @@ class ItemPlaybackLauncher {
                     l10n: l10n,
                   ),
           );
-          // 服务器族单集起播：带上本季 episodes，否则原生壳「选集 / 下一集」不亮（壳侧靠
-          // loadArgs.episodes 渲染选集面板 + 算下一集；空则预取被跳过、回调不触发）。
-          // 飞牛单集走 _launchPlayer 自带 episodes，故此处只为服务器族加载。
-          final serverEpisodes = isFeiniu
-              ? null
-              : await _serverNativeEpisodes(backend, source);
           // 服务器族封面由后端给出可直接消费的 URL，不走 NAS 鉴权预取，故只飞牛传 nas。
-          if (await const NativePlaybackHost().launch(
+          if (await playbackHostFor(context).launch(
             source: source,
             episodes: serverEpisodes,
             nas: isFeiniu ? nas : null,

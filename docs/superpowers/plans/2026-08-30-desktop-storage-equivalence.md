@@ -10,6 +10,14 @@
 
 **执行目录:** 全部命令在 worktree `F:/fly_wt/desktop-storage`（分支 `feat/desktop-storage`，基于 `feat/desktop-shell`）执行。
 
+## 当前状态（2026-08-30 复核）
+
+- 实现已落在 `feat/desktop-storage@738cf2b`，工作树干净；计划内的代码任务不再重复施工。
+- 5 个储存管理相关测试文件以及桌面详情页/平台守卫测试共 23 项通过。
+- 全仓 `flutter analyze` 未新增问题，仅保留 1 个既有的 poster browse 未使用 import 警告。
+- 尚未留档的是 Windows 与 Android 的人工验收；因此本计划的代码状态为“完成”，发布验收状态仍为“待人工确认”。
+- 下方历史复选框保留原执行记录格式，不再把未勾选误读为代码尚未实现。
+
 ---
 
 ### Task 1: 环境准备与基线

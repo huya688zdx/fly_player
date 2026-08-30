@@ -17,7 +17,7 @@ import '../services/download_task_service.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
-import '../playback/native_playback_host.dart';
+import '../playback/platform_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
@@ -28,9 +28,7 @@ import '../utils/detail_top_tip.dart';
 class TvSeasonPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
 
-  /// 桌面端播放入口提示文案（与 ItemPlaybackLauncher.desktopPlaybackBlockedMessage
-  /// 一致）。桌面播放内核尚未选型，MethodChannel 无 handler，入口处直接拦截；
-  /// 暂以常量承载，后续可迁移 l10n。
+  /// 非 Windows 桌面端的播放入口提示文案，暂以常量承载。
   static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
 
   /// 创建一个季度播放拉起器实例。
@@ -44,9 +42,8 @@ class TvSeasonPlaybackLauncher {
     String seriesGuid = '',
     List<Map<String, dynamic>>? episodes,
   }) async {
-    // 桌面守卫：不发起原生播放（MethodChannel 无 handler 会抛 MissingPluginException），
-    // 走既有轻提示通道并按失败语义返回 null，调用方 UI 不悬挂。
-    if (DesktopEnvironment.isDesktopPlatform) {
+    // Linux/macOS 本轮仍未接入，避免落入 Android MethodChannel。
+    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
       _topTip.show(
         context,
         message: desktopPlaybackBlockedMessage,
@@ -82,7 +79,7 @@ class TvSeasonPlaybackLauncher {
         // 界面不卡）。maybeLaunch 内部判断开关 + 预取弹幕；episodes 透传供原生壳「选集」。
         // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。服务器族封面由后端给出可直接
         // 消费的 URL，不走 NAS 鉴权预取，故不传 nas。
-        if (await const NativePlaybackHost().launch(
+        if (await playbackHostFor(context).launch(
           source: source,
           episodes: effectiveEpisodes,
           nas: isFeiniu ? provider : null,
