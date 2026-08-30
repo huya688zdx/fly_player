@@ -8,6 +8,7 @@ import '../api/feiniu_api.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_sheet_controller.dart';
+import '../desktop/desktop_environment.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
 import '../models/download_task_record.dart';
@@ -27,7 +28,7 @@ import '../media_backend/media_image_ref.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
-import '../playback/native_playback_host.dart';
+import '../playback/platform_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../playback/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
@@ -2391,6 +2392,23 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       action: () async {
         if (!mounted) return;
         final l10n = AppLocalizations.of(context);
+        if (DesktopEnvironment.isDesktopPlatform &&
+            !DesktopEnvironment.isWindows) {
+          _showTopTip(
+            ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
+            context.appColors.warning,
+          );
+          return;
+        }
+        // Windows 必须在 Android 反向通道、弹幕预取和回前台标记之前分流。
+        if (DesktopEnvironment.isWindows) {
+          if (await playbackHostFor(context).launch(source: source)) {
+            return;
+          }
+          if (!mounted) return;
+          _showTopTip(l10n.detailPlayInfoFailed, context.appColors.danger);
+          return;
+        }
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑）。
         // 直接 launch + return，不触碰 _playerRouteActive/try-finally 状态机。
         final danmakuSettings = await const DanmakuSettingsStore().load();
@@ -2481,9 +2499,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 },
           );
           // 标记已启动原生壳 + 初始播放条目;回前台时一次性刷新进度/跟到新集(性能门控)。
+          if (!mounted) return;
           _nativePlayerLaunched = true;
           _lastNativePlayedItemGuid = source.itemGuid.trim();
-          if (await const NativePlaybackHost().launch(
+          if (await playbackHostFor(context).launch(
             source: source,
             danmakuFilePath: danmakuFile,
             episodes: episodes.isEmpty ? null : episodes,
