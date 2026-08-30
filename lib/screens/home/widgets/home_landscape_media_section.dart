@@ -75,8 +75,8 @@ class HomeLandscapeMediaSection extends StatelessWidget {
                 : (position) => secondaryTap(item, position),
           ),
           minItemWidth: 176,
-          maxItemWidth: 210,
-          idealItemWidth: 210,
+          maxItemWidth: 188,
+          idealItemWidth: 188,
           itemAspectRatio: 16 / 10,
           textLinesHeight: 44,
           gap: 12,
@@ -167,7 +167,7 @@ class _LandscapeCard extends StatelessWidget {
       onSecondaryTapUp: secondaryHandler == null
           ? null
           : (details) => secondaryHandler(details.globalPosition),
-      child: HoverLift(radius: 14, child: card),
+      child: HoverLift(child: card),
     );
   }
 }

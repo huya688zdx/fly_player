@@ -129,6 +129,10 @@ Future<void> hoverAt(WidgetTester tester, Finder finder) async {
 
 void main() {
   group('MediaLayoutProfile 桌面密度档', () {
+    tearDown(() {
+      DesktopEnvironment.debugOverridePlatform = null;
+    });
+
     testWidgets('1400px 视口命中桌面档且数值符合桌面公式', (tester) async {
       final profile = await profileAt(tester, 1400);
 
@@ -136,8 +140,9 @@ void main() {
       expect(profile.pageHorizontalPadding, 28.0);
       expect(profile.sectionGap, 18.0);
       expect(profile.itemGap, 12.0);
-      expect(profile.categoryGridColumns, 7);
-      expect(profile.homePosterCardWidth, closeTo(1400 / 7.8, .001));
+      // 桌面密度档：列数按目标卡距 165 连续取整——(1400-56)/165 ≈ 8.1 → 8 列。
+      expect(profile.categoryGridColumns, 8);
+      expect(profile.homePosterCardWidth, closeTo(1400 / 8.8, .001));
       // 固定物理解码/请求宽度常量不得随桌面档变化。
       expect(profile.homePosterDecodeWidth, 352);
       expect(profile.homeCatalogDecodeWidth, 440);
@@ -146,26 +151,48 @@ void main() {
       expect(profile.homeContinueRequestWidth, 520);
     });
 
-    testWidgets('1700px 视口启用 8 列宽档', (tester) async {
+    testWidgets('1700px 视口命中 10 列档', (tester) async {
       final profile = await profileAt(tester, 1700);
 
       expect(profile.isDesktopTier, isTrue);
-      expect(profile.categoryGridColumns, 8);
+      expect(profile.categoryGridColumns, 10);
       expect(profile.pageHorizontalPadding, 28.0);
       expect(profile.sectionGap, 18.0);
       expect(profile.itemGap, 12.0);
-      // 1700 / 8.8 = 193.2 超上界，收到 190。
-      expect(profile.homePosterCardWidth, 190.0);
+      // 1700 / 10.8 ≈ 157，未触上界，不收 clamp。
+      expect(profile.homePosterCardWidth, closeTo(1700 / 10.8, .001));
     });
 
-    testWidgets('1600px 视口恰好命中 8 列宽档', (tester) async {
+    testWidgets('1600px 视口恰好命中 9 列档', (tester) async {
       final profile = await profileAt(tester, 1600);
 
-      expect(profile.categoryGridColumns, 8);
-      expect(profile.homePosterCardWidth, closeTo(1600 / 8.8, .001));
+      expect(profile.categoryGridColumns, 9);
+      expect(profile.homePosterCardWidth, closeTo(1600 / 9.8, .001));
     });
 
-    testWidgets('800px 视口保持旧公式（防回归）', (tester) async {
+    testWidgets('2200px 视口命中 13 列封顶档，单卡不再随宽度放大', (tester) async {
+      final profile = await profileAt(tester, 2200);
+
+      expect(profile.categoryGridColumns, 13);
+      // 桌面档单卡网格宽度封顶 200：超宽窗口靠加列保持密度。
+      expect(profile.categoryGridCardWidth, lessThanOrEqualTo(200.0));
+      expect(profile.homePosterCardWidth, closeTo(2200 / 13.8, .001));
+    });
+
+    testWidgets('桌面小窗口与全屏同一密度：卡片占比不随窗口变小而变大', (tester) async {
+      // 950（低于侧栏断点、无 Shell）与 1134（内容区）都按 165 卡距取列，
+      // 卡宽占比与全屏档一致，修「小窗口卡片反而更大」。
+      final narrow = await profileAt(tester, 950);
+      expect(narrow.categoryGridColumns, 5);
+      expect(narrow.homePosterCardWidth, closeTo(950 / 5.8, .001));
+
+      final mid = await profileAt(tester, 1134);
+      expect(mid.categoryGridColumns, 7);
+      expect(mid.homePosterCardWidth, closeTo(1134 / 7.8, .001));
+    });
+
+    testWidgets('800px 视口保持旧公式（防回归，注入非桌面平台）', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = false;
       final profile = await profileAt(tester, 800);
 
       expect(profile.isDesktopTier, isFalse);
@@ -177,7 +204,8 @@ void main() {
       expect(profile.homePosterCardWidth, lessThanOrEqualTo(176.0));
     });
 
-    testWidgets('360px 手机档保持旧公式（防回归）', (tester) async {
+    testWidgets('360px 手机档保持旧公式（防回归，注入非桌面平台）', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = false;
       final profile = await profileAt(tester, 360);
 
       expect(profile.isDesktopTier, isFalse);
