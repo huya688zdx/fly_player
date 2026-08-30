@@ -7,11 +7,12 @@ import 'package:provider/provider.dart';
 
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/local_download_source_resolver.dart';
+import '../desktop/desktop_environment.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
-import '../playback/native_playback_host.dart';
+import '../playback/platform_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
@@ -766,6 +767,14 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final actionKey = 'download_group_play:${widget.groupId.trim()}';
+    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+      _topTip.show(
+        context,
+        message: ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
+        color: colors.warning,
+      );
+      return;
+    }
     if (_playLaunchingRecordId != null ||
         AsyncActionGuard.isRunning(actionKey)) {
       _topTip.show(
@@ -802,6 +811,21 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           final nativeEpisodes = await _nativeEpisodesPayload(provider, source);
 
           if (!mounted) return;
+          // Windows 先进入桌面宿主，不注册 Android 反向 MethodChannel。
+          if (DesktopEnvironment.isWindows) {
+            if (await playbackHostFor(
+              context,
+            ).launch(source: source, episodes: nativeEpisodes)) {
+              return;
+            }
+            if (!mounted) return;
+            _topTip.show(
+              context,
+              message: l10n.commonOperationFailedRetryLater,
+              color: colors.danger,
+            );
+            return;
+          }
           final backend = context.read<MediaBackendProvider>().backend;
           // 下载管理入口也走统一反向通道：已下载集优先本地，未下载集有网时走 NAS。
           // 同一份 episodes 随每次换源回传 + 作选集面板兜底；经统一 binder 按后端接线（下载为
@@ -837,11 +861,9 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   episodes: nativeEpisodes.isEmpty ? null : nativeEpisodes,
                 ),
           );
-          if (await const NativePlaybackHost().launch(
-            source: source,
-            episodes: nativeEpisodes,
-            nas: provider,
-          )) {
+          if (await playbackHostFor(
+            context,
+          ).launch(source: source, episodes: nativeEpisodes, nas: provider)) {
             return;
           }
           if (!mounted) return;

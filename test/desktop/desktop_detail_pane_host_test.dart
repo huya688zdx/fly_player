@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fly_player/controllers/item_playback_launcher.dart';
-import 'package:fly_player/controllers/tv_season_playback_launcher.dart';
 import 'package:fly_player/desktop/desktop.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/playback/playback_source.dart';
@@ -275,84 +272,6 @@ void main() {
       expect(await state.backInPane(), isFalse);
       expect(await state.closePane(), isTrue);
       expect(controller.enabled, isFalse);
-    });
-  });
-
-  group('播放入口桌面守卫', () {
-    Future<(List<MethodCall>, BuildContext)> pumpGuardHost(
-      WidgetTester tester,
-    ) async {
-      final calls = <MethodCall>[];
-      const nativeChannel = MethodChannel('fly_player/native_player');
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        nativeChannel,
-        (call) async {
-          calls.add(call);
-          return null;
-        },
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          nativeChannel,
-          null,
-        ),
-      );
-      BuildContext? captured;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppThemeBuilder.build(AppThemePreset.midnight),
-          home: Scaffold(
-            body: Builder(
-              builder: (context) {
-                captured = context;
-                return const SizedBox.shrink();
-              },
-            ),
-          ),
-        ),
-      );
-      return (calls, captured!);
-    }
-
-    testWidgets('ItemPlaybackLauncher.open 桌面端提示并返回 null，不触发 MethodChannel', (
-      tester,
-    ) async {
-      // 测试机（Windows VM）上 DesktopEnvironment.isDesktopPlatform 为 true。
-      expect(DesktopEnvironment.isDesktopPlatform, isTrue);
-      final (calls, context) = await pumpGuardHost(tester);
-
-      final result = await const ItemPlaybackLauncher().open(
-        context,
-        itemGuid: 'guard-item',
-      );
-      await tester.pumpAndSettle();
-
-      expect(result, isNull);
-      expect(calls, isEmpty);
-      expect(
-        find.text(ItemPlaybackLauncher.desktopPlaybackBlockedMessage),
-        findsOneWidget,
-      );
-      await _flushTimers(tester);
-    });
-
-    testWidgets('TvSeasonPlaybackLauncher.open 同样被桌面守卫拦截', (tester) async {
-      final (calls, context) = await pumpGuardHost(tester);
-
-      final result = await const TvSeasonPlaybackLauncher().open(
-        context,
-        itemGuid: 'guard-ep',
-        seriesTitle: '剧名',
-      );
-      await tester.pumpAndSettle();
-
-      expect(result, isNull);
-      expect(calls, isEmpty);
-      expect(
-        find.text(TvSeasonPlaybackLauncher.desktopPlaybackBlockedMessage),
-        findsOneWidget,
-      );
-      await _flushTimers(tester);
     });
   });
 }
