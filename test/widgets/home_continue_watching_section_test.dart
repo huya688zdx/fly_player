@@ -600,7 +600,7 @@ void main() {
       ),
     );
 
-    await tester.pumpWidget(section(336, 1));
+    await tester.pumpWidget(section(300, 1));
     final narrowCardWidth = tester
         .getSize(find.byKey(const ValueKey<String>('continue-card-stable-0')))
         .width;

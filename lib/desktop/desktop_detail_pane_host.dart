@@ -50,6 +50,7 @@ class DesktopDetailPaneHost extends StatefulWidget {
     super.key,
     this.splitController,
     this.onGenerateRoute,
+    this.onHostReady,
   });
 
   /// 共享的分屏控制器（正式接线时由桌面 Shell 传入）。
@@ -59,6 +60,10 @@ class DesktopDetailPaneHost extends StatefulWidget {
   /// 自定义路由工厂（测试注入极简映射用）；缺省使用
   /// `buildDetailRouteChild` 的统一映射。
   final RouteFactory? onGenerateRoute;
+
+  /// 宿主就绪 / 卸载回调：Shell 借此把 controller 注入全局 pane 代理，
+  /// 让 pane 槽位之外的入口（侧栏 / 首页）也能往右栏打开二级页。
+  final ValueChanged<PlayerPaneHostController?>? onHostReady;
 
   @override
   State<DesktopDetailPaneHost> createState() => DesktopDetailPaneHostState();
@@ -89,6 +94,7 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
     super.initState();
     _ownsSplitController = false;
     _adoptSplitController(widget.splitController);
+    widget.onHostReady?.call(this);
   }
 
   @override
@@ -114,6 +120,7 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
 
   @override
   void dispose() {
+    widget.onHostReady?.call(null);
     if (_ownsSplitController) {
       _splitController.dispose();
     }

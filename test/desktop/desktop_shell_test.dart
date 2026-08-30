@@ -19,6 +19,7 @@ import 'package:fly_player/providers/parallel_window_settings_provider.dart';
 import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/services/download_task_service.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/ui/player_pane_host_scope.dart';
 
 const MethodChannel _embeddingChannel = MethodChannel('fly_player/embedding');
 
@@ -79,7 +80,7 @@ void main() {
   });
 
   group('DesktopShell', () {
-    testWidgets('1400px：侧栏可见、tab 可切换、次级入口推入 root navigator', (tester) async {
+    testWidgets('1400px：侧栏可见、tab 可切换、搜索在内容区打开（侧栏常驻）', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -95,6 +96,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.byType(DesktopSideBar), findsOneWidget);
+      // 分屏默认关闭（测试设置 enabled=false）：右栏宿主不出现。
+      expect(find.byType(DesktopDetailPaneHost), findsNothing);
       IndexedStack indexedStackOf() =>
           tester.widget<IndexedStack>(find.byType(IndexedStack));
       expect(indexedStackOf().index, 0);
@@ -107,13 +110,57 @@ void main() {
       await tester.pump();
       expect(indexedStackOf().index, 0);
 
+      // 侧栏搜索：在影视内容区内嵌导航打开，侧栏常驻、不推 root 全屏。
       await tester.tap(find.byIcon(Icons.search_rounded));
       await tester.pumpAndSettle();
-      expect(observer.pushedNames, contains('/screen/search'));
-      expect(find.text('搜索页'), findsOneWidget);
+      expect(observer.pushedNames, isNot(contains('/screen/search')));
+      expect(find.text('content:/screen/search'), findsOneWidget);
+
+      // 大屏浏览保持 root 全屏路由。
+      await tester.tap(find.byIcon(Icons.connected_tv));
+      await tester.pumpAndSettle();
+      expect(observer.pushedNames, contains('/screen/poster-browse'));
+      expect(find.text('大屏浏览页'), findsOneWidget);
     });
 
-    testWidgets('分屏开关：右栏详情宿主出现、比例 chip 可调、关闭后恢复', (tester) async {
+    testWidgets('分屏关闭：pane 代理把路由回退到内容区导航器（不整窗覆盖）', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final observer = _RecordingNavigatorObserver();
+
+      await tester.pumpWidget(
+        _desktopApp(
+          observer: observer,
+          pages: const <Widget>[Text('影视内容页'), Text('设置内容页')],
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // 分屏关闭时全局代理仍可达（首页 / 媒体库条目点击的入口）。
+      final proxy = PlayerPaneHostScope.maybeOf(
+        tester.element(find.byType(DesktopSideBar)),
+      );
+      expect(proxy, isNotNull);
+
+      // 详情 / 二级页路由：推进内容区内嵌导航器，root 不推全屏。
+      await proxy!.openRoute('/screen/favorites');
+      await tester.pumpAndSettle();
+      expect(find.text('content:/screen/favorites'), findsOneWidget);
+      expect(observer.pushedNames, isNot(contains('/screen/favorites')));
+
+      // 设置类路由：切到设置页签，不往内容区塞整套 MainNavigation。
+      await proxy.openRoute('/screen/settings/appearance');
+      await tester.pump();
+      expect(
+        tester.widget<IndexedStack>(find.byType(IndexedStack)).index,
+        1,
+      );
+      expect(find.text('content:/screen/settings/appearance'), findsNothing);
+    });
+
+    testWidgets('分屏开关在设置：provider 开 → 右栏宿主出现，比例可调，关 → 恢复', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -124,12 +171,15 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      // 开关仅在 ≥ splitMinWidth 时显示，初始关闭。
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
-      await tester.tap(find.text('浏览 | 详情'));
-      await tester.pump();
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
-      // 分屏详情宿主已接线（feat/desktop-detail-pane）：右栏渲染真实宿主而非占位。
+      // 分屏默认关闭（测试设置 enabled=false）：无右栏宿主、侧栏也无开关。
+      expect(find.byType(DesktopDetailPaneHost), findsNothing);
+      final context = tester.element(find.byType(DesktopSideBar));
+      final provider = context.read<ParallelWindowSettingsProvider>();
+      expect(provider.enabled, isFalse);
+
+      // 经设置（provider）开启分屏：右栏宿主出现。
+      await provider.setEnabled(true);
+      await tester.pumpAndSettle();
       expect(find.byType(DesktopDetailPaneHost), findsOneWidget);
 
       final controller = tester
@@ -148,13 +198,14 @@ void main() {
           .toList();
       expect(flexes, containsAll(<int>[35, 65]));
 
+      // 右栏关闭按钮：经控制器回写 provider，设置与分屏状态一致。
       await tester.tap(
         find.byKey(const ValueKey<String>('desktop_pane_close')),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(controller.enabled, isFalse);
+      expect(provider.enabled, isFalse);
       expect(find.byType(DesktopDetailPaneHost), findsNothing);
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     });
 
     testWidgets('快捷键：数字 1/2 切 tab，Ctrl+K 打开搜索', (tester) async {
@@ -186,8 +237,8 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
-      expect(observer.pushedNames, contains('/screen/search'));
-      expect(find.text('搜索页'), findsOneWidget);
+      expect(observer.pushedNames, isNot(contains('/screen/search')));
+      expect(find.text('content:/screen/search'), findsOneWidget);
     });
 
     testWidgets('文本框聚焦时数字键不劫持切 tab，Ctrl+K 仍可用', (tester) async {
@@ -227,28 +278,52 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
-      expect(observer.pushedNames, contains('/screen/search'));
+      expect(find.text('content:/screen/search'), findsOneWidget);
     });
   });
 }
 
 Widget _desktopApp({NavigatorObserver? observer, List<Widget>? pages}) {
-  return MaterialApp(
-    locale: const Locale('zh', 'CN'),
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    supportedLocales: AppLocalizations.supportedLocales,
-    theme: AppThemeBuilder.build(AppThemePreset.midnight),
-    navigatorObservers: <NavigatorObserver>[if (observer != null) observer],
-    routes: <String, WidgetBuilder>{
-      '/screen/poster-browse': (_) =>
-          const Scaffold(body: Center(child: Text('大屏浏览页'))),
-      '/screen/search': (_) => const Scaffold(body: Center(child: Text('搜索页'))),
-      '/screen/favorites': (_) =>
-          const Scaffold(body: Center(child: Text('收藏页'))),
-      '/screen/downloads': (_) =>
-          const Scaffold(body: Center(child: Text('下载页'))),
-    },
-    home: DesktopShell(pages: pages),
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<ParallelWindowSettingsProvider>(
+        create: (_) => ParallelWindowSettingsProvider(),
+      ),
+    ],
+    child: MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      theme: AppThemeBuilder.build(AppThemePreset.midnight),
+      navigatorObservers: <NavigatorObserver>[if (observer != null) observer],
+      routes: <String, WidgetBuilder>{
+        '/screen/poster-browse': (_) =>
+            const Scaffold(body: Center(child: Text('大屏浏览页'))),
+        '/screen/search': (_) =>
+            const Scaffold(body: Center(child: Text('搜索页'))),
+        '/screen/favorites': (_) =>
+            const Scaffold(body: Center(child: Text('收藏页'))),
+        '/screen/downloads': (_) =>
+            const Scaffold(body: Center(child: Text('下载页'))),
+      },
+      home: DesktopShell(
+        pages: pages,
+        // 分屏右栏 / 内容区均注入轻量替身路由，避免构建真实二级页
+        // （需完整 provider 栈）。
+        paneRouteFactory: (settings) => _stubPaneRoute(settings, 'pane'),
+        contentRouteFactory: (settings) => _stubPaneRoute(settings, 'content'),
+      ),
+    ),
+  );
+}
+
+PageRouteBuilder<void> _stubPaneRoute(RouteSettings settings, String prefix) {
+  return PageRouteBuilder<void>(
+    settings: settings,
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+    pageBuilder: (_, __, ___) =>
+        Scaffold(body: Center(child: Text('$prefix:${settings.name}'))),
   );
 }
 
