@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/screens/home/widgets/home_landscape_media_section.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/ui/media_placeholder.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
 
 const landscapeImage = MediaImageRequest(
@@ -127,7 +128,7 @@ void main() {
     expect(longPressed, 'episode-1');
   });
 
-  testWidgets('缺图显示剧集占位图标且空数据隐藏', (tester) async {
+  testWidgets('缺图显示统一媒体占位且空数据隐藏', (tester) async {
     await tester.pumpWidget(
       testApp(
         HomeLandscapeMediaSection(
@@ -146,20 +147,8 @@ void main() {
       ),
     );
 
-    expect(find.byIcon(Icons.live_tv_outlined), findsOneWidget);
+    expect(find.byType(MediaPlaceholder), findsOneWidget);
     expect(find.byType(Image), findsNothing);
-    final placeholder = tester.widget<ColoredBox>(
-      find
-          .ancestor(
-            of: find.byIcon(Icons.live_tv_outlined),
-            matching: find.byType(ColoredBox),
-          )
-          .first,
-    );
-    final themeColors = AppThemeBuilder.build(
-      AppThemePreset.midnight,
-    ).extension<AppThemeColors>()!;
-    expect(placeholder.color, themeColors.surfaceStrong);
 
     await tester.pumpWidget(
       testApp(
