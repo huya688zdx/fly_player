@@ -53,6 +53,12 @@ class DesktopPointerPosition {
   static void _unregister(VoidCallback validate) {
     _listeners.remove(validate);
   }
+
+  /// 测试专用：清空跨测试残留的静态状态（指针位置）。
+  @visibleForTesting
+  static void debugResetForTest() {
+    _position = null;
+  }
 }
 
 /// 指针位置采集器：挂在窗口根部，透传所有指针事件（translucent 不参与命中）。
@@ -65,12 +71,9 @@ class DesktopPointerPositionTracker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Listener(
       behavior: HitTestBehavior.translucent,
-      onPointerHover: (event) =>
-          DesktopPointerPosition._update(event.position),
-      onPointerMove: (event) =>
-          DesktopPointerPosition._update(event.position),
-      onPointerDown: (event) =>
-          DesktopPointerPosition._update(event.position),
+      onPointerHover: (event) => DesktopPointerPosition._update(event.position),
+      onPointerMove: (event) => DesktopPointerPosition._update(event.position),
+      onPointerDown: (event) => DesktopPointerPosition._update(event.position),
       onPointerSignal: (event) {
         // 滚轮滚动不移动指针，但内容会在静止指针下方位移——同样触发重校验。
         if (event is PointerScrollEvent) {
@@ -82,8 +85,13 @@ class DesktopPointerPositionTracker extends StatelessWidget {
   }
 }
 
-/// 带自愈校验的悬停容器：MouseRegion enter/exit + 指针事件 / 滚轮 / 帧回调
-/// 三路重校验，指针不在本组件范围内立即熄灭（修「多行同时卡在高亮」）。
+/// 带自愈校验的悬停容器：悬停态 = 「指针真实位置在本组件（可经
+/// [hoverBoundsInsets] 外扩）全局矩形内」。指针事件 / 滚轮 / 帧回调三路
+/// 触发重校验，指针位置一旦不在范围内立即熄灭（修「多行同时卡在高亮」），
+/// 在范围内则维持（修「悬停后闪一下就被误清」——如贴边滚动按钮的伸出区）。
+///
+/// [hoverBoundsInsets] 把校验边界向外扩：供内容溢出组件边界的场景
+/// （HoverScrollArrows 的按钮延伸过页面留白贴到窗口边）。
 ///
 /// [onTap]/[onSecondaryTapUp] 任一非空时挂 opaque GestureDetector 承接点击；
 /// 都为空则只做悬停视觉（内层控件自行处理点击，如海报卡的 InkWell）。
@@ -94,12 +102,16 @@ class DesktopHoverRegion extends StatefulWidget {
     this.onTap,
     this.onSecondaryTapUp,
     this.cursor = SystemMouseCursors.click,
+    this.hoverBoundsInsets = EdgeInsets.zero,
   });
 
   final Widget Function(BuildContext context, bool hovering) builder;
   final VoidCallback? onTap;
   final void Function(Offset globalPosition)? onSecondaryTapUp;
   final MouseCursor cursor;
+
+  /// 校验边界外扩量（四周）。
+  final EdgeInsets hoverBoundsInsets;
 
   @override
   State<DesktopHoverRegion> createState() => _DesktopHoverRegionState();
@@ -120,25 +132,37 @@ class _DesktopHoverRegionState extends State<DesktopHoverRegion> {
     super.dispose();
   }
 
+  /// enter 事件：指针刚进入（必在边界内）；指针位置未知时也立即点亮。
   void _setHovering(bool value) {
     if (_hovering == value) return;
     setState(() => _hovering = value);
   }
 
-  /// 指针真实位置若已知且不在本组件的全局矩形内，熄灭悬停。
-  /// 被注册表在指针事件、滚轮、每个帧回调时调用；无变化时零 setState。
+  /// 指针真实位置已知时，悬停态与「指针是否在（外扩后的）全局矩形内」
+  /// 对齐；未知时维持现状（信任 MouseRegion 事件）。被注册表在指针事件、
+  /// 滚轮、每个帧回调以及 exit 事件时调用；无变化时零 setState。
   void _validateHover() {
-    if (!mounted || !_hovering) return;
+    if (!mounted) return;
     final pointer = DesktopPointerPosition.instance;
     if (pointer == null) return;
     final renderObject = context.findRenderObject();
     if (renderObject is RenderBox &&
         renderObject.attached &&
         renderObject.hasSize) {
-      final bounds =
+      final raw =
           renderObject.localToGlobal(Offset.zero) & renderObject.size;
-      if (!bounds.contains(pointer)) {
-        setState(() => _hovering = false);
+      final insets = widget.hoverBoundsInsets;
+      final bounds = insets == EdgeInsets.zero
+          ? raw
+          : Rect.fromLTRB(
+              raw.left - insets.left,
+              raw.top - insets.top,
+              raw.right + insets.right,
+              raw.bottom + insets.bottom,
+            );
+      final hovering = bounds.contains(pointer);
+      if (hovering != _hovering) {
+        setState(() => _hovering = hovering);
       }
     }
   }
@@ -149,7 +173,15 @@ class _DesktopHoverRegionState extends State<DesktopHoverRegion> {
     Widget child = MouseRegion(
       cursor: widget.cursor,
       onEnter: (_) => _setHovering(true),
-      onExit: (_) => _setHovering(false),
+      onExit: (_) {
+        // 指针位置未知（未挂 tracker 的环境）时信任 exit 直接熄灭；
+        // 已知时交由校验裁决——指针在外扩区内（贴边按钮伸出区）则维持。
+        if (DesktopPointerPosition.instance == null) {
+          _setHovering(false);
+          return;
+        }
+        _validateHover();
+      },
       child: widget.builder(context, _hovering),
     );
     if (hasTap) {
