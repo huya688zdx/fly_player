@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../playback/settings/mpv_settings_l10n.dart';
 import '../playback/settings/mpv_settings_store.dart';
+import '../desktop/desktop.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
+import '../ui/layout_adaptive.dart';
 import '../ui/app_transitions.dart';
 import '../ui/mpv_audio_eq_advanced_panel.dart';
 import '../ui/secondary_host_navigation.dart';
@@ -838,29 +840,34 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                     _CardBlock(
                       child: SizedBox(
                         height: 152,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: picturePresets.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (context, index) {
-                            final preset = picturePresets[index];
-                            final selected =
-                                _activeSavedPreset(
-                                      SavedMpvPresetKind.picture,
-                                    ) ==
-                                    null &&
-                                _activeBuiltInPicturePreset()?.id == preset.id;
-                            return _PresetChip(
-                              selected: selected,
-                              title: preset.label,
-                              subtitle: preset.description,
-                              onTap: () => _applyBuiltInPreset(
-                                SavedMpvPresetKind.picture,
-                                preset,
-                              ),
-                            );
-                          },
+                        child: HoverScrollRow(
+                          enabled: MediaLayoutProfile.of(context).isDesktopTier,
+                          builder: (controller) => ListView.separated(
+                            controller: controller,
+                            scrollDirection: Axis.horizontal,
+                            itemCount: picturePresets.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (context, index) {
+                              final preset = picturePresets[index];
+                              final selected =
+                                  _activeSavedPreset(
+                                        SavedMpvPresetKind.picture,
+                                      ) ==
+                                      null &&
+                                  _activeBuiltInPicturePreset()?.id ==
+                                      preset.id;
+                              return _PresetChip(
+                                selected: selected,
+                                title: preset.label,
+                                subtitle: preset.description,
+                                onTap: () => _applyBuiltInPreset(
+                                  SavedMpvPresetKind.picture,
+                                  preset,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -868,31 +875,35 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                     if (_savedPicturePresets.isNotEmpty)
                       SizedBox(
                         height: 166,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: _savedPicturePresets.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (context, index) {
-                            final preset = _savedPicturePresets[index];
-                            return _SavedMpvPresetCard(
-                              preset: preset,
-                              selected:
-                                  _activeSavedPreset(
-                                    SavedMpvPresetKind.picture,
-                                  )?.id ==
-                                  preset.id,
-                              onApply: () => _applySavedPreset(preset),
-                              onRename: () => _renameSavedPreset(
-                                SavedMpvPresetKind.picture,
-                                preset,
-                              ),
-                              onDelete: () => _deleteSavedPreset(
-                                SavedMpvPresetKind.picture,
-                                preset,
-                              ),
-                            );
-                          },
+                        child: HoverScrollRow(
+                          enabled: MediaLayoutProfile.of(context).isDesktopTier,
+                          builder: (controller) => ListView.separated(
+                            controller: controller,
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _savedPicturePresets.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (context, index) {
+                              final preset = _savedPicturePresets[index];
+                              return _SavedMpvPresetCard(
+                                preset: preset,
+                                selected:
+                                    _activeSavedPreset(
+                                      SavedMpvPresetKind.picture,
+                                    )?.id ==
+                                    preset.id,
+                                onApply: () => _applySavedPreset(preset),
+                                onRename: () => _renameSavedPreset(
+                                  SavedMpvPresetKind.picture,
+                                  preset,
+                                ),
+                                onDelete: () => _deleteSavedPreset(
+                                  SavedMpvPresetKind.picture,
+                                  preset,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       )
                     else
@@ -906,27 +917,33 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                     _CardBlock(
                       child: SizedBox(
                         height: 152,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: audioPresets.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (context, index) {
-                            final preset = audioPresets[index];
-                            final selected =
-                                _activeSavedPreset(SavedMpvPresetKind.audio) ==
-                                    null &&
-                                _activeBuiltInAudioPreset()?.id == preset.id;
-                            return _PresetChip(
-                              selected: selected,
-                              title: preset.label,
-                              subtitle: preset.description,
-                              onTap: () => _applyBuiltInPreset(
-                                SavedMpvPresetKind.audio,
-                                preset,
-                              ),
-                            );
-                          },
+                        child: HoverScrollRow(
+                          enabled: MediaLayoutProfile.of(context).isDesktopTier,
+                          builder: (controller) => ListView.separated(
+                            controller: controller,
+                            scrollDirection: Axis.horizontal,
+                            itemCount: audioPresets.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (context, index) {
+                              final preset = audioPresets[index];
+                              final selected =
+                                  _activeSavedPreset(
+                                        SavedMpvPresetKind.audio,
+                                      ) ==
+                                      null &&
+                                  _activeBuiltInAudioPreset()?.id == preset.id;
+                              return _PresetChip(
+                                selected: selected,
+                                title: preset.label,
+                                subtitle: preset.description,
+                                onTap: () => _applyBuiltInPreset(
+                                  SavedMpvPresetKind.audio,
+                                  preset,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -934,31 +951,35 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                     if (_savedAudioPresets.isNotEmpty)
                       SizedBox(
                         height: 166,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: _savedAudioPresets.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (context, index) {
-                            final preset = _savedAudioPresets[index];
-                            return _SavedMpvPresetCard(
-                              preset: preset,
-                              selected:
-                                  _activeSavedPreset(
-                                    SavedMpvPresetKind.audio,
-                                  )?.id ==
-                                  preset.id,
-                              onApply: () => _applySavedPreset(preset),
-                              onRename: () => _renameSavedPreset(
-                                SavedMpvPresetKind.audio,
-                                preset,
-                              ),
-                              onDelete: () => _deleteSavedPreset(
-                                SavedMpvPresetKind.audio,
-                                preset,
-                              ),
-                            );
-                          },
+                        child: HoverScrollRow(
+                          enabled: MediaLayoutProfile.of(context).isDesktopTier,
+                          builder: (controller) => ListView.separated(
+                            controller: controller,
+                            scrollDirection: Axis.horizontal,
+                            itemCount: _savedAudioPresets.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (context, index) {
+                              final preset = _savedAudioPresets[index];
+                              return _SavedMpvPresetCard(
+                                preset: preset,
+                                selected:
+                                    _activeSavedPreset(
+                                      SavedMpvPresetKind.audio,
+                                    )?.id ==
+                                    preset.id,
+                                onApply: () => _applySavedPreset(preset),
+                                onRename: () => _renameSavedPreset(
+                                  SavedMpvPresetKind.audio,
+                                  preset,
+                                ),
+                                onDelete: () => _deleteSavedPreset(
+                                  SavedMpvPresetKind.audio,
+                                  preset,
+                                ),
+                              );
+                            },
+                          ),
                         ),
                       )
                     else

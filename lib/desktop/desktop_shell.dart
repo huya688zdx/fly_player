@@ -1,14 +1,24 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/media_catalog.dart';
+import '../models/media_item.dart';
+import '../models/play_info.dart';
+import '../playback/playback_source.dart';
+import '../providers/media_backend_provider.dart';
+import '../providers/parallel_window_settings_provider.dart';
 import '../screens/app_settings_screen.dart';
 import '../screens/media_list_screen.dart';
+import '../services/play_stats/play_stats_models.dart';
 import '../theme/app_theme.dart';
+import '../ui/player_pane_host_scope.dart';
 import 'desktop_detail_pane_host.dart';
+import 'desktop_hover_region.dart';
 import 'desktop_side_bar.dart';
 import 'desktop_split_controller.dart';
 
@@ -19,7 +29,13 @@ import 'desktop_split_controller.dart';
 /// [DesktopSplitController]；开启分屏后右栏由 [DesktopDetailPaneHost]
 /// 承载（经 [DesktopSplitController.paneHostBuilder] 接线）。
 class DesktopShell extends StatefulWidget {
-  const DesktopShell({super.key, this.initialTab = 0, this.pages});
+  const DesktopShell({
+    super.key,
+    this.initialTab = 0,
+    this.pages,
+    this.paneRouteFactory,
+    required this.contentRouteFactory,
+  });
 
   /// 初始主导航页签序号（0=影视、1=设置，与 MainPrimaryTab.tabIndex 对齐）。
   final int initialTab;
@@ -29,19 +45,198 @@ class DesktopShell extends StatefulWidget {
   /// 测试可注入轻量替身避免拉起完整 provider 栈。
   final List<Widget>? pages;
 
+  /// 分屏右栏路由工厂（测试注入轻量替身用）；缺省用宿主统一映射。
+  final RouteFactory? paneRouteFactory;
+
+  /// 影视页签内容区内嵌导航的路由工厂：侧栏 / 首页的二级页
+  /// （媒体库、分类、搜索、收藏、下载）在此导航器打开，左侧栏常驻。
+  /// 生产环境传 App 根路由表（main.buildAppRoute 同源的 `_buildRoute`）。
+  final RouteFactory contentRouteFactory;
+
   @override
   State<DesktopShell> createState() => _DesktopShellState();
 }
 
 class _DesktopShellState extends State<DesktopShell> {
   // 接线分屏详情宿主（feat/desktop-detail-pane）：开启分屏后右栏由
-  // DesktopDetailPaneHost 承载，共享同一 DesktopSplitController。
+  // DesktopDetailPaneHost 承载。开关在「设置 → 分屏窗口」（与安卓一致），
+  // 壳层监听 ParallelWindowSettingsProvider 同步 enabled。
   late final DesktopSplitController _splitController = DesktopSplitController()
     ..paneHostBuilder = _buildPaneHost;
+
+  /// 全局 pane host 代理：宿主就绪后注入，让首页等
+  /// pane 槽位之外的入口也能把详情打开到右栏；分屏未开启时回退内容区。
+  /// late 初始化以便引用实例方法 [_openPaneRouteFallback]。
+  late final _DesktopPaneHostProxy _paneHostProxy = _DesktopPaneHostProxy(
+    openFallback: _openPaneRouteFallback,
+  );
+
+  /// 影视页签内容区内嵌导航：侧栏二级页在此打开，侧栏永远可见。
+  final GlobalKey<NavigatorState> _contentNavKey = GlobalKey<NavigatorState>();
+
+  ParallelWindowSettingsProvider? _parallelSettings;
+
+  late final FocusNode _shellFocusNode = FocusNode(
+    debugLabel: 'desktop-shell-shortcuts',
+  );
+
+  /// 侧栏「媒体库 / 分类」分组数据（经 MediaBackend 公共接口拉取，失败静默降级）。
+  List<MediaCatalog> _sidebarCatalogs = const <MediaCatalog>[];
+  int _sidebarTotal = 0;
+  int _sidebarMovie = 0;
+  int _sidebarTv = 0;
+  int _sidebarFavorite = 0;
+  int _sidebarOther = 0;
+  bool _sidebarDataLoaded = false;
+
   late int _selectedTab = widget.initialTab;
 
-  Widget _buildPaneHost(BuildContext context) =>
-      DesktopDetailPaneHost(splitController: _splitController);
+  Widget _buildPaneHost(BuildContext context) => DesktopDetailPaneHost(
+    splitController: _splitController,
+    onGenerateRoute: widget.paneRouteFactory,
+    onHostReady: (controller) => _paneHostProxy.attach(controller),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    try {
+      _parallelSettings = context.read<ParallelWindowSettingsProvider>();
+    } catch (_) {
+      // 测试环境可能未注入：分屏保持默认关闭。
+    }
+    // 初始同步 + 监听设置变化（双向：设置页开关 ↔ 分屏控制器，
+    // 右栏关闭按钮经控制器回写设置）。
+    final parallel = _parallelSettings;
+    if (parallel != null) {
+      _splitController.enabled = parallel.enabled;
+      parallel.addListener(_onParallelSettingsChanged);
+    }
+    _splitController.addListener(_onSplitControllerChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSidebarCatalogData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _shellFocusNode.dispose();
+    _parallelSettings?.removeListener(_onParallelSettingsChanged);
+    _splitController.removeListener(_onSplitControllerChanged);
+    _splitController.dispose();
+    super.dispose();
+  }
+
+  void _onParallelSettingsChanged() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final parallel = _parallelSettings;
+      if (parallel != null && _splitController.enabled != parallel.enabled) {
+        _splitController.enabled = parallel.enabled;
+      }
+    });
+  }
+
+  void _onSplitControllerChanged() {
+    final parallel = _parallelSettings;
+    if (parallel != null && parallel.enabled != _splitController.enabled) {
+      unawaited(parallel.setEnabled(_splitController.enabled));
+    }
+  }
+
+  Future<void> _loadSidebarCatalogData() async {
+    if (_sidebarDataLoaded) return;
+    try {
+      final backend = context.read<MediaBackendProvider>().backend;
+      final results = await Future.wait(<Future<Object?>>[
+        backend.getCatalogs(),
+        backend.getHomeSummary(),
+      ]);
+      if (!mounted) return;
+      final summary = results[1] as Map<String, dynamic>;
+      setState(() {
+        _sidebarCatalogs = results[0] as List<MediaCatalog>;
+        _sidebarTotal = _summaryIntOf(summary, 'total');
+        _sidebarMovie = _summaryIntOf(summary, 'movie');
+        _sidebarTv = _summaryIntOf(summary, 'tv');
+        _sidebarFavorite = _summaryIntOf(summary, 'favorite');
+        _sidebarOther = _summaryIntOf(summary, 'other');
+        _sidebarDataLoaded = true;
+      });
+    } catch (_) {
+      // 测试环境 / 未连接 / 后端不支持：侧栏分组静默降级为无计数。
+    }
+  }
+
+  static int _summaryIntOf(Map<String, dynamic> summary, String key) {
+    final value = summary[key];
+    if (value is num) return value.toInt();
+    return int.tryParse('$value') ?? 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 侧栏二级页：全部推入影视页签内容区内嵌导航（侧栏常驻，与分屏无关）。
+  // ---------------------------------------------------------------------------
+
+  void _openContentRoute(String routeName) {
+    final navigator = _contentNavKey.currentState;
+    if (navigator == null) return;
+    unawaited(navigator.pushNamed(routeName).catchError((Object _) => null));
+  }
+
+  /// 分屏关闭（或右栏拒收）时 EmbeddedDetailLauncher / AdaptiveDetailNavigator
+  /// 的统一回退：详情与二级页推进影视页签内容区内嵌导航器，侧栏常驻、
+  /// 不整窗覆盖。设置类路由例外——切到设置页签（内容区里不再嵌整套
+  /// MainNavigation），与安卓经 MainHostBridge 切主 tab 的行为对齐。
+  Future<bool> _openPaneRouteFallback(String routeName) async {
+    final navigator = _contentNavKey.currentState;
+    if (navigator == null) return false;
+    final path = Uri.tryParse(routeName)?.path ?? '';
+    if (path == '/screen/settings' || path.startsWith('/screen/settings/')) {
+      _selectTab(1);
+      return true;
+    }
+    unawaited(navigator.pushNamed(routeName).catchError((Object _) => null));
+    return true;
+  }
+
+  void _openSidebarCategory(
+    BuildContext context, {
+    required String name,
+    List<String>? typeTags,
+  }) {
+    _openContentRoute(
+      Uri(
+        path: '/screen/category',
+        queryParameters: <String, String>{
+          'category': jsonEncode(MediaItem(id: '', name: name).toJson()),
+          if (typeTags != null && typeTags.isNotEmpty)
+            'types': jsonEncode(typeTags),
+        },
+      ).toString(),
+    );
+  }
+
+  void _openSidebarCatalog(BuildContext context, MediaCatalog catalog) {
+    _openContentRoute(
+      Uri(
+        path: '/screen/category',
+        queryParameters: <String, String>{
+          'category': jsonEncode(
+            MediaItem(
+              id: catalog.id,
+              name: catalog.title,
+              type: catalog.type,
+              path: catalog.primaryImage.url,
+              posters: catalog.posters
+                  .map((image) => image.url)
+                  .toList(growable: false),
+            ).toJson(),
+          ),
+        },
+      ).toString(),
+    );
+  }
 
   @override
   void didUpdateWidget(covariant DesktopShell oldWidget) {
@@ -56,22 +251,27 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
-  @override
-  void dispose() {
-    _splitController.dispose();
-    super.dispose();
-  }
-
   void _selectTab(int index) {
     if (index < 0 || index > 1 || index == _selectedTab) return;
     setState(() => _selectedTab = index);
+    // IndexedStack 切页后焦点可能落在被隐藏的内容导航子树中失效，
+    // 主动把焦点拉回 Shell 快捷键域，保证数字键 / Esc 连续可用。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _shellFocusNode.requestFocus();
+    });
   }
 
   void _openSearch() {
-    Navigator.of(context, rootNavigator: true).pushNamed('/screen/search');
+    _openContentRoute('/screen/search');
   }
 
   Future<void> _escape() async {
+    // 优先退出内容区二级页（侧栏常驻），栈底再回退 root（如全屏大屏浏览）。
+    final content = _contentNavKey.currentState;
+    if (content != null && content.canPop()) {
+      content.pop();
+      return;
+    }
     await Navigator.of(context, rootNavigator: true).maybePop();
   }
 
@@ -86,8 +286,6 @@ class _DesktopShellState extends State<DesktopShell> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final pages =
-        widget.pages ?? const <Widget>[MediaListScreen(), AppSettingsScreen()];
     final dividerColor = colors.borderSubtle;
 
     return ChangeNotifierProvider<DesktopSplitController>.value(
@@ -119,59 +317,136 @@ class _DesktopShellState extends State<DesktopShell> {
           },
           // autofocus 兜底：Shell 内无可聚焦控件时也保证按键事件进入本快捷键域。
           child: Focus(
+            focusNode: _shellFocusNode,
             autofocus: true,
             skipTraversal: true,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                DesktopSideBar(
-                  selectedTabIndex: _selectedTab,
-                  onTabSelected: _selectTab,
-                  splitController: _splitController,
-                ),
-                VerticalDivider(width: 1, thickness: 1, color: dividerColor),
-                Expanded(
-                  child: ListenableBuilder(
-                    listenable: _splitController,
-                    builder: (context, _) {
-                      if (!_splitController.enabled) {
-                        return IndexedStack(
-                          index: _selectedTab,
-                          children: pages,
-                        );
-                      }
-                      // paneFraction 为详情栏（右栏）宽度占比，按 flex 换算。
-                      final paneFlex = (_splitController.paneFraction * 100)
-                          .round();
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          Expanded(
-                            flex: 100 - paneFlex,
-                            child: IndexedStack(
-                              index: _selectedTab,
-                              children: pages,
+            // 全局 pane host 作用域：覆盖侧栏与浏览区，
+            // 详情页可在右栏打开（分屏由设置页控制）。
+            child: PlayerPaneHostScope(
+              controller: _paneHostProxy,
+              // 壳层自绘主题底色：侧栏与各页签间隙不再透出窗口黑底，
+              // 亮色主题下侧栏随之变白（此前深色主题恰好看不出差异）。
+              child: ColoredBox(
+                color: colors.backgroundBase,
+                // 指针位置采集：DesktopHoverRegion 悬停自愈校验依赖真实指针位置
+                // （指针静止而内容移动时 MouseRegion exit 不派发）。
+                child: DesktopPointerPositionTracker(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      DesktopSideBar(
+                        selectedTabIndex: _selectedTab,
+                        onTabSelected: _selectTab,
+                        catalogs: _sidebarCatalogs,
+                        favoriteCount: _sidebarFavorite,
+                        totalItems: _sidebarTotal,
+                        movieCount: _sidebarMovie,
+                        tvCount: _sidebarTv,
+                        otherCount: _sidebarOther,
+                        onOpenSearch: (context) =>
+                            _openContentRoute('/screen/search'),
+                        onOpenFavorites: (context) =>
+                            _openContentRoute('/screen/favorites'),
+                        onOpenDownloads: (context) =>
+                            _openContentRoute('/screen/downloads'),
+                        onOpenCatalog: (context, catalog) =>
+                            _openSidebarCatalog(context, catalog),
+                        onOpenAllItems: (context) => _openSidebarCategory(
+                          context,
+                          name: AppLocalizations.of(context).mediaAllItemsTitle,
+                        ),
+                        onOpenByType: (context, name, typeTags) =>
+                            _openSidebarCategory(
+                              context,
+                              name: name,
+                              typeTags: typeTags,
                             ),
-                          ),
-                          VerticalDivider(
-                            width: 1,
-                            thickness: 1,
-                            color: dividerColor,
-                          ),
-                          Expanded(
-                            flex: paneFlex,
-                            child: _buildDetailPane(context),
-                          ),
-                        ],
-                      );
-                    },
+                      ),
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        color: dividerColor,
+                      ),
+                      Expanded(
+                        child: ListenableBuilder(
+                          listenable: _splitController,
+                          builder: (context, _) {
+                            if (!_splitController.enabled) {
+                              return _buildTabStack();
+                            }
+                            // paneFraction 为详情栏（右栏）宽度占比，按 flex 换算。
+                            final paneFlex =
+                                (_splitController.paneFraction * 100).round();
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                Expanded(
+                                  flex: 100 - paneFlex,
+                                  child: _buildTabStack(),
+                                ),
+                                VerticalDivider(
+                                  width: 1,
+                                  thickness: 1,
+                                  color: dividerColor,
+                                ),
+                                Expanded(
+                                  flex: paneFlex,
+                                  child: _buildDetailPane(context),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 主导航两页（影视内容区 + 设置）的保活切换容器。
+  /// 影视页签包一层内嵌导航：侧栏二级页在此打开，侧栏永远可见。
+  Widget _buildTabStack() {
+    final pages =
+        widget.pages ?? const <Widget>[MediaListScreen(), AppSettingsScreen()];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 内容区实际宽度 ≠ 整窗宽度（左侧栏与分屏右栏都在挤占）：在这里按
+        // 真实可用尺寸覆写 MediaQuery，页内 MediaLayoutProfile / 桌面断点
+        // 才会按渲染宽度取密度；否则海报卡按整窗宽算列数与图高，
+        // 在窄区里被压窄拉高、比例失真。
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(
+            size: Size(constraints.maxWidth, constraints.maxHeight),
+          ),
+          child: IndexedStack(
+            index: _selectedTab,
+            children: <Widget>[
+              Navigator(
+                key: _contentNavKey,
+                onGenerateInitialRoutes: (navigator, initialRoute) =>
+                    <Route<dynamic>>[
+                      PageRouteBuilder<void>(
+                        settings: const RouteSettings(name: '/content-home'),
+                        transitionDuration: Duration.zero,
+                        reverseTransitionDuration: Duration.zero,
+                        pageBuilder: (_, __, ___) => pages.first,
+                      ),
+                    ],
+                onGenerateRoute: widget.contentRouteFactory,
+                onUnknownRoute: widget.contentRouteFactory,
+              ),
+              if (pages.length > 1) pages[1] else const SizedBox.shrink(),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -180,6 +455,53 @@ class _DesktopShellState extends State<DesktopShell> {
     if (hostBuilder != null) return hostBuilder(context);
     return _DesktopPanePlaceholder(controller: _splitController);
   }
+}
+
+/// [PlayerPaneHostController] 的空安全代理：宿主就绪（分屏开启）时转发右栏；
+/// 未挂载或右栏拒收时经 [openFallback] 回退到影视页签内容区内嵌导航器，
+/// 让首页入口 / 媒体库条目在无分屏时也能打开（侧栏常驻，不整窗覆盖）。
+/// backInPane / closePane / replacePlayerSource 不回退——它们是右栏专属操作。
+class _DesktopPaneHostProxy implements PlayerPaneHostController {
+  _DesktopPaneHostProxy({required this.openFallback});
+
+  /// 分屏右栏不可用时的路由回退（由 Shell 注入，指向内容区导航器）。
+  final Future<bool> Function(String routeName) openFallback;
+
+  PlayerPaneHostController? _inner;
+
+  void attach(PlayerPaneHostController? controller) {
+    _inner = controller;
+  }
+
+  @override
+  Future<bool> openRoute(String routeName) async {
+    final inner = _inner;
+    if (inner != null && await inner.openRoute(routeName)) {
+      return true;
+    }
+    return openFallback(routeName);
+  }
+
+  @override
+  Future<bool> backInPane() async => _inner?.backInPane() ?? false;
+
+  @override
+  Future<bool> closePane() async => _inner?.closePane() ?? false;
+
+  @override
+  Future<bool> replacePlayerSource({
+    required String title,
+    required MpvMediaSource source,
+    PlayInfoData? initialPlayInfo,
+    PlayStartSource startSource = PlayStartSource.manual,
+  }) async =>
+      _inner?.replacePlayerSource(
+        title: title,
+        source: source,
+        initialPlayInfo: initialPlayInfo,
+        startSource: startSource,
+      ) ??
+      false;
 }
 
 class _DesktopOpenSearchIntent extends Intent {
