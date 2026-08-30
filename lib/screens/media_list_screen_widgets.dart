@@ -739,64 +739,79 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     }
 
     final maxCount = min(items.length, 12);
+    // 桌面档：悬浮左右箭头 + HoverLift 放大头部（视口留头 + 关闭裁剪）。
+    final desktopRow = layout.isDesktopTier;
     return SizedBox(
-      height: layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context)),
-      child: ListView.separated(
-        padding: EdgeInsets.zero,
-        scrollDirection: Axis.horizontal,
-        cacheExtent: _rowCacheExtent(layout.homePosterCardWidth),
-        itemCount: maxCount,
-        separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          final urls = _posterCandidates(
-            baseUrl,
-            item.poster,
-            width: layout.homePosterRequestWidth,
-          );
-          final rating = double.tryParse(item.voteAverage);
-          final resolutions = item.resolutions
-              .map(_resolutionLabel)
-              .where((value) => value.isNotEmpty)
-              .toList();
+      height:
+          layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context)) +
+          (desktopRow ? 16.0 : 0.0),
+      child: HoverScrollRow(
+        enabled: desktopRow,
+        // 按钮延伸过页面水平留白、贴住内容区边缘（渐变从窗口边起）。
+        edgePadding: layout.pageHorizontalPadding,
+        builder: (controller) => ListView.separated(
+          controller: controller,
+          padding: desktopRow
+              ? const EdgeInsets.symmetric(vertical: 8)
+              : EdgeInsets.zero,
+          clipBehavior: desktopRow ? Clip.none : Clip.hardEdge,
+          scrollDirection: Axis.horizontal,
+          cacheExtent: _rowCacheExtent(layout.homePosterCardWidth),
+          itemCount: maxCount,
+          separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            final urls = _posterCandidates(
+              baseUrl,
+              item.poster,
+              width: layout.homePosterRequestWidth,
+            );
+            final rating = double.tryParse(item.voteAverage);
+            final resolutions = item.resolutions
+                .map(_resolutionLabel)
+                .where((value) => value.isNotEmpty)
+                .toList();
 
-          return SizedBox(
-            width: layout.homePosterCardWidth,
-            child: _withDesktopCardInteractions(
-              layout: layout,
-              onSecondaryTapUp: (position) => unawaited(
-                _showItemContextMenu(item: item, globalPosition: position),
-              ),
-              child: MediaPosterCard(
-                images: preferPreservedImageRequest(
-                  preserved: _itemImageRequests[item.guid],
-                  fallbackUrls: urls,
-                  fallbackToken: token,
-                  fallbackAccessCode: accessCode,
-                  fallbackBaseUrl: baseUrl,
+            return SizedBox(
+              width: layout.homePosterCardWidth,
+              child: _withDesktopCardInteractions(
+                layout: layout,
+                onSecondaryTapUp: (position) => unawaited(
+                  _showItemContextMenu(item: item, globalPosition: position),
                 ),
-                title: item.displayTitle,
-                subtitle: _cardSubtitle(item),
-                rating: rating,
-                resolutions: resolutions,
-                watched: item.watched == 1,
-                imageHeight: layout.homePosterImageHeight,
-                decodeWidth: layout.homePosterDecodeWidth,
-                titleFontSize: layout.homePosterTitleFontSize,
-                subtitleFontSize: layout.homePosterSubtitleFontSize,
-                titleFontWeight: FontWeight.w500,
-                subtitleFontWeight: FontWeight.w400,
-                imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
-                heroTag: '${heroTagPrefix}_${item.guid}_$index',
-                onTap: () => _openItemDetail(
-                  item,
+                child: MediaPosterCard(
+                  images: preferPreservedImageRequest(
+                    preserved: _itemImageRequests[item.guid],
+                    fallbackUrls: urls,
+                    fallbackToken: token,
+                    fallbackAccessCode: accessCode,
+                    fallbackBaseUrl: baseUrl,
+                  ),
+                  title: item.displayTitle,
+                  subtitle: _cardSubtitle(item),
+                  rating: rating,
+                  resolutions: resolutions,
+                  watched: item.watched == 1,
+                  imageHeight: layout.homePosterImageHeight,
+                  decodeWidth: layout.homePosterDecodeWidth,
+                  titleFontSize: layout.homePosterTitleFontSize,
+                  subtitleFontSize: layout.homePosterSubtitleFontSize,
+                  titleFontWeight: FontWeight.w500,
+                  subtitleFontWeight: FontWeight.w400,
+                  imageFit: _isEpisodeItem(item)
+                      ? BoxFit.contain
+                      : BoxFit.cover,
                   heroTag: '${heroTagPrefix}_${item.guid}_$index',
+                  onTap: () => _openItemDetail(
+                    item,
+                    heroTag: '${heroTagPrefix}_${item.guid}_$index',
+                  ),
+                  onLongPress: () => _showPosterItemActions(item),
                 ),
-                onLongPress: () => _showPosterItemActions(item),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
