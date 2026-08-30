@@ -167,7 +167,7 @@ class _LandscapeCard extends StatelessWidget {
       onSecondaryTapUp: secondaryHandler == null
           ? null
           : (details) => secondaryHandler(details.globalPosition),
-      child: HoverLift(radius: 14, child: card),
+      child: HoverLift(child: card),
     );
   }
 }
