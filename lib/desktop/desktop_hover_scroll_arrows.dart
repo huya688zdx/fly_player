@@ -180,9 +180,9 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
   }
 }
 
-/// 边缘滚动按钮：整行高、贴内容区边缘的主题色药丸条带 + 居中箭头。
-/// 用主题底色而非黑色渐变——黑色渐变压在浅色主题的留白/浅色内容上
-/// 会显成一条怪异的灰黑带；主题底色在 7 套预设与亮暗模式下都成立。
+/// 边缘滚动按钮：整行高、贴内容区边缘的命中区 + 居中箭头。
+/// 浅色主题保持透明，只用箭头颜色反馈悬停；深色主题保留主题色条带，
+/// 避免浅色内容边缘出现突兀的灰黑实心块。
 /// 不可见时淡出并忽略指针。
 class _ScrollArrow extends StatefulWidget {
   const _ScrollArrow({
@@ -209,6 +209,7 @@ class _ScrollArrowState extends State<_ScrollArrow> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     // 外缘贴窗口边不倒角，内缘倒角——读作一个贴边的滚动控件而不是色带。
     final radius = BorderRadius.horizontal(
       left: widget.alignLeft
@@ -233,21 +234,33 @@ class _ScrollArrowState extends State<_ScrollArrow> {
             curve: Curves.easeOutCubic,
             foregroundDecoration: BoxDecoration(
               borderRadius: radius,
-              border: Border.all(color: colors.borderSubtle),
+              border: Border.all(
+                color: isLight ? Colors.transparent : colors.borderSubtle,
+              ),
             ),
             decoration: BoxDecoration(
-              color: _hovering ? colors.selectionSoft : colors.surfaceStrong,
+              color: isLight
+                  ? Colors.transparent
+                  : (_hovering ? colors.selectionSoft : colors.surfaceStrong),
               borderRadius: radius,
-              boxShadow: <BoxShadow>[
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: .18),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              boxShadow: isLight
+                  ? const <BoxShadow>[]
+                  : <BoxShadow>[
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: .18),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
             ),
             child: Center(
-              child: Icon(widget.icon, size: 26, color: colors.textPrimary),
+              child: Icon(
+                widget.icon,
+                size: 26,
+                color: isLight && _hovering
+                    ? colors.selection
+                    : colors.textPrimary,
+              ),
             ),
           ),
         ),

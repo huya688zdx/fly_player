@@ -283,19 +283,25 @@ class _DesktopSideBarRow extends StatelessWidget {
         onTap: onTap,
         builder: (context, hovering) {
           final colors = context.appColors;
+          final isLight = Theme.of(context).brightness == Brightness.light;
           final selected = this.selected;
           final foreground = selected
               ? colors.textPrimary
+              : hovering && isLight
+              ? colors.selection
               : colors.textSecondary;
           return AnimatedContainer(
-            duration: DesktopTokens.hoverDuration,
+            // 背景即时切换，避免快速跨项时多行退场动画同时残留。
+            duration: Duration.zero,
             curve: Curves.easeOutCubic,
             height: DesktopTokens.sidebarItemHeight,
             decoration: BoxDecoration(
               color: selected
                   ? colors.selectionSoft
                   : hovering
-                  ? colors.surface
+                  ? (isLight
+                        ? colors.selection.withValues(alpha: 0.08)
+                        : colors.surface)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(
                 DesktopTokens.sidebarItemRadius,
