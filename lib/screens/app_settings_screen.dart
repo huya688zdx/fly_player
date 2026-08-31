@@ -1948,9 +1948,10 @@ class _DesktopSettingsRow extends StatelessWidget {
       onTap: data.onTap,
       builder: (context, hovering) {
         final colors = context.appColors;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          color: hovering ? colors.surfaceSubtle : Colors.transparent,
+        return Container(
+          color: hovering
+              ? colors.selection.withValues(alpha: 0.08)
+              : Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(
             children: <Widget>[

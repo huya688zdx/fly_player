@@ -81,4 +81,46 @@ void main() {
     expect(_opacityOf(tester, Icons.chevron_right), 0);
     expect(_opacityOf(tester, Icons.chevron_left), 1);
   });
+
+  testWidgets('浅色主题悬浮箭头仅显示图标，条带与阴影保持透明', (tester) async {
+    tester.view.physicalSize = const Size(800, 200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppThemeBuilder.build(AppThemePreset.latte),
+        home: Scaffold(
+          body: SizedBox(
+            height: 120,
+            width: 800,
+            child: HoverScrollArrows(
+              scrollController: controller,
+              child: ListView.builder(
+                controller: controller,
+                scrollDirection: Axis.horizontal,
+                itemCount: 20,
+                itemBuilder: (context, index) => const SizedBox(width: 100),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _hoverAt(tester, find.byType(ListView));
+
+    final arrowContainer = tester.widget<AnimatedContainer>(
+      find.ancestor(
+        of: find.byIcon(Icons.chevron_right),
+        matching: find.byType(AnimatedContainer),
+      ),
+    );
+    final decoration = arrowContainer.decoration! as BoxDecoration;
+    expect(decoration.color, Colors.transparent);
+    expect(decoration.boxShadow, isEmpty);
+  });
 }

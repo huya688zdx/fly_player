@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -140,6 +141,42 @@ void main() {
       await tester.pumpAndSettle();
       expect(observer.pushedNames, contains('/screen/poster-browse'));
       expect(find.text('大屏浏览页'), findsOneWidget);
+    });
+
+    testWidgets('浅色主题侧栏快速掠过时仅当前项显示半透明强调色', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        _desktopApp(
+          themePreset: AppThemePreset.latte,
+          pages: const <Widget>[Text('影视内容页'), Text('设置内容页')],
+        ),
+      );
+      await tester.pump();
+
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await gesture.addPointer(location: const Offset(400, 400));
+      addTearDown(gesture.removePointer);
+      await gesture.moveTo(tester.getCenter(find.text('搜索')));
+      await tester.pump();
+      await gesture.moveTo(tester.getCenter(find.text('收藏')));
+      await tester.pump();
+
+      Color rowColor(String label) {
+        final row = tester.widget<AnimatedContainer>(
+          find.ancestor(
+            of: find.text(label),
+            matching: find.byType(AnimatedContainer),
+          ),
+        );
+        return (row.decoration! as BoxDecoration).color!;
+      }
+
+      expect(rowColor('搜索'), Colors.transparent);
+      final colors = tester.element(find.text('收藏')).appColors;
+      expect(rowColor('收藏'), colors.selection.withValues(alpha: 0.08));
     });
 
     testWidgets('分屏关闭：pane 代理把路由回退到内容区导航器（不整窗覆盖）', (tester) async {
@@ -299,7 +336,11 @@ void main() {
   });
 }
 
-Widget _desktopApp({NavigatorObserver? observer, List<Widget>? pages}) {
+Widget _desktopApp({
+  NavigatorObserver? observer,
+  List<Widget>? pages,
+  AppThemePreset themePreset = AppThemePreset.midnight,
+}) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider<ParallelWindowSettingsProvider>(
@@ -310,7 +351,7 @@ Widget _desktopApp({NavigatorObserver? observer, List<Widget>? pages}) {
       locale: const Locale('zh', 'CN'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      theme: AppThemeBuilder.build(AppThemePreset.midnight),
+      theme: AppThemeBuilder.build(themePreset),
       navigatorObservers: <NavigatorObserver>[if (observer != null) observer],
       routes: <String, WidgetBuilder>{
         '/screen/poster-browse': (_) =>

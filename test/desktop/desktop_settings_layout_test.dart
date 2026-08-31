@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,7 @@ import 'package:fly_player/providers/parallel_window_settings_provider.dart';
 import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/screens/app_settings_screen.dart';
 import 'package:fly_player/screens/theme_settings_screen.dart';
+import 'package:fly_player/theme/app_theme.dart';
 
 void main() {
   const embeddingChannel = MethodChannel('fly_player/embedding');
@@ -152,6 +154,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ThemeSettingsScreen), findsNothing);
     expect(find.text('通用'), findsOneWidget);
+  });
+
+  testWidgets('桌面设置行快速掠过时仅当前项显示半透明强调色', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await pumpSettings(tester, size: const Size(1400, 900));
+
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: const Offset(0, 0));
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(tester.getCenter(find.text('MPV播放器设置')));
+    await tester.pump();
+    await gesture.moveTo(tester.getCenter(find.text('主题设置')));
+    await tester.pump();
+
+    Color rowColor(String title) {
+      final surface = find.ancestor(
+        of: find.text(title),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Container &&
+              widget.padding ==
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        ),
+      );
+      expect(surface, findsOneWidget);
+      return tester.widget<Container>(surface).color!;
+    }
+
+    expect(rowColor('MPV播放器设置'), Colors.transparent);
+    final colors = tester.element(find.text('主题设置')).appColors;
+    expect(rowColor('主题设置'), colors.selection.withValues(alpha: 0.08));
   });
 
   testWidgets('窄视口回落既有单栏列表：无分组网格', (tester) async {
