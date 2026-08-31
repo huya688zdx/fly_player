@@ -116,6 +116,25 @@ void main() {
       expect(observer.pushedNames, isNot(contains('/screen/search')));
       expect(find.text('content:/screen/search'), findsOneWidget);
 
+      // 侧栏目标是直接入口，不应把搜索、收藏等页面一层层叠在一起。
+      await tester.tap(find.text('收藏'));
+      await tester.pumpAndSettle();
+      final contentNavigator = Navigator.of(
+        tester.element(find.text('content:/screen/favorites')),
+      );
+      contentNavigator.pop();
+      await tester.pumpAndSettle();
+      expect(find.text('影视内容页'), findsOneWidget);
+      expect(find.text('content:/screen/search'), findsNothing);
+
+      // 即使影视页签已选中，再点一次仍应清空内容区栈、直达首页。
+      await tester.tap(find.byIcon(Icons.search_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('影视'));
+      await tester.pumpAndSettle();
+      expect(find.text('影视内容页'), findsOneWidget);
+      expect(find.text('content:/screen/search'), findsNothing);
+
       // 大屏浏览保持 root 全屏路由。
       await tester.tap(find.byIcon(Icons.connected_tv));
       await tester.pumpAndSettle();

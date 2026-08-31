@@ -181,7 +181,17 @@ class _DesktopShellState extends State<DesktopShell> {
   void _openContentRoute(String routeName) {
     final navigator = _contentNavKey.currentState;
     if (navigator == null) return;
-    unawaited(navigator.pushNamed(routeName).catchError((Object _) => null));
+    _selectTab(0);
+    unawaited(
+      navigator
+          .pushNamedAndRemoveUntil(routeName, (route) => route.isFirst)
+          .catchError((Object _) => null),
+    );
+  }
+
+  void _openContentHome() {
+    _contentNavKey.currentState?.popUntil((route) => route.isFirst);
+    _selectTab(0);
   }
 
   /// 分屏关闭（或右栏拒收）时 EmbeddedDetailLauncher / AdaptiveDetailNavigator
@@ -336,7 +346,13 @@ class _DesktopShellState extends State<DesktopShell> {
                     children: <Widget>[
                       DesktopSideBar(
                         selectedTabIndex: _selectedTab,
-                        onTabSelected: _selectTab,
+                        onTabSelected: (index) {
+                          if (index == 0) {
+                            _openContentHome();
+                          } else {
+                            _selectTab(index);
+                          }
+                        },
                         catalogs: _sidebarCatalogs,
                         favoriteCount: _sidebarFavorite,
                         totalItems: _sidebarTotal,
