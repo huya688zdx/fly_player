@@ -17,6 +17,7 @@ import '../screens/media_list_screen.dart';
 import '../services/play_stats/play_stats_models.dart';
 import '../theme/app_theme.dart';
 import '../ui/player_pane_host_scope.dart';
+import '../widgets/app_atmospheric_background.dart';
 import 'desktop_detail_pane_host.dart';
 import 'desktop_hover_region.dart';
 import 'desktop_side_bar.dart';
@@ -334,10 +335,17 @@ class _DesktopShellState extends State<DesktopShell> {
             // 详情页可在右栏打开（分屏由设置页控制）。
             child: PlayerPaneHostScope(
               controller: _paneHostProxy,
-              // 壳层自绘主题底色：侧栏与各页签间隙不再透出窗口黑底，
-              // 亮色主题下侧栏随之变白（此前深色主题恰好看不出差异）。
-              child: ColoredBox(
-                color: colors.backgroundBase,
+              // 壳层氛围底色：动态取色的三层光晕铺满整窗（侧栏+内容区），
+              // 侧栏不再是与右侧晕染断开的纯色块。首页/收藏/分类等内容页
+              // 自带同源晕染会整面覆盖内容区（视觉不变），其余原本垫
+              // backgroundBase 的区域（侧栏、设置页等）现在与右侧同染；
+              // 光晕中心按整窗定位，跨分隔线连续，间隙不透窗口黑底。
+              child: AppAtmosphericBackground(
+                palette: AppAtmospherePalette.resolve(
+                  baseColors: context.baseAppColors,
+                  effectiveColors: colors,
+                  hasDynamicTheme: context.hasRuntimeAppColors,
+                ),
                 // 指针位置采集：DesktopHoverRegion 悬停自愈校验依赖真实指针位置
                 // （指针静止而内容移动时 MouseRegion exit 不派发）。
                 child: DesktopPointerPositionTracker(
