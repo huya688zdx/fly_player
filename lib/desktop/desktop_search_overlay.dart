@@ -9,6 +9,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_item_card.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_centered_modal.dart';
 import '../ui/app_transitions.dart';
@@ -30,11 +31,13 @@ import 'desktop_hover_region.dart';
 /// 手机档仍走整页搜索，桌面档用本弹窗。数据口径与 SearchScreen 一致：
 /// 后端一次返回混合结果，分类页签只做本地过滤，不重复请求。
 ///
-/// 弹出在 [context] 所在导航器上（壳层内即内容区导航，侧栏保持可见），
-/// 返回用户选中的结果条目（Esc / 点击遮罩返回 null）。
-Future<MediaItemCard?> showDesktopSearch(BuildContext context) {
+/// 弹出在 [context] 所在导航器上（壳层内即内容区导航，侧栏保持可见）。
+/// 选中结果由面板自行打开详情：面板 context 在弹窗路由内、必属于内容区
+/// 导航器，经 [EmbeddedDetailLauncher] 分屏优先，避免调用方拿导航器自身
+/// context 时误推到根导航器整窗覆盖侧栏。
+Future<void> showDesktopSearch(BuildContext context) {
   final size = MediaQuery.sizeOf(context);
-  return AppCenteredModal.show<MediaItemCard>(
+  return AppCenteredModal.show<void>(
     context,
     alignment: Alignment.topCenter,
     insetPadding: EdgeInsets.fromLTRB(48, size.height * 0.08, 48, 48),
@@ -44,41 +47,74 @@ Future<MediaItemCard?> showDesktopSearch(BuildContext context) {
 }
 
 /// 打开搜索结果条目详情（人物 → 人物页，其余 → 详情页）。
-/// 与 SearchScreen._openItemDetail 同口径：先尝试 240ms 内取到初始详情
-/// 加速首帧，超时静默降级。
+///
+/// 打开顺序：分屏宿主优先（详情进右栏，[EmbeddedDetailLauncher] 与首页
+/// 同链路），无宿主时回退直接推入当前导航器（内容区，侧栏常驻）。
+/// [closeOverlay] 在详情受理后回调——面板用它收起自己；回退路径先关
+/// 弹窗再推详情，保证关闭时它仍是栈顶。
 Future<void> openSearchItemDetail(
   BuildContext context,
-  MediaItemCard item,
-) async {
-  if (item.id.trim().isEmpty) return;
+  MediaItemCard item, {
+  VoidCallback? closeOverlay,
+}) async {
+  final isPerson = item.type.trim().toLowerCase() == 'person';
+  final guid = item.id.trim();
+  if (guid.isEmpty) {
+    closeOverlay?.call();
+    return;
+  }
   await AsyncActionGuard.run<void>(
-    'desktop_search_detail:${item.type.trim().toLowerCase()}:${item.id.trim()}',
+    'desktop_search_detail:$isPerson:$guid',
     settleDuration: const Duration(milliseconds: 450),
     action: () async {
-      if (!context.mounted) return;
-      if (item.type.trim().toLowerCase() == 'person') {
-        await Navigator.of(context).push(
+      // 弹窗关闭后面板节点会失效：导航器与 provider 都在仍挂载时取好，
+      // 之后的 await 一律不再摸 context。
+      final navigator = Navigator.of(context);
+      final nasProvider = context.read<NasProvider>();
+      Map<String, dynamic>? initialDetail;
+      if (!isPerson) {
+        try {
+          initialDetail = await FeiniuApi(
+            nasProvider,
+          ).getItemDetail(guid).timeout(const Duration(milliseconds: 240));
+        } catch (_) {}
+      }
+      if (isPerson) {
+        // 预取/等待期间弹窗可能已被 Esc 或遮罩关闭，面板失效就放弃打开。
+        if (!context.mounted) return;
+        if (await EmbeddedDetailLauncher.openPersonDetail(
+          context: context,
+          personGuid: guid,
+          initialName: item.displayTitle,
+        )) {
+          closeOverlay?.call();
+          return;
+        }
+        closeOverlay?.call();
+        navigator.push(
           AppTransitions.leftToRightPageTurnRoute(
             PersonDetailScreen(
-              personGuid: item.id,
+              personGuid: guid,
               initialName: item.displayTitle,
             ),
           ),
         );
         return;
       }
-      final provider = context.read<NasProvider>();
-      Map<String, dynamic>? initialDetail;
-      try {
-        initialDetail = await FeiniuApi(
-          provider,
-        ).getItemDetail(item.id).timeout(const Duration(milliseconds: 240));
-      } catch (_) {}
       if (!context.mounted) return;
-      await Navigator.of(context).push(
+      if (await EmbeddedDetailLauncher.openItemDetail(
+        guid,
+        context: context,
+        initialItemDetail: initialDetail,
+      )) {
+        closeOverlay?.call();
+        return;
+      }
+      closeOverlay?.call();
+      navigator.push(
         AppTransitions.leftToRightPageTurnRoute(
           PlayDetailScreen(
-            itemGuid: item.id,
+            itemGuid: guid,
             heroTag: null,
             initialItemDetail: initialDetail,
           ),
@@ -248,7 +284,12 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
 
   void _selectResult(MediaItemCard item) {
     unawaited(_saveHistoryEntry(_controller.text));
-    Navigator.of(context).pop(item);
+    // closeOverlay 前先取好弹窗所在导航器：回退路径「先关弹窗再推详情」
+    // 时它还是栈顶；分屏路径详情进右栏后再关弹窗。
+    final dialogNavigator = Navigator.of(context);
+    unawaited(
+      openSearchItemDetail(context, item, closeOverlay: dialogNavigator.pop),
+    );
   }
 
   String _yearFromDate(String date) {
@@ -780,7 +821,8 @@ class _Thumbnail extends StatelessWidget {
                   url,
                   headers: images.headers,
                   fit: BoxFit.cover,
-                  alignment: Alignment.topCenter,
+                  // 海报取上部保主体；人物头像居中裁切，避免切掉下颌。
+                  alignment: isPerson ? Alignment.center : Alignment.topCenter,
                   cacheWidth: 160,
                   filterQuality: FilterQuality.medium,
                   gaplessPlayback: true,
