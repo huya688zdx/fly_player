@@ -65,7 +65,12 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             IconButton(
               icon: const Icon(Icons.search),
               onPressed: () {
-                unawaited(_openSearchAsync());
+                // 桌面档：右上角搜索打开 PC 专属弹窗；手机档保持整页搜索。
+                if (MediaLayoutProfile.of(context).isDesktopTier) {
+                  unawaited(_openDesktopSearchOverlay());
+                } else {
+                  unawaited(_openSearchAsync());
+                }
               },
             ),
           ],
@@ -73,6 +78,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         body: body,
       ),
     );
+  }
+
+  /// 桌面档右上角搜索：弹出 PC 专属搜索弹窗，选中结果后在本内容区打开详情。
+  Future<void> _openDesktopSearchOverlay() async {
+    final item = await showDesktopSearch(context);
+    if (item == null || !mounted) return;
+    await openSearchItemDetail(context, item);
   }
 
   Widget _buildBody(

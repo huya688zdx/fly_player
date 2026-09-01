@@ -8,10 +8,11 @@ import 'desktop_tokens.dart';
 
 /// 桌面侧栏（宽 216，对应原型 styles.css 的 .side-nav）。
 ///
-/// 参考飞牛桌面端布局：主导航（影视 / 搜索 / 收藏 / 下载 / 大屏浏览 / 设置）
+/// 参考飞牛桌面端布局：主导航（影视 / 收藏 / 下载 / 设置）
 /// + 「媒体库」分组（后端媒体库入口）+ 「分类」分组（全部 / 电影 / 电视剧 /
-/// 其他，行尾计数）。媒体库、分类与搜索/收藏/下载在影视内容区内打开，
-/// 侧栏永远可见；分屏开关在「设置 → 分屏窗口」（与安卓一致）。
+/// 其他，行尾计数）。媒体库、分类与收藏/下载在影视内容区内打开，
+/// 侧栏永远可见；搜索入口在内容区右上角（桌面档弹出搜索弹窗），
+/// 大屏浏览从首页 AppBar 进入；分屏开关在「设置 → 分屏窗口」（与安卓一致）。
 ///
 /// 颜色一律经 [AppThemeColors] 读取，7 套预设、动态取色与亮暗模式自动跟随。
 class DesktopSideBar extends StatelessWidget {
@@ -25,7 +26,6 @@ class DesktopSideBar extends StatelessWidget {
     this.movieCount = 0,
     this.tvCount = 0,
     this.otherCount = 0,
-    this.onOpenSearch,
     this.onOpenFavorites,
     this.onOpenDownloads,
     this.onOpenCatalog,
@@ -49,8 +49,7 @@ class DesktopSideBar extends StatelessWidget {
   final int tvCount;
   final int otherCount;
 
-  /// 内容区入口（搜索 / 收藏 / 下载）。
-  final void Function(BuildContext context)? onOpenSearch;
+  /// 内容区入口（收藏 / 下载）。
   final void Function(BuildContext context)? onOpenFavorites;
   final void Function(BuildContext context)? onOpenDownloads;
 
@@ -64,10 +63,6 @@ class DesktopSideBar extends StatelessWidget {
   /// 按类型打开分类（内容区）：name 为显示名，typeTags 为中立类型标签。
   final void Function(BuildContext context, String name, List<String> typeTags)?
   onOpenByType;
-
-  void _openSecondary(BuildContext context, String routeName) {
-    Navigator.of(context, rootNavigator: true).pushNamed(routeName);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,11 +89,6 @@ class DesktopSideBar extends StatelessWidget {
                       onTap: () => onTabSelected(0),
                     ),
                     _DesktopSideBarRow(
-                      icon: Icons.search_rounded,
-                      label: l10n.searchPlaceholder,
-                      onTap: () => onOpenSearch?.call(context),
-                    ),
-                    _DesktopSideBarRow(
                       icon: Icons.favorite_border_rounded,
                       label: l10n.listFilterFavorite,
                       count: favoriteCount > 0 ? favoriteCount : null,
@@ -108,12 +98,6 @@ class DesktopSideBar extends StatelessWidget {
                       icon: Icons.download_outlined,
                       label: l10n.downloadListTitle,
                       onTap: () => onOpenDownloads?.call(context),
-                    ),
-                    _DesktopSideBarRow(
-                      icon: Icons.connected_tv,
-                      label: l10n.posterBrowseEntryTooltip,
-                      onTap: () =>
-                          _openSecondary(context, '/screen/poster-browse'),
                     ),
                     _DesktopSideBarRow(
                       icon: Icons.tune_rounded,
