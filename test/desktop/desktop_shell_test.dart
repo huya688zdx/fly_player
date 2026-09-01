@@ -81,7 +81,7 @@ void main() {
   });
 
   group('DesktopShell', () {
-    testWidgets('1400px：侧栏可见、tab 可切换、搜索在内容区打开（侧栏常驻）', (tester) async {
+    testWidgets('1400px：侧栏可见、tab 可切换、收藏在内容区打开（侧栏常驻）', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -111,36 +111,18 @@ void main() {
       await tester.pump();
       expect(indexedStackOf().index, 0);
 
-      // 侧栏搜索：在影视内容区内嵌导航打开，侧栏常驻、不推 root 全屏。
-      await tester.tap(find.byIcon(Icons.search_rounded));
-      await tester.pumpAndSettle();
-      expect(observer.pushedNames, isNot(contains('/screen/search')));
-      expect(find.text('content:/screen/search'), findsOneWidget);
-
-      // 侧栏目标是直接入口，不应把搜索、收藏等页面一层层叠在一起。
+      // 侧栏收藏：在影视内容区内嵌导航打开，侧栏常驻、不推 root 全屏。
+      // （搜索已移至内容区右上角弹窗、大屏浏览移至首页 AppBar，均不在侧栏。）
       await tester.tap(find.text('收藏'));
       await tester.pumpAndSettle();
-      final contentNavigator = Navigator.of(
-        tester.element(find.text('content:/screen/favorites')),
-      );
-      contentNavigator.pop();
-      await tester.pumpAndSettle();
-      expect(find.text('影视内容页'), findsOneWidget);
-      expect(find.text('content:/screen/search'), findsNothing);
+      expect(observer.pushedNames, isNot(contains('/screen/favorites')));
+      expect(find.text('content:/screen/favorites'), findsOneWidget);
 
       // 即使影视页签已选中，再点一次仍应清空内容区栈、直达首页。
-      await tester.tap(find.byIcon(Icons.search_rounded));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('影视'));
       await tester.pumpAndSettle();
       expect(find.text('影视内容页'), findsOneWidget);
-      expect(find.text('content:/screen/search'), findsNothing);
-
-      // 大屏浏览保持 root 全屏路由。
-      await tester.tap(find.byIcon(Icons.connected_tv));
-      await tester.pumpAndSettle();
-      expect(observer.pushedNames, contains('/screen/poster-browse'));
-      expect(find.text('大屏浏览页'), findsOneWidget);
+      expect(find.text('content:/screen/favorites'), findsNothing);
     });
 
     testWidgets('浅色主题侧栏快速掠过时仅当前项显示半透明强调色', (tester) async {
@@ -159,7 +141,7 @@ void main() {
       final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await gesture.addPointer(location: const Offset(400, 400));
       addTearDown(gesture.removePointer);
-      await gesture.moveTo(tester.getCenter(find.text('搜索')));
+      await gesture.moveTo(tester.getCenter(find.text('下载列表')));
       await tester.pump();
       await gesture.moveTo(tester.getCenter(find.text('收藏')));
       await tester.pump();
@@ -174,7 +156,7 @@ void main() {
         return (row.decoration! as BoxDecoration).color!;
       }
 
-      expect(rowColor('搜索'), Colors.transparent);
+      expect(rowColor('下载列表'), Colors.transparent);
       final colors = tester.element(find.text('收藏')).appColors;
       expect(rowColor('收藏'), colors.selection.withValues(alpha: 0.08));
     });
@@ -261,7 +243,7 @@ void main() {
       expect(find.byType(DesktopDetailPaneHost), findsNothing);
     });
 
-    testWidgets('快捷键：数字 1/2 切 tab，Ctrl+K 打开搜索', (tester) async {
+    testWidgets('快捷键：数字 1/2 切 tab，Ctrl+K 打开搜索弹窗', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -290,8 +272,15 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
+      // Ctrl+K 打开桌面搜索弹窗：内容区导航上的浮层，不推整页路由。
       expect(observer.pushedNames, isNot(contains('/screen/search')));
-      expect(find.text('content:/screen/search'), findsOneWidget);
+      expect(find.text('全部'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+
+      // Esc 关闭弹窗，回到内容区首页。
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
     });
 
     testWidgets('文本框聚焦时数字键不劫持切 tab，Ctrl+K 仍可用', (tester) async {
@@ -331,7 +320,9 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
-      expect(find.text('content:/screen/search'), findsOneWidget);
+      // Ctrl+K 不受文本焦点影响：弹出桌面搜索弹窗（叠加替身页自带的输入框）。
+      expect(find.text('全部'), findsOneWidget);
+      expect(find.byType(TextField), findsNWidgets(2));
     });
   });
 }
@@ -343,6 +334,23 @@ Widget _desktopApp({
 }) {
   return MultiProvider(
     providers: [
+      // 搜索弹窗构建时读取 NAS / 后端能力，与 _mainNavigationApp 同栈注入。
+      ChangeNotifierProvider<NasProvider>(create: (_) => NasProvider()),
+      ChangeNotifierProvider<BackendSessionProvider>(
+        create: (_) => BackendSessionProvider(),
+      ),
+      ChangeNotifierProxyProvider2<
+        NasProvider,
+        BackendSessionProvider,
+        MediaBackendProvider
+      >(
+        create: (context) => MediaBackendProvider(
+          context.read<NasProvider>(),
+          context.read<BackendSessionProvider>(),
+        ),
+        update: (context, nas, session, previous) =>
+            previous ?? MediaBackendProvider(nas, session),
+      ),
       ChangeNotifierProvider<ParallelWindowSettingsProvider>(
         create: (_) => ParallelWindowSettingsProvider(),
       ),
