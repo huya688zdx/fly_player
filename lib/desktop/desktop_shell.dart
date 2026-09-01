@@ -20,6 +20,7 @@ import '../ui/player_pane_host_scope.dart';
 import '../widgets/app_atmospheric_background.dart';
 import 'desktop_detail_pane_host.dart';
 import 'desktop_hover_region.dart';
+import 'desktop_search_overlay.dart';
 import 'desktop_side_bar.dart';
 import 'desktop_split_controller.dart';
 
@@ -272,8 +273,15 @@ class _DesktopShellState extends State<DesktopShell> {
     });
   }
 
-  void _openSearch() {
-    _openContentRoute('/screen/search');
+  /// 搜索快捷键 / 入口：在影视内容区导航上弹 PC 搜索弹窗（侧栏保持可见），
+  /// 选中结果后在内容区打开详情（与首页右上角入口同链路）。
+  Future<void> _openSearch() async {
+    final navigator = _contentNavKey.currentState;
+    if (navigator == null) return;
+    final overlayContext = navigator.context;
+    final item = await showDesktopSearch(overlayContext);
+    if (item == null || !overlayContext.mounted) return;
+    await openSearchItemDetail(overlayContext, item);
   }
 
   Future<void> _escape() async {
@@ -367,8 +375,6 @@ class _DesktopShellState extends State<DesktopShell> {
                         movieCount: _sidebarMovie,
                         tvCount: _sidebarTv,
                         otherCount: _sidebarOther,
-                        onOpenSearch: (context) =>
-                            _openContentRoute('/screen/search'),
                         onOpenFavorites: (context) =>
                             _openContentRoute('/screen/favorites'),
                         onOpenDownloads: (context) =>
