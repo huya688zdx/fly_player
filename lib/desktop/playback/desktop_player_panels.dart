@@ -124,9 +124,9 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
                     controller: _gridScrollController,
                     padding: const EdgeInsets.only(right: 14),
                     gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 6,
-                          mainAxisExtent: 58,
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 64,
+                          childAspectRatio: 1,
                           crossAxisSpacing: 8,
                           mainAxisSpacing: 8,
                         ),
@@ -274,10 +274,12 @@ class DesktopDanmakuSettingsPanel extends StatefulWidget {
     super.key,
     required this.settings,
     required this.onChanged,
+    this.embedded = false,
   });
 
   final DanmakuSettings settings;
   final Future<void> Function(DanmakuSettings settings) onChanged;
+  final bool embedded;
 
   @override
   State<DesktopDanmakuSettingsPanel> createState() =>
@@ -297,12 +299,16 @@ class _DesktopDanmakuSettingsPanelState
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
+        padding: widget.embedded
+            ? EdgeInsets.zero
+            : const EdgeInsets.fromLTRB(24, 18, 24, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const _SettingsHeader(title: '弹幕设置'),
-            const SizedBox(height: 18),
+            if (!widget.embedded) ...<Widget>[
+              const _SettingsHeader(title: '弹幕设置'),
+              const SizedBox(height: 18),
+            ],
             Expanded(
               child: ListView(
                 padding: EdgeInsets.zero,
@@ -490,6 +496,8 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
     required this.onSelectSearchResult,
     required this.onDeleteSavedSource,
     required this.onImportFile,
+    this.embedded = false,
+    this.onApplied,
   });
 
   final String currentSourceLabel;
@@ -502,6 +510,8 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final Future<bool> Function(Map<String, dynamic> result) onSelectSearchResult;
   final Future<void> Function(Map<String, dynamic> source) onDeleteSavedSource;
   final Future<bool> Function() onImportFile;
+  final bool embedded;
+  final VoidCallback? onApplied;
 
   @override
   State<DesktopDanmakuSourcePanel> createState() =>
@@ -558,7 +568,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     final applied = await widget.onSelectSavedSource(source);
     if (!mounted) return;
     if (applied) {
-      Navigator.of(context).pop();
+      _completeApplied();
       return;
     }
     setState(() => _applying = false);
@@ -570,7 +580,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     final applied = await widget.onSelectSearchResult(result);
     if (!mounted) return;
     if (applied) {
-      Navigator.of(context).pop();
+      _completeApplied();
       return;
     }
     setState(() => _applying = false);
@@ -582,7 +592,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     final applied = await widget.onImportFile();
     if (!mounted) return;
     if (applied) {
-      Navigator.of(context).pop();
+      _completeApplied();
       return;
     }
     setState(() => _applying = false);
@@ -592,6 +602,15 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     if (_applying) return;
     await widget.onDeleteSavedSource(source);
     await _loadSavedSources();
+  }
+
+  void _completeApplied() {
+    final onApplied = widget.onApplied;
+    if (onApplied != null) {
+      onApplied();
+    } else {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -604,12 +623,16 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
         : '暂无弹幕';
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
+        padding: widget.embedded
+            ? EdgeInsets.zero
+            : const EdgeInsets.fromLTRB(24, 18, 24, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const _SettingsHeader(title: '弹幕源'),
-            const SizedBox(height: 18),
+            if (!widget.embedded) ...<Widget>[
+              const _SettingsHeader(title: '弹幕源'),
+              const SizedBox(height: 18),
+            ],
             Expanded(
               child: ListView(
                 padding: EdgeInsets.zero,
@@ -803,6 +826,33 @@ class _DanmakuSourceTile extends StatelessWidget {
   );
 }
 
+/// 播放器章节条目（来自 mpv chapter-list）。
+class DesktopPlayerChapter {
+  const DesktopPlayerChapter({required this.title, required this.position});
+
+  final String title;
+  final Duration position;
+}
+
+/// 播放设置面板的页面（层级对齐安卓原生播放页的分组结构）。
+enum DesktopPlaybackSettingsPage {
+  main,
+  videoAdjust,
+  advancedMpv,
+  playbackBehavior,
+  introOutro,
+  chapters,
+  subtitleStyle,
+  bookmarks,
+  trackInfo,
+  audioAdjust,
+  audioEq,
+  picturePresets,
+  audioPresets,
+  danmakuSettings,
+  danmakuSources,
+}
+
 class DesktopPlaybackSettingsPanel extends StatefulWidget {
   const DesktopPlaybackSettingsPanel({
     super.key,
@@ -812,7 +862,6 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.nextEpisodePreloadEnabled,
     required this.aspectRatioMode,
     required this.decoderMode,
-    required this.cacheSizeMb,
     required this.mpvSettings,
     required this.videoAdjustments,
     required this.audioDelaySeconds,
@@ -820,19 +869,32 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.danmakuEnabled,
     required this.danmakuSourceLabel,
     required this.danmakuCommentCount,
+    required this.chapters,
+    required this.introOutroEnabled,
+    required this.introMaxMinutes,
+    required this.outroMaxMinutes,
+    required this.skipCountdownSeconds,
+    required this.subtitleDelaySeconds,
+    required this.subtitlePosition,
+    required this.subtitleScale,
+    required this.onIntroOutroChanged,
+    required this.onSubtitleStyleChanged,
+    required this.onSelectChapter,
     required this.onAutoPlayChanged,
     required this.onNextEpisodePreloadChanged,
     required this.onAspectRatioChanged,
     required this.onDecoderChanged,
-    required this.onCacheSizeChanged,
-    required this.onMpvAudioSettingChanged,
+    required this.onMpvAdvancedChanged,
     required this.onVideoAdjustmentChanged,
     required this.onAudioDelayChanged,
+    required this.onLoadSavedPresets,
+    required this.onApplySavedPreset,
     required this.onAddBookmark,
     required this.onDeleteBookmark,
     required this.onSelectBookmark,
-    required this.onOpenDanmakuSettings,
-    required this.onOpenDanmakuSources,
+    required this.danmakuSettingsPageBuilder,
+    required this.danmakuSourcesPageBuilder,
+    this.initialPage = DesktopPlaybackSettingsPage.main,
   });
 
   final MpvMediaSource source;
@@ -841,60 +903,67 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
   final bool nextEpisodePreloadEnabled;
   final String aspectRatioMode;
   final String decoderMode;
-  final int cacheSizeMb;
   final Map<String, String> mpvSettings;
   final Map<String, double> videoAdjustments;
   final double audioDelaySeconds;
   final List<PlayerBookmarkEntry> bookmarks;
+  final List<DesktopPlayerChapter> chapters;
   final bool danmakuEnabled;
   final String danmakuSourceLabel;
   final int danmakuCommentCount;
+  final bool introOutroEnabled;
+  final int introMaxMinutes;
+  final int outroMaxMinutes;
+  final int skipCountdownSeconds;
+  final double subtitleDelaySeconds;
+  final int subtitlePosition;
+  final double subtitleScale;
+  final Future<void> Function({
+    required bool enabled,
+    required int introMaxMinutes,
+    required int outroMaxMinutes,
+    required int skipCountdownSeconds,
+  })
+  onIntroOutroChanged;
+  final Future<void> Function({
+    required double delaySeconds,
+    required int position,
+    required double scale,
+  })
+  onSubtitleStyleChanged;
+  final Future<void> Function(Duration position) onSelectChapter;
   final Future<void> Function(bool value) onAutoPlayChanged;
   final Future<void> Function(bool value) onNextEpisodePreloadChanged;
   final Future<void> Function(String value) onAspectRatioChanged;
   final Future<void> Function(String value) onDecoderChanged;
-  final Future<void> Function(int value) onCacheSizeChanged;
-  final Future<void> Function(String key, String value)
-  onMpvAudioSettingChanged;
+  final Future<void> Function(String key, String value) onMpvAdvancedChanged;
   final Future<void> Function(String key, double value)
   onVideoAdjustmentChanged;
   final Future<void> Function(double value) onAudioDelayChanged;
+  final Future<List<SavedMpvPreset>> Function(SavedMpvPresetKind kind)
+  onLoadSavedPresets;
+  final Future<void> Function(SavedMpvPreset preset) onApplySavedPreset;
   final Future<List<PlayerBookmarkEntry>> Function() onAddBookmark;
   final Future<List<PlayerBookmarkEntry>> Function(PlayerBookmarkEntry entry)
   onDeleteBookmark;
   final Future<void> Function(PlayerBookmarkEntry entry) onSelectBookmark;
-  final VoidCallback onOpenDanmakuSettings;
-  final VoidCallback onOpenDanmakuSources;
+  final Widget Function(VoidCallback onApplied) danmakuSettingsPageBuilder;
+  final Widget Function(VoidCallback onApplied) danmakuSourcesPageBuilder;
+  final DesktopPlaybackSettingsPage initialPage;
 
   @override
   State<DesktopPlaybackSettingsPanel> createState() =>
       _DesktopPlaybackSettingsPanelState();
 }
 
-enum _DesktopSettingsPage {
-  main,
-  advanced,
-  aspectRatio,
-  bookmarks,
-  mpv,
-  videoAdjust,
-  audioAdjust,
-  audioChoice,
-  decoder,
-  cache,
-  videoInfo,
-}
-
 class _DesktopPlaybackSettingsPanelState
     extends State<DesktopPlaybackSettingsPanel> {
-  final List<_DesktopSettingsPage> _pages = <_DesktopSettingsPage>[
-    _DesktopSettingsPage.main,
-  ];
+  late final List<DesktopPlaybackSettingsPage> _pages =
+      <DesktopPlaybackSettingsPage>[widget.initialPage];
   late bool _autoPlayEnabled = widget.autoPlayEnabled;
   late bool _nextEpisodePreloadEnabled = widget.nextEpisodePreloadEnabled;
   late String _aspectRatioMode = widget.aspectRatioMode;
   late String _decoderMode = widget.decoderMode;
-  late int _cacheSizeMb = widget.cacheSizeMb;
   late Map<String, String> _mpvSettings = Map<String, String>.from(
     widget.mpvSettings,
   );
@@ -902,18 +971,25 @@ class _DesktopPlaybackSettingsPanelState
     widget.videoAdjustments,
   );
   late double _audioDelaySeconds = widget.audioDelaySeconds;
-  String _audioChoiceKey = '';
   late List<PlayerBookmarkEntry> _bookmarks = List<PlayerBookmarkEntry>.from(
     widget.bookmarks,
   );
 
-  _DesktopSettingsPage get _page => _pages.last;
+  DesktopPlaybackSettingsPage get _page => _pages.last;
+  // 页面切换方向：push 自右滑入，pop 自左滑回。
+  bool _popping = false;
 
-  void _push(_DesktopSettingsPage page) => setState(() => _pages.add(page));
+  void _push(DesktopPlaybackSettingsPage page) => setState(() {
+    _popping = false;
+    _pages.add(page);
+  });
 
   void _pop() {
     if (_pages.length <= 1) return;
-    setState(() => _pages.removeLast());
+    setState(() {
+      _popping = true;
+      _pages.removeLast();
+    });
   }
 
   @override
@@ -929,21 +1005,25 @@ class _DesktopPlaybackSettingsPanelState
               title: _pageTitle(l10n),
               onBack: _pages.length > 1 ? _pop : null,
               action: switch (_page) {
-                _DesktopSettingsPage.main => IconButton(
-                  tooltip: l10n.playerAdvancedSettingsTitle,
-                  onPressed: () => _push(_DesktopSettingsPage.advanced),
-                  icon: const Icon(Icons.settings_rounded),
-                  color: Colors.white70,
-                ),
-                _DesktopSettingsPage.bookmarks => IconButton(
+                DesktopPlaybackSettingsPage.bookmarks => IconButton(
                   tooltip: l10n.playerBookmarkAddCurrent,
                   onPressed: _addBookmark,
                   icon: const Icon(Icons.add_rounded),
                   color: Colors.white70,
                 ),
-                _DesktopSettingsPage.videoAdjust => IconButton(
+                DesktopPlaybackSettingsPage.videoAdjust => IconButton(
                   tooltip: l10n.commonReset,
                   onPressed: () => _resetVideoAdjustments(),
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  color: Colors.white70,
+                ),
+                DesktopPlaybackSettingsPage.subtitleStyle => IconButton(
+                  tooltip: l10n.commonReset,
+                  onPressed: () => _setSubtitleStyle(
+                    delaySeconds: 0,
+                    position: 92,
+                    scale: 1,
+                  ),
                   icon: const Icon(Icons.restart_alt_rounded),
                   color: Colors.white70,
                 ),
@@ -951,7 +1031,42 @@ class _DesktopPlaybackSettingsPanelState
               },
             ),
             const SizedBox(height: 18),
-            Expanded(child: _buildPage(l10n)),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                layoutBuilder: (currentChild, previousChildren) => Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                ),
+                transitionBuilder: (child, animation) {
+                  final incoming =
+                      child.key == ValueKey<DesktopPlaybackSettingsPage>(_page);
+                  // push：新页自右入、旧页向左出；pop 反向。
+                  final fromRight = incoming ? !_popping : _popping;
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: fromRight
+                            ? const Offset(0.05, 0)
+                            : const Offset(-0.05, 0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  );
+                },
+                child: KeyedSubtree(
+                  key: ValueKey<DesktopPlaybackSettingsPage>(_page),
+                  child: _buildPage(l10n),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -959,31 +1074,47 @@ class _DesktopPlaybackSettingsPanelState
   }
 
   String _pageTitle(AppLocalizations l10n) => switch (_page) {
-    _DesktopSettingsPage.main => l10n.playerSettingsTitle,
-    _DesktopSettingsPage.advanced => l10n.playerAdvancedSettingsTitle,
-    _DesktopSettingsPage.aspectRatio => l10n.playerAspectRatioTitle,
-    _DesktopSettingsPage.bookmarks => l10n.playerBookmarkTitle,
-    _DesktopSettingsPage.mpv => l10n.settingsMpvTitle,
-    _DesktopSettingsPage.videoAdjust => l10n.mpvInstantAdjustTitle,
-    _DesktopSettingsPage.audioAdjust => '音频调整',
-    _DesktopSettingsPage.audioChoice => _audioChoiceTitle(l10n),
-    _DesktopSettingsPage.decoder => l10n.playerDecoderTitle,
-    _DesktopSettingsPage.cache => l10n.playerCacheSettingsTitle,
-    _DesktopSettingsPage.videoInfo => l10n.playerVideoInfoTitle,
+    DesktopPlaybackSettingsPage.main => l10n.playerSettingsTitle,
+    DesktopPlaybackSettingsPage.videoAdjust => l10n.mpvInstantAdjustTitle,
+    DesktopPlaybackSettingsPage.advancedMpv => l10n.playerAdvancedSettingsTitle,
+    DesktopPlaybackSettingsPage.playbackBehavior => '播放行为',
+    DesktopPlaybackSettingsPage.introOutro => '片头片尾跳过',
+    DesktopPlaybackSettingsPage.chapters => '章节',
+    DesktopPlaybackSettingsPage.subtitleStyle => '字幕样式',
+    DesktopPlaybackSettingsPage.bookmarks => l10n.playerBookmarkTitle,
+    DesktopPlaybackSettingsPage.trackInfo => l10n.playerVideoInfoTitle,
+    DesktopPlaybackSettingsPage.audioAdjust => '音频调整',
+    DesktopPlaybackSettingsPage.audioEq => '自定义均衡器',
+    DesktopPlaybackSettingsPage.picturePresets => '已保存画面预设',
+    DesktopPlaybackSettingsPage.audioPresets => '已保存音频预设',
+    DesktopPlaybackSettingsPage.danmakuSettings => '弹幕设置',
+    DesktopPlaybackSettingsPage.danmakuSources => '弹幕源',
   };
 
   Widget _buildPage(AppLocalizations l10n) => switch (_page) {
-    _DesktopSettingsPage.main => _buildMainPage(l10n),
-    _DesktopSettingsPage.advanced => _buildAdvancedPage(l10n),
-    _DesktopSettingsPage.aspectRatio => _buildAspectRatioPage(l10n),
-    _DesktopSettingsPage.bookmarks => _buildBookmarksPage(l10n),
-    _DesktopSettingsPage.mpv => _buildMpvPage(l10n),
-    _DesktopSettingsPage.videoAdjust => _buildVideoAdjustPage(l10n),
-    _DesktopSettingsPage.audioAdjust => _buildAudioAdjustPage(l10n),
-    _DesktopSettingsPage.audioChoice => _buildAudioChoicePage(l10n),
-    _DesktopSettingsPage.decoder => _buildDecoderPage(l10n),
-    _DesktopSettingsPage.cache => _buildCachePage(l10n),
-    _DesktopSettingsPage.videoInfo => _buildVideoInfoPage(l10n),
+    DesktopPlaybackSettingsPage.main => _buildMainPage(l10n),
+    DesktopPlaybackSettingsPage.videoAdjust => _buildVideoAdjustPage(l10n),
+    DesktopPlaybackSettingsPage.advancedMpv => _buildAdvancedMpvPage(l10n),
+    DesktopPlaybackSettingsPage.playbackBehavior => _buildPlaybackBehaviorPage(
+      l10n,
+    ),
+    DesktopPlaybackSettingsPage.introOutro => _buildIntroOutroPage(l10n),
+    DesktopPlaybackSettingsPage.chapters => _buildChaptersPage(),
+    DesktopPlaybackSettingsPage.subtitleStyle => _buildSubtitleStylePage(l10n),
+    DesktopPlaybackSettingsPage.bookmarks => _buildBookmarksPage(l10n),
+    DesktopPlaybackSettingsPage.trackInfo => _buildTrackInfoPage(l10n),
+    DesktopPlaybackSettingsPage.audioAdjust => _buildAudioAdjustPage(l10n),
+    DesktopPlaybackSettingsPage.audioEq => _buildAudioEqPage(l10n),
+    DesktopPlaybackSettingsPage.picturePresets => _buildSavedPresetsPage(
+      SavedMpvPresetKind.picture,
+    ),
+    DesktopPlaybackSettingsPage.audioPresets => _buildSavedPresetsPage(
+      SavedMpvPresetKind.audio,
+    ),
+    DesktopPlaybackSettingsPage.danmakuSettings =>
+      widget.danmakuSettingsPageBuilder(_pop),
+    DesktopPlaybackSettingsPage.danmakuSources =>
+      widget.danmakuSourcesPageBuilder(_pop),
   };
 
   Widget _settingsList(List<Widget> children) => ListView.separated(
@@ -993,103 +1124,16 @@ class _DesktopPlaybackSettingsPanelState
     itemBuilder: (_, index) => children[index],
   );
 
+  String _labelFor(AppLocalizations l10n, String key) =>
+      MpvSettingsL10n.labelForSetting(l10n, key, _mpvSettings);
+
+  bool get _passthroughActive =>
+      (_mpvSettings[MpvSettingsCatalog.audioPassthroughKey] ?? 'off') != 'off';
+
+  // 根页：对齐安卓设置根面板的分组（画面 / 弹幕 / 播放）。
+  // 音轨/字幕/画质桌面走底栏悬停直达，不重复（安卓横屏同理）。
   Widget _buildMainPage(AppLocalizations l10n) => _settingsList(<Widget>[
-    _SettingsSwitchTile(
-      title: l10n.playerAutoPlayTitle,
-      subtitle: _autoPlayEnabled
-          ? l10n.playerAutoPlayEnabledSubtitle
-          : l10n.playerAutoPlayDisabledSubtitle,
-      value: _autoPlayEnabled,
-      onChanged: _setAutoPlay,
-    ),
-    _SettingsSwitchTile(
-      title: l10n.playerNextEpisodePreloadTitle,
-      subtitle: !_autoPlayEnabled
-          ? l10n.playerNextEpisodePreloadRequiresAutoPlay
-          : _nextEpisodePreloadEnabled
-          ? l10n.playerNextEpisodePreloadEnabledSubtitle
-          : l10n.playerNextEpisodePreloadDisabledSubtitle,
-      value: _nextEpisodePreloadEnabled,
-      enabled: _autoPlayEnabled,
-      onChanged: _setNextEpisodePreload,
-    ),
-    _SettingsMenuTile(
-      title: l10n.playerAspectRatioTitle,
-      subtitle: l10n.playerCurrentValue(_aspectLabel(l10n)),
-      icon: Icons.aspect_ratio_rounded,
-      onTap: () => _push(_DesktopSettingsPage.aspectRatio),
-    ),
-    _SettingsMenuTile(
-      title: l10n.playerBookmarkTitle,
-      subtitle: l10n.playerBookmarkSettingsSubtitle,
-      trailing: _bookmarks.isEmpty
-          ? l10n.playerBookmarkNone
-          : l10n.playerBookmarkCount(_bookmarks.length),
-      icon: Icons.bookmark_outline_rounded,
-      onTap: () => _push(_DesktopSettingsPage.bookmarks),
-    ),
-    _SettingsMenuTile(
-      title: l10n.settingsMpvTitle,
-      subtitle: 'Windows media_kit / libmpv',
-      trailing: _decoderMode == 'software'
-          ? l10n.playerSoftwareDecoderTitle
-          : l10n.playerHardwareDecoderTitle,
-      icon: Icons.tune_rounded,
-      onTap: () => _push(_DesktopSettingsPage.mpv),
-    ),
-    _SettingsMenuTile(
-      title: '弹幕设置',
-      subtitle: '显示区域、透明度、密度、字号与弹幕类型',
-      trailing: widget.danmakuEnabled ? '已开启' : '已关闭',
-      icon: Icons.format_size_rounded,
-      onTap: widget.onOpenDanmakuSettings,
-    ),
-    _SettingsMenuTile(
-      title: '弹幕源',
-      subtitle: widget.danmakuSourceLabel.trim().isEmpty
-          ? '在线搜索、本地导入与已保存来源'
-          : widget.danmakuSourceLabel,
-      trailing: widget.danmakuCommentCount > 0
-          ? '${widget.danmakuCommentCount} 条'
-          : '',
-      icon: Icons.comment_bank_outlined,
-      onTap: widget.onOpenDanmakuSources,
-    ),
-  ]);
-
-  Widget _buildAdvancedPage(AppLocalizations l10n) => _settingsList(<Widget>[
-    _SettingsMenuTile(
-      title: l10n.playerDecoderTitle,
-      subtitle: l10n.playerDecoderSubtitle,
-      trailing: _decoderMode == 'software'
-          ? l10n.playerSoftwareDecoderTitle
-          : l10n.playerHardwareDecoderTitle,
-      icon: Icons.memory_rounded,
-      onTap: () => _push(_DesktopSettingsPage.decoder),
-    ),
-    _SettingsMenuTile(
-      title: l10n.playerCacheSettingsTitle,
-      subtitle: l10n.playerCacheSettingsSubtitle,
-      trailing: _cacheSizeMb <= 0 ? '自动' : '$_cacheSizeMb MB',
-      icon: Icons.storage_rounded,
-      onTap: () => _push(_DesktopSettingsPage.cache),
-    ),
-    _SettingsMenuTile(
-      title: l10n.playerVideoInfoTitle,
-      subtitle: l10n.playerVideoInfoSubtitle,
-      icon: Icons.info_outline_rounded,
-      onTap: () => _push(_DesktopSettingsPage.videoInfo),
-    ),
-  ]);
-
-  Widget _buildMpvPage(AppLocalizations l10n) => _settingsList(<Widget>[
-    _SettingsStatusCard(
-      title: 'Windows libmpv',
-      value: _decoderMode == 'software'
-          ? l10n.playerSoftwareDecoderTitle
-          : l10n.playerHardwareDecoderTitle,
-      description: '设置直接应用到当前桌面播放实例。',
-    ),
+    const _SettingsSectionHeader('画面'),
     _SettingsMenuTile(
       title: l10n.mpvInstantAdjustTitle,
       subtitle: l10n.mpvVideoAdjustDrawerDescription,
@@ -1100,50 +1144,455 @@ class _DesktopPlaybackSettingsPanelState
               MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments),
             ),
       icon: Icons.display_settings_rounded,
-      onTap: () => _push(_DesktopSettingsPage.videoAdjust),
+      onTap: () => _push(DesktopPlaybackSettingsPage.videoAdjust),
     ),
     _SettingsMenuTile(
-      title: '音频调整',
-      subtitle: '音频延迟、增益、EQ、动态范围与声道输出',
-      trailing:
-          MpvSettingsCatalog.changedCount(
-                _mpvSettings,
-                MpvSettingsCatalog.audioPresetKeys,
-              ) ==
-              0
-          ? l10n.mpvDefault
-          : l10n.mpvChangedCount(
-              MpvSettingsCatalog.changedCount(
-                _mpvSettings,
-                MpvSettingsCatalog.audioPresetKeys,
-              ),
-            ),
-      icon: Icons.graphic_eq_rounded,
-      onTap: () => _push(_DesktopSettingsPage.audioAdjust),
-    ),
-    _SettingsMenuTile(
-      title: l10n.playerDecoderTitle,
-      subtitle: l10n.playerDecoderSubtitle,
+      title: l10n.playerAdvancedSettingsTitle,
+      subtitle: 'Windows media_kit / libmpv',
       trailing: _decoderMode == 'software'
           ? l10n.playerSoftwareDecoderTitle
           : l10n.playerHardwareDecoderTitle,
-      icon: Icons.memory_rounded,
-      onTap: () => _push(_DesktopSettingsPage.decoder),
+      icon: Icons.tune_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.advancedMpv),
+    ),
+    const _SettingsSectionHeader('弹幕'),
+    _SettingsMenuTile(
+      title: '弹幕设置',
+      subtitle: '显示区域、透明度、密度、字号与弹幕类型',
+      trailing: widget.danmakuEnabled ? '已开启' : '已关闭',
+      icon: Icons.format_size_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.danmakuSettings),
     ),
     _SettingsMenuTile(
-      title: l10n.playerCacheSettingsTitle,
-      subtitle: l10n.playerCacheSettingsSubtitle,
-      trailing: _cacheSizeMb <= 0 ? '自动' : '$_cacheSizeMb MB',
-      icon: Icons.storage_rounded,
-      onTap: () => _push(_DesktopSettingsPage.cache),
+      title: '弹幕源',
+      subtitle: widget.danmakuSourceLabel.trim().isEmpty
+          ? '在线搜索、本地导入与已保存来源'
+          : widget.danmakuSourceLabel,
+      trailing: widget.danmakuCommentCount > 0
+          ? '${widget.danmakuCommentCount} 条'
+          : '',
+      icon: Icons.comment_bank_outlined,
+      onTap: () => _push(DesktopPlaybackSettingsPage.danmakuSources),
+    ),
+    const _SettingsSectionHeader('播放'),
+    _SettingsMenuTile(
+      title: '播放行为',
+      subtitle: '自动连播、下一级预加载',
+      trailing: _autoPlayEnabled ? '已开启' : '已关闭',
+      icon: Icons.playlist_play_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.playbackBehavior),
     ),
     _SettingsMenuTile(
-      title: l10n.playerAspectRatioTitle,
-      subtitle: l10n.playerCurrentValue(_aspectLabel(l10n)),
-      icon: Icons.aspect_ratio_rounded,
-      onTap: () => _push(_DesktopSettingsPage.aspectRatio),
+      title: '片头片尾跳过',
+      subtitle: '按时长窗口提示跳过片头片尾',
+      trailing: widget.introOutroEnabled ? '已开启' : '已关闭',
+      icon: Icons.skip_next_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.introOutro),
+    ),
+    if (widget.chapters.isNotEmpty)
+      _SettingsMenuTile(
+        title: '章节',
+        subtitle: '跳转到当前视频的章节时间点',
+        trailing: '${widget.chapters.length}',
+        icon: Icons.format_list_numbered_rounded,
+        onTap: () => _push(DesktopPlaybackSettingsPage.chapters),
+      ),
+    _SettingsMenuTile(
+      title: l10n.playerBookmarkTitle,
+      subtitle: l10n.playerBookmarkSettingsSubtitle,
+      trailing: _bookmarks.isEmpty
+          ? l10n.playerBookmarkNone
+          : l10n.playerBookmarkCount(_bookmarks.length),
+      icon: Icons.bookmark_outline_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.bookmarks),
+    ),
+    _SettingsMenuTile(
+      title: '视频/轨道信息',
+      subtitle: l10n.playerVideoInfoSubtitle,
+      icon: Icons.info_outline_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.trackInfo),
     ),
   ]);
+
+  // 画质与解码：对齐安卓 buildAdvancedMpvPage 的四段分组。
+  Widget _buildAdvancedMpvPage(AppLocalizations l10n) => _settingsList(<Widget>[
+    const _SettingsSectionHeader('预设'),
+    _SettingsMenuTile(
+      title: '选择已保存预设',
+      subtitle: '应用已保存的画面与解码预设',
+      icon: Icons.bookmarks_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.picturePresets),
+    ),
+    const _SettingsSectionHeader('解码与画面'),
+    _SettingsSegmentTile(
+      title: l10n.playerDecoderTitle,
+      options: [
+        ('hardware', l10n.playerHardwareDecoderTitle),
+        ('software', l10n.playerSoftwareDecoderTitle),
+      ],
+      selectedValue: _decoderMode,
+      onSelected: (value) => _setDecoder(value),
+    ),
+    _SettingsSegmentTile(
+      title: l10n.playerAspectRatioTitle,
+      options: [
+        ('fit', l10n.playerAspectFit),
+        ('fill', l10n.playerAspectFill),
+        ('4:3', '4:3'),
+        ('16:9', '16:9'),
+        ('21:9', '21:9'),
+      ],
+      selectedValue: _aspectRatioMode,
+      onSelected: (value) => _setAspectRatio(value),
+    ),
+    const _SettingsSectionHeader('画质增强'),
+    for (final key in const <String>[
+      MpvSettingsCatalog.deinterlaceKey,
+      MpvSettingsCatalog.debandKey,
+      MpvSettingsCatalog.sharpenKey,
+      MpvSettingsCatalog.denoiseKey,
+      MpvSettingsCatalog.scaleProfileKey,
+      MpvSettingsCatalog.toneMappingKey,
+      MpvSettingsCatalog.frameInterpolationKey,
+    ])
+      _definitionSegment(l10n, key),
+    const _SettingsSectionHeader('同步与缓存'),
+    for (final key in const <String>[
+      MpvSettingsCatalog.videoSyncKey,
+      MpvSettingsCatalog.cacheProfileKey,
+      MpvSettingsCatalog.cacheSizeMbKey,
+    ])
+      _definitionSegment(l10n, key),
+  ]);
+
+  // 播放行为：对齐安卓 buildPlaybackBehaviorSettingsPage（仅保留桌面适用的项）。
+  Widget _buildPlaybackBehaviorPage(AppLocalizations l10n) =>
+      _settingsList(<Widget>[
+        _SettingsSwitchTile(
+          title: l10n.playerAutoPlayTitle,
+          subtitle: _autoPlayEnabled
+              ? l10n.playerAutoPlayEnabledSubtitle
+              : l10n.playerAutoPlayDisabledSubtitle,
+          value: _autoPlayEnabled,
+          onChanged: _setAutoPlay,
+        ),
+        _SettingsSwitchTile(
+          title: l10n.playerNextEpisodePreloadTitle,
+          subtitle: !_autoPlayEnabled
+              ? l10n.playerNextEpisodePreloadRequiresAutoPlay
+              : _nextEpisodePreloadEnabled
+              ? l10n.playerNextEpisodePreloadEnabledSubtitle
+              : l10n.playerNextEpisodePreloadDisabledSubtitle,
+          value: _nextEpisodePreloadEnabled,
+          enabled: _autoPlayEnabled,
+          onChanged: _setNextEpisodePreload,
+        ),
+      ]);
+
+  // 片头片尾跳过：对齐安卓 buildIntroOutroPage（开关 + 时长上限 + 提示秒数）。
+  Widget _buildIntroOutroPage(AppLocalizations l10n) {
+    final children = <Widget>[
+      _SettingsSwitchTile(
+        title: '启用片头片尾跳过',
+        subtitle: '进入片头/片尾窗口时在右下角提示跳过',
+        value: widget.introOutroEnabled,
+        onChanged: (value) => _setIntroOutro(enabled: value),
+      ),
+    ];
+    if (widget.introOutroEnabled) {
+      children.add(
+        _SettingsSliderTile(
+          title: '片头时长上限',
+          subtitle: '起播后该窗口内提示跳过片头',
+          valueLabel: '${widget.introMaxMinutes} 分钟',
+          value: widget.introMaxMinutes.toDouble(),
+          min: 1,
+          max: 4,
+          divisions: 3,
+          onChanged: (_) {},
+          onChangeEnd: (value) =>
+              _setIntroOutro(introMaxMinutes: value.round()),
+        ),
+      );
+      children.add(
+        _SettingsSliderTile(
+          title: '片尾时长上限',
+          subtitle: '距结尾该窗口内提示跳过片尾/下一集',
+          valueLabel: '${widget.outroMaxMinutes} 分钟',
+          value: widget.outroMaxMinutes.toDouble(),
+          min: 1,
+          max: 4,
+          divisions: 3,
+          onChanged: (_) {},
+          onChangeEnd: (value) =>
+              _setIntroOutro(outroMaxMinutes: value.round()),
+        ),
+      );
+      children.add(
+        _SettingsSliderTile(
+          title: '跳过倒计时',
+          subtitle: '提示卡停留时长',
+          valueLabel: '${widget.skipCountdownSeconds} 秒',
+          value: widget.skipCountdownSeconds.toDouble(),
+          min: 2,
+          max: 10,
+          divisions: 8,
+          onChanged: (_) {},
+          onChangeEnd: (value) =>
+              _setIntroOutro(skipCountdownSeconds: value.round()),
+        ),
+      );
+    }
+    children.add(
+      const _SettingsStatusCard(
+        title: '当前视频',
+        value: '未检测到片头片尾时间点',
+        description: '将按上面的时长上限窗口提示跳过。',
+      ),
+    );
+    return _settingsList(children);
+  }
+
+  Future<void> _setIntroOutro({
+    bool? enabled,
+    int? introMaxMinutes,
+    int? outroMaxMinutes,
+    int? skipCountdownSeconds,
+  }) async {
+    await widget.onIntroOutroChanged(
+      enabled: enabled ?? widget.introOutroEnabled,
+      introMaxMinutes: introMaxMinutes ?? widget.introMaxMinutes,
+      outroMaxMinutes: outroMaxMinutes ?? widget.outroMaxMinutes,
+      skipCountdownSeconds: skipCountdownSeconds ?? widget.skipCountdownSeconds,
+    );
+  }
+
+  // 字幕样式：对齐安卓 buildSubtitleStylePage（延迟/位置/缩放 + 头部重置）。
+  Widget _buildSubtitleStylePage(
+    AppLocalizations l10n,
+  ) => _settingsList(<Widget>[
+    _SettingsSliderTile(
+      title: '字幕延迟',
+      subtitle: '正值让字幕更晚出现',
+      valueLabel:
+          '${widget.subtitleDelaySeconds > 0 ? '+' : ''}${widget.subtitleDelaySeconds.toStringAsFixed(1)} 秒',
+      value: widget.subtitleDelaySeconds,
+      min: -10,
+      max: 10,
+      divisions: 200,
+      onChanged: (value) => widget.onSubtitleStyleChanged(
+        delaySeconds: double.parse(value.toStringAsFixed(1)),
+        position: widget.subtitlePosition,
+        scale: widget.subtitleScale,
+      ),
+      onChangeEnd: (value) => _setSubtitleStyle(
+        delaySeconds: double.parse(value.toStringAsFixed(1)),
+      ),
+    ),
+    _SettingsSliderTile(
+      title: '字幕位置',
+      subtitle: '数值越小字幕越靠上',
+      valueLabel: '${widget.subtitlePosition}',
+      value: widget.subtitlePosition.toDouble(),
+      min: 0,
+      max: 100,
+      divisions: 100,
+      onChanged: (value) => widget.onSubtitleStyleChanged(
+        delaySeconds: widget.subtitleDelaySeconds,
+        position: value.round(),
+        scale: widget.subtitleScale,
+      ),
+      onChangeEnd: (value) => _setSubtitleStyle(position: value.round()),
+    ),
+    _SettingsSliderTile(
+      title: '字幕缩放',
+      subtitle: '整体放大或缩小字幕',
+      valueLabel: '${widget.subtitleScale.toStringAsFixed(2)}x',
+      value: widget.subtitleScale,
+      min: 0.5,
+      max: 2.5,
+      divisions: 200,
+      onChanged: (value) => widget.onSubtitleStyleChanged(
+        delaySeconds: widget.subtitleDelaySeconds,
+        position: widget.subtitlePosition,
+        scale: double.parse(value.toStringAsFixed(2)),
+      ),
+      onChangeEnd: (value) =>
+          _setSubtitleStyle(scale: double.parse(value.toStringAsFixed(2))),
+    ),
+  ]);
+
+  Future<void> _setSubtitleStyle({
+    double? delaySeconds,
+    int? position,
+    double? scale,
+  }) async {
+    await widget.onSubtitleStyleChanged(
+      delaySeconds: delaySeconds ?? widget.subtitleDelaySeconds,
+      position: position ?? widget.subtitlePosition,
+      scale: scale ?? widget.subtitleScale,
+    );
+  }
+
+  // 章节：对齐安卓 buildChapterPage（当前章节高亮，点击跳转）。
+  Widget _buildChaptersPage() {
+    final position = widget.position;
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: widget.chapters.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, index) {
+        final chapter = widget.chapters[index];
+        final next = index + 1 < widget.chapters.length
+            ? widget.chapters[index + 1].position
+            : null;
+        final current =
+            position >= chapter.position && (next == null || position < next);
+        return _SettingsCard(
+          onTap: () => widget.onSelectChapter(chapter.position),
+          selected: current,
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: _SettingsTileText(
+                  title: chapter.title.trim().isEmpty
+                      ? '章节 ${index + 1}'
+                      : chapter.title,
+                  subtitle: '',
+                ),
+              ),
+              Text(
+                _duration(chapter.position),
+                style: TextStyle(
+                  color: current ? const Color(0xFF9CC4FF) : Colors.white54,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // 音频调整：对齐安卓 buildAudioPage 的分段结构（延迟 / 预设 / 输出 / 增益与音效 / 均衡器）。
+  Widget _buildAudioAdjustPage(AppLocalizations l10n) => _settingsList(<Widget>[
+    _SettingsSliderTile(
+      title: '音频延迟',
+      subtitle: '正值让声音更晚，负值让声音更早',
+      valueLabel:
+          '${_audioDelaySeconds > 0 ? '+' : ''}${_audioDelaySeconds.toStringAsFixed(1)} 秒',
+      value: _audioDelaySeconds,
+      min: -10,
+      max: 10,
+      divisions: 200,
+      onChanged: (value) => setState(() => _audioDelaySeconds = value),
+      onChangeEnd: _setAudioDelay,
+    ),
+    const _SettingsSectionHeader('预设'),
+    _SettingsMenuTile(
+      title: '选择已保存预设',
+      subtitle: '应用已保存的音频预设',
+      icon: Icons.library_music_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.audioPresets),
+    ),
+    const _SettingsSectionHeader('输出'),
+    _definitionSegment(l10n, MpvSettingsCatalog.audioPassthroughKey),
+    if (_passthroughActive)
+      const _SettingsStatusCard(
+        title: '音频直通',
+        value: '已开启',
+        description: '位流直通由功放解码，音效与均衡器暂时不生效。',
+      ),
+    const _SettingsSectionHeader('增益与音效'),
+    for (final key in const <String>[
+      MpvSettingsCatalog.volumeGainKey,
+      MpvSettingsCatalog.audioHighFidelityKey,
+      MpvSettingsCatalog.dynamicRangeKey,
+      MpvSettingsCatalog.audioLimiterKey,
+      MpvSettingsCatalog.audioBassBoostKey,
+      MpvSettingsCatalog.audioVoiceEnhanceKey,
+      MpvSettingsCatalog.channelMixKey,
+    ])
+      _definitionSegment(l10n, key, enabled: !_passthroughActive),
+    const _SettingsSectionHeader('均衡器'),
+    _definitionSegment(
+      l10n,
+      MpvSettingsCatalog.audioEqKey,
+      enabled: !_passthroughActive,
+    ),
+    _SettingsMenuTile(
+      title: '自定义均衡器',
+      subtitle: '五个频段增益微调',
+      trailing: _labelFor(l10n, MpvSettingsCatalog.audioEqKey),
+      icon: Icons.equalizer_rounded,
+      onTap:
+          _mpvSettings[MpvSettingsCatalog.audioEqKey] ==
+              MpvSettingsCatalog.audioEqCustomValue
+          ? () => _push(DesktopPlaybackSettingsPage.audioEq)
+          : null,
+    ),
+  ]);
+
+  // 自定义均衡器：对齐安卓 buildEqualizerPage（频段滑条 + 重置）。
+  Widget _buildAudioEqPage(AppLocalizations l10n) => _settingsList(<Widget>[
+    for (final band in MpvSettingsCatalog.audioEqBands)
+      _SettingsSliderTile(
+        title: '${band.label} Hz',
+        subtitle: '自定义均衡器频段',
+        valueLabel: MpvSettingsCatalog.formatAudioEqBandValue(
+          MpvSettingsCatalog.audioEqBandValue(band.key, _mpvSettings),
+        ),
+        value: MpvSettingsCatalog.audioEqBandValue(band.key, _mpvSettings),
+        min: MpvSettingsCatalog.audioEqBandMinDb,
+        max: MpvSettingsCatalog.audioEqBandMaxDb,
+        divisions:
+            ((MpvSettingsCatalog.audioEqBandMaxDb -
+                        MpvSettingsCatalog.audioEqBandMinDb) /
+                    MpvSettingsCatalog.audioEqBandStepDb)
+                .round(),
+        onChanged: (value) => setState(
+          () => _mpvSettings = <String, String>{
+            ..._mpvSettings,
+            band.key: MpvSettingsCatalog.normalizeAudioEqBandValue(value),
+          },
+        ),
+        onChangeEnd: (value) => _setMpvAdvanced(
+          band.key,
+          MpvSettingsCatalog.normalizeAudioEqBandValue(value),
+        ),
+      ),
+  ]);
+
+  Widget _buildSavedPresetsPage(SavedMpvPresetKind kind) => _SavedPresetsPage(
+    kind: kind,
+    onLoadSavedPresets: widget.onLoadSavedPresets,
+    onApplySavedPreset: (preset) async {
+      await widget.onApplySavedPreset(preset);
+      if (mounted) _pop();
+    },
+  );
+
+  Widget _definitionSegment(
+    AppLocalizations l10n,
+    String key, {
+    bool enabled = true,
+  }) {
+    final definition = MpvSettingsL10n.definitionByKey(l10n, key);
+    if (definition == null) return const SizedBox.shrink();
+    return _SettingsSegmentTile(
+      title: definition.title,
+      options: <(String, String)>[
+        for (final option in definition.options) (option.value, option.label),
+      ],
+      selectedValue:
+          _mpvSettings[key] ??
+          MpvSettingsCatalog.defaults[key] ??
+          definition.options.first.value,
+      enabled: enabled,
+      onSelected: (value) => _setMpvAdvanced(key, value),
+    );
+  }
 
   Widget _buildVideoAdjustPage(AppLocalizations l10n) => _settingsList(<Widget>[
     for (final key in MpvSettingsCatalog.videoAdjustmentDefaults.keys)
@@ -1167,175 +1616,7 @@ class _DesktopPlaybackSettingsPanelState
       ),
   ]);
 
-  Widget _buildAudioAdjustPage(AppLocalizations l10n) {
-    const keys = <String>[
-      MpvSettingsCatalog.volumeGainKey,
-      MpvSettingsCatalog.audioHighFidelityKey,
-      MpvSettingsCatalog.dynamicRangeKey,
-      MpvSettingsCatalog.audioEqKey,
-      MpvSettingsCatalog.audioLimiterKey,
-      MpvSettingsCatalog.audioBassBoostKey,
-      MpvSettingsCatalog.audioVoiceEnhanceKey,
-      MpvSettingsCatalog.channelMixKey,
-      MpvSettingsCatalog.audioPassthroughKey,
-    ];
-    return _settingsList(<Widget>[
-      _SettingsSliderTile(
-        title: '音频延迟',
-        subtitle: '正值让声音更晚，负值让声音更早',
-        valueLabel:
-            '${_audioDelaySeconds > 0 ? '+' : ''}${_audioDelaySeconds.toStringAsFixed(1)} 秒',
-        value: _audioDelaySeconds,
-        min: -10,
-        max: 10,
-        divisions: 200,
-        onChanged: (value) => setState(() => _audioDelaySeconds = value),
-        onChangeEnd: _setAudioDelay,
-      ),
-      for (final key in keys)
-        _SettingsMenuTile(
-          title: MpvSettingsL10n.definitionByKey(l10n, key)?.title ?? key,
-          subtitle:
-              MpvSettingsL10n.definitionByKey(l10n, key)?.description ?? '',
-          trailing: MpvSettingsL10n.labelForSetting(l10n, key, _mpvSettings),
-          icon: key == MpvSettingsCatalog.audioEqKey
-              ? Icons.equalizer_rounded
-              : Icons.tune_rounded,
-          onTap: () {
-            _audioChoiceKey = key;
-            _push(_DesktopSettingsPage.audioChoice);
-          },
-        ),
-      if (_mpvSettings[MpvSettingsCatalog.audioEqKey] ==
-          MpvSettingsCatalog.audioEqCustomValue)
-        for (final band in MpvSettingsCatalog.audioEqBands)
-          _SettingsSliderTile(
-            title: '${band.label} Hz',
-            subtitle: '自定义均衡器频段',
-            valueLabel: MpvSettingsCatalog.formatAudioEqBandValue(
-              MpvSettingsCatalog.audioEqBandValue(band.key, _mpvSettings),
-            ),
-            value: MpvSettingsCatalog.audioEqBandValue(band.key, _mpvSettings),
-            min: MpvSettingsCatalog.audioEqBandMinDb,
-            max: MpvSettingsCatalog.audioEqBandMaxDb,
-            divisions:
-                ((MpvSettingsCatalog.audioEqBandMaxDb -
-                            MpvSettingsCatalog.audioEqBandMinDb) /
-                        MpvSettingsCatalog.audioEqBandStepDb)
-                    .round(),
-            onChanged: (value) => setState(
-              () => _mpvSettings = <String, String>{
-                ..._mpvSettings,
-                band.key: MpvSettingsCatalog.normalizeAudioEqBandValue(value),
-              },
-            ),
-            onChangeEnd: (value) => _setMpvAudioSetting(
-              band.key,
-              MpvSettingsCatalog.normalizeAudioEqBandValue(value),
-            ),
-          ),
-    ]);
-  }
-
-  Widget _buildAudioChoicePage(AppLocalizations l10n) {
-    final definition = MpvSettingsL10n.definitionByKey(l10n, _audioChoiceKey);
-    if (definition == null) {
-      return const _SettingsStatusCard(
-        title: '音频设置',
-        value: '不可用',
-        description: '',
-      );
-    }
-    final current =
-        _mpvSettings[definition.key] ??
-        MpvSettingsCatalog.defaults[definition.key] ??
-        '';
-    return _settingsList(<Widget>[
-      for (final option in definition.options)
-        _SettingsChoiceTile(
-          title: option.label,
-          subtitle: option.description,
-          selected: current == option.value,
-          onTap: () => _setAudioChoice(definition.key, option.value),
-        ),
-    ]);
-  }
-
-  String _audioChoiceTitle(AppLocalizations l10n) {
-    return MpvSettingsL10n.definitionByKey(l10n, _audioChoiceKey)?.title ??
-        '音频设置';
-  }
-
-  Widget _buildAspectRatioPage(AppLocalizations l10n) => _settingsList(<Widget>[
-    _SettingsChoiceTile(
-      title: l10n.playerAspectFit,
-      selected: _aspectRatioMode == 'fit',
-      onTap: () => _setAspectRatio('fit'),
-    ),
-    _SettingsChoiceTile(
-      title: l10n.playerAspectFill,
-      selected: _aspectRatioMode == 'fill',
-      onTap: () => _setAspectRatio('fill'),
-    ),
-    for (final ratio in const <String>['4:3', '16:9', '21:9'])
-      _SettingsChoiceTile(
-        title: ratio,
-        selected: _aspectRatioMode == ratio,
-        onTap: () => _setAspectRatio(ratio),
-      ),
-  ]);
-
-  Widget _buildDecoderPage(AppLocalizations l10n) => _settingsList(<Widget>[
-    _SettingsChoiceTile(
-      title: l10n.playerHardwareDecoderTitle,
-      subtitle: l10n.playerHardwareDecoderSubtitle,
-      selected: _decoderMode != 'software',
-      onTap: () => _setDecoder('hardware'),
-    ),
-    _SettingsChoiceTile(
-      title: l10n.playerSoftwareDecoderTitle,
-      subtitle: l10n.playerSoftwareDecoderSubtitle,
-      selected: _decoderMode == 'software',
-      onTap: () => _setDecoder('software'),
-    ),
-  ]);
-
-  Widget _buildCachePage(AppLocalizations l10n) => _settingsList(<Widget>[
-    for (final value in const <int>[0, 256, 512, 1024, 1984])
-      _SettingsChoiceTile(
-        title: value == 0 ? '自动' : '$value MB',
-        selected: _cacheSizeMb == value,
-        onTap: () => _setCacheSize(value),
-      ),
-  ]);
-
-  Widget _buildBookmarksPage(AppLocalizations l10n) {
-    if (_bookmarks.isEmpty) {
-      return _settingsList(<Widget>[
-        _SettingsStatusCard(
-          title: widget.source.title,
-          value: l10n.playerBookmarkNone,
-          description: l10n.playerBookmarkEmptyPrompt,
-        ),
-      ]);
-    }
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      itemCount: _bookmarks.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, index) {
-        final entry = _bookmarks[index];
-        return _BookmarkTile(
-          time: _duration(entry.position),
-          note: entry.note,
-          onTap: () => widget.onSelectBookmark(entry),
-          onDelete: () => _deleteBookmark(entry),
-        );
-      },
-    );
-  }
-
-  Widget _buildVideoInfoPage(AppLocalizations l10n) {
+  Widget _buildTrackInfoPage(AppLocalizations l10n) {
     final source = widget.source;
     final dimensions = source.videoWidth > 0 && source.videoHeight > 0
         ? '${source.videoWidth} × ${source.videoHeight}'
@@ -1366,6 +1647,32 @@ class _DesktopPlaybackSettingsPanelState
     );
   }
 
+  Widget _buildBookmarksPage(AppLocalizations l10n) {
+    if (_bookmarks.isEmpty) {
+      return _settingsList(<Widget>[
+        _SettingsStatusCard(
+          title: widget.source.title,
+          value: l10n.playerBookmarkNone,
+          description: l10n.playerBookmarkEmptyPrompt,
+        ),
+      ]);
+    }
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: _bookmarks.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, index) {
+        final entry = _bookmarks[index];
+        return _BookmarkTile(
+          time: _duration(entry.position),
+          note: entry.note,
+          onTap: () => widget.onSelectBookmark(entry),
+          onDelete: () => _deleteBookmark(entry),
+        );
+      },
+    );
+  }
+
   Future<void> _setAutoPlay(bool value) async {
     setState(() {
       _autoPlayEnabled = value;
@@ -1384,19 +1691,18 @@ class _DesktopPlaybackSettingsPanelState
   Future<void> _setAspectRatio(String value) async {
     setState(() => _aspectRatioMode = value);
     await widget.onAspectRatioChanged(value);
-    if (mounted) _pop();
   }
 
   Future<void> _setDecoder(String value) async {
     setState(() => _decoderMode = value);
     await widget.onDecoderChanged(value);
-    if (mounted) _pop();
   }
 
-  Future<void> _setCacheSize(int value) async {
-    setState(() => _cacheSizeMb = value);
-    await widget.onCacheSizeChanged(value);
-    if (mounted) _pop();
+  Future<void> _setMpvAdvanced(String key, String value) async {
+    setState(
+      () => _mpvSettings = <String, String>{..._mpvSettings, key: value},
+    );
+    await widget.onMpvAdvancedChanged(key, value);
   }
 
   Future<void> _setVideoAdjustment(String key, double value) async {
@@ -1414,18 +1720,6 @@ class _DesktopPlaybackSettingsPanelState
     for (final entry in defaults.entries) {
       await widget.onVideoAdjustmentChanged(entry.key, entry.value);
     }
-  }
-
-  Future<void> _setMpvAudioSetting(String key, String value) async {
-    setState(
-      () => _mpvSettings = <String, String>{..._mpvSettings, key: value},
-    );
-    await widget.onMpvAudioSettingChanged(key, value);
-  }
-
-  Future<void> _setAudioChoice(String key, String value) async {
-    await _setMpvAudioSetting(key, value);
-    if (mounted) _pop();
   }
 
   Future<void> _setAudioDelay(double value) async {
@@ -1446,12 +1740,6 @@ class _DesktopPlaybackSettingsPanelState
     if (mounted) setState(() => _bookmarks = next);
   }
 
-  String _aspectLabel(AppLocalizations l10n) => switch (_aspectRatioMode) {
-    'fill' => l10n.playerAspectFill,
-    '4:3' || '16:9' || '21:9' => _aspectRatioMode,
-    _ => l10n.playerAspectFit,
-  };
-
   String _duration(Duration value) {
     final safe = value < Duration.zero ? Duration.zero : value;
     final hours = safe.inHours;
@@ -1459,6 +1747,224 @@ class _DesktopPlaybackSettingsPanelState
     final seconds = safe.inSeconds.remainder(60).toString().padLeft(2, '0');
     return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
   }
+}
+
+/// 已保存预设列表页：对齐安卓 buildSavedPresetListPage（仅有保存过的预设，空态给提示）。
+class _SavedPresetsPage extends StatefulWidget {
+  const _SavedPresetsPage({
+    required this.kind,
+    required this.onLoadSavedPresets,
+    required this.onApplySavedPreset,
+  });
+
+  final SavedMpvPresetKind kind;
+  final Future<List<SavedMpvPreset>> Function(SavedMpvPresetKind kind)
+  onLoadSavedPresets;
+  final Future<void> Function(SavedMpvPreset preset) onApplySavedPreset;
+
+  @override
+  State<_SavedPresetsPage> createState() => _SavedPresetsPageState();
+}
+
+class _SavedPresetsPageState extends State<_SavedPresetsPage> {
+  List<SavedMpvPreset> _presets = const <SavedMpvPreset>[];
+  bool _loading = true;
+  String? _applyingId;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() => _loading = true);
+    final presets = await widget.onLoadSavedPresets(widget.kind);
+    if (!mounted) return;
+    setState(() {
+      _presets = presets;
+      _loading = false;
+    });
+  }
+
+  Future<void> _apply(SavedMpvPreset preset) async {
+    if (_applyingId != null) return;
+    setState(() => _applyingId = preset.id);
+    await widget.onApplySavedPreset(preset);
+    if (!mounted) return;
+    setState(() => _applyingId = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(20),
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    if (_presets.isEmpty) {
+      return ListView(
+        padding: EdgeInsets.zero,
+        children: const <Widget>[
+          _SettingsStatusCard(
+            title: '已保存预设',
+            value: '暂无已保存预设',
+            description: '在全局设置的 MPV 播放器设置里保存过预设后，这里可以直接应用。',
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: _presets.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, index) {
+        final preset = _presets[index];
+        return _SettingsCard(
+          onTap: _applyingId == null ? () => unawaited(_apply(preset)) : null,
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.tune_rounded,
+                size: 20,
+                color: Color(0xFF9CC4FF),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SettingsTileText(
+                  title: preset.name,
+                  subtitle: preset.description,
+                ),
+              ),
+              if (_applyingId == preset.id)
+                const SizedBox.square(
+                  dimension: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 分组标题：对齐安卓 panelSectionHeader。
+class _SettingsSectionHeader extends StatelessWidget {
+  const _SettingsSectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 8, left: 4),
+    child: Text(
+      title,
+      style: const TextStyle(
+        color: Colors.white60,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.3,
+      ),
+    ),
+  );
+}
+
+/// 分段选项行：对齐安卓 panelSegment（标签 + 一行可选项）。
+class _SettingsSegmentTile extends StatelessWidget {
+  const _SettingsSegmentTile({
+    required this.title,
+    required this.options,
+    required this.selectedValue,
+    required this.onSelected,
+    this.enabled = true,
+  });
+
+  final String title;
+  final List<(String, String)> options;
+  final String selectedValue;
+  final ValueChanged<String> onSelected;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => Opacity(
+    opacity: enabled ? 1 : 0.45,
+    child: _SettingsCard(
+      onTap: null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final (value, label) in options)
+                _SegmentChip(
+                  label: label,
+                  selected: value == selectedValue,
+                  onTap: enabled && value != selectedValue
+                      ? () => onSelected(value)
+                      : null,
+                ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _SegmentChip extends StatelessWidget {
+  const _SegmentChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: selected ? const Color(0x246EA8FF) : const Color(0x0DFFFFFF),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(9),
+      side: BorderSide(
+        color: selected ? const Color(0x806EA8FF) : const Color(0x14FFFFFF),
+      ),
+    ),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(9),
+      hoverColor: const Color(0x1AFFFFFF),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? const Color(0xFF9CC4FF) : Colors.white70,
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _SettingsHeader extends StatelessWidget {
@@ -1520,48 +2026,56 @@ class _SettingsMenuTile extends StatelessWidget {
   final String subtitle;
   final String trailing;
   final IconData? icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => _SettingsCard(
-    onTap: onTap,
-    child: Row(
-      children: <Widget>[
-        if (icon != null) ...<Widget>[
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: const Color(0x1A6EA8FF),
-              borderRadius: BorderRadius.circular(9),
+  Widget build(BuildContext context) => Opacity(
+    opacity: onTap == null ? 0.45 : 1,
+    child: _SettingsCard(
+      onTap: onTap,
+      child: Row(
+        children: <Widget>[
+          if (icon != null) ...<Widget>[
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: const Color(0x1A6EA8FF),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, size: 17, color: const Color(0xFF9CC4FF)),
             ),
-            alignment: Alignment.center,
-            child: Icon(icon, size: 17, color: const Color(0xFF9CC4FF)),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: _SettingsTileText(title: title, subtitle: subtitle),
           ),
           const SizedBox(width: 12),
-        ],
-        Expanded(
-          child: _SettingsTileText(title: title, subtitle: subtitle),
-        ),
-        if (trailing.trim().isNotEmpty) ...<Widget>[
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              trailing,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: Colors.white54, fontSize: 11),
+          SizedBox(
+            width: 94,
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    trailing,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 19,
+                  color: Colors.white38,
+                ),
+              ],
             ),
           ),
         ],
-        const SizedBox(width: 8),
-        const Icon(
-          Icons.arrow_forward_ios_rounded,
-          size: 14,
-          color: Colors.white30,
-        ),
-      ],
+      ),
     ),
   );
 }
@@ -1601,35 +2115,6 @@ class _SettingsSwitchTile extends StatelessWidget {
           ),
         ],
       ),
-    ),
-  );
-}
-
-class _SettingsChoiceTile extends StatelessWidget {
-  const _SettingsChoiceTile({
-    required this.title,
-    required this.selected,
-    required this.onTap,
-    this.subtitle = '',
-  });
-
-  final String title;
-  final String subtitle;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => _SettingsCard(
-    selected: selected,
-    onTap: onTap,
-    child: Row(
-      children: <Widget>[
-        Expanded(
-          child: _SettingsTileText(title: title, subtitle: subtitle),
-        ),
-        const SizedBox(width: 14),
-        _SelectionMark(selected),
-      ],
     ),
   );
 }
