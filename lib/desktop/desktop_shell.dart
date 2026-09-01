@@ -273,15 +273,12 @@ class _DesktopShellState extends State<DesktopShell> {
     });
   }
 
-  /// 搜索快捷键 / 入口：在影视内容区导航上弹 PC 搜索弹窗（侧栏保持可见），
-  /// 选中结果后在内容区打开详情（与首页右上角入口同链路）。
+  /// 搜索快捷键 / 入口：在影视内容区导航上弹 PC 搜索弹窗（侧栏保持可见）；
+  /// 结果详情由弹窗面板在内容区导航器内打开（分屏优先，不推根导航器）。
   Future<void> _openSearch() async {
     final navigator = _contentNavKey.currentState;
     if (navigator == null) return;
-    final overlayContext = navigator.context;
-    final item = await showDesktopSearch(overlayContext);
-    if (item == null || !overlayContext.mounted) return;
-    await openSearchItemDetail(overlayContext, item);
+    await showDesktopSearch(navigator.context);
   }
 
   Future<void> _escape() async {

@@ -80,11 +80,10 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     );
   }
 
-  /// 桌面档右上角搜索：弹出 PC 专属搜索弹窗，选中结果后在本内容区打开详情。
-  Future<void> _openDesktopSearchOverlay() async {
-    final item = await showDesktopSearch(context);
-    if (item == null || !mounted) return;
-    await openSearchItemDetail(context, item);
+  /// 桌面档右上角搜索：弹出 PC 专属搜索弹窗；结果详情由弹窗面板在
+  /// 内容区导航器内打开（分屏优先，见 showDesktopSearch）。
+  Future<void> _openDesktopSearchOverlay() {
+    return showDesktopSearch(context);
   }
 
   Widget _buildBody(
