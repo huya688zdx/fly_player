@@ -3747,4 +3747,42 @@
   "themePresetSunsetTitle": "日落",
   "themePresetAuroraTitle": "极光",
   "themePresetLatteTitle": "拿铁"
+,
+  "desktopPlaybackErrorGeneric": "播放发生错误，请检查媒体是否仍可访问。",
+  "desktopPlaybackErrorSourceUnavailable": "媒体地址不可用。",
+  "desktopPlaybackErrorStartFailed": "无法开始播放，请检查媒体与网络状态。",
+  "desktopPlaybackErrorEpisodeResolveFailed": "无法解析该集媒体。",
+  "desktopPlaybackErrorEpisodeSwitchFailed": "切换选集失败，请稍后重试。",
+  "desktopPlaybackErrorTrackSwitchFailed": "切换轨道失败，请稍后重试。",
+  "desktopPlaybackNoAudioTracks": "暂无可用音轨",
+  "desktopPlaybackNoSubtitleTracks": "暂无可用字幕",
+  "desktopPlaybackExitFullscreen": "退出全屏",
+  "desktopPlaybackFullscreen": "全屏",
+  "desktopPlaybackExitFullscreenTooltip": "退出全屏 (F)",
+  "desktopPlaybackFullscreenTooltip": "全屏 (F)",
+  "desktopPlaybackFitTooltip": "画面适配：{mode}",
+  "@desktopPlaybackFitTooltip": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopPlaybackMoreOptions": "更多播放选项",
+  "desktopPlaybackPlayTooltip": "播放 (Space)",
+  "desktopPlaybackPauseTooltip": "暂停 (Space)",
+  "desktopPlaybackRewindTooltip": "后退 10 秒 (←)",
+  "desktopPlaybackForwardTooltip": "前进 10 秒 (→)",
+  "desktopPlaybackMute": "静音",
+  "desktopPlaybackRestoreVolume": "恢复音量",
+  "desktopPlaybackMuteTooltip": "静音 (M)",
+  "desktopPlaybackRestoreVolumeTooltip": "恢复音量 (M)",
+  "desktopPlaybackAspectStretch": "拉伸",
+  "desktopPlaybackEpisodesEmpty": "暂无选集数据",
+  "desktopPlaybackOptionsTitle": "播放选项",
+  "desktopPlaybackShortcutHint": "←/→ 10 秒   Space 播放/暂停",
+  "desktopPlaybackScreenshotAction": "保存截图",
+  "desktopPlaybackScreenshotDialogTitle": "保存当前画面",
+  "desktopPlaybackPrevEpisodeTooltip": "上一集 (P)",
+  "desktopPlaybackNextEpisodeTooltip": "下一集 (N)"
 }
