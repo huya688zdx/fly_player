@@ -94,9 +94,23 @@ class ItemPlaybackLauncher {
 
         // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
         if (DesktopEnvironment.isWindows) {
+          final danmakuSettings = await const DanmakuSettingsStore().load();
+          final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+            seriesTitle: source.seriesTitle,
+            itemTitle: source.title,
+            seasonNumber: source.seasonNumber,
+            episodeNumber: source.episodeNumber,
+            tmdbId: source.tmdbId,
+            settings: danmakuSettings,
+            itemGuid: source.itemGuid,
+            mediaGuid: source.mediaGuid,
+            seasonGuid: source.seasonGuid,
+          );
+          if (!context.mounted) return null;
           if (await playbackHostFor(context).launch(
             source: source,
             episodes: serverEpisodes,
+            danmakuFilePath: danmakuFile,
             nas: isFeiniu ? nas : null,
           )) {
             return null;

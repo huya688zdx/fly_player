@@ -415,8 +415,16 @@ class NativeDanmakuPrefetch {
   /// 解析本地弹幕文件（原生壳已把所选文件拷到可读路径），落临时 payload 文件后返回
   /// `{danmakuFile, sourceKey}`；失败返回 null。供原生壳「从文件导入」反向调用。
   static Future<Map<String, dynamic>?> importLocalFileToFile(
-    String path,
-  ) async {
+    String path, {
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    int seasonNumber = 0,
+    int episodeNumber = 0,
+    String seriesTitle = '',
+    String itemTitle = '',
+    String mediaType = '',
+  }) async {
     try {
       if (path.trim().isEmpty) return null;
       final result = await DanmakuImportParser.parseFile(path);
@@ -426,6 +434,36 @@ class NativeDanmakuPrefetch {
       final sourceKey = 'local:$path';
       // 解析结果落持久缓存：原文件被清后仍可离线重放。
       await _cacheComments(sourceKey, comments);
+      final mediaKey = _buildMediaKey(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
+      );
+      if (mediaKey.isNotEmpty) {
+        await const DanmakuSavedSourceStore().saveSource(
+          DanmakuSavedSource(
+            type: DanmakuSavedSourceType.localFile,
+            mediaKey: mediaKey,
+            sourceKey: sourceKey,
+            label: result.sourceLabel,
+            commentCount: comments.length,
+            updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+            seriesTitle: seriesTitle,
+            itemTitle: itemTitle,
+            itemGuid: itemGuid,
+            mediaGuid: mediaGuid,
+            seasonGuid: seasonGuid,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
+            mediaType: mediaType,
+          ),
+          activate: true,
+        );
+      }
       final out = await _writePayloadFile(
         buildPayload(settings, comments, sourceKey: sourceKey),
       );
@@ -518,6 +556,38 @@ class NativeDanmakuPrefetch {
       return <String, dynamic>{'danmakuFile': path, 'sourceKey': sourceKey};
     } catch (_) {
       return null;
+    }
+  }
+
+  /// 删除当前媒体的一条已保存弹幕源。桌面播放页直接复用 Flutter 源库，不再维护
+  /// 第二套仅供播放器面板使用的来源记录。
+  static Future<bool> removeSavedSource({
+    required String sourceKey,
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    int seasonNumber = 0,
+    int episodeNumber = 0,
+    String seriesTitle = '',
+  }) async {
+    try {
+      if (sourceKey.trim().isEmpty) return false;
+      final mediaKey = _buildMediaKey(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        seriesTitle: seriesTitle,
+      );
+      if (mediaKey.isEmpty) return false;
+      await const DanmakuSavedSourceStore().removeSource(
+        mediaKey: mediaKey,
+        sourceKey: sourceKey,
+      );
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

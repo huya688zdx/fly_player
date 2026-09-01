@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'danmaku/settings/danmaku_saved_source_store.dart';
 import 'desktop/desktop_breakpoints.dart';
 import 'desktop/desktop_environment.dart';
+import 'desktop/desktop_scroll_behavior.dart';
 import 'desktop/desktop_shell.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
@@ -397,6 +398,7 @@ class FlyPlayerApp extends StatelessWidget {
             builder: (context, localeProvider, _) {
               return MaterialApp(
                 title: '飞翔播放器',
+                scrollBehavior: const DesktopScrollBehavior(),
                 onGenerateTitle: (context) =>
                     AppLocalizations.of(context).appTitle,
                 locale: localeProvider.locale,
