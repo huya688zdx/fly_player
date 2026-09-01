@@ -1,15 +1,17 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import 'desktop_hover_region.dart';
 import 'desktop_tokens.dart';
 
-/// 桌面档横向滚动架的悬浮箭头容器：左右两端各覆盖一条**整行高**的
-/// 透明黑渐变按钮，悬停整架时出现（内容溢出且可向该方向滚动时才可见），
-/// 点击按约 0.8 视口宽度翻页。
+/// 桌面档横向滚动架的悬浮箭头容器：悬停整架时，左右两端各出现一个
+/// **垂直居中的悬浮胶囊按钮**（深色主题下背后衬一条贴边的窄渐变），
+/// 内容溢出且可向该方向滚动时才可见，点击按约 0.8 视口宽度翻页。
 ///
-/// 按钮经 [edgePadding] 向行外延伸过页面水平留白、贴住内容区边缘
-/// （渐变从窗口边起），避免按钮悬浮在海报中间；命中区从行边缘开始。
+/// 按钮的命中区经 [edgePadding] 向行外延伸过页面水平留白、贴住窗口边，
+/// 视觉胶囊则收在命中区内、不挡整行海报；命中区从行边缘开始。
 /// [child] 须把 [scrollController] 挂到实际滚动的视图上。
 class HoverScrollArrows extends StatefulWidget {
   const HoverScrollArrows({
@@ -113,6 +115,7 @@ class _HoverScrollArrowsState extends State<HoverScrollArrows> {
                 visible: hovering && _canScrollLeft,
                 icon: Icons.chevron_left,
                 alignLeft: true,
+                stripWidth: _stripWidth + widget.edgePadding,
                 onTap: () => _scrollByViewport(forward: false),
               ),
             ),
@@ -125,6 +128,7 @@ class _HoverScrollArrowsState extends State<HoverScrollArrows> {
                 visible: hovering && _canScrollRight,
                 icon: Icons.chevron_right,
                 alignLeft: false,
+                stripWidth: _stripWidth + widget.edgePadding,
                 onTap: () => _scrollByViewport(forward: true),
               ),
             ),
@@ -133,13 +137,13 @@ class _HoverScrollArrowsState extends State<HoverScrollArrows> {
       },
     );
   }
-
-  /// 按钮基础宽度（不含向外延伸的留白）：整行高命中区，足够避免误触。
-  static const double _stripWidth = 48;
 }
 
+/// 按钮命中区基础宽度（不含向外延伸的留白）：整行高、足够避免误触。
+const double _stripWidth = 48;
+
 /// 自带控制器的横向滚动行宿主：桌面档（[enabled]）把 builder 产物接上
-/// [HoverScrollArrows]（整行高渐变按钮）；非桌面档原样透出，零改动。
+/// [HoverScrollArrows]（居中悬浮胶囊按钮）；非桌面档原样透出，零改动。
 /// 控制器由宿主持有与销毁，调用方只需把 controller 挂到滚动视图上。
 class HoverScrollRow extends StatefulWidget {
   const HoverScrollRow({
@@ -180,15 +184,16 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
   }
 }
 
-/// 边缘滚动按钮：整行高、贴内容区边缘的命中区 + 居中箭头。
-/// 浅色主题保持透明，只用箭头颜色反馈悬停；深色主题保留主题色条带，
-/// 避免浅色内容边缘出现突兀的灰黑实心块。
+/// 边缘滚动按钮：整行高、贴窗口边的透明命中区 + 垂直居中的悬浮胶囊。
+/// 深色主题下胶囊用主题 scrim 半透明填充，背后衬一条贴边的窄渐变，
+/// 提高亮色海报上的可读性；浅色主题用磨砂白胶囊、不衬渐变。
 /// 不可见时淡出并忽略指针。
 class _ScrollArrow extends StatefulWidget {
   const _ScrollArrow({
     required this.visible,
     required this.icon,
     required this.alignLeft,
+    required this.stripWidth,
     required this.onTap,
   });
 
@@ -197,11 +202,19 @@ class _ScrollArrow extends StatefulWidget {
 
   /// true 贴左缘，false 贴右缘。
   final bool alignLeft;
+
+  /// 命中区总宽度（含向外延伸的页面留白），用于收进量自适应。
+  final double stripWidth;
   final VoidCallback onTap;
 
   @override
   State<_ScrollArrow> createState() => _ScrollArrowState();
 }
+
+/// 悬浮胶囊的视觉尺寸：40×64 全圆角，向命中区的窗口侧边缘收进 12px。
+const double _pillWidth = 40;
+const double _pillHeight = 64;
+const double _pillInset = 12;
 
 class _ScrollArrowState extends State<_ScrollArrow> {
   bool _hovering = false;
@@ -210,14 +223,14 @@ class _ScrollArrowState extends State<_ScrollArrow> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    // 外缘贴窗口边不倒角，内缘倒角——读作一个贴边的滚动控件而不是色带。
-    final radius = BorderRadius.horizontal(
-      left: widget.alignLeft
-          ? Radius.zero
-          : const Radius.circular(DesktopTokens.cardRadius + 2),
-      right: widget.alignLeft
-          ? const Radius.circular(DesktopTokens.cardRadius + 2)
-          : Radius.zero,
+    final pillColor = isLight
+        ? Colors.white.withValues(alpha: _hovering ? 0.95 : 0.85)
+        : colors.overlayScrim.withValues(alpha: _hovering ? 0.95 : 0.78);
+    // 命中区比胶囊宽（延伸过页面留白）；留白不足时（设置页 edgePadding=0，
+    // 命中区仅 _stripWidth 宽）收进量压到最小 4，避免胶囊溢出命中区。
+    final double inset = math.min(
+      _pillInset,
+      math.max(4.0, (widget.stripWidth - _pillWidth) / 2),
     );
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -229,39 +242,80 @@ class _ScrollArrowState extends State<_ScrollArrow> {
         child: AnimatedOpacity(
           opacity: widget.visible ? 1 : 0,
           duration: DesktopTokens.hoverDuration,
-          child: AnimatedContainer(
-            duration: DesktopTokens.hoverDuration,
-            curve: Curves.easeOutCubic,
-            foregroundDecoration: BoxDecoration(
-              borderRadius: radius,
-              border: Border.all(
-                color: isLight ? Colors.transparent : colors.borderSubtle,
-              ),
-            ),
-            decoration: BoxDecoration(
-              color: isLight
-                  ? Colors.transparent
-                  : (_hovering ? colors.selectionSoft : colors.surfaceStrong),
-              borderRadius: radius,
-              boxShadow: isLight
-                  ? const <BoxShadow>[]
-                  : <BoxShadow>[
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: .18),
-                        blurRadius: 10,
-                        offset: const Offset(0, 2),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final double pillHeight = math.min(
+                _pillHeight,
+                constraints.maxHeight,
+              );
+              return Stack(
+                children: <Widget>[
+                  if (!isLight)
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: widget.alignLeft
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            end: widget.alignLeft
+                                ? Alignment.centerLeft
+                                : Alignment.centerRight,
+                            colors: <Color>[
+                              Colors.transparent,
+                              colors.overlayScrim.withValues(alpha: 0.30),
+                            ],
+                          ),
+                        ),
                       ),
-                    ],
-            ),
-            child: Center(
-              child: Icon(
-                widget.icon,
-                size: 26,
-                color: isLight && _hovering
-                    ? colors.selection
-                    : colors.textPrimary,
-              ),
-            ),
+                    ),
+                  Align(
+                    alignment: widget.alignLeft
+                        ? Alignment.centerLeft
+                        : Alignment.centerRight,
+                    child: AnimatedScale(
+                      scale: widget.visible ? 1 : 0.88,
+                      duration: DesktopTokens.hoverDuration,
+                      curve: Curves.easeOutCubic,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: inset),
+                        child: AnimatedContainer(
+                          width: _pillWidth,
+                          height: pillHeight,
+                          duration: DesktopTokens.hoverDuration,
+                          curve: Curves.easeOutCubic,
+                          decoration: BoxDecoration(
+                            color: pillColor,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: isLight
+                                  ? Colors.black.withValues(alpha: 0.08)
+                                  : colors.borderSubtle,
+                            ),
+                            boxShadow: <BoxShadow>[
+                              BoxShadow(
+                                color: Colors.black.withValues(
+                                  alpha: isLight ? 0.12 : 0.25,
+                                ),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: Icon(
+                              widget.icon,
+                              size: 22,
+                              color: colors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

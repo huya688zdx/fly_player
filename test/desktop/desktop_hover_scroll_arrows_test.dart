@@ -82,7 +82,7 @@ void main() {
     expect(_opacityOf(tester, Icons.chevron_left), 1);
   });
 
-  testWidgets('浅色主题悬浮箭头仅显示图标，条带与阴影保持透明', (tester) async {
+  testWidgets('浅色主题悬浮箭头为居中磨砂白胶囊（无整高色带与描边层）', (tester) async {
     tester.view.physicalSize = const Size(800, 200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -119,8 +119,23 @@ void main() {
         matching: find.byType(AnimatedContainer),
       ),
     );
+    // 胶囊：磨砂白填充 + 全圆角 + 轻投影；不再有整高命中区色带与描边层。
     final decoration = arrowContainer.decoration! as BoxDecoration;
-    expect(decoration.color, Colors.transparent);
-    expect(decoration.boxShadow, isEmpty);
+    expect(decoration.color, Colors.white.withValues(alpha: 0.85));
+    expect(decoration.borderRadius, BorderRadius.circular(999));
+    expect(decoration.boxShadow, isNotEmpty);
+    expect(arrowContainer.foregroundDecoration, isNull);
+    expect(tester.getSize(find.byIcon(Icons.chevron_right)).height, 22);
+    expect(
+      tester
+          .getSize(
+            find.ancestor(
+              of: find.byIcon(Icons.chevron_right),
+              matching: find.byType(AnimatedContainer),
+            ),
+          )
+          .height,
+      64,
+    );
   });
 }
