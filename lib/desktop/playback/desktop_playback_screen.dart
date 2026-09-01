@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui' as ui;
+import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -22,6 +22,8 @@ import '../../services/native_danmaku_prefetch.dart';
 import 'desktop_danmaku_overlay.dart';
 import 'desktop_mpv_runtime.dart';
 import 'desktop_player_controls.dart';
+import 'desktop_player_dialogs.dart';
+import 'desktop_player_hover_overlays.dart';
 import 'desktop_player_panels.dart';
 
 const Duration _controlsHideDelay = Duration(milliseconds: 2800);
@@ -32,14 +34,8 @@ typedef DesktopResolvedEpisode = ({
   String? danmakuFilePath,
 });
 
-enum _PlayerHoverOverlayKind {
-  speed,
-  episodes,
-  quality,
-  subtitle,
-  audio,
-  settings,
-}
+/// 片头片尾跳过提示种类。
+enum _SkipPromptKind { intro, outro }
 
 /// Windows 桌面正式播放页。
 ///
@@ -75,7 +71,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       'player_next_episode_preload_enabled';
   static const String _aspectRatioPrefKey = 'player_display_aspect_ratio';
   static const String _decoderModePrefKey = 'player_decoder_mode';
-  static const String _cacheSizePrefKey = 'player_mpv_setting_cache_size_mb';
+  static const String _introOutroEnabledPrefKey = 'player_intro_outro_enabled';
+  static const String _introMaxMinutesPrefKey = 'player_intro_outro_intro_min';
+  static const String _outroMaxMinutesPrefKey = 'player_intro_outro_outro_min';
+  static const String _skipCountdownPrefKey =
+      'player_intro_outro_countdown_sec';
+  static const String _subDelayPrefKey = 'player_subtitle_delay_seconds';
+  static const String _subPosPrefKey = 'player_subtitle_position';
+  static const String _subScalePrefKey = 'player_subtitle_scale';
 
   late final Player _player;
   late final VideoController _videoController;
@@ -86,6 +89,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   late final StreamSubscription<double> _volumeSubscription;
   late final StreamSubscription<bool> _bufferingSubscription;
   late final StreamSubscription<bool> _completedSubscription;
+  late final StreamSubscription<Duration> _positionSubscription;
 
   Timer? _controlsHideTimer;
   Timer? _hoverOpenTimer;
@@ -99,10 +103,21 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   bool _isLoading = true;
   bool _isBuffering = false;
   bool _isPlaying = false;
-  bool _controlsVisible = true;
-  bool _hoverOverlayVisible = false;
-  _PlayerHoverOverlayKind? _hoverOverlayKind;
-  Rect _hoverOverlayAnchor = Rect.zero;
+  bool _pausedByUser = false;
+  // 控制条可见性与悬停弹层都用 ValueNotifier 驱动：media_kit 全屏是独立路由上的
+  // 另一个 Video，宿主 setState 刷不到它，全屏下必须靠通知源让可见层重建。
+  final ValueNotifier<bool> _controlsVisibleNotifier = ValueNotifier<bool>(
+    true,
+  );
+  final ValueNotifier<PlayerHoverOverlaySnapshot> _hoverOverlayNotifier =
+      ValueNotifier<PlayerHoverOverlaySnapshot>(
+        const PlayerHoverOverlaySnapshot(),
+      );
+  bool get _controlsVisible => _controlsVisibleNotifier.value;
+  set _controlsVisible(bool value) => _controlsVisibleNotifier.value = value;
+  bool get _hoverOverlayVisible => _hoverOverlayNotifier.value.visible;
+  PlayerHoverOverlayKind? get _hoverOverlayKind =>
+      _hoverOverlayNotifier.value.kind;
   bool _takingScreenshot = false;
   bool _showResumePrompt = false;
   bool _playbackCompleted = false;
@@ -115,7 +130,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   BoxFit _fit = BoxFit.contain;
   String _aspectRatioMode = 'fit';
   String _decoderMode = 'hardware';
-  int _cacheSizeMb = 0;
   DanmakuSettings _danmakuSettings = DanmakuSettings.defaults;
   List<DanmakuComment> _danmakuComments = const <DanmakuComment>[];
   String _danmakuSourceLabel = '';
@@ -127,6 +141,20 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Map<String, double> _videoAdjustments = Map<String, double>.from(
     MpvSettingsCatalog.videoAdjustmentDefaults,
   );
+  List<DesktopPlayerChapter> _chapters = const <DesktopPlayerChapter>[];
+  bool _introOutroEnabled = true;
+  int _introMaxMinutes = 2;
+  int _outroMaxMinutes = 2;
+  int _skipCountdownSeconds = 5;
+  // 片头片尾跳过提示：ValueNotifier 驱动，全屏路由下也能即时显隐。
+  final ValueNotifier<_SkipPromptKind?> _skipPromptKindNotifier =
+      ValueNotifier<_SkipPromptKind?>(null);
+  bool _introSkipDismissed = false;
+  bool _outroSkipDismissed = false;
+  // 字幕样式：默认值对齐安卓 NativeSubtitleStyleSettings（延迟 0 / 位置 92 / 缩放 1.0）。
+  double _subtitleDelaySeconds = 0;
+  int _subtitlePosition = 92;
+  double _subtitleScale = 1;
   double _audioDelaySeconds = 0;
   final BookmarkStore _bookmarkStore = const BookmarkStore();
   final DanmakuSettingsStore _danmakuSettingsStore =
@@ -142,6 +170,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   void initState() {
     super.initState();
     _source = widget.source;
+    _pausedByUser = _source.startPaused;
     _focusNode = FocusNode(debugLabel: 'desktop-playback');
     MediaKit.ensureInitialized();
     _player = Player();
@@ -150,10 +179,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _volume = _player.state.volume;
     if (_volume > 0) _lastAudibleVolume = _volume;
 
-    _errorSubscription = _player.stream.error.listen((_) {
-      if (!mounted) return;
-      _showGenericError(_l10n.desktopPlaybackErrorGeneric);
-    });
+    _errorSubscription = _player.stream.error.listen(_onPlayerError);
     _playingSubscription = _player.stream.playing.listen(_onPlayingChanged);
     _volumeSubscription = _player.stream.volume.listen(_onVolumeChanged);
     _bufferingSubscription = _player.stream.buffering.listen(
@@ -162,6 +188,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _completedSubscription = _player.stream.completed.listen(
       _onCompletedChanged,
     );
+    _positionSubscription = _player.stream.position.listen(_onPositionChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       _focusNode.requestFocus();
@@ -187,8 +214,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     unawaited(_volumeSubscription.cancel());
     unawaited(_bufferingSubscription.cancel());
     unawaited(_completedSubscription.cancel());
+    unawaited(_positionSubscription.cancel());
+    _skipPromptKindNotifier.dispose();
     unawaited(_player.dispose());
     _focusNode.dispose();
+    _controlsVisibleNotifier.dispose();
+    _hoverOverlayNotifier.dispose();
     super.dispose();
   }
 
@@ -202,8 +233,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         ? aspect
         : 'fit';
     final decoder = prefs.getString(_decoderModePrefKey);
-    final cacheRaw = prefs.getString(_cacheSizePrefKey) ?? 'auto';
-    final cacheSize = int.tryParse(cacheRaw) ?? 0;
     if (!mounted) return;
     setState(() {
       _autoPlayEnabled = prefs.getBool(_autoPlayPrefKey) ?? true;
@@ -212,10 +241,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _aspectRatioMode = normalizedAspect;
       _fit = normalizedAspect == 'fill' ? BoxFit.cover : BoxFit.contain;
       _decoderMode = decoder == 'software' ? 'software' : 'hardware';
-      _cacheSizeMb = cacheSize > 0 ? cacheSize : 0;
       _danmakuSettings = danmakuSettings;
       _mpvSettings = mpvBundle.settings;
       _videoAdjustments = mpvBundle.videoAdjustments;
+      _introOutroEnabled = prefs.getBool(_introOutroEnabledPrefKey) ?? true;
+      _introMaxMinutes = prefs.getInt(_introMaxMinutesPrefKey) ?? 2;
+      _outroMaxMinutes = prefs.getInt(_outroMaxMinutesPrefKey) ?? 2;
+      _skipCountdownSeconds = prefs.getInt(_skipCountdownPrefKey) ?? 5;
+      _subtitleDelaySeconds = prefs.getDouble(_subDelayPrefKey) ?? 0;
+      _subtitlePosition = prefs.getInt(_subPosPrefKey) ?? 92;
+      _subtitleScale = prefs.getDouble(_subScalePrefKey) ?? 1;
     });
   }
 
@@ -232,11 +267,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       'hwdec',
       _decoderMode == 'software' ? 'no' : 'auto-safe',
     );
-    await _setMpvProperty('cache', 'auto');
-    await _setMpvProperty(
-      'demuxer-max-bytes',
-      '${(_cacheSizeMb <= 0 ? 150 : _cacheSizeMb) * 1024 * 1024}',
-    );
+    await _applyDesktopCacheProperties();
     await _setMpvProperty(
       'video-aspect-override',
       const <String>{'4:3', '16:9', '21:9'}.contains(_aspectRatioMode)
@@ -246,8 +277,171 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     for (final entry in _videoAdjustments.entries) {
       await _setMpvProperty(entry.key, entry.value.toStringAsFixed(0));
     }
+    await _applyDesktopVideoEnhancement();
     await _applyDesktopAudioProperties();
+    await _applySubtitleStyle();
     await _setMpvProperty('audio-delay', _audioDelaySeconds.toStringAsFixed(1));
+  }
+
+  /// 字幕样式 → mpv 属性（sub-delay / sub-pos / sub-scale），改动即时生效。
+  Future<void> _applySubtitleStyle() async {
+    await _setMpvProperty(
+      'sub-delay',
+      _subtitleDelaySeconds.toStringAsFixed(1),
+    );
+    await _setMpvProperty('sub-pos', '$_subtitlePosition');
+    await _setMpvProperty('sub-scale', _subtitleScale.toStringAsFixed(2));
+  }
+
+  Future<void> _setSubtitleStyleSettings({
+    required double delaySeconds,
+    required int position,
+    required double scale,
+  }) async {
+    if (mounted) {
+      setState(() {
+        _subtitleDelaySeconds = delaySeconds.clamp(-10.0, 10.0);
+        _subtitlePosition = position.clamp(0, 100);
+        _subtitleScale = scale.clamp(0.5, 2.5);
+      });
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_subDelayPrefKey, _subtitleDelaySeconds);
+    await prefs.setInt(_subPosPrefKey, _subtitlePosition);
+    await prefs.setDouble(_subScalePrefKey, _subtitleScale);
+    await _applySubtitleStyle();
+  }
+
+  /// 外挂字幕导入（对齐安卓「+添加」）：sub-add 本地文件并立即选用。
+  Future<void> _importLocalSubtitle() async {
+    _dismissHoverOverlay();
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const <String>[
+        'srt',
+        'ass',
+        'ssa',
+        'sub',
+        'vtt',
+        'sup',
+        'lrc',
+        'sami',
+        'smi',
+      ],
+    );
+    final path = result?.files.single.path;
+    if (path == null || path.isEmpty) return;
+    try {
+      await _player.setSubtitleTrack(
+        SubtitleTrack.uri(path, title: 'external', language: 'auto'),
+      );
+      _showPlayerMessage('已导入本地字幕');
+    } catch (_) {
+      _showGenericError(_l10n.desktopPlaybackErrorTrackSwitchFailed);
+    }
+  }
+
+  bool get _isRemoteHttpSource =>
+      _source.url.startsWith('http://') || _source.url.startsWith('https://');
+
+  /// 缓存策略 → mpv 属性：映射语义对齐安卓 MpvAdvancedSettingsController.applyCacheProfile
+  /// （default 档在远端 HTTP 上按码率/分辨率自适应，用户显式设置的缓存大小优先）。
+  Future<void> _applyDesktopCacheProperties() async {
+    var profile = _mpvSettings[MpvSettingsCatalog.cacheProfileKey] ?? 'default';
+    if (profile == 'default' && _isRemoteHttpSource) {
+      final ultraHd = _source.videoWidth >= 3800 || _source.videoHeight >= 2100;
+      profile = ultraHd || _source.bitrate >= 8000000 ? 'network' : 'stable';
+    }
+    final cacheEnabled = profile != 'low_latency';
+    final maxBytesMb = switch (profile) {
+      'stable' => 128,
+      'network' => 256,
+      'low_latency' => 32,
+      _ => 64,
+    };
+    final readahead = switch (profile) {
+      'stable' => 20.0,
+      'network' => 30.0,
+      'low_latency' => 5.0,
+      _ => 10.0,
+    };
+    final configuredMb = int.tryParse(
+      _mpvSettings[MpvSettingsCatalog.cacheSizeMbKey] ?? '',
+    );
+    final effectiveMb = configuredMb != null && configuredMb > 0
+        ? configuredMb
+        : maxBytesMb;
+    await _setMpvProperty('cache', cacheEnabled ? 'yes' : 'no');
+    await _setMpvProperty('demuxer-max-bytes', '${effectiveMb * 1024 * 1024}');
+    await _setMpvProperty('demuxer-readahead-secs', '$readahead');
+  }
+
+  /// 画质增强键 → mpv 属性：映射语义对齐安卓 MpvAdvancedSettingsController
+  /// （deband/vf 滤镜/反交错/缩放配置/补帧/视频同步/色调映射）。
+  Future<void> _applyDesktopVideoEnhancement() async {
+    final settings = _mpvSettings;
+    final deband = settings[MpvSettingsCatalog.debandKey] ?? 'off';
+    await _setMpvProperty('deband', deband == 'off' ? 'no' : 'yes');
+    if (deband != 'off') {
+      await _setMpvProperty('deband-iterations', switch (deband) {
+        'low' => '1',
+        'high' => '4',
+        _ => '3',
+      });
+    }
+    final filters = <String>[];
+    switch (settings[MpvSettingsCatalog.sharpenKey] ?? 'off') {
+      case 'low':
+        filters.add('lavfi=[unsharp=3:3:0.35:3:3:0.0]');
+      case 'medium':
+        filters.add('lavfi=[unsharp=5:5:0.45:5:5:0.0]');
+      case 'high':
+        filters.add('lavfi=[unsharp=7:7:0.55:7:7:0.0]');
+    }
+    switch (settings[MpvSettingsCatalog.denoiseKey] ?? 'off') {
+      case 'low':
+        filters.add('lavfi=[hqdn3d=1.5:1.5:6:6]');
+      case 'medium':
+        filters.add('lavfi=[hqdn3d=3:2:9:7]');
+    }
+    await _setMpvProperty('vf', filters.join(','));
+    await _setMpvProperty(
+      'deinterlace',
+      switch (settings[MpvSettingsCatalog.deinterlaceKey] ?? 'auto') {
+        'force' => 'yes',
+        'off' => 'no',
+        _ => 'auto',
+      },
+    );
+    final scale = switch (settings[MpvSettingsCatalog.scaleProfileKey] ??
+        'balanced') {
+      'fast' => ('bilinear', 'bilinear', 'bilinear'),
+      'quality' => ('ewa_lanczossharp', 'spline64', 'mitchell'),
+      _ => ('spline36', 'spline36', 'mitchell'),
+    };
+    await _setMpvProperty('scale', scale.$1);
+    await _setMpvProperty('cscale', scale.$2);
+    await _setMpvProperty('dscale', scale.$3);
+    // 补帧 auto：安卓的自动判定只对本地低码率内容启用，桌面片源均为远端 HTTP，恒为关闭。
+    final interpolation =
+        settings[MpvSettingsCatalog.frameInterpolationKey] == 'on';
+    await _setMpvProperty('interpolation', interpolation ? 'yes' : 'no');
+    await _setMpvProperty('tscale', interpolation ? 'oversample' : 'mitchell');
+    await _setMpvProperty(
+      'video-sync',
+      switch (settings[MpvSettingsCatalog.videoSyncKey] ?? 'auto') {
+        'audio' => 'audio',
+        'smooth' => 'display-tempo',
+        _ => 'display-resample',
+      },
+    );
+    await _setMpvProperty(
+      'tone-mapping',
+      switch (settings[MpvSettingsCatalog.toneMappingKey] ?? 'auto') {
+        'auto' || 'bt2390' => 'bt.2390',
+        final other => other,
+      },
+    );
   }
 
   Future<void> _applyDesktopAudioProperties({bool resetVolume = false}) async {
@@ -479,12 +673,56 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     await _setMpvProperty(key, (normalized[key] ?? 0).toStringAsFixed(0));
   }
 
-  Future<void> _setMpvAudioSetting(String key, String value) async {
-    if (!MpvSettingsCatalog.audioPresetKeys.contains(key)) return;
+  /// 播放设置面板的高级键统一入口：落盘 + 按键所属分组即时下发对应 mpv 属性。
+  Future<void> _setMpvAdvancedSetting(String key, String value) async {
     final next = await _mpvSettingsStore.savePatch(<String, String>{
       key: value,
     });
     if (mounted) setState(() => _mpvSettings = next);
+    await _applyMpvAdvancedProperty(key);
+  }
+
+  Future<void> _applyMpvAdvancedProperty(String key) async {
+    if (MpvSettingsCatalog.audioPresetKeys.contains(key) ||
+        MpvSettingsCatalog.audioEqBands.any((band) => band.key == key)) {
+      await _applyDesktopAudioProperties(resetVolume: true);
+      return;
+    }
+    switch (key) {
+      case MpvSettingsCatalog.cacheProfileKey:
+      case MpvSettingsCatalog.cacheSizeMbKey:
+        await _applyDesktopCacheProperties();
+      case MpvSettingsCatalog.debandKey:
+      case MpvSettingsCatalog.sharpenKey:
+      case MpvSettingsCatalog.denoiseKey:
+      case MpvSettingsCatalog.deinterlaceKey:
+      case MpvSettingsCatalog.scaleProfileKey:
+      case MpvSettingsCatalog.frameInterpolationKey:
+      case MpvSettingsCatalog.videoSyncKey:
+      case MpvSettingsCatalog.toneMappingKey:
+        await _applyDesktopVideoEnhancement();
+    }
+  }
+
+  Future<List<SavedMpvPreset>> _loadSavedPresets(SavedMpvPresetKind kind) =>
+      _mpvSettingsStore.loadSavedPresets(kind);
+
+  Future<void> _applySavedMpvPreset(SavedMpvPreset preset) async {
+    final bundle = await _mpvSettingsStore.applySavedPreset(
+      preset,
+      currentSettings: _mpvSettings,
+      currentVideoAdjustments: _videoAdjustments,
+    );
+    if (!mounted) return;
+    setState(() {
+      _mpvSettings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+    });
+    for (final entry in _videoAdjustments.entries) {
+      await _setMpvProperty(entry.key, entry.value.toStringAsFixed(0));
+    }
+    await _applyDesktopVideoEnhancement();
+    await _applyDesktopCacheProperties();
     await _applyDesktopAudioProperties(resetVolume: true);
   }
 
@@ -494,8 +732,113 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     await _setMpvProperty('audio-delay', normalized.toStringAsFixed(1));
   }
 
+  /// 读取 mpv chapter-list（JSON：[{title,time},...]），换源后刷新。
+  Future<void> _loadChapters() async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      final raw = await platform.getProperty('chapter-list');
+      final decoded = jsonDecode(raw);
+      final chapters = <DesktopPlayerChapter>[];
+      if (decoded is List) {
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          final seconds = (item['time'] as num?)?.toDouble() ?? 0;
+          if (seconds <= 0) continue;
+          chapters.add(
+            DesktopPlayerChapter(
+              title: '${item['title'] ?? ''}',
+              position: Duration(milliseconds: (seconds * 1000).round()),
+            ),
+          );
+        }
+      }
+      if (mounted) setState(() => _chapters = chapters);
+    } catch (_) {
+      if (mounted) setState(() => _chapters = const <DesktopPlayerChapter>[]);
+    }
+  }
+
+  /// 片头片尾跳过提示：对齐安卓 updateIntroOutroSkip 的时长窗口逻辑
+  /// （片头窗口 2s→上限，片尾窗口 时长-上限→结尾；章节推断边界待接入）。
+  void _onPositionChanged(Duration position) {
+    final kind = _computeSkipPromptKind(position);
+    if (kind == _skipPromptKindNotifier.value) return;
+    _skipPromptKindNotifier.value = kind;
+  }
+
+  _SkipPromptKind? _computeSkipPromptKind(Duration position) {
+    if (!_introOutroEnabled || _playbackCompleted || _isLoading) return null;
+    final duration = _player.state.duration;
+    if (duration <= Duration.zero) return null;
+    final introEnd = Duration(seconds: _introMaxMinutes * 60);
+    final outroStart = duration - Duration(seconds: _outroMaxMinutes * 60);
+    if (!_introSkipDismissed &&
+        position >= const Duration(seconds: 2) &&
+        position < introEnd &&
+        introEnd < outroStart) {
+      return _SkipPromptKind.intro;
+    }
+    if (!_outroSkipDismissed &&
+        outroStart > introEnd &&
+        position >= outroStart) {
+      return _SkipPromptKind.outro;
+    }
+    return null;
+  }
+
+  void _dismissSkipPrompt() {
+    final kind = _skipPromptKindNotifier.value;
+    if (kind == _SkipPromptKind.intro) _introSkipDismissed = true;
+    if (kind == _SkipPromptKind.outro) _outroSkipDismissed = true;
+    _skipPromptKindNotifier.value = null;
+  }
+
+  Future<void> _skipIntroOrOutro() async {
+    final kind = _skipPromptKindNotifier.value;
+    if (kind == null) return;
+    _dismissSkipPrompt();
+    if (kind == _SkipPromptKind.intro) {
+      await _seekTo(Duration(seconds: _introMaxMinutes * 60));
+      return;
+    }
+    final next = _nextEpisode;
+    if (next != null) {
+      await _showNextEpisode();
+    } else {
+      await _seekTo(_player.state.duration);
+    }
+  }
+
+  Future<void> _setIntroOutroSettings({
+    required bool enabled,
+    required int introMaxMinutes,
+    required int outroMaxMinutes,
+    required int skipCountdownSeconds,
+  }) async {
+    if (mounted) {
+      setState(() {
+        _introOutroEnabled = enabled;
+        _introMaxMinutes = introMaxMinutes.clamp(1, 4);
+        _outroMaxMinutes = outroMaxMinutes.clamp(1, 4);
+        _skipCountdownSeconds = skipCountdownSeconds.clamp(2, 10);
+      });
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_introOutroEnabledPrefKey, enabled);
+    await prefs.setInt(_introMaxMinutesPrefKey, _introMaxMinutes);
+    await prefs.setInt(_outroMaxMinutesPrefKey, _outroMaxMinutes);
+    await prefs.setInt(_skipCountdownPrefKey, _skipCountdownSeconds);
+  }
+
+  Future<void> _selectChapter(Duration position) async {
+    _dismissHoverOverlay();
+    await _seekTo(position);
+  }
+
   Future<void> _openSource() async {
     _resetPlaybackOverlays();
+    _pausedByUser = _source.startPaused;
     if (_source.url.trim().isEmpty) {
       _showGenericError(_l10n.desktopPlaybackErrorSourceUnavailable);
       _finishLoading();
@@ -518,6 +861,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       if (!_source.startPaused) {
         await _player.play();
       }
+      unawaited(_loadChapters());
       unawaited(_loadDanmakuForSource(widget.danmakuFilePath));
       unawaited(_preloadNextEpisodeIfEnabled());
     } catch (_) {
@@ -551,6 +895,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _preloadedNextSource = null;
       _preloadedNextItemGuid = '';
       _source = resolved.source;
+      _pausedByUser = resolved.source.startPaused;
       _playbackRate = _validPlaybackRate(resolved.source.playbackSpeed);
       await _player.open(
         Media(resolved.source.url, httpHeaders: resolved.source.headers),
@@ -666,10 +1011,21 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     if (mounted) setState(() => _errorMessage = message);
   }
 
+  void _onPlayerError(String error) {
+    final diagnostic = error.replaceAll(RegExp(r'https?://\S+'), '<media-url>');
+    debugPrint(
+      '[desktop-playback] media_kit error '
+      '(pausedByUser=$_pausedByUser, loading=$_isLoading): $diagnostic',
+    );
+    if (!mounted || _pausedByUser || _isLoading) return;
+    _showGenericError(_l10n.desktopPlaybackErrorGeneric);
+  }
+
   void _onPlayingChanged(bool playing) {
     if (!mounted) return;
     setState(() {
       _isPlaying = playing;
+      if (playing) _pausedByUser = false;
       if (!playing) _controlsVisible = true;
     });
     if (playing) {
@@ -708,6 +1064,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _resumePromptTimer?.cancel();
     _autoNextTimer?.cancel();
     _toastTimer?.cancel();
+    _introSkipDismissed = false;
+    _outroSkipDismissed = false;
+    _skipPromptKindNotifier.value = null;
     if (!mounted) return;
     setState(() {
       _playbackCompleted = false;
@@ -734,7 +1093,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Future<void> _restartFromBeginning() async {
     _dismissResumePrompt();
     await _player.seek(Duration.zero);
-    if (!_isPlaying) await _player.play();
+    if (!_isPlaying) {
+      _pausedByUser = false;
+      await _player.play();
+    }
   }
 
   void _startAutoNextCountdown() {
@@ -772,6 +1134,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _controlsVisible = true;
     });
     await _player.seek(Duration.zero);
+    _pausedByUser = false;
     await _player.play();
   }
 
@@ -795,6 +1158,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _togglePlayback() async {
     _wakeControls();
+    _pausedByUser = _isPlaying;
     await _player.playOrPause();
   }
 
@@ -945,21 +1309,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       normalized == 'software' ? 'no' : 'auto-safe',
     );
     await _reopenCurrentMedia();
-  }
-
-  Future<void> _setCacheSizeMb(int value) async {
-    final normalized = value <= 0 ? 0 : value.clamp(64, 1984);
-    if (mounted) setState(() => _cacheSizeMb = normalized);
-    await _setMpvProperty('cache', 'auto');
-    await _setMpvProperty(
-      'demuxer-max-bytes',
-      '${(normalized <= 0 ? 150 : normalized) * 1024 * 1024}',
-    );
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _cacheSizePrefKey,
-      normalized <= 0 ? 'auto' : '$normalized',
-    );
   }
 
   Future<void> _reopenCurrentMedia() async {
@@ -1207,7 +1556,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   void _openHoverOverlay(
-    _PlayerHoverOverlayKind kind,
+    PlayerHoverOverlayKind kind,
     Rect anchor, {
     bool immediate = false,
   }) {
@@ -1220,11 +1569,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _hoverOpenTimer = Timer(delay, () {
       if (!mounted) return;
       _wakeControls(scheduleHide: false);
-      setState(() {
-        _hoverOverlayKind = kind;
-        _hoverOverlayAnchor = anchor;
-        _hoverOverlayVisible = true;
-      });
+      _hoverOverlayNotifier.value = PlayerHoverOverlaySnapshot(
+        kind: kind,
+        visible: true,
+        anchor: anchor,
+      );
     });
   }
 
@@ -1233,11 +1582,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _hoverCloseTimer?.cancel();
     _hoverCloseTimer = Timer(const Duration(milliseconds: 210), () {
       if (!mounted || _hoverOverlayKind == null) return;
-      setState(() => _hoverOverlayVisible = false);
+      _hoverOverlayNotifier.value = _hoverOverlayNotifier.value.copyWith(
+        visible: false,
+      );
       _hoverClearTimer?.cancel();
       _hoverClearTimer = Timer(const Duration(milliseconds: 190), () {
         if (!mounted || _hoverOverlayVisible) return;
-        setState(() => _hoverOverlayKind = null);
+        _hoverOverlayNotifier.value = const PlayerHoverOverlaySnapshot();
         _wakeControls();
       });
     });
@@ -1246,8 +1597,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   void _keepHoverOverlayOpen() {
     _hoverCloseTimer?.cancel();
     _hoverClearTimer?.cancel();
-    if (mounted && _hoverOverlayKind != null && !_hoverOverlayVisible) {
-      setState(() => _hoverOverlayVisible = true);
+    final value = _hoverOverlayNotifier.value;
+    if (mounted && value.kind != null && !value.visible) {
+      _hoverOverlayNotifier.value = value.copyWith(visible: true);
     }
     _wakeControls(scheduleHide: false);
   }
@@ -1258,16 +1610,33 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _hoverClearTimer?.cancel();
     final closingKind = _hoverOverlayKind;
     if (!mounted || closingKind == null) return;
-    setState(() => _hoverOverlayVisible = false);
+    _hoverOverlayNotifier.value = _hoverOverlayNotifier.value.copyWith(
+      visible: false,
+    );
     _hoverClearTimer = Timer(const Duration(milliseconds: 190), () {
       if (!mounted ||
           _hoverOverlayVisible ||
           _hoverOverlayKind != closingKind) {
         return;
       }
-      setState(() => _hoverOverlayKind = null);
+      _hoverOverlayNotifier.value = const PlayerHoverOverlaySnapshot();
       _wakeControls();
     });
+  }
+
+  /// 音轨弹层「调节」等入口：不另开弹窗，把当前悬停弹层原位放大成设置卡。
+  void _expandHoverOverlayToSettings(DesktopPlaybackSettingsPage initialPage) {
+    _hoverCloseTimer?.cancel();
+    _hoverClearTimer?.cancel();
+    _hoverOpenTimer?.cancel();
+    final current = _hoverOverlayNotifier.value;
+    _hoverOverlayNotifier.value = PlayerHoverOverlaySnapshot(
+      kind: PlayerHoverOverlayKind.settings,
+      visible: true,
+      anchor: current.anchor,
+      initialPage: initialPage,
+    );
+    _wakeControls(scheduleHide: false);
   }
 
   List<DesktopPlayerPanelOption> _hoverTrackOptions(bool audio) {
@@ -1379,232 +1748,162 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   Widget _buildHoverOverlayLayer() {
-    final kind = _hoverOverlayKind;
-    if (kind == null) return const SizedBox.shrink();
-    return Positioned.fill(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = constraints.biggest;
-          late final Widget content;
-          late final double width;
-          late final Positioned positioned;
-          final isSettings = kind == _PlayerHoverOverlayKind.settings;
-          final isEpisodes = kind == _PlayerHoverOverlayKind.episodes;
+    return PlayerHoverOverlayLayer(
+      snapshot: _hoverOverlayNotifier,
+      contentBuilder: _buildHoverOverlayContent,
+      onPanelEnter: _keepHoverOverlayOpen,
+      onPanelExit: _scheduleHoverOverlayClose,
+    );
+  }
 
-          switch (kind) {
-            case _PlayerHoverOverlayKind.speed:
-              width = 164;
-              content = _DesktopHoverOptionsPanel(
-                title: _l10n.playerDiagnosticsSpeed,
-                options: <DesktopPlayerPanelOption>[
-                  for (final rate in const <double>[0.5, 0.75, 1, 1.25, 1.5, 2])
-                    DesktopPlayerPanelOption(
-                      value: rate,
-                      title: '${_formatPlaybackRate(rate)}x',
-                      selected: (_playbackRate - rate).abs() < 0.001,
-                    ),
-                ],
-                emptyLabel: '',
-                onSelected: (option) {
-                  _dismissHoverOverlay();
-                  unawaited(_setPlaybackRate(option.value as double));
-                },
-              );
-              break;
-            case _PlayerHoverOverlayKind.quality:
-              width = 254;
-              content = _DesktopHoverOptionsPanel(
-                title: _l10n.nativePlayerQualityPickerTitle,
-                options: _hoverQualityOptions(),
-                emptyLabel: _l10n.nativePlayerNoQuality,
-                onSelected: (option) {
-                  _dismissHoverOverlay();
-                  unawaited(
-                    _reloadPlaybackSource(qualityIndex: option.value as int),
-                  );
-                },
-              );
-              break;
-            case _PlayerHoverOverlayKind.subtitle:
-              width = 254;
-              content = _DesktopHoverOptionsPanel(
-                title: _l10n.nativePlayerSubtitleTrackPickerTitle,
-                options: _hoverTrackOptions(false),
-                emptyLabel: _l10n.desktopPlaybackNoSubtitleTracks,
-                offLabel: _l10n.nativePlayerTrackOff,
-                onOff: () => unawaited(_disableHoverSubtitle()),
-                onSelected: (option) =>
-                    unawaited(_selectHoverTrack(false, option)),
-              );
-              break;
-            case _PlayerHoverOverlayKind.audio:
-              width = 254;
-              content = _DesktopHoverOptionsPanel(
-                title: _l10n.nativePlayerAudioTrackPickerTitle,
-                options: _hoverTrackOptions(true),
-                emptyLabel: _l10n.desktopPlaybackNoAudioTracks,
-                onSelected: (option) =>
-                    unawaited(_selectHoverTrack(true, option)),
-              );
-              break;
-            case _PlayerHoverOverlayKind.episodes:
-              width = (size.width * 0.30).clamp(360.0, 430.0).toDouble();
-              content = DesktopEpisodePanel(
-                title: _source.seriesTitle.trim().isNotEmpty
-                    ? '${_source.seriesTitle.trim()} · ${_l10n.playerEpisodeAction}'
-                    : _l10n.nativePlayerEpisodePickerTitle,
-                emptyLabel: _l10n.desktopPlaybackEpisodesEmpty,
-                episodes: widget.episodes ?? const <Map<String, dynamic>>[],
-                currentItemGuid: _source.itemGuid,
-                seriesTitle: _subtitle,
-                onSelected: widget.resolveEpisode == null
-                    ? null
-                    : (episode) {
-                        _dismissHoverOverlay();
-                        unawaited(_openEpisode(episode));
-                      },
-              );
-              break;
-            case _PlayerHoverOverlayKind.settings:
-              width = (size.width * 0.30).clamp(360.0, 410.0).toDouble();
-              content = DesktopPlaybackSettingsPanel(
-                source: _source,
-                position: _player.state.position,
-                autoPlayEnabled: _autoPlayEnabled,
-                nextEpisodePreloadEnabled: _nextEpisodePreloadEnabled,
-                aspectRatioMode: _aspectRatioMode,
-                decoderMode: _decoderMode,
-                cacheSizeMb: _cacheSizeMb,
-                mpvSettings: _mpvSettings,
-                videoAdjustments: _videoAdjustments,
-                audioDelaySeconds: _audioDelaySeconds,
-                bookmarks: _bookmarks,
-                danmakuEnabled: _danmakuSettings.enabled,
-                danmakuSourceLabel: _danmakuSourceLabel,
-                danmakuCommentCount: _danmakuComments.length,
-                onAutoPlayChanged: _setAutoPlayEnabled,
-                onNextEpisodePreloadChanged: _setNextEpisodePreloadEnabled,
-                onAspectRatioChanged: _setAspectRatioMode,
-                onDecoderChanged: _setDecoderMode,
-                onCacheSizeChanged: _setCacheSizeMb,
-                onMpvAudioSettingChanged: _setMpvAudioSetting,
-                onVideoAdjustmentChanged: _setVideoAdjustment,
-                onAudioDelayChanged: _setAudioDelay,
-                onAddBookmark: _addBookmark,
-                onDeleteBookmark: _deleteBookmark,
-                onSelectBookmark: (entry) async {
-                  _dismissHoverOverlay();
-                  await _selectBookmark(entry);
-                },
-                onOpenDanmakuSettings: () {
-                  _dismissHoverOverlay();
-                  unawaited(_showDanmakuSettingsPanel());
-                },
-                onOpenDanmakuSources: () {
-                  _dismissHoverOverlay();
-                  unawaited(_showDanmakuSourcePanel());
-                },
-              );
-              break;
-          }
+  PlayerHoverOverlayContent? _buildHoverOverlayContent(
+    PlayerHoverOverlayKind kind,
+    Size size,
+    PlayerHoverOverlaySnapshot snapshot,
+  ) {
+    late final Widget content;
+    late final double width;
 
-          final panel = IgnorePointer(
-            ignoring: !_hoverOverlayVisible,
-            child: MouseRegion(
-              onEnter: (_) => _keepHoverOverlayOpen(),
-              onExit: (_) => _scheduleHoverOverlayClose(),
-              child: AnimatedOpacity(
-                opacity: _hoverOverlayVisible ? 1 : 0,
-                duration: const Duration(milliseconds: 170),
-                curve: Curves.easeOutCubic,
-                child: AnimatedSlide(
-                  offset: _hoverOverlayVisible
-                      ? Offset.zero
-                      : isSettings || isEpisodes
-                      ? const Offset(0.045, 0)
-                      : const Offset(0, 0.08),
-                  duration: const Duration(milliseconds: 190),
-                  curve: Curves.easeOutCubic,
-                  child: AnimatedScale(
-                    scale: _hoverOverlayVisible ? 1 : 0.975,
-                    duration: const Duration(milliseconds: 190),
-                    curve: Curves.easeOutCubic,
-                    alignment: isSettings || isEpisodes
-                        ? Alignment.centerRight
-                        : Alignment.bottomCenter,
-                    child: _DesktopHoverGlass(
-                      squareRightEdge: isSettings,
-                      child: content,
-                    ),
-                  ),
-                ),
+    switch (kind) {
+      case PlayerHoverOverlayKind.speed:
+        width = 164;
+        content = DesktopHoverOptionsPanel(
+          title: _l10n.playerDiagnosticsSpeed,
+          options: <DesktopPlayerPanelOption>[
+            for (final rate in const <double>[0.5, 0.75, 1, 1.25, 1.5, 2])
+              DesktopPlayerPanelOption(
+                value: rate,
+                title: '${_formatPlaybackRate(rate)}x',
+                selected: (_playbackRate - rate).abs() < 0.001,
+              ),
+          ],
+          emptyLabel: '',
+          onSelected: (option) {
+            _dismissHoverOverlay();
+            unawaited(_setPlaybackRate(option.value as double));
+          },
+        );
+        break;
+      case PlayerHoverOverlayKind.quality:
+        width = 254;
+        content = DesktopHoverOptionsPanel(
+          title: _l10n.nativePlayerQualityPickerTitle,
+          options: _hoverQualityOptions(),
+          emptyLabel: _l10n.nativePlayerNoQuality,
+          onSelected: (option) {
+            _dismissHoverOverlay();
+            unawaited(_reloadPlaybackSource(qualityIndex: option.value as int));
+          },
+        );
+        break;
+      case PlayerHoverOverlayKind.subtitle:
+        width = 254;
+        content = DesktopHoverOptionsPanel(
+          title: _l10n.nativePlayerSubtitleTrackPickerTitle,
+          options: _hoverTrackOptions(false),
+          emptyLabel: _l10n.desktopPlaybackNoSubtitleTracks,
+          offLabel: _l10n.nativePlayerTrackOff,
+          actions: <DesktopPanelHeaderAction>[
+            DesktopPanelHeaderAction(
+              label: '样式',
+              onTap: () => _expandHoverOverlayToSettings(
+                DesktopPlaybackSettingsPage.subtitleStyle,
               ),
             ),
-          );
-
-          if (isSettings) {
-            positioned = Positioned(
-              top: 12,
-              right: 0,
-              bottom: 12,
-              width: width,
-              child: panel,
-            );
-          } else if (isEpisodes) {
-            positioned = Positioned(
-              top: 76,
-              right: 20,
-              bottom: 84,
-              width: width,
-              child: panel,
-            );
-          } else {
-            final left = (_hoverOverlayAnchor.center.dx - width / 2).clamp(
-              14.0,
-              size.width - width - 14,
-            );
-            final bottom = (size.height - _hoverOverlayAnchor.top + 10).clamp(
-              78.0,
-              size.height - 150,
-            );
-            positioned = Positioned(
-              left: left.toDouble(),
-              bottom: bottom.toDouble(),
-              width: width,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: (_hoverOverlayAnchor.top - 86).clamp(
-                    160.0,
-                    size.height - 180,
-                  ),
-                ),
-                child: panel,
+            DesktopPanelHeaderAction(
+              label: '导入',
+              onTap: () => unawaited(_importLocalSubtitle()),
+            ),
+          ],
+          onOff: () => unawaited(_disableHoverSubtitle()),
+          onSelected: (option) => unawaited(_selectHoverTrack(false, option)),
+        );
+        break;
+      case PlayerHoverOverlayKind.audio:
+        width = 254;
+        content = DesktopHoverOptionsPanel(
+          title: _l10n.nativePlayerAudioTrackPickerTitle,
+          options: _hoverTrackOptions(true),
+          emptyLabel: _l10n.desktopPlaybackNoAudioTracks,
+          actions: <DesktopPanelHeaderAction>[
+            DesktopPanelHeaderAction(
+              label: '调节',
+              onTap: () => _expandHoverOverlayToSettings(
+                DesktopPlaybackSettingsPage.audioAdjust,
               ),
-            );
-          }
-          return Stack(
-            children: <Widget>[
-              positioned,
-              if (isEpisodes)
-                Positioned(
-                  right: 20,
-                  bottom: 70,
-                  width: width,
-                  height: 14,
-                  child: IgnorePointer(
-                    ignoring: !_hoverOverlayVisible,
-                    child: MouseRegion(
-                      onEnter: (_) => _keepHoverOverlayOpen(),
-                      onExit: (_) => _scheduleHoverOverlayClose(),
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
-      ),
-    );
+            ),
+          ],
+          onSelected: (option) => unawaited(_selectHoverTrack(true, option)),
+        );
+        break;
+      case PlayerHoverOverlayKind.episodes:
+        width = (size.width * 0.30).clamp(360.0, 430.0).toDouble();
+        content = DesktopEpisodePanel(
+          title: _source.seriesTitle.trim().isNotEmpty
+              ? '${_source.seriesTitle.trim()} · ${_l10n.playerEpisodeAction}'
+              : _l10n.nativePlayerEpisodePickerTitle,
+          emptyLabel: _l10n.desktopPlaybackEpisodesEmpty,
+          episodes: widget.episodes ?? const <Map<String, dynamic>>[],
+          currentItemGuid: _source.itemGuid,
+          seriesTitle: _subtitle,
+          onSelected: widget.resolveEpisode == null
+              ? null
+              : (episode) {
+                  _dismissHoverOverlay();
+                  unawaited(_openEpisode(episode));
+                },
+        );
+        break;
+      case PlayerHoverOverlayKind.settings:
+        width = (size.width * 0.42).clamp(420.0, 560.0).toDouble();
+        content = DesktopPlaybackSettingsPanel(
+          key: ValueKey<DesktopPlaybackSettingsPage?>(snapshot.initialPage),
+          initialPage: snapshot.initialPage ?? DesktopPlaybackSettingsPage.main,
+          source: _source,
+          position: _player.state.position,
+          autoPlayEnabled: _autoPlayEnabled,
+          nextEpisodePreloadEnabled: _nextEpisodePreloadEnabled,
+          aspectRatioMode: _aspectRatioMode,
+          decoderMode: _decoderMode,
+          mpvSettings: _mpvSettings,
+          videoAdjustments: _videoAdjustments,
+          audioDelaySeconds: _audioDelaySeconds,
+          bookmarks: _bookmarks,
+          danmakuEnabled: _danmakuSettings.enabled,
+          danmakuSourceLabel: _danmakuSourceLabel,
+          danmakuCommentCount: _danmakuComments.length,
+          onAutoPlayChanged: _setAutoPlayEnabled,
+          onNextEpisodePreloadChanged: _setNextEpisodePreloadEnabled,
+          onAspectRatioChanged: _setAspectRatioMode,
+          onDecoderChanged: _setDecoderMode,
+          onMpvAdvancedChanged: _setMpvAdvancedSetting,
+          onVideoAdjustmentChanged: _setVideoAdjustment,
+          onAudioDelayChanged: _setAudioDelay,
+          onLoadSavedPresets: _loadSavedPresets,
+          onApplySavedPreset: _applySavedMpvPreset,
+          chapters: _chapters,
+          introOutroEnabled: _introOutroEnabled,
+          introMaxMinutes: _introMaxMinutes,
+          outroMaxMinutes: _outroMaxMinutes,
+          skipCountdownSeconds: _skipCountdownSeconds,
+          subtitleDelaySeconds: _subtitleDelaySeconds,
+          subtitlePosition: _subtitlePosition,
+          subtitleScale: _subtitleScale,
+          onIntroOutroChanged: _setIntroOutroSettings,
+          onSubtitleStyleChanged: _setSubtitleStyleSettings,
+          onSelectChapter: _selectChapter,
+          onAddBookmark: _addBookmark,
+          onDeleteBookmark: _deleteBookmark,
+          onSelectBookmark: (entry) async {
+            _dismissHoverOverlay();
+            await _selectBookmark(entry);
+          },
+          danmakuSettingsPageBuilder: _buildDanmakuSettingsPage,
+          danmakuSourcesPageBuilder: _buildDanmakuSourcesPage,
+        );
+        break;
+    }
+    return PlayerHoverOverlayContent(child: content, width: width);
   }
 
   String _formatPlaybackRate(double value) {
@@ -1896,8 +2195,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _wakeControls(scheduleHide: false);
     final episodes = widget.episodes;
     if (!mounted) return;
-    await _showPlayerOverlayPanel(
-      float: true,
+    await showPlayerOverlayPanel(
+      context,
+      style: PlayerOverlayPanelStyle.floatCard,
+      barrierLabel: _l10n.commonClose,
+      onAfterClose: _focusNode.requestFocus,
       builder: (context) => DesktopEpisodePanel(
         title: _source.seriesTitle.trim().isNotEmpty
             ? '${_source.seriesTitle.trim()} · ${_l10n.playerEpisodeAction}'
@@ -1996,22 +2298,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     await _openEpisode(episode);
   }
 
-  Future<void> _showDanmakuSettingsPanel() async {
-    _wakeControls(scheduleHide: false);
-    if (!mounted) return;
-    await _showSidePanel(
-      (context) => DesktopDanmakuSettingsPanel(
+  Widget _buildDanmakuSettingsPage(VoidCallback _) =>
+      DesktopDanmakuSettingsPanel(
         settings: _danmakuSettings,
         onChanged: _updateDanmakuSettings,
-      ),
-    );
-  }
+        embedded: true,
+      );
 
-  Future<void> _showDanmakuSourcePanel() async {
-    _wakeControls(scheduleHide: false);
-    if (!mounted) return;
-    await _showSidePanel(
-      (context) => DesktopDanmakuSourcePanel(
+  Widget _buildDanmakuSourcesPage(VoidCallback onApplied) =>
+      DesktopDanmakuSourcePanel(
         currentSourceLabel: _danmakuSourceLabel,
         commentCount: _danmakuComments.length,
         loading: _danmakuLoading,
@@ -2024,22 +2319,29 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         onSelectSearchResult: _selectDanmakuSearchResult,
         onDeleteSavedSource: _deleteSavedDanmakuSource,
         onImportFile: _importDanmakuFile,
-      ),
-    );
-  }
+        embedded: true,
+        onApplied: onApplied,
+      );
 
-  Future<void> _showPlaybackSettingsPanel() async {
+  Future<void> _showPlaybackSettingsPanel({
+    DesktopPlaybackSettingsPage initialPage = DesktopPlaybackSettingsPage.main,
+  }) async {
     _wakeControls(scheduleHide: false);
     if (!mounted) return;
-    await _showSidePanel(
-      (context) => DesktopPlaybackSettingsPanel(
+    // 设置是独立弹窗：居中悬浮、不依附窗口边缘，关闭后焦点回到播放层。
+    await showPlayerOverlayPanel(
+      context,
+      style: PlayerOverlayPanelStyle.centeredDialog,
+      barrierLabel: _l10n.commonClose,
+      closeTooltip: _l10n.commonClose,
+      onAfterClose: _focusNode.requestFocus,
+      builder: (context) => DesktopPlaybackSettingsPanel(
         source: _source,
         position: _player.state.position,
         autoPlayEnabled: _autoPlayEnabled,
         nextEpisodePreloadEnabled: _nextEpisodePreloadEnabled,
         aspectRatioMode: _aspectRatioMode,
         decoderMode: _decoderMode,
-        cacheSizeMb: _cacheSizeMb,
         mpvSettings: _mpvSettings,
         videoAdjustments: _videoAdjustments,
         audioDelaySeconds: _audioDelaySeconds,
@@ -2047,150 +2349,48 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         danmakuEnabled: _danmakuSettings.enabled,
         danmakuSourceLabel: _danmakuSourceLabel,
         danmakuCommentCount: _danmakuComments.length,
+        initialPage: initialPage,
         onAutoPlayChanged: _setAutoPlayEnabled,
         onNextEpisodePreloadChanged: _setNextEpisodePreloadEnabled,
         onAspectRatioChanged: _setAspectRatioMode,
         onDecoderChanged: _setDecoderMode,
-        onCacheSizeChanged: _setCacheSizeMb,
-        onMpvAudioSettingChanged: _setMpvAudioSetting,
+        onMpvAdvancedChanged: _setMpvAdvancedSetting,
         onVideoAdjustmentChanged: _setVideoAdjustment,
         onAudioDelayChanged: _setAudioDelay,
+        onLoadSavedPresets: _loadSavedPresets,
+        onApplySavedPreset: _applySavedMpvPreset,
+        chapters: _chapters,
+        introOutroEnabled: _introOutroEnabled,
+        introMaxMinutes: _introMaxMinutes,
+        outroMaxMinutes: _outroMaxMinutes,
+        skipCountdownSeconds: _skipCountdownSeconds,
+        subtitleDelaySeconds: _subtitleDelaySeconds,
+        subtitlePosition: _subtitlePosition,
+        subtitleScale: _subtitleScale,
+        onIntroOutroChanged: _setIntroOutroSettings,
+        onSubtitleStyleChanged: _setSubtitleStyleSettings,
+        onSelectChapter: _selectChapter,
         onAddBookmark: _addBookmark,
         onDeleteBookmark: _deleteBookmark,
         onSelectBookmark: (entry) async {
           Navigator.of(context).pop();
           await _selectBookmark(entry);
         },
-        onOpenDanmakuSettings: () {
-          Navigator.of(context).pop();
-          unawaited(_showDanmakuSettingsPanel());
-        },
-        onOpenDanmakuSources: () {
-          Navigator.of(context).pop();
-          unawaited(_showDanmakuSourcePanel());
-        },
+        danmakuSettingsPageBuilder: _buildDanmakuSettingsPage,
+        danmakuSourcesPageBuilder: _buildDanmakuSourcesPage,
       ),
     );
   }
 
   Future<void> _showSidePanel(WidgetBuilder builder) {
-    return _showPlayerOverlayPanel(builder: builder, float: false);
-  }
-
-  /// 播放器浮层面板：`float: false` 为右侧全高抽屉（设置/弹幕/轨道），
-  /// `float: true` 为选集悬浮卡（.pl-eps：顶栏下方右侧悬浮，底边悬于控制条上方，
-  /// 列表/网格双视图由 DesktopEpisodePanel 自带）。
-  Future<void> _showPlayerOverlayPanel({
-    required WidgetBuilder builder,
-    required bool float,
-  }) {
-    return showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
+    return showPlayerOverlayPanel(
+      context,
+      style: PlayerOverlayPanelStyle.sideDrawer,
       barrierLabel: _l10n.commonClose,
-      barrierColor: float ? const Color(0x28000000) : const Color(0x70000000),
-      transitionDuration: const Duration(milliseconds: 220),
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        return FadeTransition(
-          opacity: curved,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: float ? const Offset(0, 0.06) : const Offset(0.08, 0),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          ),
-        );
-      },
-      pageBuilder: (context, animation, secondaryAnimation) {
-        final size = MediaQuery.sizeOf(context);
-        if (float) {
-          // 选集悬浮卡：top 对齐顶栏下方、right 24、bottom 悬于控制条上方。
-          final width = (size.width * 0.30).clamp(340.0, 430.0).toDouble();
-          final bottomGap = (size.height * 0.16).clamp(112.0, 160.0).toDouble();
-          return Padding(
-            padding: EdgeInsets.only(top: 72, right: 24, bottom: bottomGap),
-            child: Align(
-              alignment: Alignment.topRight,
-              child: Material(
-                color: const Color(0x990B111C),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
-                ),
-                elevation: 24,
-                shadowColor: Colors.black,
-                clipBehavior: Clip.antiAlias,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                    child: SizedBox(
-                      width: width,
-                      height: double.infinity,
-                      child: Stack(
-                        children: <Widget>[
-                          Positioned.fill(child: builder(context)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
-        // 原型设置抽屉固定在约 400px，避免宽屏下膨胀成占据半屏的移动端大面板。
-        final width = (size.width * 0.30).clamp(340.0, 400.0).toDouble();
-        return Align(
-          alignment: Alignment.centerRight,
-          child: Material(
-            color: const Color(0x990B111C),
-            elevation: 28,
-            shadowColor: Colors.black,
-            shape: const Border(left: BorderSide(color: Color(0x1AFFFFFF))),
-            child: ClipRRect(
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: SizedBox(
-                  width: width,
-                  height: double.infinity,
-                  child: Stack(
-                    children: <Widget>[
-                      Positioned.fill(child: builder(context)),
-                      Positioned(
-                        top: 14,
-                        right: 16,
-                        child: IconButton(
-                          tooltip: _l10n.commonClose,
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close_rounded),
-                          color: Colors.white,
-                          style: IconButton.styleFrom(
-                            backgroundColor: const Color(0x1FFFFFFF),
-                            hoverColor: const Color(0x38FFFFFF),
-                            fixedSize: const Size.square(36),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: const BorderSide(color: Color(0x20FFFFFF)),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    ).whenComplete(_focusNode.requestFocus);
+      closeTooltip: _l10n.commonClose,
+      onAfterClose: _focusNode.requestFocus,
+      builder: builder,
+    );
   }
 
   Future<void> _showContextMenu(Offset position, VideoState videoState) async {
@@ -2439,185 +2639,205 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   Widget _buildVideoControls(VideoState videoState) {
-    return Focus(
-      focusNode: _focusNode,
-      autofocus: true,
-      onKeyEvent: (_, event) => _handleKeyEvent(videoState, event),
-      child: MouseRegion(
-        opaque: true,
-        cursor: _controlsVisible
-            ? SystemMouseCursors.basic
-            : SystemMouseCursors.none,
-        onEnter: (_) => _wakeControls(scheduleHide: _hoverOverlayKind == null),
-        onHover: (_) => _wakeControls(scheduleHide: _hoverOverlayKind == null),
-        child: Listener(
-          onPointerSignal: (event) {
-            if (event is! PointerScrollEvent) return;
-            if (_hoverOverlayKind != null) return;
-            final delta = event.scrollDelta.dy < 0 ? 5.0 : -5.0;
-            unawaited(_setVolume(_volume + delta));
-          },
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              _focusNode.requestFocus();
-              unawaited(_togglePlayback());
+    return ValueListenableBuilder<bool>(
+      valueListenable: _controlsVisibleNotifier,
+      builder: (context, controlsVisible, _) => Focus(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: (_, event) => _handleKeyEvent(videoState, event),
+        child: MouseRegion(
+          opaque: true,
+          cursor: controlsVisible
+              ? SystemMouseCursors.basic
+              : SystemMouseCursors.none,
+          onEnter: (_) =>
+              _wakeControls(scheduleHide: _hoverOverlayKind == null),
+          onHover: (_) =>
+              _wakeControls(scheduleHide: _hoverOverlayKind == null),
+          child: Listener(
+            onPointerSignal: (event) {
+              if (event is! PointerScrollEvent) return;
+              if (_hoverOverlayKind != null) return;
+              final delta = event.scrollDelta.dy < 0 ? 5.0 : -5.0;
+              unawaited(_setVolume(_volume + delta));
             },
-            onDoubleTap: () {
-              _wakeControls();
-              unawaited(videoState.toggleFullscreen());
-            },
-            onSecondaryTapDown: (details) =>
-                unawaited(_showContextMenu(details.globalPosition, videoState)),
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                _buildStatusLayer(),
-                Positioned.fill(
-                  child: DesktopDanmakuOverlay(
-                    player: _player,
-                    comments: _danmakuComments,
-                    settings: _danmakuSettings,
-                  ),
-                ),
-                IgnorePointer(
-                  ignoring: !_controlsVisible,
-                  child: AnimatedOpacity(
-                    opacity: _controlsVisible ? 1 : 0,
-                    duration: _controlsAnimationDuration,
-                    curve: Curves.easeOutCubic,
-                    child: DesktopPlayerControls(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                _focusNode.requestFocus();
+                if (_hoverOverlayKind != null) {
+                  _dismissHoverOverlay();
+                  return;
+                }
+                unawaited(_togglePlayback());
+              },
+              onDoubleTap: () {
+                if (_hoverOverlayKind != null) {
+                  _dismissHoverOverlay();
+                  return;
+                }
+                _wakeControls();
+                unawaited(videoState.toggleFullscreen());
+              },
+              onSecondaryTapDown: (details) {
+                if (_hoverOverlayKind != null) {
+                  _dismissHoverOverlay();
+                  return;
+                }
+                unawaited(_showContextMenu(details.globalPosition, videoState));
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  _buildStatusLayer(),
+                  Positioned.fill(
+                    child: DesktopDanmakuOverlay(
                       player: _player,
-                      videoState: videoState,
-                      title: _source.title,
-                      subtitle: _subtitle,
-                      resolution: _resolutionLabel,
-                      playing: _isPlaying,
-                      loading: _isLoading || _isBuffering,
-                      volume: _volume,
-                      rate: _playbackRate,
-                      nowPlayingLabel: _l10n.nativeNotificationNowPlaying,
-                      playTooltip: _l10n.desktopPlaybackPlayTooltip,
-                      pauseTooltip: _l10n.desktopPlaybackPauseTooltip,
-                      muteTooltip: _volume > 0
-                          ? _l10n.desktopPlaybackMuteTooltip
-                          : _l10n.desktopPlaybackRestoreVolumeTooltip,
-                      speedTooltip: _l10n.playerDiagnosticsSpeed,
-                      fullscreenTooltip: videoState.isFullscreen()
-                          ? _l10n.desktopPlaybackExitFullscreenTooltip
-                          : _l10n.desktopPlaybackFullscreenTooltip,
-                      settingsTooltip: _l10n.desktopPlaybackMoreOptions,
-                      prevTooltip: _l10n.desktopPlaybackPrevEpisodeTooltip,
-                      bookmarkTooltip: _l10n.playerBookmarkAddCurrent,
-                      episodeLabel: _l10n.playerEpisodeAction,
-                      subtitleLabel:
-                          (_source.subtitleTrackGuid ?? '').trim().isEmpty
-                          ? _l10n.playerSubtitleOffAction
-                          : _l10n.playerSubtitleAction,
-                      audioTooltip: _l10n.playerAudioTrackAction,
-                      screenshotLabel: _l10n.desktopPlaybackScreenshotAction,
-                      danmakuEnabled: _danmakuSettings.enabled,
-                      danmakuLabel: _danmakuSettings.enabled
-                          ? '弹幕设置 · 已开启'
-                          : '弹幕设置 · 已关闭',
-                      onBack: () => unawaited(_leavePlayer(videoState)),
-                      onToggle: () => unawaited(_togglePlayback()),
-                      onSeek: _seekTo,
-                      onVolume: (value) => unawaited(_setVolume(value)),
-                      onMute: () => unawaited(_toggleMute()),
-                      onRate: (value) => unawaited(_setPlaybackRate(value)),
-                      onScreenshot: () => unawaited(_captureScreenshot()),
-                      onToggleDanmaku: _toggleDanmaku,
-                      onSettings: () => unawaited(_showPlaybackSettingsPanel()),
-                      onSettingsAt: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.settings,
-                        anchor,
-                        immediate: true,
-                      ),
-                      onNext: _nextEpisode == null
-                          ? null
-                          : () => unawaited(_showNextEpisode()),
-                      onPrevious: _previousEpisode == null
-                          ? null
-                          : () => unawaited(_showPreviousEpisode()),
-                      onEpisodes: widget.episodes?.isNotEmpty == true
-                          ? () => unawaited(_showEpisodes())
-                          : null,
-                      onEpisodesAt: widget.episodes?.isNotEmpty == true
-                          ? (anchor) => _openHoverOverlay(
-                              _PlayerHoverOverlayKind.episodes,
-                              anchor,
-                              immediate: true,
-                            )
-                          : null,
-                      onAudio: () => unawaited(_showTracks(audio: true)),
-                      onSubtitle: () => unawaited(_showTracks(audio: false)),
-                      onAudioAt: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.audio,
-                        anchor,
-                        immediate: true,
-                      ),
-                      onSubtitleAt: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.subtitle,
-                        anchor,
-                        immediate: true,
-                      ),
-                      onQuality:
-                          _source.qualities.isEmpty ||
-                              widget.reloadSource == null
-                          ? null
-                          : () => unawaited(_showQualities()),
-                      onQualityAt: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.quality,
-                        anchor,
-                        immediate: true,
-                      ),
-                      onSpeedAt: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.speed,
-                        anchor,
-                        immediate: true,
-                      ),
-                      onHoverSpeed: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.speed,
-                        anchor,
-                      ),
-                      onHoverEpisodes: widget.episodes?.isNotEmpty == true
-                          ? (anchor) => _openHoverOverlay(
-                              _PlayerHoverOverlayKind.episodes,
-                              anchor,
-                            )
-                          : null,
-                      onHoverQuality:
-                          _source.qualities.isEmpty ||
-                              widget.reloadSource == null
-                          ? null
-                          : (anchor) => _openHoverOverlay(
-                              _PlayerHoverOverlayKind.quality,
-                              anchor,
-                            ),
-                      onHoverSubtitle: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.subtitle,
-                        anchor,
-                      ),
-                      onHoverAudio: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.audio,
-                        anchor,
-                      ),
-                      onHoverSettings: (anchor) => _openHoverOverlay(
-                        _PlayerHoverOverlayKind.settings,
-                        anchor,
-                      ),
-                      onHoverExit: _scheduleHoverOverlayClose,
-                      onAddBookmark: () => unawaited(_addBookmark()),
+                      comments: _danmakuComments,
+                      settings: _danmakuSettings,
                     ),
                   ),
-                ),
-                _buildHoverOverlayLayer(),
-                _buildResumePromptLayer(),
-                _buildToastLayer(),
-                if (_playbackCompleted)
-                  _buildPlaybackCompletedLayer(videoState),
-              ],
+                  IgnorePointer(
+                    ignoring: !controlsVisible,
+                    child: AnimatedOpacity(
+                      opacity: controlsVisible ? 1 : 0,
+                      duration: _controlsAnimationDuration,
+                      curve: Curves.easeOutCubic,
+                      child: DesktopPlayerControls(
+                        player: _player,
+                        videoState: videoState,
+                        title: _source.title,
+                        subtitle: _subtitle,
+                        resolution: _resolutionLabel,
+                        playing: _isPlaying,
+                        loading: _isLoading || _isBuffering,
+                        volume: _volume,
+                        rate: _playbackRate,
+                        nowPlayingLabel: _l10n.nativeNotificationNowPlaying,
+                        playTooltip: _l10n.desktopPlaybackPlayTooltip,
+                        pauseTooltip: _l10n.desktopPlaybackPauseTooltip,
+                        muteTooltip: _volume > 0
+                            ? _l10n.desktopPlaybackMuteTooltip
+                            : _l10n.desktopPlaybackRestoreVolumeTooltip,
+                        speedTooltip: _l10n.playerDiagnosticsSpeed,
+                        fullscreenTooltip: videoState.isFullscreen()
+                            ? _l10n.desktopPlaybackExitFullscreenTooltip
+                            : _l10n.desktopPlaybackFullscreenTooltip,
+                        settingsTooltip: _l10n.desktopPlaybackMoreOptions,
+                        prevTooltip: _l10n.desktopPlaybackPrevEpisodeTooltip,
+                        bookmarkTooltip: _l10n.playerBookmarkAddCurrent,
+                        episodeLabel: _l10n.playerEpisodeAction,
+                        subtitleLabel:
+                            (_source.subtitleTrackGuid ?? '').trim().isEmpty
+                            ? _l10n.playerSubtitleOffAction
+                            : _l10n.playerSubtitleAction,
+                        audioTooltip: _l10n.playerAudioTrackAction,
+                        screenshotLabel: _l10n.desktopPlaybackScreenshotAction,
+                        danmakuEnabled: _danmakuSettings.enabled,
+                        danmakuLabel: _danmakuSettings.enabled
+                            ? '弹幕设置 · 已开启'
+                            : '弹幕设置 · 已关闭',
+                        onBack: () => unawaited(_leavePlayer(videoState)),
+                        onToggle: () => unawaited(_togglePlayback()),
+                        onSeek: _seekTo,
+                        onVolume: (value) => unawaited(_setVolume(value)),
+                        onMute: () => unawaited(_toggleMute()),
+                        onRate: (value) => unawaited(_setPlaybackRate(value)),
+                        onScreenshot: () => unawaited(_captureScreenshot()),
+                        onToggleDanmaku: _toggleDanmaku,
+                        onSettings: () =>
+                            unawaited(_showPlaybackSettingsPanel()),
+                        onSettingsAt: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.settings,
+                          anchor,
+                          immediate: true,
+                        ),
+                        onNext: _nextEpisode == null
+                            ? null
+                            : () => unawaited(_showNextEpisode()),
+                        onPrevious: _previousEpisode == null
+                            ? null
+                            : () => unawaited(_showPreviousEpisode()),
+                        onEpisodes: widget.episodes?.isNotEmpty == true
+                            ? () => unawaited(_showEpisodes())
+                            : null,
+                        onEpisodesAt: widget.episodes?.isNotEmpty == true
+                            ? (anchor) => _openHoverOverlay(
+                                PlayerHoverOverlayKind.episodes,
+                                anchor,
+                                immediate: true,
+                              )
+                            : null,
+                        onAudio: () => unawaited(_showTracks(audio: true)),
+                        onSubtitle: () => unawaited(_showTracks(audio: false)),
+                        onAudioAt: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.audio,
+                          anchor,
+                          immediate: true,
+                        ),
+                        onSubtitleAt: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.subtitle,
+                          anchor,
+                          immediate: true,
+                        ),
+                        onQuality:
+                            _source.qualities.isEmpty ||
+                                widget.reloadSource == null
+                            ? null
+                            : () => unawaited(_showQualities()),
+                        onQualityAt: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.quality,
+                          anchor,
+                          immediate: true,
+                        ),
+                        onSpeedAt: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.speed,
+                          anchor,
+                          immediate: true,
+                        ),
+                        onHoverSpeed: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.speed,
+                          anchor,
+                        ),
+                        onHoverEpisodes: widget.episodes?.isNotEmpty == true
+                            ? (anchor) => _openHoverOverlay(
+                                PlayerHoverOverlayKind.episodes,
+                                anchor,
+                              )
+                            : null,
+                        onHoverQuality:
+                            _source.qualities.isEmpty ||
+                                widget.reloadSource == null
+                            ? null
+                            : (anchor) => _openHoverOverlay(
+                                PlayerHoverOverlayKind.quality,
+                                anchor,
+                              ),
+                        onHoverSubtitle: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.subtitle,
+                          anchor,
+                        ),
+                        onHoverAudio: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.audio,
+                          anchor,
+                        ),
+                        onHoverSettings: (anchor) => _openHoverOverlay(
+                          PlayerHoverOverlayKind.settings,
+                          anchor,
+                        ),
+                        onHoverExit: _scheduleHoverOverlayClose,
+                        onAddBookmark: () => unawaited(_addBookmark()),
+                      ),
+                    ),
+                  ),
+                  _buildHoverOverlayLayer(),
+                  _buildResumePromptLayer(),
+                  _buildSkipPromptLayer(),
+                  _buildToastLayer(),
+                  if (_playbackCompleted)
+                    _buildPlaybackCompletedLayer(videoState),
+                ],
+              ),
             ),
           ),
         ),
@@ -2709,6 +2929,96 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 片头片尾跳过提示卡：右下角，样式对齐续播提示；ValueNotifier 驱动全屏可用。
+  Widget _buildSkipPromptLayer() {
+    return Positioned(
+      right: 24,
+      bottom: 110,
+      child: IgnorePointer(
+        ignoring: false,
+        child: ValueListenableBuilder<_SkipPromptKind?>(
+          valueListenable: _skipPromptKindNotifier,
+          builder: (context, kind, _) {
+            final hasNext =
+                kind == _SkipPromptKind.outro && _nextEpisode != null;
+            final message = kind == _SkipPromptKind.intro
+                ? '跳过片头'
+                : kind == null
+                ? null
+                : hasNext
+                ? '跳过片尾，播放下一集'
+                : '跳过片尾';
+            return IgnorePointer(
+              ignoring: kind == null,
+              child: AnimatedSlide(
+                offset: kind == null ? const Offset(0, 0.18) : Offset.zero,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: AnimatedOpacity(
+                  opacity: kind == null ? 0 : 1,
+                  duration: const Duration(milliseconds: 180),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(14, 9, 8, 9),
+                    decoration: BoxDecoration(
+                      color: const Color(0xE817202C),
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(color: const Color(0x24FFFFFF)),
+                      boxShadow: const <BoxShadow>[
+                        BoxShadow(
+                          color: Color(0x66000000),
+                          blurRadius: 22,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(
+                          Icons.skip_next_rounded,
+                          color: Color(0xFF9CC4FF),
+                          size: 19,
+                        ),
+                        const SizedBox(width: 9),
+                        Text(
+                          message ?? '',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        TextButton(
+                          onPressed: () => unawaited(_skipIntroOrOutro()),
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF9CC4FF),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 5,
+                            ),
+                            minimumSize: const Size(0, 30),
+                          ),
+                          child: Text(
+                            hasNext ? '下一集' : '立即跳过',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -3076,242 +3386,5 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       return '${_source.videoWidth}×${_source.videoHeight}';
     }
     return _l10n.playerQualityOriginal;
-  }
-}
-
-class _DesktopHoverGlass extends StatelessWidget {
-  const _DesktopHoverGlass({required this.child, this.squareRightEdge = false});
-
-  final Widget child;
-  final bool squareRightEdge;
-
-  @override
-  Widget build(BuildContext context) {
-    final radius = squareRightEdge
-        ? const BorderRadius.horizontal(left: Radius.circular(18))
-        : BorderRadius.circular(18);
-    return ClipRRect(
-      borderRadius: radius,
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0x78070D16),
-            borderRadius: radius,
-            border: Border.all(color: const Color(0x2AFFFFFF)),
-            boxShadow: const <BoxShadow>[
-              BoxShadow(
-                color: Color(0x70000000),
-                blurRadius: 30,
-                offset: Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Material(color: Colors.transparent, child: child),
-        ),
-      ),
-    );
-  }
-}
-
-class _DesktopHoverOptionsPanel extends StatelessWidget {
-  const _DesktopHoverOptionsPanel({
-    required this.title,
-    required this.options,
-    required this.emptyLabel,
-    required this.onSelected,
-    this.offLabel,
-    this.onOff,
-  });
-
-  final String title;
-  final List<DesktopPlayerPanelOption> options;
-  final String emptyLabel;
-  final ValueChanged<DesktopPlayerPanelOption> onSelected;
-  final String? offLabel;
-  final VoidCallback? onOff;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Color(0xBFFFFFFF),
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ),
-          const SizedBox(height: 9),
-          const Divider(height: 1, color: Color(0x24FFFFFF)),
-          const SizedBox(height: 6),
-          Flexible(
-            fit: FlexFit.loose,
-            child: SingleChildScrollView(
-              padding: EdgeInsets.zero,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  if (onOff != null && offLabel != null)
-                    _DesktopHoverOptionRow(
-                      title: offLabel!,
-                      leading: Icons.block_rounded,
-                      onTap: onOff!,
-                    ),
-                  if (options.isEmpty && emptyLabel.trim().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 18,
-                      ),
-                      child: Text(
-                        emptyLabel,
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                        ),
-                      ),
-                    )
-                  else
-                    for (final option in options)
-                      _DesktopHoverOptionRow(
-                        title: option.title,
-                        subtitle: option.subtitle,
-                        selected: option.selected,
-                        onTap: () => onSelected(option),
-                      ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DesktopHoverOptionRow extends StatefulWidget {
-  const _DesktopHoverOptionRow({
-    required this.title,
-    required this.onTap,
-    this.subtitle = '',
-    this.selected = false,
-    this.leading,
-  });
-
-  final String title;
-  final String subtitle;
-  final bool selected;
-  final IconData? leading;
-  final VoidCallback onTap;
-
-  @override
-  State<_DesktopHoverOptionRow> createState() => _DesktopHoverOptionRowState();
-}
-
-class _DesktopHoverOptionRowState extends State<_DesktopHoverOptionRow> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedSlide(
-        offset: _hovered ? const Offset(0.015, 0) : Offset.zero,
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOutCubic,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? const Color(0x2E4F9EFF)
-                : _hovered
-                ? const Color(0x1FFFFFFF)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: widget.onTap,
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 9,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    AnimatedScale(
-                      scale: _hovered ? 1.08 : 1,
-                      duration: const Duration(milliseconds: 150),
-                      curve: Curves.easeOutCubic,
-                      child: Icon(
-                        widget.leading ??
-                            (widget.selected
-                                ? Icons.check_rounded
-                                : Icons.circle_outlined),
-                        size: widget.selected ? 18 : 15,
-                        color: widget.selected
-                            ? const Color(0xFF83B5FF)
-                            : const Color(0x8CFFFFFF),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            widget.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: widget.selected
-                                  ? const Color(0xFFD9E9FF)
-                                  : Colors.white,
-                              fontSize: 13,
-                              fontWeight: widget.selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            ),
-                          ),
-                          if (widget.subtitle.trim().isNotEmpty) ...<Widget>[
-                            const SizedBox(height: 2),
-                            Text(
-                              widget.subtitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0x80FFFFFF),
-                                fontSize: 10.5,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
