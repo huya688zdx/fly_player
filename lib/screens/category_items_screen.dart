@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
 import '../media_backend/media_backend_kind.dart';
@@ -246,6 +247,78 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
           (current) => current.copyWith(watched: state.watched),
         );
       },
+    );
+  }
+
+  /// 右键菜单展示前预取已看/收藏态；列表内缓存可能过期，失败回退列表值。
+  Future<({bool watched, bool favorite})> _loadItemFlags(
+    MediaItemCard item,
+  ) async {
+    var watched = item.watched;
+    var favorite = false;
+    try {
+      final detail = await context
+          .read<MediaBackendProvider>()
+          .backend
+          .getItemDetail(item.id);
+      watched = detail.watched;
+      favorite = detail.favorite;
+    } catch (error) {
+      debugPrint('[UI][CATEGORY] item flags load failed ${item.id}: $error');
+    }
+    return (watched: watched, favorite: favorite);
+  }
+
+  /// 桌面档媒体卡右键菜单：动作与长按动作表（_showPosterItemActions）同源；
+  /// 人物条目无「已看」语义，与长按 favoriteOnly 一致只保留详情 + 收藏。
+  Future<void> _showItemContextMenu(MediaItemCard item, Offset position) async {
+    final favoriteOnly = _isPersonItem(item);
+    final flags = await _loadItemFlags(item);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    const controller = MediaItemActionSheetController();
+    await showDesktopContextMenu(
+      context,
+      position: position,
+      entries: <DesktopContextMenuEntry>[
+        DesktopContextMenuEntry(
+          label: l10n.homeActionViewDetail,
+          icon: Icons.info_outline,
+          onSelected: () => unawaited(_openItemDetail(item)),
+        ),
+        if (!favoriteOnly)
+          DesktopContextMenuEntry(
+            label: flags.watched
+                ? l10n.actionMarkAsUnwatched
+                : l10n.actionMarkAsWatched,
+            icon: flags.watched
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            onSelected: () async {
+              final state = await controller.setItemWatched(
+                context,
+                itemId: item.id,
+                watched: !flags.watched,
+              );
+              if (state == null) return;
+              _replaceItemLocally(
+                item.id,
+                (current) => current.copyWith(watched: state),
+              );
+            },
+          ),
+        DesktopContextMenuEntry(
+          label: flags.favorite
+              ? l10n.actionFavoriteRemove
+              : l10n.actionFavoriteAdd,
+          icon: flags.favorite ? Icons.favorite : Icons.favorite_border,
+          onSelected: () => controller.setItemFavorite(
+            context,
+            itemId: item.id,
+            favorite: !flags.favorite,
+          ),
+        ),
+      ],
     );
   }
 
@@ -650,6 +723,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   Widget _buildBody(String baseUrl, String token, String accessCode) {
     final layout = MediaLayoutProfile.of(context);
+    final desktopTier = layout.isDesktopTier;
     final colors = context.appColors;
     if (_isLoading) return const Center(child: BirdLoader(size: 132));
     if (_error != null) {
@@ -750,26 +824,39 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final item = _items[index];
-                    return MediaLibraryListTile(
-                      images: mediaImageRequestForUrls(
-                        _posterCandidates(baseUrl, item, width: 280),
-                        token: token,
-                        accessCode: accessCode,
-                        baseUrl: baseUrl,
+                    // 桌面档右键接管条目动作，长按只在触屏档保留。
+                    return GestureDetector(
+                      onSecondaryTapUp: desktopTier
+                          ? (details) => unawaited(
+                              _showItemContextMenu(
+                                item,
+                                details.globalPosition,
+                              ),
+                            )
+                          : null,
+                      child: MediaLibraryListTile(
+                        images: mediaImageRequestForUrls(
+                          _posterCandidates(baseUrl, item, width: 280),
+                          token: token,
+                          accessCode: accessCode,
+                          baseUrl: baseUrl,
+                        ),
+                        title: item.displayTitle,
+                        subtitle: _cardSubtitle(item),
+                        resolutions: item.resolutions
+                            .map(_resolutionLabel)
+                            .where((e) => e.isNotEmpty)
+                            .toList(),
+                        onTap: () => _openItemDetail(
+                          item,
+                          heroTag:
+                              'category_${widget.category.id}_${item.id}_$index',
+                        ),
+                        onLongPress: desktopTier
+                            ? null
+                            : () => _showPosterItemActions(item),
+                        onMoreTap: () => _showPosterItemActions(item),
                       ),
-                      title: item.displayTitle,
-                      subtitle: _cardSubtitle(item),
-                      resolutions: item.resolutions
-                          .map(_resolutionLabel)
-                          .where((e) => e.isNotEmpty)
-                          .toList(),
-                      onTap: () => _openItemDetail(
-                        item,
-                        heroTag:
-                            'category_${widget.category.id}_${item.id}_$index',
-                      ),
-                      onLongPress: () => _showPosterItemActions(item),
-                      onMoreTap: () => _showPosterItemActions(item),
                     );
                   },
                 )
@@ -815,35 +902,47 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             .where((e) => e.isNotEmpty)
                             .toList();
 
-                        return MediaPosterCard(
-                          images: mediaImageRequestForUrls(
-                            urls,
-                            token: token,
-                            accessCode: accessCode,
-                            baseUrl: baseUrl,
-                          ),
-                          title: item.displayTitle,
-                          subtitle: _cardSubtitle(item),
-                          imageAspectRatioHint: item.hasPosterSize
-                              ? item.posterWidth / item.posterHeight
+                        return GestureDetector(
+                          onSecondaryTapUp: desktopTier
+                              ? (details) => unawaited(
+                                  _showItemContextMenu(
+                                    item,
+                                    details.globalPosition,
+                                  ),
+                                )
                               : null,
-                          rating: rating,
-                          resolutions: resolutions,
-                          watched: item.watched,
-                          imageHeight: imageHeight,
-                          titleFontSize: layout.homePosterTitleFontSize,
-                          subtitleFontSize: layout.homePosterSubtitleFontSize,
-                          expandImageToFit: false,
-                          imageFit: BoxFit.contain,
-                          autoFitByImageAspect: false,
-                          heroTag:
-                              'category_${widget.category.id}_${item.id}_$index',
-                          onTap: () => _openItemDetail(
-                            item,
+                          child: MediaPosterCard(
+                            images: mediaImageRequestForUrls(
+                              urls,
+                              token: token,
+                              accessCode: accessCode,
+                              baseUrl: baseUrl,
+                            ),
+                            title: item.displayTitle,
+                            subtitle: _cardSubtitle(item),
+                            imageAspectRatioHint: item.hasPosterSize
+                                ? item.posterWidth / item.posterHeight
+                                : null,
+                            rating: rating,
+                            resolutions: resolutions,
+                            watched: item.watched,
+                            imageHeight: imageHeight,
+                            titleFontSize: layout.homePosterTitleFontSize,
+                            subtitleFontSize: layout.homePosterSubtitleFontSize,
+                            expandImageToFit: false,
+                            imageFit: BoxFit.contain,
+                            autoFitByImageAspect: false,
                             heroTag:
                                 'category_${widget.category.id}_${item.id}_$index',
+                            onTap: () => _openItemDetail(
+                              item,
+                              heroTag:
+                                  'category_${widget.category.id}_${item.id}_$index',
+                            ),
+                            onLongPress: desktopTier
+                                ? null
+                                : () => _showPosterItemActions(item),
                           ),
-                          onLongPress: () => _showPosterItemActions(item),
                         );
                       },
                     );
@@ -879,33 +978,45 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         .where((e) => e.isNotEmpty)
                         .toList();
 
-                    return MediaPosterCard(
-                      images: mediaImageRequestForUrls(
-                        urls,
-                        token: token,
-                        accessCode: accessCode,
-                        baseUrl: baseUrl,
-                      ),
-                      title: item.displayTitle,
-                      subtitle: _cardSubtitle(item),
-                      rating: rating,
-                      resolutions: resolutions,
-                      watched: item.watched,
-                      imageHeight: layout.categoryGridImageHeight,
-                      titleFontSize: layout.homePosterTitleFontSize,
-                      subtitleFontSize: layout.homePosterSubtitleFontSize,
-                      expandImageToFit: false,
-                      imageFit: _isEpisodeItem(item)
-                          ? BoxFit.contain
-                          : BoxFit.cover,
-                      heroTag:
-                          'category_${widget.category.id}_${item.id}_$index',
-                      onTap: () => _openItemDetail(
-                        item,
+                    return GestureDetector(
+                      onSecondaryTapUp: desktopTier
+                          ? (details) => unawaited(
+                              _showItemContextMenu(
+                                item,
+                                details.globalPosition,
+                              ),
+                            )
+                          : null,
+                      child: MediaPosterCard(
+                        images: mediaImageRequestForUrls(
+                          urls,
+                          token: token,
+                          accessCode: accessCode,
+                          baseUrl: baseUrl,
+                        ),
+                        title: item.displayTitle,
+                        subtitle: _cardSubtitle(item),
+                        rating: rating,
+                        resolutions: resolutions,
+                        watched: item.watched,
+                        imageHeight: layout.categoryGridImageHeight,
+                        titleFontSize: layout.homePosterTitleFontSize,
+                        subtitleFontSize: layout.homePosterSubtitleFontSize,
+                        expandImageToFit: false,
+                        imageFit: _isEpisodeItem(item)
+                            ? BoxFit.contain
+                            : BoxFit.cover,
                         heroTag:
                             'category_${widget.category.id}_${item.id}_$index',
+                        onTap: () => _openItemDetail(
+                          item,
+                          heroTag:
+                              'category_${widget.category.id}_${item.id}_$index',
+                        ),
+                        onLongPress: desktopTier
+                            ? null
+                            : () => _showPosterItemActions(item),
                       ),
-                      onLongPress: () => _showPosterItemActions(item),
                     );
                   },
                 ),
