@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/action/media_item_action_target.dart';
 import '../media_backend/media_item_card.dart';
@@ -204,6 +205,78 @@ class _SearchScreenState extends State<SearchScreen> {
           (current) => current.copyWith(watched: state.watched),
         );
       },
+    );
+  }
+
+  /// 右键菜单展示前预取已看/收藏态；搜索结果无收藏缓存，失败回退默认值。
+  Future<({bool watched, bool favorite})> _loadItemFlags(
+    MediaItemCard item,
+  ) async {
+    var watched = item.watched;
+    var favorite = false;
+    try {
+      final detail = await context
+          .read<MediaBackendProvider>()
+          .backend
+          .getItemDetail(item.id);
+      watched = detail.watched;
+      favorite = detail.favorite;
+    } catch (error) {
+      debugPrint('[UI][SEARCH] item flags load failed ${item.id}: $error');
+    }
+    return (watched: watched, favorite: favorite);
+  }
+
+  /// 桌面档媒体卡右键菜单：动作与长按动作表（_showPosterItemActions）同源；
+  /// 人物条目无「已看」语义，与长按 favoriteOnly 一致只保留详情 + 收藏。
+  Future<void> _showItemContextMenu(MediaItemCard item, Offset position) async {
+    final favoriteOnly = _isPersonItem(item);
+    final flags = await _loadItemFlags(item);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    const controller = MediaItemActionSheetController();
+    await showDesktopContextMenu(
+      context,
+      position: position,
+      entries: <DesktopContextMenuEntry>[
+        DesktopContextMenuEntry(
+          label: l10n.homeActionViewDetail,
+          icon: Icons.info_outline,
+          onSelected: () => unawaited(_openItemDetail(item)),
+        ),
+        if (!favoriteOnly)
+          DesktopContextMenuEntry(
+            label: flags.watched
+                ? l10n.actionMarkAsUnwatched
+                : l10n.actionMarkAsWatched,
+            icon: flags.watched
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            onSelected: () async {
+              final state = await controller.setItemWatched(
+                context,
+                itemId: item.id,
+                watched: !flags.watched,
+              );
+              if (state == null) return;
+              _replaceSearchItemLocally(
+                item.id,
+                (current) => current.copyWith(watched: state),
+              );
+            },
+          ),
+        DesktopContextMenuEntry(
+          label: flags.favorite
+              ? l10n.actionFavoriteRemove
+              : l10n.actionFavoriteAdd,
+          icon: flags.favorite ? Icons.favorite : Icons.favorite_border,
+          onSelected: () => controller.setItemFavorite(
+            context,
+            itemId: item.id,
+            favorite: !flags.favorite,
+          ),
+        ),
+      ],
     );
   }
 
@@ -443,31 +516,43 @@ class _SearchScreenState extends State<SearchScreen> {
             itemBuilder: (context, index) {
               final item = _results[index];
               final rating = double.tryParse(item.rating);
-              return MediaPosterCard(
-                images: mediaImageRequestForUrls(
-                  _posterCandidates(
-                    provider.baseUrl,
-                    item.primaryImage.url,
-                    width: layout.categoryGridRequestWidth,
+              // 桌面档右键接管条目动作，长按只在触屏档保留。
+              return GestureDetector(
+                onSecondaryTapUp: layout.isDesktopTier
+                    ? (details) => unawaited(
+                        _showItemContextMenu(item, details.globalPosition),
+                      )
+                    : null,
+                child: MediaPosterCard(
+                  images: mediaImageRequestForUrls(
+                    _posterCandidates(
+                      provider.baseUrl,
+                      item.primaryImage.url,
+                      width: layout.categoryGridRequestWidth,
+                    ),
+                    token: imageCredentials.token,
+                    accessCode: imageCredentials.accessCode,
+                    baseUrl: imageCredentials.baseUrl,
                   ),
-                  token: imageCredentials.token,
-                  accessCode: imageCredentials.accessCode,
-                  baseUrl: imageCredentials.baseUrl,
+                  title: item.displayTitle,
+                  subtitle: _cardSubtitle(item),
+                  rating: rating,
+                  resolutions: item.resolutions,
+                  watched: item.watched,
+                  imageHeight: layout.categoryGridImageHeight,
+                  titleFontSize: layout.homePosterTitleFontSize,
+                  subtitleFontSize: layout.homePosterSubtitleFontSize,
+                  expandImageToFit: false,
+                  imageFit: _isEpisodeItem(item)
+                      ? BoxFit.contain
+                      : BoxFit.cover,
+                  onTap: () => _openItemDetail(item),
+                  onLongPress: layout.isDesktopTier
+                      ? null
+                      : () {
+                          _showPosterItemActions(item);
+                        },
                 ),
-                title: item.displayTitle,
-                subtitle: _cardSubtitle(item),
-                rating: rating,
-                resolutions: item.resolutions,
-                watched: item.watched,
-                imageHeight: layout.categoryGridImageHeight,
-                titleFontSize: layout.homePosterTitleFontSize,
-                subtitleFontSize: layout.homePosterSubtitleFontSize,
-                expandImageToFit: false,
-                imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
-                onTap: () => _openItemDetail(item),
-                onLongPress: () {
-                  _showPosterItemActions(item);
-                },
               );
             },
           ),

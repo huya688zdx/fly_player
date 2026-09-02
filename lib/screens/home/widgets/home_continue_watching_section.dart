@@ -36,7 +36,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
     required this.items,
     required this.onOpenDetail,
     required this.onPlay,
-    required this.onLongPress,
+    this.onLongPress,
     this.onSecondaryTap,
     this.stableImageCacheWidth,
     this.title = '继续观看',
@@ -45,7 +45,9 @@ class HomeContinueWatchingSection extends StatelessWidget {
   final List<HomeContinueCardData> items;
   final ValueChanged<HomeContinueCardData> onOpenDetail;
   final ValueChanged<HomeContinueCardData> onPlay;
-  final ValueChanged<HomeContinueCardData> onLongPress;
+
+  /// 长按动作表回调；桌面档右键已接管同一组动作，调用方传 null 关闭长按。
+  final ValueChanged<HomeContinueCardData>? onLongPress;
 
   /// 桌面档右键回调（非桌面档不触发，可为空）。
   final void Function(HomeContinueCardData item, Offset globalPosition)?
@@ -59,6 +61,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
     final secondaryTap = onSecondaryTap;
+    final longPress = onLongPress;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -77,7 +80,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
                 stableImageCacheWidth: stableImageCacheWidth,
                 onOpenDetail: () => onOpenDetail(item),
                 onPlay: () => onPlay(item),
-                onLongPress: () => onLongPress(item),
+                onLongPress: longPress == null ? null : () => longPress(item),
                 onSecondaryTapUp: secondaryTap == null
                     ? null
                     : (position) => secondaryTap(item, position),
@@ -112,7 +115,7 @@ class _ContinueCard extends StatelessWidget {
   final int? stableImageCacheWidth;
   final VoidCallback onOpenDetail;
   final VoidCallback onPlay;
-  final VoidCallback onLongPress;
+  final VoidCallback? onLongPress;
   final void Function(Offset globalPosition)? onSecondaryTapUp;
 
   @override

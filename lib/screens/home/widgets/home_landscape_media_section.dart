@@ -31,7 +31,7 @@ class HomeLandscapeMediaSection extends StatelessWidget {
     required this.items,
     required this.title,
     required this.onOpenDetail,
-    required this.onLongPress,
+    this.onLongPress,
     this.onSecondaryTap,
     this.storageKey = 'landscape-media',
     this.stableImageCacheWidth,
@@ -40,7 +40,9 @@ class HomeLandscapeMediaSection extends StatelessWidget {
   final List<HomeLandscapeCardData> items;
   final String title;
   final ValueChanged<HomeLandscapeCardData> onOpenDetail;
-  final ValueChanged<HomeLandscapeCardData> onLongPress;
+
+  /// 长按动作表回调；桌面档右键已接管同一组动作，调用方传 null 关闭长按。
+  final ValueChanged<HomeLandscapeCardData>? onLongPress;
 
   /// 桌面档右键回调（非桌面档不触发，可为空）。
   final void Function(HomeLandscapeCardData item, Offset globalPosition)?
@@ -55,6 +57,7 @@ class HomeLandscapeMediaSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
     final secondaryTap = onSecondaryTap;
+    final longPress = onLongPress;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -69,7 +72,7 @@ class HomeLandscapeMediaSection extends StatelessWidget {
             width: width,
             stableImageCacheWidth: stableImageCacheWidth,
             onOpenDetail: () => onOpenDetail(item),
-            onLongPress: () => onLongPress(item),
+            onLongPress: longPress == null ? null : () => longPress(item),
             onSecondaryTapUp: secondaryTap == null
                 ? null
                 : (position) => secondaryTap(item, position),
@@ -100,7 +103,7 @@ class _LandscapeCard extends StatelessWidget {
   final double width;
   final int? stableImageCacheWidth;
   final VoidCallback onOpenDetail;
-  final VoidCallback onLongPress;
+  final VoidCallback? onLongPress;
   final void Function(Offset globalPosition)? onSecondaryTapUp;
 
   @override
