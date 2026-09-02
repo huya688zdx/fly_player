@@ -24,7 +24,6 @@ import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
-import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
@@ -35,6 +34,7 @@ import '../utils/app_exception.dart';
 import '../utils/imdb_launcher.dart';
 import '../ui/detail_artwork_resolver.dart';
 import '../utils/swallowed_error_logger.dart';
+import '../widgets/app_atmospheric_background.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
@@ -1055,42 +1055,58 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                 ],
               );
 
-        return Scaffold(
-          backgroundColor: DetailTokens.pageBackgroundOf(context),
-          body: Stack(
-            children: <Widget>[
-              Positioned.fill(child: body),
-              ValueListenableBuilder<double>(
-                valueListenable: _scrollOffsetNotifier,
-                builder: (context, offset, _) {
-                  final titleOpacity = ((offset - 8.0) / 64.0).clamp(0.0, 1.0);
-                  return DetailFloatingTopBar(
-                    onBack: () => unawaited(
-                      EmbeddedDetailLauncher.closeHostOrPop(context),
-                    ),
-                    onMore: () => unawaited(
-                      showDetailMoreActionsSheet(
-                        context,
-                        pageKey: widget.personGuid,
-                        pageTitle: title,
-                        suggestedThemeName: context
-                            .read<AppThemeProvider>()
-                            .nextSavedThemeNameFromBase(
-                              buildThemeSaveNameBase(
-                                l10n: AppLocalizations.of(context),
-                                title: title,
-                              ),
-                            ),
-                        clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+        // 人物页接入与首页同款的多层氛围晕染：页面动态取色（人物照片）激活时
+        // 晕染跟随取色快照色相，否则跟随主题；Scaffold 底色转透明让晕染透出。
+        final atmosphere = AppAtmospherePalette.resolve(
+          baseColors: context.baseAppColors,
+          effectiveColors: colors,
+          hasDynamicTheme:
+              (DynamicPageThemeSnapshot.maybeOf(context)?.hasDynamicTheme ??
+                  false) ||
+              context.hasRuntimeAppColors,
+        );
+        return AppAtmosphericBackground(
+          palette: atmosphere,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: <Widget>[
+                Positioned.fill(child: body),
+                ValueListenableBuilder<double>(
+                  valueListenable: _scrollOffsetNotifier,
+                  builder: (context, offset, _) {
+                    final titleOpacity = ((offset - 8.0) / 64.0).clamp(
+                      0.0,
+                      1.0,
+                    );
+                    return DetailFloatingTopBar(
+                      onBack: () => unawaited(
+                        EmbeddedDetailLauncher.closeHostOrPop(context),
                       ),
-                    ),
-                    title: title,
-                    titleOpacity: titleOpacity,
-                    showBack: true,
-                  );
-                },
-              ),
-            ],
+                      onMore: () => unawaited(
+                        showDetailMoreActionsSheet(
+                          context,
+                          pageKey: widget.personGuid,
+                          pageTitle: title,
+                          suggestedThemeName: context
+                              .read<AppThemeProvider>()
+                              .nextSavedThemeNameFromBase(
+                                buildThemeSaveNameBase(
+                                  l10n: AppLocalizations.of(context),
+                                  title: title,
+                                ),
+                              ),
+                          clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                        ),
+                      ),
+                      title: title,
+                      titleOpacity: titleOpacity,
+                      showBack: true,
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
