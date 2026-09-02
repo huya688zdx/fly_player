@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_hover_dropdown.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 import 'capability_badge.dart';
 
-class DetailSelectorRow extends StatelessWidget {
+class DetailSelectorRow extends StatefulWidget {
   final String subtitleLabel;
   final String audioLabel;
   final List<String> capabilityLabels;
@@ -15,6 +16,14 @@ class DetailSelectorRow extends StatelessWidget {
   final bool audioExpanded;
   final VoidCallback? onSubtitleTap;
   final VoidCallback? onAudioTap;
+
+  /// 桌面悬停弹窗内容（非空且有条目时，鼠标悬停触发件弹出小窗直接点选）。
+  final DesktopHoverDropdownSpec? subtitleHoverPopup;
+  final DesktopHoverDropdownSpec? audioHoverPopup;
+
+  /// 弹窗展开态回调（复用箭头旋转动画）。
+  final ValueChanged<bool>? onSubtitleOpenChanged;
+  final ValueChanged<bool>? onAudioOpenChanged;
 
   const DetailSelectorRow({
     super.key,
@@ -27,7 +36,48 @@ class DetailSelectorRow extends StatelessWidget {
     this.audioExpanded = false,
     this.onSubtitleTap,
     this.onAudioTap,
+    this.subtitleHoverPopup,
+    this.audioHoverPopup,
+    this.onSubtitleOpenChanged,
+    this.onAudioOpenChanged,
   });
+
+  @override
+  State<DetailSelectorRow> createState() => _DetailSelectorRowState();
+}
+
+class _DetailSelectorRowState extends State<DetailSelectorRow> {
+  // GlobalKey 保持悬停弹窗状态跨页面重建稳定；点开模态 sheet 前先经它收起弹窗。
+  final GlobalKey<DesktopHoverDropdownState> _subtitleDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+  final GlobalKey<DesktopHoverDropdownState> _audioDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+
+  VoidCallback? _tapWithPopupDismiss({
+    required GlobalKey<DesktopHoverDropdownState> dropdownKey,
+    required VoidCallback? original,
+  }) {
+    if (original == null) return null;
+    return () {
+      dropdownKey.currentState?.hide();
+      original();
+    };
+  }
+
+  Widget _wrapWithHoverPopup({
+    required DesktopHoverDropdownSpec? spec,
+    required GlobalKey<DesktopHoverDropdownState> dropdownKey,
+    required ValueChanged<bool>? onOpenChanged,
+    required Widget label,
+  }) {
+    if (spec == null) return label;
+    return DesktopHoverDropdown(
+      key: dropdownKey,
+      spec: spec,
+      onOpenChanged: onOpenChanged,
+      child: label,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,18 +93,34 @@ class DetailSelectorRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _SelectorLabel(
-            label: subtitleLabel,
-            showArrow: showSubtitleArrow,
-            expanded: subtitleExpanded,
-            onTap: onSubtitleTap,
+          _wrapWithHoverPopup(
+            spec: widget.subtitleHoverPopup,
+            dropdownKey: _subtitleDropdownKey,
+            onOpenChanged: widget.onSubtitleOpenChanged,
+            label: _SelectorLabel(
+              label: widget.subtitleLabel,
+              showArrow: widget.showSubtitleArrow,
+              expanded: widget.subtitleExpanded,
+              onTap: _tapWithPopupDismiss(
+                dropdownKey: _subtitleDropdownKey,
+                original: widget.onSubtitleTap,
+              ),
+            ),
           ),
           SizedBox(width: selectorGap),
-          _SelectorLabel(
-            label: audioLabel,
-            showArrow: showAudioArrow,
-            expanded: audioExpanded,
-            onTap: onAudioTap,
+          _wrapWithHoverPopup(
+            spec: widget.audioHoverPopup,
+            dropdownKey: _audioDropdownKey,
+            onOpenChanged: widget.onAudioOpenChanged,
+            label: _SelectorLabel(
+              label: widget.audioLabel,
+              showArrow: widget.showAudioArrow,
+              expanded: widget.audioExpanded,
+              onTap: _tapWithPopupDismiss(
+                dropdownKey: _audioDropdownKey,
+                original: widget.onAudioTap,
+              ),
+            ),
           ),
           SizedBox(width: selectorInnerGap),
           Expanded(
@@ -63,7 +129,7 @@ class DetailSelectorRow extends StatelessWidget {
               child: Wrap(
                 spacing: 6,
                 runSpacing: 4,
-                children: capabilityLabels
+                children: widget.capabilityLabels
                     .map((label) => CapabilityBadge(label: label))
                     .toList(),
               ),

@@ -8,6 +8,7 @@ import '../api/feiniu_api.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_sheet_controller.dart';
+import '../desktop/desktop_hover_dropdown.dart';
 import '../desktop/desktop_environment.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
@@ -880,6 +881,58 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         .where((e) => e.isNotEmpty)
         .toList();
 
+    // 桌面悬停弹窗（与中立 sheet 同一映射语义：关闭项复用公共 id 常量）。
+    final neutralL10n = AppLocalizations.of(context);
+    const subtitleOffId = PlayDetailSheetController.subtitleOffItemId;
+    final subtitleHoverPopup = subtitleTracks.isNotEmpty
+        ? DesktopHoverDropdownSpec(
+            title: neutralL10n.playerSubtitleSelectTitle,
+            items: <TrackOptionSheetItem>[
+              TrackOptionSheetItem(
+                id: subtitleOffId,
+                title: neutralL10n.playerSubtitleOffAction,
+              ),
+              ...subtitleTracks.map(
+                (t) => TrackOptionSheetItem(
+                  id: t.id,
+                  title: t.label,
+                  subtitle: t.summary,
+                ),
+              ),
+            ],
+            selectedId: (_neutralSelectedSubtitleId ?? '').isEmpty
+                ? subtitleOffId
+                : _neutralSelectedSubtitleId,
+            onSelected: (id) {
+              if (!mounted) return;
+              setState(() {
+                _neutralSelectedSubtitleId = id == subtitleOffId ? '' : id;
+              });
+            },
+          )
+        : null;
+    final audioHoverPopup = audioTracks.length > 1
+        ? DesktopHoverDropdownSpec(
+            title: neutralL10n.playerAudioSelectTitle,
+            items: audioTracks
+                .map(
+                  (t) => TrackOptionSheetItem(
+                    id: t.id,
+                    title: t.label,
+                    subtitle: t.summary,
+                  ),
+                )
+                .toList(),
+            selectedId: (_neutralSelectedAudioId ?? '').isEmpty
+                ? audioTracks.first.id
+                : _neutralSelectedAudioId,
+            onSelected: (id) {
+              if (!mounted) return;
+              setState(() => _neutralSelectedAudioId = id);
+            },
+          )
+        : null;
+
     // 顶栏折叠区间（与飞牛同口径）：滚动到 infoStart 收起处标题淡入。
     final collapseRange =
         (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
@@ -932,6 +985,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                           showAudioArrow: audioTracks.length > 1,
                           subtitleExpanded: _neutralSubtitleSelectorExpanded,
                           audioExpanded: _neutralAudioSelectorExpanded,
+                          subtitleHoverPopup: subtitleHoverPopup,
+                          audioHoverPopup: audioHoverPopup,
+                          onSubtitleOpenChanged: (open) {
+                            if (!mounted) return;
+                            setState(
+                              () => _neutralSubtitleSelectorExpanded = open,
+                            );
+                          },
+                          onAudioOpenChanged: (open) {
+                            if (!mounted) return;
+                            setState(
+                              () => _neutralAudioSelectorExpanded = open,
+                            );
+                          },
                           onSubtitleTap: subtitleTracks.isNotEmpty
                               ? () => _showNeutralSubtitleSheet()
                               : null,
@@ -1953,6 +2020,27 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     if (deleted && mounted && _selectedSubtitleGuid == guid) {
       setState(() => _selectedSubtitleGuid = null);
     }
+  }
+
+  /// 桌面悬停弹窗直接点选字幕轨：与 sheet 结果同一持久化/状态语义
+  /// （「关闭」→ ''，手动轨持久化到 store，其余按 guid 记忆）。
+  Future<void> _applyHoverSubtitleSelection(String itemId) async {
+    final result = PlayDetailSheetController.subtitleResultOf(itemId);
+    await const ManualSubtitleStore().setSelectedGuid(
+      itemGuid: _currentItemGuid,
+      mediaGuid: _currentStreamOption()?.mediaGuid ?? '',
+      guid: isManualSubtitleGuid(result) ? result : null,
+    );
+    if (!mounted) return;
+    setState(() {
+      _selectedSubtitleGuid = result;
+    });
+  }
+
+  /// 桌面悬停弹窗内删除本地字幕：删除并刷新条目，弹窗保持展开。
+  Future<void> _deleteHoverManualSubtitle(String guid) async {
+    await _deleteManualSubtitle(guid);
+    await _refreshManualSubtitleEntries();
   }
 
   Future<void> _showAudioSheet(BuildContext sheetContext) async {
@@ -3310,6 +3398,41 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             l10n: AppLocalizations.of(context),
           );
 
+          // 桌面悬停弹窗：与选轨 sheet 共用条目构建（悬停弹出、点选直接落地；
+          // 点开模态 sheet 前由 DetailSelectorRow 先收起弹窗）。
+          final selectorL10n = AppLocalizations.of(context);
+          final subtitleHoverPopup = showSubtitleArrow
+              ? DesktopHoverDropdownSpec(
+                  title: selectorL10n.playerSubtitleSelectTitle,
+                  items: PlayDetailSheetController.subtitleItems(
+                    subtitleTracks: subtitleTracks,
+                    l10n: selectorL10n,
+                    onLocalSubtitleDelete: _deleteHoverManualSubtitle,
+                  ),
+                  selectedId: PlayDetailSheetController.subtitleSelectedIdOf(
+                    _selectedSubtitleGuid,
+                  ),
+                  onSelected: _applyHoverSubtitleSelection,
+                )
+              : null;
+          final audioSheetItems = PlayDetailSheetController.audioItems(
+            audioTracks: audioTracks,
+          );
+          final audioHoverPopup = showAudioArrow
+              ? DesktopHoverDropdownSpec(
+                  title: selectorL10n.playerAudioSelectTitle,
+                  items: audioSheetItems,
+                  selectedId: PlayDetailSheetController.audioSelectedIdOf(
+                    selectedAudioGuid: _selectedAudioGuid,
+                    items: audioSheetItems,
+                  ),
+                  onSelected: (id) {
+                    if (!mounted) return;
+                    setState(() => _selectedAudioGuid = id);
+                  },
+                )
+              : null;
+
           final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
           final localDownloadedFile = _localDownloadedFileInfoSnapshot;
           final currentFile =
@@ -3418,6 +3541,27 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                       subtitleExpanded:
                                           _subtitleSelectorExpanded,
                                       audioExpanded: _audioSelectorExpanded,
+                                      subtitleHoverPopup: subtitleHoverPopup,
+                                      audioHoverPopup: audioHoverPopup,
+                                      onSubtitleOpenChanged: (open) {
+                                        if (!mounted) return;
+                                        setState(() {
+                                          _subtitleSelectorExpanded = open;
+                                        });
+                                        if (open) {
+                                          // 打开前刷新本地字幕元数据，原生壳刚导入的
+                                          // 字幕立即可见（不阻塞弹出，刷新后原位更新）。
+                                          unawaited(
+                                            _refreshManualSubtitleEntries(),
+                                          );
+                                        }
+                                      },
+                                      onAudioOpenChanged: (open) {
+                                        if (!mounted) return;
+                                        setState(
+                                          () => _audioSelectorExpanded = open,
+                                        );
+                                      },
                                       onSubtitleTap: showSubtitleArrow
                                           ? () => _showSubtitleSheet(context)
                                           : null,

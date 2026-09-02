@@ -8,6 +8,7 @@ export 'desktop_context_menu.dart';
 export 'desktop_detail_pane_host.dart';
 export 'desktop_environment.dart';
 export 'desktop_floating_panel.dart';
+export 'desktop_hover_dropdown.dart';
 export 'desktop_hover_region.dart';
 export 'desktop_hover_scroll_arrows.dart';
 export 'desktop_shell.dart';
