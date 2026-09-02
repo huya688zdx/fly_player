@@ -423,10 +423,10 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: <Widget>[
                             _buildCategoryTabs(colors, l10n),
-                            const Divider(
+                            Divider(
                               height: 1,
                               thickness: 1,
-                              color: Color(0x24FFFFFF),
+                              color: colors.borderSubtle,
                             ),
                             Expanded(
                               child: AnimatedSwitcher(
@@ -474,6 +474,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   }
 
   Widget _buildSearchField(AppThemeColors colors, AppLocalizations l10n) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return Material(
       color: Colors.transparent,
       child: Container(
@@ -482,12 +483,16 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
           color: colors.backgroundElevated,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: colors.textPrimary.withValues(alpha: 0.9),
-            width: 1.8,
+            color: isLight
+                ? colors.borderStrong
+                : colors.textPrimary.withValues(alpha: 0.9),
+            width: isLight ? 1.2 : 1.8,
           ),
-          boxShadow: const <BoxShadow>[
+          boxShadow: <BoxShadow>[
             BoxShadow(
-              color: Color(0x42000000),
+              color: isLight
+                  ? colors.overlayScrim.withValues(alpha: 0.13)
+                  : const Color(0x42000000),
               blurRadius: 18,
               offset: Offset(0, 8),
             ),
@@ -693,6 +698,7 @@ class _SearchResultRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     final l10n = AppLocalizations.of(context);
     final rating = double.tryParse(item.rating);
     final images = mediaImageRequestForUrls(
@@ -714,7 +720,11 @@ class _SearchResultRow extends StatelessWidget {
             duration: const Duration(milliseconds: 120),
             curve: Curves.easeOut,
             decoration: BoxDecoration(
-              color: hovering ? colors.surface : Colors.transparent,
+              color: hovering
+                  ? isLight
+                        ? colors.selectionSoft
+                        : colors.surface
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
