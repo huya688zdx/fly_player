@@ -776,7 +776,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     });
   }
 
-  Widget _buildNeutralBody(AppThemeColors colors) {
+  Widget _buildNeutralBody(AppThemeColors colors, Color? ambientTint) {
     final detail = _detail!;
     final capabilities = context
         .read<MediaBackendProvider>()
@@ -1131,6 +1131,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 1.0,
               );
               return DetailFloatingTopBar(
+                ambientTint: ambientTint,
                 onBack: () =>
                     unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
                 onMore: () {},
@@ -3221,7 +3222,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           }
         } else if (_neutralDisplayOnly && _detail != null && _error == null) {
           // 中立后端(Emby)展示体:复用本页 hero/meta/描述/演职员组件,从 _detail 渲染。
-          pageBody = _buildNeutralBody(colors);
+          pageBody = _buildNeutralBody(colors, ambientTint);
         } else if (_error != null || _data == null) {
           pageBody = Scaffold(
             backgroundColor: colors.backgroundBase,
@@ -3768,6 +3769,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     final centerTitleOpacity = ((collapseT - 0.84) / 0.12)
                         .clamp(0.0, 1.0);
                     return DetailFloatingTopBar(
+                      ambientTint: ambientTint,
                       onBack: () => unawaited(
                         EmbeddedDetailLauncher.closeHostOrPop(context),
                       ),
