@@ -14,7 +14,6 @@ import '../../danmaku/models/danmaku_comment.dart';
 import '../../danmaku/models/danmaku_settings.dart';
 import '../../danmaku/settings/danmaku_settings_store.dart';
 import '../../media_backend/playback/media_session_reload.dart';
-import '../../models/playback_stream.dart';
 import '../../playback/bookmarks/bookmark_store.dart';
 import '../../playback/playback_source.dart';
 import '../../playback/settings/mpv_settings_store.dart';
@@ -90,6 +89,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   late final StreamSubscription<bool> _bufferingSubscription;
   late final StreamSubscription<bool> _completedSubscription;
   late final StreamSubscription<Duration> _positionSubscription;
+  late final StreamSubscription<Duration> _durationSubscription;
 
   Timer? _controlsHideTimer;
   Timer? _hoverOpenTimer;
@@ -151,6 +151,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       ValueNotifier<_SkipPromptKind?>(null);
   bool _introSkipDismissed = false;
   bool _outroSkipDismissed = false;
+  // 章节读取跟随 duration 就绪：open 后立即读 chapter-list 时文件头常未解出。
+  bool _chaptersLoadedForSource = false;
+  int _chapterLoadAttempts = 0;
   // 字幕样式：默认值对齐安卓 NativeSubtitleStyleSettings（延迟 0 / 位置 92 / 缩放 1.0）。
   double _subtitleDelaySeconds = 0;
   int _subtitlePosition = 92;
@@ -189,6 +192,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _onCompletedChanged,
     );
     _positionSubscription = _player.stream.position.listen(_onPositionChanged);
+    _durationSubscription = _player.stream.duration.listen(_onDurationChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       _focusNode.requestFocus();
@@ -214,6 +218,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     unawaited(_volumeSubscription.cancel());
     unawaited(_bufferingSubscription.cancel());
     unawaited(_completedSubscription.cancel());
+    unawaited(_durationSubscription.cancel());
     unawaited(_positionSubscription.cancel());
     _skipPromptKindNotifier.dispose();
     unawaited(_player.dispose());
@@ -733,6 +738,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   /// 读取 mpv chapter-list（JSON：[{title,time},...]），换源后刷新。
+  /// duration 就绪（文件头解出）后读取章节：open 时立即读会拿到空列表。
+  void _onDurationChanged(Duration duration) {
+    if (duration <= Duration.zero || _chaptersLoadedForSource) return;
+    _chaptersLoadedForSource = true;
+    unawaited(_loadChapters());
+  }
+
   Future<void> _loadChapters() async {
     final platform = _player.platform;
     if (platform is! NativePlayer) return;
@@ -754,6 +766,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         }
       }
       if (mounted) setState(() => _chapters = chapters);
+      // 文件头刚就绪时 chapter-list 偶尔仍为空，稍后补读一次。
+      if (chapters.isEmpty && _chapterLoadAttempts < 1) {
+        _chapterLoadAttempts += 1;
+        await Future<void>.delayed(const Duration(milliseconds: 2500));
+        if (mounted && _chaptersLoadedForSource) {
+          _chapterLoadAttempts = 0;
+          await _loadChapters();
+        }
+      }
     } catch (_) {
       if (mounted) setState(() => _chapters = const <DesktopPlayerChapter>[]);
     }
@@ -847,21 +868,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
     try {
       await _applyDesktopMpvProperties();
-      await _player.open(
-        Media(_source.url, httpHeaders: _source.headers),
-        play: false,
-      );
+      await _player.open(DesktopMpvRuntime.mediaFor(_source), play: false);
       await _applyDesktopMpvProperties();
       await _applyPreferredSubtitle(_source);
       if (_source.startPosition > Duration.zero) {
-        await _player.seek(_source.startPosition);
         _showResumeFromPrompt(_source.startPosition);
       }
       await _player.setRate(_playbackRate);
       if (!_source.startPaused) {
         await _player.play();
       }
-      unawaited(_loadChapters());
       unawaited(_loadDanmakuForSource(widget.danmakuFilePath));
       unawaited(_preloadNextEpisodeIfEnabled());
     } catch (_) {
@@ -897,13 +913,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _source = resolved.source;
       _pausedByUser = resolved.source.startPaused;
       _playbackRate = _validPlaybackRate(resolved.source.playbackSpeed);
-      await _player.open(
-        Media(resolved.source.url, httpHeaders: resolved.source.headers),
-      );
+      await _player.open(DesktopMpvRuntime.mediaFor(resolved.source));
       await _applyDesktopMpvProperties();
       await _applyPreferredSubtitle(resolved.source);
       if (resolved.source.startPosition > Duration.zero) {
-        await _player.seek(resolved.source.startPosition);
         _showResumeFromPrompt(resolved.source.startPosition);
       }
       await _player.setRate(_playbackRate);
@@ -952,15 +965,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         return;
       }
       _source = resolved;
-      await _player.open(
-        Media(resolved.url, httpHeaders: resolved.headers),
-        play: false,
-      );
+      await _player.open(DesktopMpvRuntime.mediaFor(resolved), play: false);
       await _applyDesktopMpvProperties();
       await _applyPreferredSubtitle(resolved);
-      if (resolved.startPosition > Duration.zero) {
-        await _player.seek(resolved.startPosition);
-      }
       await _player.setRate(_playbackRate);
       if (wasPlaying) await _player.play();
     } catch (_) {
@@ -1067,6 +1074,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _introSkipDismissed = false;
     _outroSkipDismissed = false;
     _skipPromptKindNotifier.value = null;
+    _chaptersLoadedForSource = false;
+    _chapterLoadAttempts = 0;
     if (!mounted) return;
     setState(() {
       _playbackCompleted = false;
@@ -1322,12 +1331,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     });
     try {
       await _player.open(
-        Media(_source.url, httpHeaders: _source.headers),
+        DesktopMpvRuntime.mediaFor(_source, startPosition: position),
         play: false,
       );
       await _applyDesktopMpvProperties();
       await _applyPreferredSubtitle(_source);
-      if (position > Duration.zero) await _player.seek(position);
       await _player.setRate(_playbackRate);
       if (wasPlaying) await _player.play();
     } catch (_) {
@@ -1461,38 +1469,34 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       return;
     }
 
+    final audioTracks = DesktopMpvRuntime.selectableAudioTracks(
+      _player.state.tracks.audio,
+    );
+    final selectedAudioTrack = DesktopMpvRuntime.selectedAudioTrack(
+      audioTracks,
+      _player.state.track.audio,
+    );
+    final subtitleTracks = DesktopMpvRuntime.selectableSubtitleTracks(
+      _player.state.tracks.subtitle,
+    );
+    final selectedSubtitleTrack = DesktopMpvRuntime.selectedSubtitleTrack(
+      subtitleTracks,
+      _player.state.track.subtitle,
+    );
     final options = <DesktopPlayerPanelOption>[
       if (audio)
-        for (var index = 0; index < _player.state.tracks.audio.length; index++)
+        for (var index = 0; index < audioTracks.length; index++)
           DesktopPlayerPanelOption(
-            value: _player.state.tracks.audio[index],
-            title: _mediaKitAudioTrackTitle(
-              _player.state.tracks.audio[index],
-              index,
-            ),
-            selected:
-                _player.state.tracks.audio[index] ==
-                    _player.state.track.audio ||
-                _player.state.tracks.audio[index].id ==
-                    _player.state.track.audio.id,
+            value: audioTracks[index],
+            title: _mediaKitAudioTrackTitle(audioTracks[index], index),
+            selected: audioTracks[index] == selectedAudioTrack,
           )
       else
-        for (
-          var index = 0;
-          index < _player.state.tracks.subtitle.length;
-          index++
-        )
+        for (var index = 0; index < subtitleTracks.length; index++)
           DesktopPlayerPanelOption(
-            value: _player.state.tracks.subtitle[index],
-            title: _mediaKitSubtitleTrackTitle(
-              _player.state.tracks.subtitle[index],
-              index,
-            ),
-            selected:
-                _player.state.tracks.subtitle[index] ==
-                    _player.state.track.subtitle ||
-                _player.state.tracks.subtitle[index].id ==
-                    _player.state.track.subtitle.id,
+            value: subtitleTracks[index],
+            title: _mediaKitSubtitleTrackTitle(subtitleTracks[index], index),
+            selected: subtitleTracks[index] == selectedSubtitleTrack,
           ),
       if (!audio) ..._localSubtitleOptions(),
     ];
@@ -1669,35 +1673,35 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       ];
     }
     if (audio) {
+      final tracks = DesktopMpvRuntime.selectableAudioTracks(
+        _player.state.tracks.audio,
+      );
+      final selectedTrack = DesktopMpvRuntime.selectedAudioTrack(
+        tracks,
+        _player.state.track.audio,
+      );
       return <DesktopPlayerPanelOption>[
-        for (var index = 0; index < _player.state.tracks.audio.length; index++)
+        for (var index = 0; index < tracks.length; index++)
           DesktopPlayerPanelOption(
-            value: _player.state.tracks.audio[index],
-            title: _mediaKitAudioTrackTitle(
-              _player.state.tracks.audio[index],
-              index,
-            ),
-            selected:
-                _player.state.tracks.audio[index] ==
-                    _player.state.track.audio ||
-                _player.state.tracks.audio[index].id ==
-                    _player.state.track.audio.id,
+            value: tracks[index],
+            title: _mediaKitAudioTrackTitle(tracks[index], index),
+            selected: tracks[index] == selectedTrack,
           ),
       ];
     }
+    final tracks = DesktopMpvRuntime.selectableSubtitleTracks(
+      _player.state.tracks.subtitle,
+    );
+    final selectedTrack = DesktopMpvRuntime.selectedSubtitleTrack(
+      tracks,
+      _player.state.track.subtitle,
+    );
     return <DesktopPlayerPanelOption>[
-      for (var index = 0; index < _player.state.tracks.subtitle.length; index++)
+      for (var index = 0; index < tracks.length; index++)
         DesktopPlayerPanelOption(
-          value: _player.state.tracks.subtitle[index],
-          title: _mediaKitSubtitleTrackTitle(
-            _player.state.tracks.subtitle[index],
-            index,
-          ),
-          selected:
-              _player.state.tracks.subtitle[index] ==
-                  _player.state.track.subtitle ||
-              _player.state.tracks.subtitle[index].id ==
-                  _player.state.track.subtitle.id,
+          value: tracks[index],
+          title: _mediaKitSubtitleTrackTitle(tracks[index], index),
+          selected: tracks[index] == selectedTrack,
         ),
       ..._localSubtitleOptions(),
     ];
@@ -1733,18 +1737,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     } else {
       await _player.setSubtitleTrack(SubtitleTrack.no());
     }
-  }
-
-  List<DesktopPlayerPanelOption> _hoverQualityOptions() {
-    return <DesktopPlayerPanelOption>[
-      for (var index = 0; index < _source.qualities.length; index++)
-        DesktopPlayerPanelOption(
-          value: index,
-          title: _qualityTitle(_source.qualities[index]),
-          subtitle: _qualitySubtitle(_source.qualities[index]),
-          selected: _isCurrentQuality(_source.qualities[index]),
-        ),
-    ];
   }
 
   Widget _buildHoverOverlayLayer() {
@@ -1785,14 +1777,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         );
         break;
       case PlayerHoverOverlayKind.quality:
-        width = 254;
-        content = DesktopHoverOptionsPanel(
-          title: _l10n.nativePlayerQualityPickerTitle,
-          options: _hoverQualityOptions(),
-          emptyLabel: _l10n.nativePlayerNoQuality,
-          onSelected: (option) {
+        width = 420;
+        content = DesktopHoverQualityPanel(
+          source: _source,
+          onSelected: (index) {
             _dismissHoverOverlay();
-            unawaited(_reloadPlaybackSource(qualityIndex: option.value as int));
+            unawaited(_reloadPlaybackSource(qualityIndex: index));
           },
         );
         break;
@@ -1921,19 +1911,17 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   String _mediaKitAudioTrackTitle(AudioTrack track, int index) {
-    final title = track.title?.trim() ?? '';
-    if (title.isNotEmpty) return title;
-    final language = track.language?.trim() ?? '';
-    if (language.isNotEmpty) return language;
-    return '${_l10n.nativePlayerTrackGeneric} ${index + 1}';
+    return DesktopMpvRuntime.audioTrackTitle(
+      track,
+      '${_l10n.nativePlayerTrackGeneric} ${index + 1}',
+    );
   }
 
   String _mediaKitSubtitleTrackTitle(SubtitleTrack track, int index) {
-    final title = track.title?.trim() ?? '';
-    if (title.isNotEmpty) return title;
-    final language = track.language?.trim() ?? '';
-    if (language.isNotEmpty) return language;
-    return '${_l10n.nativePlayerTrackGeneric} ${index + 1}';
+    return DesktopMpvRuntime.subtitleTrackTitle(
+      track,
+      '${_l10n.nativePlayerTrackGeneric} ${index + 1}',
+    );
   }
 
   Future<void> _showCompactOptions({
@@ -2108,11 +2096,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       options.add(
         DesktopPlayerPanelOption(
           value: subtitle,
-          title: title.isNotEmpty
-              ? title
-              : (language.isNotEmpty
-                    ? language
-                    : _l10n.nativePlayerTrackGeneric),
+          title: DesktopMpvRuntime.subtitleTrackTitle(
+            subtitle,
+            _l10n.nativePlayerTrackGeneric,
+          ),
           subtitle: language,
           selected: currentId == uri,
         ),
@@ -2123,15 +2110,21 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _showQualities({Rect? anchor}) async {
     _wakeControls(scheduleHide: false);
-    final qualities = _source.qualities;
-    if (qualities.isEmpty || widget.reloadSource == null || !mounted) return;
+    if (_source.qualities.isEmpty || widget.reloadSource == null || !mounted) {
+      return;
+    }
+    final menu = DesktopMpvRuntime.qualityMenu(_source);
     final options = <DesktopPlayerPanelOption>[
-      for (var index = 0; index < qualities.length; index++)
+      for (final choice in menu.mainChoices)
         DesktopPlayerPanelOption(
-          value: index,
-          title: _qualityTitle(qualities[index]),
-          subtitle: _qualitySubtitle(qualities[index]),
-          selected: _isCurrentQuality(qualities[index]),
+          value: choice.sourceIndex,
+          title: choice.isOriginal
+              ? _l10n.playerQualityOriginal
+              : choice.displayTier,
+          subtitle: DesktopMpvRuntime.qualityBitrateLabel(
+            choice.quality.bitrate,
+          ),
+          selected: DesktopMpvRuntime.isCurrentQuality(_source, choice),
         ),
     ];
     if (anchor != null) {
@@ -2156,39 +2149,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         },
       ),
     );
-  }
-
-  String _qualityTitle(PlaybackQualityOption quality) {
-    final resolution = quality.resolution.trim();
-    if (quality.isOriginalProxy || resolution.isEmpty) {
-      return _l10n.playerQualityOriginal;
-    }
-    return resolution;
-  }
-
-  String _qualitySubtitle(PlaybackQualityOption quality) {
-    final parts = <String>[];
-    if (quality.sourceFileName.trim().isNotEmpty) {
-      parts.add(quality.sourceFileName.trim());
-    }
-    if (quality.bitrate > 0) {
-      parts.add('${(quality.bitrate / 1000000).toStringAsFixed(1)} Mbps');
-    }
-    return parts.join(' · ');
-  }
-
-  bool _isCurrentQuality(PlaybackQualityOption quality) {
-    if (_source.playbackMode.isOriginalQuality) {
-      return quality.isOriginalProxy || quality.isDefault == 1;
-    }
-    if (quality.directLinkQualityIndex != null &&
-        quality.directLinkQualityIndex == _source.directLinkQualityIndex) {
-      return true;
-    }
-    return quality.resolution.trim() == _source.resolution.trim() &&
-        (_source.bitrate <= 0 ||
-            quality.bitrate <= 0 ||
-            quality.bitrate == _source.bitrate);
   }
 
   Future<void> _showEpisodes() async {
@@ -3380,11 +3340,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   String get _resolutionLabel {
-    final resolution = _source.resolution.trim();
-    if (resolution.isNotEmpty) return resolution;
-    if (_source.videoWidth > 0 && _source.videoHeight > 0) {
-      return '${_source.videoWidth}×${_source.videoHeight}';
-    }
-    return _l10n.playerQualityOriginal;
+    return DesktopMpvRuntime.currentQualityLabel(
+      _source,
+      _l10n.playerQualityOriginal,
+    );
   }
 }
