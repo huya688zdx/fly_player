@@ -1080,6 +1080,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                       1.0,
                     );
                     return DetailFloatingTopBar(
+                      atmosphereOverlay: true,
                       onBack: () => unawaited(
                         EmbeddedDetailLauncher.closeHostOrPop(context),
                       ),
