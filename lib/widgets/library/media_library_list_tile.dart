@@ -12,7 +12,9 @@ class MediaLibraryListTile extends StatelessWidget {
   final String subtitle;
   final List<String> resolutions;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
+
+  /// 长按动作回调；桌面档右键接管后调用方传 null 关闭长按。
+  final VoidCallback? onLongPress;
   final VoidCallback onMoreTap;
 
   const MediaLibraryListTile({
@@ -22,7 +24,7 @@ class MediaLibraryListTile extends StatelessWidget {
     required this.subtitle,
     required this.resolutions,
     required this.onTap,
-    required this.onLongPress,
+    this.onLongPress,
     required this.onMoreTap,
   });
 
