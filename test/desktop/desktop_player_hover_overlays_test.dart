@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/desktop/desktop.dart';
 import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
 
 void main() {
@@ -51,7 +52,7 @@ void main() {
     );
     await pumpLayer(tester, snapshot);
     expect(find.text('settings'), findsNothing);
-    expect(find.byType(DesktopHoverGlass), findsNothing);
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
   });
 
   testWidgets('快照变化直接驱动重建（全屏路由下 setState 刷不到的场景）', (tester) async {
@@ -67,7 +68,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(DesktopHoverGlass), findsOneWidget);
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
     expect(find.text('speed'), findsOneWidget);
   });
 
@@ -91,7 +92,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final window = tester.getSize(find.byType(SizedBox).first);
-    final glass = tester.getRect(find.byType(DesktopHoverGlass));
+    final glass = tester.getRect(find.byType(DesktopFloatingPanel));
 
     expect(glass.top, 76);
     expect(glass.bottom, window.height - 84);
@@ -109,13 +110,13 @@ void main() {
       ),
     );
     await pumpLayer(tester, snapshot);
-    expect(find.byType(DesktopHoverGlass), findsOneWidget);
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
 
     snapshot.value = snapshot.value.copyWith(visible: false);
     await tester.pumpAndSettle();
     // 动画结束后内容仍挂载但透明且不可命中，等待种类清空后卸载。
     snapshot.value = const PlayerHoverOverlaySnapshot();
     await tester.pumpAndSettle();
-    expect(find.byType(DesktopHoverGlass), findsNothing);
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
   });
 }
