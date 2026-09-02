@@ -442,12 +442,15 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             final item = itemsById[card.id];
             if (item != null) unawaited(_playContinueItem(item));
           },
-          onLongPress: (card) {
-            final item = itemsById[card.id];
-            if (item != null) {
-              unawaited(_showContinueWatchingActionsV2(item));
-            }
-          },
+          // 桌面档右键已接管同一组动作，长按只在触屏档保留。
+          onLongPress: layout.isDesktopTier
+              ? null
+              : (card) {
+                  final item = itemsById[card.id];
+                  if (item != null) {
+                    unawaited(_showContinueWatchingActionsV2(item));
+                  }
+                },
           onSecondaryTap: (card, position) {
             final item = itemsById[card.id];
             if (item == null) return;
@@ -500,10 +503,12 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         final item = itemsById[card.id];
         if (item != null) _openItemDetail(item);
       },
-      onLongPress: (card) {
-        final item = itemsById[card.id];
-        if (item != null) _showPosterItemActions(item);
-      },
+      onLongPress: layout.isDesktopTier
+          ? null
+          : (card) {
+              final item = itemsById[card.id];
+              if (item != null) _showPosterItemActions(item);
+            },
       onSecondaryTap: (card, position) {
         final item = itemsById[card.id];
         if (item == null) return;
@@ -830,7 +835,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                     item,
                     heroTag: '${heroTagPrefix}_${item.guid}_$index',
                   ),
-                  onLongPress: () => _showPosterItemActions(item),
+                  onLongPress: desktopRow
+                      ? null
+                      : () => _showPosterItemActions(item),
                 ),
               ),
             );
@@ -855,12 +862,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
   /// 桌面档媒体卡右键菜单（海报行 / 最近添加 / 下一集共用）：
   /// 查看详情直达 + 经 [MediaItemActionSheetController] 切换已看 / 收藏，
-  /// 动作与长按动作表（_showPosterItemActions）同源。
+  /// 动作与长按动作表（_showPosterItemActions）同源；人物条目无已看语义，
+  /// 与长按 favoriteOnly 一致只保留详情 + 收藏。
   Future<void> _showItemContextMenu({
     required MediaLibraryItem item,
     required Offset globalPosition,
   }) async {
-    if (_isPersonItem(item)) return;
+    final favoriteOnly = _isPersonItem(item);
     final flags = await _loadContinueItemFlags(item);
     if (!mounted) return;
     final l10n = AppLocalizations.of(context);
@@ -874,26 +882,27 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           icon: Icons.info_outline,
           onSelected: () => unawaited(_openItemDetail(item)),
         ),
-        DesktopContextMenuEntry(
-          label: flags.watched
-              ? l10n.actionMarkAsUnwatched
-              : l10n.actionMarkAsWatched,
-          icon: flags.watched
-              ? Icons.visibility_off_outlined
-              : Icons.visibility_outlined,
-          onSelected: () async {
-            final state = await controller.setItemWatched(
-              context,
-              itemId: item.guid,
-              watched: !flags.watched,
-            );
-            if (state == null) return;
-            _replaceItemLocally(
-              item.guid,
-              (current) => current.copyWith(watched: state ? 1 : 0),
-            );
-          },
-        ),
+        if (!favoriteOnly)
+          DesktopContextMenuEntry(
+            label: flags.watched
+                ? l10n.actionMarkAsUnwatched
+                : l10n.actionMarkAsWatched,
+            icon: flags.watched
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            onSelected: () async {
+              final state = await controller.setItemWatched(
+                context,
+                itemId: item.guid,
+                watched: !flags.watched,
+              );
+              if (state == null) return;
+              _replaceItemLocally(
+                item.guid,
+                (current) => current.copyWith(watched: state ? 1 : 0),
+              );
+            },
+          ),
         DesktopContextMenuEntry(
           label: flags.favorite
               ? l10n.actionFavoriteRemove
