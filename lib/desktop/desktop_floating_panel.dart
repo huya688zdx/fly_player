@@ -42,7 +42,7 @@ class DesktopFloatingPanel extends StatelessWidget {
               BoxShadow(
                 color: shadowColor,
                 blurRadius: 30,
-                offset: Offset(0, 14),
+                offset: const Offset(0, 14),
               ),
             ],
           ),
