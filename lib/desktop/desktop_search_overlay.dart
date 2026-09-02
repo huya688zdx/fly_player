@@ -494,7 +494,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
                   ? colors.overlayScrim.withValues(alpha: 0.13)
                   : const Color(0x42000000),
               blurRadius: 18,
-              offset: Offset(0, 8),
+              offset: const Offset(0, 8),
             ),
           ],
         ),
