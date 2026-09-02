@@ -34,6 +34,15 @@ void main() {
     expect(overlaySource, isNot(contains('onTap: _dismissHoverOverlay')));
   });
 
+  test('播放器右键菜单在按键释放后打开', () {
+    final source = File(
+      'lib/desktop/playback/desktop_playback_screen.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('onSecondaryTapUp: (details)'));
+    expect(source, isNot(contains('onSecondaryTapDown: (details)')));
+  });
+
   test('播放设置对齐安卓层级并接入章节与片头片尾跳过', () {
     final source = File(
       'lib/desktop/playback/desktop_playback_screen.dart',

@@ -2679,7 +2679,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                 _wakeControls();
                 unawaited(videoState.toggleFullscreen());
               },
-              onSecondaryTapDown: (details) {
+              onSecondaryTapUp: (details) {
                 if (_hoverOverlayKind != null) {
                   _dismissHoverOverlay();
                   return;
