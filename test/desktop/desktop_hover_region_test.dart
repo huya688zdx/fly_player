@@ -112,6 +112,48 @@ void main() {
     expect(rowColor(tester), Colors.blue);
   });
 
+  testWidgets('弹窗覆盖后底层区域不再保持悬停', (tester) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: DesktopPointerPositionTracker(
+          child: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 48),
+                child: DesktopHoverRegion(
+                  builder: (context, hovering) => ColoredBox(
+                    key: const ValueKey<String>('row'),
+                    color: hovering ? Colors.red : Colors.blue,
+                    child: const SizedBox(width: 200, height: 50),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: const Offset(100, 20));
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(const Offset(100, 75));
+    await tester.pump();
+    expect(rowColor(tester), Colors.red);
+
+    navigatorKey.currentState!.push<void>(
+      DialogRoute<void>(
+        context: navigatorKey.currentContext!,
+        builder: (_) => const SizedBox(width: 300, height: 300),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(rowColor(tester), Colors.blue);
+  });
+
   testWidgets('滚轮滚动触发重校验（PointerScrollEvent 信号）', (tester) async {
     await tester.pumpWidget(harness());
     final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);

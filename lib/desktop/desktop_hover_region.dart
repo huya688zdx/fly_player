@@ -143,6 +143,11 @@ class _DesktopHoverRegionState extends State<DesktopHoverRegion> {
   /// 滚轮、每个帧回调以及 exit 事件时调用；无变化时零 setState。
   void _validateHover() {
     if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      _setHovering(false);
+      return;
+    }
     final pointer = DesktopPointerPosition.instance;
     if (pointer == null) return;
     final renderObject = context.findRenderObject();
