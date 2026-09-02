@@ -1189,14 +1189,13 @@ class _DesktopPlaybackSettingsPanelState
       icon: Icons.skip_next_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.introOutro),
     ),
-    if (widget.chapters.isNotEmpty)
-      _SettingsMenuTile(
-        title: '章节',
-        subtitle: '跳转到当前视频的章节时间点',
-        trailing: '${widget.chapters.length}',
-        icon: Icons.format_list_numbered_rounded,
-        onTap: () => _push(DesktopPlaybackSettingsPage.chapters),
-      ),
+    _SettingsMenuTile(
+      title: '章节',
+      subtitle: '跳转到当前视频的章节时间点',
+      trailing: widget.chapters.isEmpty ? '暂无' : '${widget.chapters.length}',
+      icon: Icons.format_list_numbered_rounded,
+      onTap: () => _push(DesktopPlaybackSettingsPage.chapters),
+    ),
     _SettingsMenuTile(
       title: l10n.playerBookmarkTitle,
       subtitle: l10n.playerBookmarkSettingsSubtitle,
@@ -1436,6 +1435,15 @@ class _DesktopPlaybackSettingsPanelState
 
   // 章节：对齐安卓 buildChapterPage（当前章节高亮，点击跳转）。
   Widget _buildChaptersPage() {
+    if (widget.chapters.isEmpty) {
+      return _settingsList(<Widget>[
+        const _SettingsStatusCard(
+          title: '章节',
+          value: '当前视频没有章节信息',
+          description: '片源带内嵌章节时这里会列出可跳转的时间点。',
+        ),
+      ]);
+    }
     final position = widget.position;
     return ListView.separated(
       padding: EdgeInsets.zero,
