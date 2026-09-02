@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../desktop/desktop.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/detail_tokens.dart';
+import '../../ui/layout_adaptive.dart';
 
 class CreditPersonItem {
   final String personGuid;
@@ -59,23 +62,29 @@ class CreditsSection extends StatelessWidget {
         const SizedBox(height: 12),
         SizedBox(
           height: sectionHeight,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            cacheExtent: (cardWidth + itemGap) * 2,
-            itemCount: items.length,
-            padding: EdgeInsets.zero,
-            separatorBuilder: (_, __) => SizedBox(width: itemGap),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return _CreditPersonCard(
-                item: item,
-                cardWidth: cardWidth,
-                avatarSize: avatarSize,
-                nameSize: nameSize,
-                subtitleSize: subtitleSize,
-                onTap: onTap,
-              );
-            },
+          // 桌面档接入悬停翻页箭头（与首页海报行/选集行同款）；非桌面档原样透出。
+          child: HoverScrollRow(
+            enabled: MediaLayoutProfile.of(context).isDesktopTier,
+            edgePadding: DetailTokens.screenHorizontalPadding,
+            builder: (controller) => ListView.separated(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              cacheExtent: (cardWidth + itemGap) * 2,
+              itemCount: items.length,
+              padding: EdgeInsets.zero,
+              separatorBuilder: (_, __) => SizedBox(width: itemGap),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return _CreditPersonCard(
+                  item: item,
+                  cardWidth: cardWidth,
+                  avatarSize: avatarSize,
+                  nameSize: nameSize,
+                  subtitleSize: subtitleSize,
+                  onTap: onTap,
+                );
+              },
+            ),
           ),
         ),
       ],
