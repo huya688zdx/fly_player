@@ -272,9 +272,9 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
-      // Ctrl+K 打开桌面搜索弹窗：内容区导航上的浮层，不推整页路由。
+      // Ctrl+K 展开搜索框：未输入时不提前显示结果小窗，也不推整页路由。
       expect(observer.pushedNames, isNot(contains('/screen/search')));
-      expect(find.text('全部'), findsOneWidget);
+      expect(find.text('全部'), findsNothing);
       expect(find.byType(TextField), findsOneWidget);
 
       // Esc 关闭弹窗，回到内容区首页。
@@ -320,8 +320,8 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
-      // Ctrl+K 不受文本焦点影响：弹出桌面搜索弹窗（叠加替身页自带的输入框）。
-      expect(find.text('全部'), findsOneWidget);
+      // Ctrl+K 不受文本焦点影响：展开搜索框（叠加替身页自带的输入框）。
+      expect(find.text('全部'), findsNothing);
       expect(find.byType(TextField), findsNWidgets(2));
     });
   });

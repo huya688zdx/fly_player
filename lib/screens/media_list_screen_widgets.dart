@@ -2,6 +2,7 @@ part of 'media_list_screen.dart';
 
 extension _MediaListScreenWidgets on _MediaListScreenState {
   Widget _buildScreen(BuildContext context) {
+    final isDesktopTier = MediaLayoutProfile.of(context).isDesktopTier;
     final provider = context.read<NasProvider>();
     final imageCredentials = mediaImageCredentialsForBackend(
       backendKind: context
@@ -54,6 +55,29 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           ),
           title: Text(AppLocalizations.of(context).homeTitle),
           actions: <Widget>[
+            if (isDesktopTier)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colors.surface.withValues(alpha: 0.78),
+                    shape: BoxShape.circle,
+                  ),
+                  child: SizedBox.square(
+                    dimension: 44,
+                    child: IconButton(
+                      tooltip: AppLocalizations.of(context).searchPlaceholder,
+                      icon: const Icon(Icons.search_rounded, size: 25),
+                      onPressed: () => unawaited(_openDesktopSearchOverlay()),
+                    ),
+                  ),
+                ),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.search),
+                onPressed: () => unawaited(_openSearchAsync()),
+              ),
             if (!widget.secondaryHost)
               IconButton(
                 icon: const Icon(Icons.connected_tv_outlined),
@@ -62,17 +86,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                   Navigator.of(context).pushNamed('/screen/poster-browse');
                 },
               ),
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () {
-                // 桌面档：右上角搜索打开 PC 专属弹窗；手机档保持整页搜索。
-                if (MediaLayoutProfile.of(context).isDesktopTier) {
-                  unawaited(_openDesktopSearchOverlay());
-                } else {
-                  unawaited(_openSearchAsync());
-                }
-              },
-            ),
           ],
         ),
         body: body,

@@ -11,7 +11,7 @@ import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
-import '../ui/app_centered_modal.dart';
+import '../ui/app_motion.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_artwork_resolver.dart';
 import '../ui/media_episode_subtitle.dart';
@@ -22,27 +22,55 @@ import '../widgets/common/app_error_state.dart';
 import '../widgets/common/bird_loader.dart';
 import '../screens/person_detail_screen.dart';
 import '../screens/play_detail_screen.dart';
+import 'desktop_floating_panel.dart';
 import 'desktop_hover_region.dart';
 
-/// 桌面搜索弹窗（PC 专属）：贴顶居中的主题面板，搜索框 + 分类页签 +
-/// 「全部/电影/电视剧/人物/其他」本地过滤的结果列表。
+/// 桌面搜索弹层（PC 专属）：搜索框从右上角按钮位置展开，结果小窗紧随其下。
 ///
 /// 与 SearchScreen 共用同一后端搜索与历史存储（`search_history_v1::$baseUrl`），
 /// 手机档仍走整页搜索，桌面档用本弹窗。数据口径与 SearchScreen 一致：
 /// 后端一次返回混合结果，分类页签只做本地过滤，不重复请求。
 ///
-/// 弹出在 [context] 所在导航器上（壳层内即内容区导航，侧栏保持可见）。
-/// 选中结果由面板自行打开详情：面板 context 在弹窗路由内、必属于内容区
-/// 导航器，经 [EmbeddedDetailLauncher] 分屏优先，避免调用方拿导航器自身
-/// context 时误推到根导航器整窗覆盖侧栏。
+/// 结果区复用 [DesktopFloatingPanel]；弹层仍位于内容区导航器内，侧栏保持可见。
 Future<void> showDesktopSearch(BuildContext context) {
-  final size = MediaQuery.sizeOf(context);
-  return AppCenteredModal.show<void>(
-    context,
-    alignment: Alignment.topCenter,
-    insetPadding: EdgeInsets.fromLTRB(48, size.height * 0.08, 48, 48),
+  return showGeneralDialog<void>(
+    context: context,
+    useRootNavigator: false,
+    barrierDismissible: true,
     barrierLabel: 'desktop-search-overlay',
-    builder: (_) => const _DesktopSearchPanel(),
+    barrierColor: const Color(0x16000000),
+    transitionDuration: AppMotion.sheetTransition,
+    pageBuilder: (dialogContext, _, __) => SafeArea(
+      child: Align(
+        alignment: Alignment.topRight,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(48, 8, 66, 24),
+          child: _DesktopSearchPanel(navigationContext: context),
+        ),
+      ),
+    ),
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: AppMotion.sheetEnterCurve,
+        reverseCurve: AppMotion.sheetExitCurve,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.035, -0.025),
+            end: Offset.zero,
+          ).animate(curved),
+          child: SizeTransition(
+            axis: Axis.horizontal,
+            axisAlignment: 1,
+            sizeFactor: curved,
+            child: child,
+          ),
+        ),
+      );
+    },
   );
 }
 
@@ -50,8 +78,7 @@ Future<void> showDesktopSearch(BuildContext context) {
 ///
 /// 打开顺序：分屏宿主优先（详情进右栏，[EmbeddedDetailLauncher] 与首页
 /// 同链路），无宿主时回退直接推入当前导航器（内容区，侧栏常驻）。
-/// [closeOverlay] 在详情受理后回调——面板用它收起自己；回退路径先关
-/// 弹窗再推详情，保证关闭时它仍是栈顶。
+/// [closeOverlay] 在导航前同步收起搜索层，避免随后压入的详情路由被误弹出。
 Future<void> openSearchItemDetail(
   BuildContext context,
   MediaItemCard item, {
@@ -67,10 +94,9 @@ Future<void> openSearchItemDetail(
     'desktop_search_detail:$isPerson:$guid',
     settleDuration: const Duration(milliseconds: 450),
     action: () async {
-      // 弹窗关闭后面板节点会失效：导航器与 provider 都在仍挂载时取好，
-      // 之后的 await 一律不再摸 context。
       final navigator = Navigator.of(context);
       final nasProvider = context.read<NasProvider>();
+      closeOverlay?.call();
       Map<String, dynamic>? initialDetail;
       if (!isPerson) {
         try {
@@ -87,10 +113,8 @@ Future<void> openSearchItemDetail(
           personGuid: guid,
           initialName: item.displayTitle,
         )) {
-          closeOverlay?.call();
           return;
         }
-        closeOverlay?.call();
         navigator.push(
           AppTransitions.leftToRightPageTurnRoute(
             PersonDetailScreen(
@@ -107,10 +131,8 @@ Future<void> openSearchItemDetail(
         context: context,
         initialItemDetail: initialDetail,
       )) {
-        closeOverlay?.call();
         return;
       }
-      closeOverlay?.call();
       navigator.push(
         AppTransitions.leftToRightPageTurnRoute(
           PlayDetailScreen(
@@ -152,14 +174,16 @@ extension _SearchCategoryLabel on _SearchCategory {
 }
 
 class _DesktopSearchPanel extends StatefulWidget {
-  const _DesktopSearchPanel();
+  const _DesktopSearchPanel({required this.navigationContext});
+
+  final BuildContext navigationContext;
 
   @override
   State<_DesktopSearchPanel> createState() => _DesktopSearchPanelState();
 }
 
 class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
-  static const Duration _searchDebounce = Duration(milliseconds: 260);
+  static const Duration _searchDebounce = Duration(milliseconds: 650);
   static const int _maxHistoryCount = 12;
   // 与 SearchScreen 同 key：桌面弹窗与手机搜索页共享历史。
   static const String _historyKeyPrefix = 'search_history_v1';
@@ -171,6 +195,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   List<MediaItemCard> _results = const <MediaItemCard>[];
   List<String> _history = const <String>[];
   String _query = '';
+  String _searchedQuery = '';
   _SearchCategory _category = _SearchCategory.all;
   bool _isSearching = false;
   AppException? _error;
@@ -226,9 +251,10 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
     setState(() {
       _query = value;
       _error = null;
+      _isSearching = false;
       if (trimmed.isEmpty) {
         _results = const <MediaItemCard>[];
-        _isSearching = false;
+        _searchedQuery = '';
       }
     });
     _debounceTimer?.cancel();
@@ -241,8 +267,10 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   Future<void> _performSearch(String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty || !mounted) return;
+    if (_isSearching && _searchedQuery == trimmed) return;
     setState(() {
       _isSearching = true;
+      _searchedQuery = trimmed;
       _error = null;
     });
     try {
@@ -253,6 +281,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
       if (!mounted || trimmed != _controller.text.trim()) return;
       setState(() {
         _results = results;
+        _searchedQuery = trimmed;
         _isSearching = false;
       });
       await _saveHistoryEntry(trimmed);
@@ -274,9 +303,11 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
 
   /// Enter：打开当前分类下的首个结果；无结果时立即补一次搜索。
   void _submitActive(String value) {
+    final trimmed = value.trim();
     final visible = _visibleResults;
-    if (visible.isEmpty) {
-      unawaited(_performSearch(value));
+    if (_searchedQuery != trimmed || visible.isEmpty) {
+      _debounceTimer?.cancel();
+      unawaited(_performSearch(trimmed));
       return;
     }
     _selectResult(visible.first);
@@ -284,11 +315,13 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
 
   void _selectResult(MediaItemCard item) {
     unawaited(_saveHistoryEntry(_controller.text));
-    // closeOverlay 前先取好弹窗所在导航器：回退路径「先关弹窗再推详情」
-    // 时它还是栈顶；分屏路径详情进右栏后再关弹窗。
     final dialogNavigator = Navigator.of(context);
     unawaited(
-      openSearchItemDetail(context, item, closeOverlay: dialogNavigator.pop),
+      openSearchItemDetail(
+        widget.navigationContext,
+        item,
+        closeOverlay: dialogNavigator.pop,
+      ),
     );
   }
 
@@ -360,38 +393,74 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
       baseUrl: provider.baseUrl,
     );
     final size = MediaQuery.sizeOf(context);
-    final panelWidth = (size.width * 0.52).clamp(600.0, 860.0).toDouble();
-    final panelHeight = (size.height * 0.76).clamp(500.0, 740.0).toDouble();
+    final panelWidth = (size.width * 0.42).clamp(360.0, 520.0).toDouble();
+    final panelHeight = (size.height * 0.68).clamp(320.0, 620.0).toDouble();
+    final hasQuery = _query.trim().isNotEmpty;
+    final showResults =
+        hasQuery &&
+        (_isSearching ||
+            _error != null ||
+            _searchedQuery == _controller.text.trim());
 
     return SizedBox(
       width: panelWidth,
-      height: panelHeight,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-            child: _buildSearchField(colors, l10n),
-          ),
-          const SizedBox(height: 12),
-          _buildCategoryTabs(colors, l10n),
-          Divider(height: 1, thickness: 1, color: colors.borderSubtle),
-          Expanded(
-            // 状态/分类切换整块淡入淡出，替代生硬的列表跳动。
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 160),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              child: KeyedSubtree(
-                key: ValueKey<String>(_contentKey),
-                child: _buildContent(
-                  provider: provider,
-                  credentials: imageCredentials,
-                  colors: colors,
-                  l10n: l10n,
-                ),
-              ),
-            ),
+          _buildSearchField(colors, l10n),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 190),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: showResults
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: SizedBox(
+                      height: panelHeight,
+                      child: DesktopFloatingPanel(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            _buildCategoryTabs(colors, l10n),
+                            const Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: Color(0x24FFFFFF),
+                            ),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 170),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                      opacity: animation,
+                                      child: SlideTransition(
+                                        position: Tween<Offset>(
+                                          begin: const Offset(0, 0.018),
+                                          end: Offset.zero,
+                                        ).animate(animation),
+                                        child: child,
+                                      ),
+                                    ),
+                                child: KeyedSubtree(
+                                  key: ValueKey<String>(_contentKey),
+                                  child: _buildContent(
+                                    provider: provider,
+                                    credentials: imageCredentials,
+                                    colors: colors,
+                                    l10n: l10n,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),
@@ -399,83 +468,101 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   }
 
   String get _contentKey {
-    if (_query.trim().isEmpty) return 'history';
     if (_isSearching) return 'loading';
     if (_error != null) return 'error';
     return 'results:${_category.name}:${_controller.text.trim()}';
   }
 
   Widget _buildSearchField(AppThemeColors colors, AppLocalizations l10n) {
-    return Container(
-      height: 52,
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: colors.accent.withValues(alpha: 0.55),
-          width: 1.2,
-        ),
-      ),
-      child: Row(
-        children: <Widget>[
-          const SizedBox(width: 18),
-          Icon(Icons.search_rounded, color: colors.textSecondary, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              autofocus: true,
-              onChanged: _onQueryChanged,
-              onSubmitted: _submitActive,
-              style: TextStyle(color: colors.textPrimary, fontSize: 16),
-              cursorColor: colors.accent,
-              decoration: InputDecoration(
-                isCollapsed: true,
-                border: InputBorder.none,
-                hintText: l10n.searchPlaceholder,
-                hintStyle: TextStyle(color: colors.textMuted, fontSize: 16),
-              ),
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: colors.backgroundElevated,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: colors.textPrimary.withValues(alpha: 0.9),
+            width: 1.8,
           ),
-          if (_controller.text.isNotEmpty)
-            IconButton(
-              onPressed: () {
-                _controller.clear();
-                _onQueryChanged('');
-                _focusNode.requestFocus();
-              },
-              icon: Icon(
-                Icons.cancel_rounded,
-                color: colors.textMuted,
-                size: 22,
+          boxShadow: const <BoxShadow>[
+            BoxShadow(
+              color: Color(0x42000000),
+              blurRadius: 18,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: 18),
+            Icon(Icons.search_rounded, color: colors.textSecondary, size: 25),
+            const SizedBox(width: 11),
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                autofocus: true,
+                onChanged: _onQueryChanged,
+                onSubmitted: _submitActive,
+                style: TextStyle(color: colors.textPrimary, fontSize: 16),
+                cursorColor: colors.textPrimary,
+                decoration: InputDecoration(
+                  isCollapsed: true,
+                  border: InputBorder.none,
+                  hintText: l10n.searchPlaceholder,
+                  hintStyle: TextStyle(color: colors.textMuted, fontSize: 16),
+                ),
               ),
             ),
-          const SizedBox(width: 8),
-        ],
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 140),
+              transitionBuilder: (child, animation) => ScaleTransition(
+                scale: animation,
+                child: FadeTransition(opacity: animation, child: child),
+              ),
+              child: _controller.text.isEmpty
+                  ? const SizedBox(key: ValueKey<String>('empty'), width: 42)
+                  : IconButton(
+                      key: const ValueKey<String>('clear'),
+                      tooltip: l10n.commonDelete,
+                      onPressed: () {
+                        _controller.clear();
+                        _onQueryChanged('');
+                        _focusNode.requestFocus();
+                      },
+                      icon: Icon(
+                        Icons.cancel_rounded,
+                        color: colors.textMuted,
+                        size: 22,
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 7),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildCategoryTabs(AppThemeColors colors, AppLocalizations l10n) {
     return SizedBox(
-      height: 44,
+      height: 50,
       child: Row(
         children: <Widget>[
-          const SizedBox(width: 12),
-          for (final category in _SearchCategory.values) ...<Widget>[
-            _CategoryTab(
-              label: category.label(l10n),
-              selected: _category == category,
-              accentColor: colors.accent,
-              idleColor: colors.textSecondary,
-              onTap: () {
-                if (_category == category) return;
-                setState(() => _category = category);
-              },
+          for (final category in _SearchCategory.values)
+            Expanded(
+              child: _CategoryTab(
+                label: category.label(l10n),
+                selected: _category == category,
+                accentColor: colors.accent,
+                idleColor: colors.textSecondary,
+                onTap: () {
+                  if (_category == category) return;
+                  setState(() => _category = category);
+                },
+              ),
             ),
-            const SizedBox(width: 6),
-          ],
         ],
       ),
     );
@@ -487,9 +574,6 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
     required AppThemeColors colors,
     required AppLocalizations l10n,
   }) {
-    if (_query.trim().isEmpty) {
-      return _buildHistory(colors, l10n);
-    }
     if (_isSearching) {
       return const Center(child: BirdLoader(size: 64));
     }
@@ -510,7 +594,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
       );
     }
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 14),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 14),
       itemCount: visible.length,
       itemBuilder: (context, index) {
         final item = visible[index];
@@ -523,88 +607,6 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
           onTap: () => _selectResult(item),
         );
       },
-    );
-  }
-
-  Widget _buildHistory(AppThemeColors colors, AppLocalizations l10n) {
-    if (_history.isEmpty) {
-      return Center(
-        child: Text(
-          l10n.searchPlaceholder,
-          style: TextStyle(color: colors.textMuted, fontSize: 14),
-        ),
-      );
-    }
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                l10n.searchHistory,
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                ),
-              ),
-            ),
-            IconButton(
-              tooltip: l10n.commonDelete,
-              onPressed: () async {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.remove(_historyKey());
-                if (!mounted) return;
-                setState(() {
-                  _history = const <String>[];
-                });
-              },
-              icon: const Icon(Icons.delete_outline_rounded, size: 20),
-              color: colors.textMuted,
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: _history
-              .map(
-                (entry) => InkWell(
-                  onTap: () {
-                    _controller.text = entry;
-                    _controller.selection = TextSelection.fromPosition(
-                      TextPosition(offset: entry.length),
-                    );
-                    _onQueryChanged(entry);
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colors.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: colors.borderSubtle),
-                    ),
-                    child: Text(
-                      entry,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-      ],
     );
   }
 }
@@ -783,7 +785,7 @@ class _SearchResultRow extends StatelessWidget {
   }
 }
 
-/// 行首缩略图：人物用方头像，其余用海报比例；加载前/失败垫底色。
+/// 行首缩略图：人物与影片/剧集统一使用海报规格；加载前/失败垫底色。
 class _Thumbnail extends StatelessWidget {
   const _Thumbnail({
     required this.images,
@@ -799,8 +801,8 @@ class _Thumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = isPerson ? const Size.square(54) : const Size(54, 72);
-    final radius = BorderRadius.circular(isPerson ? 12 : 8);
+    const size = Size(54, 72);
+    final radius = BorderRadius.circular(8);
     final url = images.urls.isNotEmpty ? images.urls.first : '';
     return ClipRRect(
       borderRadius: radius,
