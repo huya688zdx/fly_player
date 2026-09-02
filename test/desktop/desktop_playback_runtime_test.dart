@@ -5,12 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/playback/desktop_danmaku_overlay.dart';
 import 'package:fly_player/desktop/playback/desktop_mpv_runtime.dart';
+import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
 import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/models/playback_stream.dart';
 import 'package:fly_player/playback/bookmarks/bookmark_store.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/playback/settings/mpv_settings_store.dart';
+import 'package:media_kit/media_kit.dart';
 
 void main() {
   test('主动暂停与媒体切换期间的 MPV 日志错误不升级为致命弹层', () {
@@ -51,9 +54,9 @@ void main() {
       'lib/desktop/playback/desktop_player_panels.dart',
     ).readAsStringSync();
 
-    // 章节来自 mpv chapter-list，播放分组内条件显示。
+    // 章节来自 mpv chapter-list；入口常显，无章节时展示空态。
     expect(source, contains("getProperty('chapter-list')"));
-    expect(panelSource, contains('if (widget.chapters.isNotEmpty)'));
+    expect(panelSource, contains('当前视频没有章节信息'));
 
     // 片头片尾跳过：时长窗口逻辑 + 右下角提示卡。
     expect(source, contains('_computeSkipPromptKind'));
@@ -98,6 +101,141 @@ void main() {
 
     expect(filters, contains('equalizer=f=2800'));
     expect(filters, contains('alimiter=limit=0.95'));
+  });
+
+  test('Windows 播放媒体把续播位置交给 media_kit 起播', () {
+    const source = MpvMediaSource(
+      itemGuid: 'item',
+      mediaGuid: 'media',
+      videoGuid: 'video',
+      url: 'https://example.invalid/video',
+      headers: <String, String>{'Authorization': 'test'},
+      title: '测试视频',
+      startPosition: Duration(minutes: 11, seconds: 20),
+    );
+
+    final media = DesktopMpvRuntime.mediaFor(source);
+
+    expect(media.start, source.startPosition);
+    expect(media.httpHeaders, source.headers);
+  });
+
+  test('Windows 音轨列表不显示 media_kit 的自动和禁用控制项', () {
+    final tracks = <AudioTrack>[
+      AudioTrack.auto(),
+      AudioTrack.no(),
+      const AudioTrack('3', '日语', 'jpn'),
+    ];
+
+    final selectable = DesktopMpvRuntime.selectableAudioTracks(tracks);
+
+    expect(selectable.map((track) => track.id), <String>['3']);
+  });
+
+  test('Windows 自动音轨状态选中实际默认音轨', () {
+    const track = AudioTrack('3', null, 'jpn', isDefault: true);
+
+    final selected = DesktopMpvRuntime.selectedAudioTrack(<AudioTrack>[
+      track,
+    ], AudioTrack.auto());
+
+    expect(selected, track);
+  });
+
+  test('Windows 音轨标题复用语言映射而不是显示原始代码', () {
+    const track = AudioTrack('3', null, 'jpn');
+
+    final title = DesktopMpvRuntime.audioTrackTitle(track, '轨道 1');
+
+    expect(title, '日语');
+  });
+
+  test('Windows 自动字幕状态选中实际默认字幕', () {
+    const track = SubtitleTrack('3', null, 'jpn', isDefault: true);
+
+    final selected = DesktopMpvRuntime.selectedSubtitleTrack(<SubtitleTrack>[
+      track,
+    ], SubtitleTrack.auto());
+
+    expect(selected, track);
+  });
+
+  test('Windows 字幕标题复用语言映射而不是显示原始代码', () {
+    const track = SubtitleTrack('3', null, 'jpn');
+
+    final title = DesktopMpvRuntime.subtitleTrackTitle(track, '轨道 1');
+
+    expect(title, '日语');
+  });
+
+  test('Windows 画质按当前模式过滤并在主面板合并同分辨率档', () {
+    final source = _qualitySource();
+
+    final menu = DesktopMpvRuntime.qualityMenu(source);
+
+    expect(menu.mainChoices.map((choice) => choice.displayTier), <String>[
+      '1080P',
+      '720P',
+      '480P',
+    ]);
+    expect(menu.mainChoices.first.isOriginal, isTrue);
+    expect(menu.customGroups['480P'], hasLength(2));
+    expect(
+      menu.customGroups['1080P']!.map((choice) => choice.quality.source),
+      <PlaybackQualitySource>[PlaybackQualitySource.originalProxy],
+    );
+  });
+
+  test('Windows 原画态入口显示原画且低码率使用 Kbps', () {
+    final source = _qualitySource();
+
+    expect(DesktopMpvRuntime.currentQualityLabel(source, '原画'), '原画');
+    expect(DesktopMpvRuntime.qualityBitrateLabel(894000), '894 Kbps');
+  });
+
+  testWidgets('Windows 画质面板使用主档与自定义两级结构', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 430,
+              height: 520,
+              child: Material(
+                child: DesktopHoverQualityPanel(
+                  source: _qualitySource(),
+                  onSelected: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('原画'), findsOneWidget);
+    expect(find.text('1080P'), findsNothing);
+    expect(find.text('1080P 894 Kbps'), findsOneWidget);
+    expect(find.text('720P'), findsOneWidget);
+    expect(find.text('480P'), findsOneWidget);
+    expect(find.text('1080P SDR'), findsNothing);
+
+    await tester.tap(find.text('自定义'));
+    await tester.pumpAndSettle();
+    expect(find.text('自定义视频质量'), findsOneWidget);
+  });
+
+  test('有悬停面板的控制按钮不再叠加系统 Tooltip', () {
+    final source = File(
+      'lib/desktop/playback/desktop_player_controls.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('Widget _tooltipOrChild('));
+    expect(source, contains('enabled: onHoverEnter == null'));
+    expect(source, contains('enabled: false'));
   });
 
   testWidgets('Windows 弹幕显示设置与弹幕源分开呈现', (tester) async {
@@ -213,4 +351,62 @@ void main() {
     expect(find.byType(DesktopPlaybackSettingsPanel), findsOneWidget);
     expect(find.text('弹幕源内页'), findsOneWidget);
   });
+}
+
+MpvMediaSource _qualitySource() {
+  PlaybackQualityOption quality({
+    required String resolution,
+    required int bitrate,
+    required PlaybackQualitySource source,
+    int isDefault = 0,
+  }) => PlaybackQualityOption(
+    mediaGuid: 'media',
+    videoGuid: 'video',
+    resolution: resolution,
+    bitrate: bitrate,
+    isDefault: isDefault,
+    source: source,
+    directLinkQualityIndex: source == PlaybackQualitySource.directLink
+        ? 0
+        : null,
+  );
+
+  return MpvMediaSource(
+    itemGuid: 'item',
+    mediaGuid: 'media',
+    videoGuid: 'video',
+    url: 'https://example.invalid/video',
+    headers: const <String, String>{},
+    title: '测试视频',
+    resolution: '1080P SDR',
+    bitrate: 894000,
+    qualities: <PlaybackQualityOption>[
+      quality(
+        resolution: 'Original',
+        bitrate: 894000,
+        source: PlaybackQualitySource.originalProxy,
+        isDefault: 1,
+      ),
+      quality(
+        resolution: '1080P SDR',
+        bitrate: 894000,
+        source: PlaybackQualitySource.serverSession,
+      ),
+      quality(
+        resolution: '720p',
+        bitrate: 850000,
+        source: PlaybackQualitySource.serverSession,
+      ),
+      quality(
+        resolution: '480',
+        bitrate: 800000,
+        source: PlaybackQualitySource.serverSession,
+      ),
+      quality(
+        resolution: '480P',
+        bitrate: 500000,
+        source: PlaybackQualitySource.serverSession,
+      ),
+    ],
+  );
 }
