@@ -81,7 +81,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   late final Player _player;
   late final VideoController _videoController;
-  late final FocusNode _focusNode;
   late MpvMediaSource _source;
   late final StreamSubscription<String> _errorSubscription;
   late final StreamSubscription<bool> _playingSubscription;
@@ -102,19 +101,21 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   String? _toastMessage;
   bool _isLoading = true;
   bool _isBuffering = false;
-  bool _isPlaying = false;
   bool _pausedByUser = false;
-  // 控制条可见性与悬停弹层都用 ValueNotifier 驱动：media_kit 全屏是独立路由上的
-  // 另一个 Video，宿主 setState 刷不到它，全屏下必须靠通知源让可见层重建。
+  // 控制条可见性、播放状态与悬停弹层都用 ValueNotifier 驱动：
+  // media_kit 全屏是独立路由上的另一个 Video，宿主 setState 刷不到它。
   final ValueNotifier<bool> _controlsVisibleNotifier = ValueNotifier<bool>(
     true,
   );
+  final ValueNotifier<bool> _playingNotifier = ValueNotifier<bool>(false);
   final ValueNotifier<PlayerHoverOverlaySnapshot> _hoverOverlayNotifier =
       ValueNotifier<PlayerHoverOverlaySnapshot>(
         const PlayerHoverOverlaySnapshot(),
       );
   bool get _controlsVisible => _controlsVisibleNotifier.value;
   set _controlsVisible(bool value) => _controlsVisibleNotifier.value = value;
+  bool get _isPlaying => _playingNotifier.value;
+  set _isPlaying(bool value) => _playingNotifier.value = value;
   bool get _hoverOverlayVisible => _hoverOverlayNotifier.value.visible;
   PlayerHoverOverlayKind? get _hoverOverlayKind =>
       _hoverOverlayNotifier.value.kind;
@@ -174,7 +175,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     super.initState();
     _source = widget.source;
     _pausedByUser = _source.startPaused;
-    _focusNode = FocusNode(debugLabel: 'desktop-playback');
     MediaKit.ensureInitialized();
     _player = Player();
     _videoController = VideoController(_player);
@@ -195,7 +195,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _durationSubscription = _player.stream.duration.listen(_onDurationChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      _focusNode.requestFocus();
       await _loadDesktopPreferences();
       if (!mounted) return;
       await _loadBookmarks();
@@ -222,8 +221,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     unawaited(_positionSubscription.cancel());
     _skipPromptKindNotifier.dispose();
     unawaited(_player.dispose());
-    _focusNode.dispose();
     _controlsVisibleNotifier.dispose();
+    _playingNotifier.dispose();
     _hoverOverlayNotifier.dispose();
     super.dispose();
   }
@@ -978,7 +977,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       );
     } finally {
       _finishLoading();
-      _focusNode.requestFocus();
     }
   }
 
@@ -1240,7 +1238,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _showPlayerMessage(_l10n.playerScreenshotSaveFailed);
     } finally {
       _takingScreenshot = false;
-      if (mounted) _focusNode.requestFocus();
     }
   }
 
@@ -1983,6 +1980,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
               itemBuilder: (context, index) {
                 final option = options[index];
                 return InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  hoverColor: const Color(0x38FFFFFF),
                   onTap: () {
                     Navigator.of(context).pop();
                     unawaited(Future<void>.sync(() => onSelected(option)));
@@ -2052,6 +2051,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     height: 36,
     padding: const EdgeInsets.symmetric(horizontal: 10),
     child: InkWell(
+      borderRadius: BorderRadius.circular(8),
+      hoverColor: const Color(0x38FFFFFF),
       onTap: () {
         Navigator.of(context).pop();
         unawaited(Future<void>.sync(onTap));
@@ -2159,7 +2160,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       context,
       style: PlayerOverlayPanelStyle.floatCard,
       barrierLabel: _l10n.commonClose,
-      onAfterClose: _focusNode.requestFocus,
       builder: (context) => DesktopEpisodePanel(
         title: _source.seriesTitle.trim().isNotEmpty
             ? '${_source.seriesTitle.trim()} · ${_l10n.playerEpisodeAction}'
@@ -2294,7 +2294,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       style: PlayerOverlayPanelStyle.centeredDialog,
       barrierLabel: _l10n.commonClose,
       closeTooltip: _l10n.commonClose,
-      onAfterClose: _focusNode.requestFocus,
       builder: (context) => DesktopPlaybackSettingsPanel(
         source: _source,
         position: _player.state.position,
@@ -2348,7 +2347,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       style: PlayerOverlayPanelStyle.sideDrawer,
       barrierLabel: _l10n.commonClose,
       closeTooltip: _l10n.commonClose,
-      onAfterClose: _focusNode.requestFocus,
       builder: builder,
     );
   }
@@ -2458,7 +2456,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       case 'exit':
         await _leavePlayer(videoState);
     }
-    _focusNode.requestFocus();
   }
 
   PopupMenuItem<String> _contextMenuItem(
@@ -2599,15 +2596,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   Widget _buildVideoControls(VideoState videoState) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: _controlsVisibleNotifier,
-      builder: (context, controlsVisible, _) => Focus(
-        focusNode: _focusNode,
-        autofocus: true,
-        onKeyEvent: (_, event) => _handleKeyEvent(videoState, event),
+    return ListenableBuilder(
+      listenable: Listenable.merge(<Listenable>[
+        _controlsVisibleNotifier,
+        _playingNotifier,
+      ]),
+      builder: (context, _) => _DesktopPlaybackKeyboardFocus(
+        onKeyEvent: (event) => _handleKeyEvent(videoState, event),
         child: MouseRegion(
           opaque: true,
-          cursor: controlsVisible
+          cursor: _controlsVisible
               ? SystemMouseCursors.basic
               : SystemMouseCursors.none,
           onEnter: (_) =>
@@ -2624,7 +2622,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () {
-                _focusNode.requestFocus();
                 if (_hoverOverlayKind != null) {
                   _dismissHoverOverlay();
                   return;
@@ -2658,9 +2655,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                     ),
                   ),
                   IgnorePointer(
-                    ignoring: !controlsVisible,
+                    ignoring: !_controlsVisible,
                     child: AnimatedOpacity(
-                      opacity: controlsVisible ? 1 : 0,
+                      opacity: _controlsVisible ? 1 : 0,
                       duration: _controlsAnimationDuration,
                       curve: Curves.easeOutCubic,
                       child: DesktopPlayerControls(
@@ -3343,6 +3340,52 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     return DesktopMpvRuntime.currentQualityLabel(
       _source,
       _l10n.playerQualityOriginal,
+    );
+  }
+}
+
+class _DesktopPlaybackKeyboardFocus extends StatefulWidget {
+  const _DesktopPlaybackKeyboardFocus({
+    required this.onKeyEvent,
+    required this.child,
+  });
+
+  final KeyEventResult Function(KeyEvent event) onKeyEvent;
+  final Widget child;
+
+  @override
+  State<_DesktopPlaybackKeyboardFocus> createState() =>
+      _DesktopPlaybackKeyboardFocusState();
+}
+
+class _DesktopPlaybackKeyboardFocusState
+    extends State<_DesktopPlaybackKeyboardFocus> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode(debugLabel: 'desktop-playback-controls');
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      descendantsAreFocusable: false,
+      onKeyEvent: (_, event) => widget.onKeyEvent(event),
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _focusNode.requestFocus(),
+        child: widget.child,
+      ),
     );
   }
 }
