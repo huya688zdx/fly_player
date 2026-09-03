@@ -142,24 +142,17 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                         curve: Curves.easeOutCubic,
                         alignment: Alignment.bottomCenter,
                         child: AnimatedSwitcher(
-                          // 弹层之间切换（如音轨→设置放大）交叉淡入+轻微缩放；
+                          // 弹层之间切换（如音轨→设置放大）交叉淡入；
                           // 首次弹出 duration 为零，避免与入场动画叠加。
+                          // 不加缩放：位置由 AnimatedPositioned 平滑滑动，
+                          // 缩放+平移叠加会显得抖。
                           duration: morphing
                               ? const Duration(milliseconds: 220)
                               : Duration.zero,
                           switchInCurve: Curves.easeOutCubic,
                           switchOutCurve: Curves.easeInCubic,
                           transitionBuilder: (child, animation) =>
-                              FadeTransition(
-                                opacity: animation,
-                                child: ScaleTransition(
-                                  scale: Tween<double>(
-                                    begin: 0.97,
-                                    end: 1,
-                                  ).animate(animation),
-                                  child: child,
-                                ),
-                              ),
+                              FadeTransition(opacity: animation, child: child),
                           child: KeyedSubtree(
                             key: ValueKey<String>(nextKey),
                             child: GestureDetector(
@@ -219,8 +212,10 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                         ),
                       ),
                     ),
-                  Positioned(
+                  AnimatedPositioned(
                     key: const ValueKey<String>('hover-panel'),
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
                     left: panelLeft,
                     top: panelTop,
                     bottom: panelBottomInset,
