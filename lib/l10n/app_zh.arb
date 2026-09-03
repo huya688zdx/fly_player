@@ -3785,5 +3785,6 @@
   "desktopPlaybackScreenshotAction": "保存截图",
   "desktopPlaybackScreenshotDialogTitle": "保存当前画面",
   "desktopPlaybackPrevEpisodeTooltip": "上一集 (P)",
-  "desktopPlaybackNextEpisodeTooltip": "下一集 (N)"
+  "desktopPlaybackNextEpisodeTooltip": "下一集 (N)",
+  "desktopPlaybackPrevEpisodeLabel": "上一集"
 }

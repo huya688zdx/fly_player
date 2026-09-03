@@ -15,6 +15,7 @@ enum PlayerHoverOverlayKind {
   subtitle,
   audio,
   settings,
+  previousEpisode,
   nextEpisode,
 }
 
@@ -875,11 +876,11 @@ class _PanelHeaderTextButton extends StatelessWidget {
   );
 }
 
-/// 下一集悬停预览卡：海报缩略图 + 「下一集」标签 + 集标题。
+/// 上/下一集悬停预览卡：海报缩略图 + 方向标签（「上一集」/「下一集」）+ 集标题。
 /// 内容只负责展示；外观与定位仍由通用悬浮小窗外壳（DesktopFloatingPanel +
 /// PlayerHoverOverlayLayer 通用分支）承担。
-class DesktopHoverNextEpisodePanel extends StatelessWidget {
-  const DesktopHoverNextEpisodePanel({
+class DesktopHoverEpisodePreviewPanel extends StatelessWidget {
+  const DesktopHoverEpisodePreviewPanel({
     super.key,
     required this.label,
     required this.title,

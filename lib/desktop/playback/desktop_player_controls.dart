@@ -75,6 +75,7 @@ class DesktopPlayerControls extends StatefulWidget {
     this.onHoverQuality,
     this.onHoverSubtitle,
     this.onHoverAudio,
+    this.onHoverPrevious,
     this.onHoverNext,
     this.onHoverSettings,
     this.onHoverExit,
@@ -140,7 +141,9 @@ class DesktopPlayerControls extends StatefulWidget {
   final ValueChanged<Rect>? onHoverSubtitle;
   final ValueChanged<Rect>? onHoverAudio;
 
-  /// 下一集按钮悬停：弹出下一集预览卡（锚点为按钮矩形）。
+  /// 上/下一集按钮悬停：弹出对应集预览卡（锚点为按钮矩形）。
+  /// 无上一集/下一集时为 null——与按钮隐藏条件一致，悬停入口随之消失。
+  final ValueChanged<Rect>? onHoverPrevious;
   final ValueChanged<Rect>? onHoverNext;
   final ValueChanged<Rect>? onHoverSettings;
   final VoidCallback? onHoverExit;
@@ -325,6 +328,8 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                             icon: Icons.skip_previous_rounded,
                             tooltip: widget.prevTooltip,
                             onPressed: widget.onPrevious!,
+                            onHoverEnter: widget.onHoverPrevious,
+                            onHoverExit: widget.onHoverExit,
                           ),
                         ],
                         if (widget.onNext != null) ...<Widget>[
