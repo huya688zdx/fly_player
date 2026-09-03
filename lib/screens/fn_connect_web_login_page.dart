@@ -2,11 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_windows/webview_windows.dart' as windows_webview;
 
 import '../api/feiniu_api.dart';
 import '../api/feiniu_access_code_transport.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../theme/app_theme.dart';
 import 'fn_web_login_bridge_script.dart';
 import '../utils/login_error_resolver.dart';
 import '../utils/swallowed_error_logger.dart';
@@ -127,11 +130,17 @@ class FnConnectWebLoginPage extends StatefulWidget {
 
 class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   static const String _bridgeName = 'FnConnectBridge';
+  static bool _windowsEnvironmentInitialized = false;
 
-  final WebViewCookieManager _cookieManager = WebViewCookieManager();
+  WebViewCookieManager? _cookieManager;
 
   late final FnConnectWebLoginEntry _entry;
-  late final WebViewController _controller;
+  WebViewController? _controller;
+  windows_webview.WebviewController? _windowsController;
+  StreamSubscription<String>? _windowsUrlSubscription;
+  StreamSubscription<windows_webview.LoadingState>? _windowsLoadingSubscription;
+  StreamSubscription<dynamic>? _windowsMessageSubscription;
+  StreamSubscription<windows_webview.WebErrorStatus>? _windowsErrorSubscription;
 
   bool _isReady = false;
   bool _isClosing = false;
@@ -142,6 +151,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   String _cookieString = '';
   String _resolvedBaseUrl = '';
   String _lastSigninUrl = '';
+  String _windowsCurrentUrl = '';
+  String? _windowsPendingSigninUrl;
+  bool _windowsPrimingCookies = false;
 
   @override
   void initState() {
@@ -150,19 +162,82 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       fnConnectId: widget.fnConnectId,
       relayHosts: widget.relayHosts,
     );
-    _controller = WebViewController();
     unawaited(_initialize());
   }
 
   Future<void> _initialize() async {
     final l10n = AppLocalizations.of(context);
     try {
-      if (!FnConnectWebLoginSessionPolicy.preserveCookiesByDefault) {
-        await _cookieManager.clearCookies();
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        if (!_windowsEnvironmentInitialized) {
+          await windows_webview.WebviewController.initializeEnvironment();
+          _windowsEnvironmentInitialized = true;
+        }
+        final controller = windows_webview.WebviewController();
+        _windowsController = controller;
+        await controller.initialize();
+        await controller.setBackgroundColor(const Color(0xFF08111A));
+        await controller.setPopupWindowPolicy(
+          windows_webview.WebviewPopupWindowPolicy.sameWindow,
+        );
+        await controller.addScriptToExecuteOnDocumentCreated(
+          _buildInjectionScript(),
+        );
+        _windowsUrlSubscription = controller.url.listen((url) {
+          if (!mounted || _isClosing) return;
+          _windowsCurrentUrl = url;
+          setState(() {
+            _statusText = l10n.fnConnectEntryLoading(_friendlyUrl(url));
+          });
+          unawaited(_handlePossibleOauthResultUrl(url));
+        });
+        _windowsLoadingSubscription = controller.loadingState.listen((state) {
+          if (!mounted || _isClosing) return;
+          if (state == windows_webview.LoadingState.navigationCompleted) {
+            if (_windowsPrimingCookies) {
+              _windowsPrimingCookies = false;
+              final pending = _windowsPendingSigninUrl;
+              _windowsPendingSigninUrl = null;
+              if (pending != null) {
+                unawaited(_primeWindowsCookiesAndLoad(pending));
+              }
+              return;
+            }
+            setState(() {
+              _isReady = true;
+              _statusText = l10n.fnConnectEntryProcessing(
+                _friendlyUrl(_windowsCurrentUrl),
+              );
+            });
+            unawaited(_setWindowsCookies('mode=relay'));
+          } else if (state == windows_webview.LoadingState.loading) {
+            setState(() => _isReady = false);
+          }
+        });
+        _windowsMessageSubscription = controller.webMessage.listen((message) {
+          unawaited(
+            _handleBridgeMessage(
+              message is String ? message : jsonEncode(message),
+            ),
+          );
+        });
+        _windowsErrorSubscription = controller.onLoadError.listen((error) {
+          if (!mounted || _isClosing) return;
+          setState(() => _statusText = error.name);
+        });
+        if (await _tryNavigateToSigninFromRelayConfig()) return;
+        await controller.loadUrl(_entry.initialUrl);
+        return;
       }
-      await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await _controller.setBackgroundColor(const Color(0xFF08111A));
-      await _controller.setNavigationDelegate(
+      final controller = WebViewController();
+      _controller = controller;
+      _cookieManager = WebViewCookieManager();
+      if (!FnConnectWebLoginSessionPolicy.preserveCookiesByDefault) {
+        await _cookieManager!.clearCookies();
+      }
+      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await controller.setBackgroundColor(const Color(0xFF08111A));
+      await controller.setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (request) {
             unawaited(_handlePossibleOauthResultUrl(request.url));
@@ -206,7 +281,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           },
         ),
       );
-      await _controller.addJavaScriptChannel(
+      await controller.addJavaScriptChannel(
         _bridgeName,
         onMessageReceived: (message) {
           unawaited(_handleBridgeMessage(message.message));
@@ -216,15 +291,19 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       if (await _tryNavigateToSigninFromRelayConfig()) {
         return;
       }
-      await _controller.loadRequest(Uri.parse(_entry.initialUrl));
+      await controller.loadRequest(Uri.parse(_entry.initialUrl));
     } catch (error) {
       _completeFailure(LoginErrorResolver.resolve(error, l10n: l10n));
     }
   }
 
   Future<void> _setRelayCookiesForEntryHosts() async {
+    if (_windowsController != null) {
+      await _setWindowsCookies('mode=relay');
+      return;
+    }
     for (final host in _entry.cookieHosts) {
-      await _cookieManager.setCookie(
+      await _cookieManager!.setCookie(
         WebViewCookie(name: 'mode', value: 'relay', domain: host, path: '/'),
       );
     }
@@ -263,7 +342,12 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
 
   Future<void> _injectBridgeScript() async {
     try {
-      await _controller.runJavaScript(_buildInjectionScript());
+      final script = _buildInjectionScript();
+      if (_windowsController != null) {
+        await _windowsController!.executeScript(script);
+      } else {
+        await _controller!.runJavaScript(script);
+      }
     } catch (error, stackTrace) {
       await logSwallowedError(
         action: 'inject fn connect web bridge',
@@ -281,7 +365,29 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       userName: widget.userName,
       password: widget.password,
       probeFnConnectOauth: true,
+      useWindowsWebViewMessage: defaultTargetPlatform == TargetPlatform.windows,
     );
+  }
+
+  Future<void> _setWindowsCookies(String cookies) async {
+    final controller = _windowsController;
+    if (controller == null) return;
+    for (final rawEntry in cookies.split(';')) {
+      final separator = rawEntry.indexOf('=');
+      if (separator <= 0) continue;
+      final name = rawEntry.substring(0, separator).trim();
+      final value = rawEntry.substring(separator + 1).trim();
+      await controller.executeScript(
+        'document.cookie=${jsonEncode('$name=$value; path=/')};',
+      );
+    }
+  }
+
+  Future<void> _primeWindowsCookiesAndLoad(String signinUrl) async {
+    await _setWindowsCookies(_cookieString);
+    await _setWindowsCookies('mode=relay');
+    if (!mounted || _isClosing) return;
+    await _windowsController!.loadUrl(signinUrl);
   }
 
   Future<void> _handleBridgeMessage(String rawMessage) async {
@@ -338,7 +444,11 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     if (_isFetchingOauthConfig || _isClosing) return;
     _isFetchingOauthConfig = true;
     try {
-      final currentUrl = pageUrl ?? await _controller.currentUrl();
+      final currentUrl =
+          pageUrl ??
+          (_windowsController != null
+              ? _windowsCurrentUrl
+              : await _controller!.currentUrl());
       final currentBaseUrl = _originFromUrl(currentUrl ?? '');
       if (currentBaseUrl.isEmpty) {
         throw const FormatException(
@@ -408,14 +518,28 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
 
     _resolvedBaseUrl = finalBaseUrl;
     _lastSigninUrl = signinUrl;
-    await _copyRelayCookiesToBaseUrl(finalBaseUrl);
-    if (!mounted || _isClosing) return;
-    setState(() {
-      _statusText = AppLocalizations.of(
-        context,
-      ).fnConnectWebRequestingAuthorization;
-    });
-    await _controller.loadRequest(Uri.parse(signinUrl));
+    if (_windowsController != null) {
+      // 先进入目标域，再写入 relay cookie；about:blank/旧域无法设置目标域 cookie。
+      _windowsPendingSigninUrl = signinUrl;
+      _windowsPrimingCookies = true;
+      if (!mounted || _isClosing) return;
+      setState(() {
+        _isReady = false;
+        _statusText = AppLocalizations.of(
+          context,
+        ).fnConnectWebRequestingAuthorization;
+      });
+      await _windowsController!.loadUrl(finalBaseUrl);
+    } else {
+      await _copyRelayCookiesToBaseUrl(finalBaseUrl);
+      if (!mounted || _isClosing) return;
+      setState(() {
+        _statusText = AppLocalizations.of(
+          context,
+        ).fnConnectWebRequestingAuthorization;
+      });
+      await _controller!.loadRequest(Uri.parse(signinUrl));
+    }
   }
 
   Future<void> _copyRelayCookiesToBaseUrl(String baseUrl) async {
@@ -428,12 +552,12 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         final name = rawEntry.substring(0, separator).trim();
         final value = rawEntry.substring(separator + 1).trim();
         if (name.isEmpty) continue;
-        await _cookieManager.setCookie(
+        await _cookieManager!.setCookie(
           WebViewCookie(name: name, value: value, domain: host, path: '/'),
         );
       }
     }
-    await _cookieManager.setCookie(
+    await _cookieManager!.setCookie(
       WebViewCookie(name: 'mode', value: 'relay', domain: host, path: '/'),
     );
   }
@@ -541,20 +665,32 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final colors = context.appColors;
+    final isDesktop = switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
     final progress = _progress.clamp(0, 100) / 100.0;
     final statusText = _statusText.isEmpty
         ? l10n.fnConnectEntryOpening
         : _statusText;
     return Scaffold(
-      backgroundColor: const Color(0xFF08111A),
+      backgroundColor: colors.backgroundBase,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0C1724),
-        foregroundColor: Colors.white,
+        automaticallyImplyLeading: !isDesktop,
+        backgroundColor: colors.surface,
+        foregroundColor: colors.textPrimary,
         title: Text(l10n.fnConnectWebLoginTitle(widget.fnConnectId)),
         actions: [
           IconButton(
             tooltip: l10n.fnConnectEntryReload,
-            onPressed: _isReady ? () => _controller.reload() : null,
+            onPressed: _isReady
+                ? () => _windowsController != null
+                      ? _windowsController!.reload()
+                      : _controller!.reload()
+                : null,
             icon: const Icon(Icons.refresh_rounded),
           ),
           IconButton(
@@ -575,20 +711,15 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
               children: [
                 LinearProgressIndicator(
                   value: progress <= 0 || progress >= 1 ? null : progress,
-                  backgroundColor: const Color(0xFF203042),
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                    Color(0xFF2D74D9),
-                  ),
+                  backgroundColor: colors.surfaceStrong,
+                  valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   statusText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFFB4C3D7),
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 12),
                 ),
               ],
             ),
@@ -596,8 +727,20 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         ),
       ),
       body: _isReady
-          ? WebViewWidget(controller: _controller)
+          ? (_windowsController != null
+                ? windows_webview.Webview(_windowsController!)
+                : WebViewWidget(controller: _controller!))
           : const Center(child: BirdLoader(size: 120)),
     );
+  }
+
+  @override
+  void dispose() {
+    unawaited(_windowsUrlSubscription?.cancel());
+    unawaited(_windowsLoadingSubscription?.cancel());
+    unawaited(_windowsMessageSubscription?.cancel());
+    unawaited(_windowsErrorSubscription?.cancel());
+    unawaited(_windowsController?.dispose());
+    super.dispose();
   }
 }

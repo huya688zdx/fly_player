@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
@@ -101,16 +102,24 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final colors = context.appColors;
+    final isDesktop = switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
     return Scaffold(
-      backgroundColor: const Color(0xFF08111A),
+      backgroundColor: colors.backgroundBase,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0C1825),
+        automaticallyImplyLeading: !isDesktop,
+        backgroundColor: colors.surface,
         elevation: 0,
-        foregroundColor: Colors.white,
+        foregroundColor: colors.textPrimary,
         title: Text(
           l10n.connectionLoginHistory,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: colors.textPrimary,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -120,7 +129,21 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
               onPressed: _clear,
               child: Text(
                 l10n.connectionClear,
-                style: const TextStyle(color: Color(0xFF8FB7FF)),
+                style: TextStyle(color: colors.accent),
+              ),
+            ),
+          if (isDesktop)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: IconButton(
+                tooltip: l10n.commonClose,
+                onPressed: () => Navigator.of(context).pop(),
+                style: IconButton.styleFrom(
+                  backgroundColor: colors.surfaceStrong,
+                  foregroundColor: colors.textPrimary,
+                  side: BorderSide(color: colors.borderSubtle),
+                ),
+                icon: const Icon(Icons.close_rounded),
               ),
             ),
         ],
@@ -131,8 +154,8 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
             ? Center(
                 child: Text(
                   l10n.connectionNoLoginHistory,
-                  style: const TextStyle(
-                    color: Color(0xFF9EADBE),
+                  style: TextStyle(
+                    color: colors.textSecondary,
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                   ),
@@ -177,9 +200,13 @@ class _LoginHistoryTile extends StatelessWidget {
         : (descriptor == null
               ? entry.userName
               : '${entry.userName} · $backendName');
+    final colors = context.appColors;
     return Material(
-      color: const Color(0xFF232D3A),
-      borderRadius: BorderRadius.circular(16),
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colors.borderSubtle),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
@@ -197,8 +224,8 @@ class _LoginHistoryTile extends StatelessWidget {
                       entry.baseUrl,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -208,8 +235,8 @@ class _LoginHistoryTile extends StatelessWidget {
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF9EADBE),
+                      style: TextStyle(
+                        color: colors.textSecondary,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -219,9 +246,9 @@ class _LoginHistoryTile extends StatelessWidget {
               ),
               IconButton(
                 onPressed: onDelete,
-                icon: const Icon(
+                icon: Icon(
                   Icons.delete_outline_rounded,
-                  color: Color(0xFF7C8DA5),
+                  color: colors.textMuted,
                 ),
               ),
             ],
