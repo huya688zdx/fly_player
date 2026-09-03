@@ -69,6 +69,15 @@ void main() {
       isFalse,
     );
   });
+
+  test('Windows 默认存储目录不依赖 sqflite 数据库工厂', () async {
+    if (!Platform.isWindows) return;
+
+    await expectLater(
+      const DanmakuSavedSourceStore().ensureMigratedFromPrefs(),
+      completes,
+    );
+  });
 }
 
 DanmakuSavedSource _source(String sourceKey) {

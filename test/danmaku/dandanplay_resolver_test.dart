@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/danmaku/api/dandanplay_api.dart';
 import 'package:fly_player/danmaku/api/dandanplay_resolver.dart';
+import 'package:fly_player/danmaku/cache/dandanplay_comment_cache_store.dart';
 import 'package:fly_player/danmaku/models/dandanplay_episode_search_item.dart';
 
 void main() {
@@ -234,4 +235,50 @@ void main() {
 
     expect(requestedV2, isTrue);
   });
+
+  test('评论缓存不可用时仍回源并返回弹幕', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(
+            Response<String>(
+              requestOptions: options,
+              data:
+                  '{"count":1,"comments":[{"cid":1,"p":"1.5,1,16777215,test","m":"测试弹幕"}]}',
+            ),
+          );
+        },
+      ),
+    );
+    final resolver = DanDanPlayResolver(
+      DanDanPlayApi(dio: dio, appId: 'test', appSecret: 'secret'),
+      cacheStore: const _UnavailableCommentCacheStore(),
+    );
+
+    final result = await resolver.importEpisodeById(
+      const DanDanPlayEpisodeSearchItem(
+        episodeId: 186100011,
+        animeTitle: '他国日记',
+        episodeTitle: '第11话 解放',
+        episodeNumber: 11,
+      ),
+    );
+
+    expect(result?.comments.single.text, '测试弹幕');
+  });
+}
+
+class _UnavailableCommentCacheStore extends DanDanPlayCommentCacheStore {
+  const _UnavailableCommentCacheStore();
+
+  @override
+  Future<String?> loadComments(int episodeId) =>
+      Future<String?>.error(StateError('databaseFactory not initialized'));
+
+  @override
+  Future<void> saveComments({
+    required int episodeId,
+    required String content,
+  }) => Future<void>.error(StateError('databaseFactory not initialized'));
 }
