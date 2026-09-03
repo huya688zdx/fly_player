@@ -1841,22 +1841,20 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                 },
         );
         break;
+      case PlayerHoverOverlayKind.previousEpisode:
       case PlayerHoverOverlayKind.nextEpisode:
         width = 224;
-        final episode = _nextEpisode;
+        final isNext = kind == PlayerHoverOverlayKind.nextEpisode;
+        final episode = isNext ? _nextEpisode : _previousEpisode;
+        // 悬停入口与按钮同源：无上一集/下一集（首集/末集）时不该走到这里，兜底空内容。
         if (episode == null) {
           content = const SizedBox.shrink();
         } else {
-          content = DesktopHoverNextEpisodePanel(
-            label: _l10n.nativePlayerText0062,
-            title: _episodePreviewTitle(episode),
-            posterPath: '${episode['poster'] ?? episode['posterPath'] ?? ''}'
-                .trim(),
-            headers:
-                (episode['imageHeaders'] as Map?)?.map(
-                  (key, value) => MapEntry('$key', '$value'),
-                ) ??
-                const <String, String>{},
+          content = _hoverEpisodePreviewCard(
+            episode,
+            label: isNext
+                ? _l10n.nativePlayerText0062
+                : _l10n.desktopPlaybackPrevEpisodeLabel,
           );
         }
         break;
@@ -2217,7 +2215,24 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     return episodes[index + 1];
   }
 
-  /// 下一集预览卡标题：与选集面板卡片同构（「第N集 · 标题」，缺号时只显示标题）。
+  /// 上/下一集悬停预览卡。
+  Widget _hoverEpisodePreviewCard(
+    Map<String, dynamic> episode, {
+    required String label,
+  }) {
+    return DesktopHoverEpisodePreviewPanel(
+      label: label,
+      title: _episodePreviewTitle(episode),
+      posterPath: '${episode['poster'] ?? episode['posterPath'] ?? ''}'.trim(),
+      headers:
+          (episode['imageHeaders'] as Map?)?.map(
+            (key, value) => MapEntry('$key', '$value'),
+          ) ??
+          const <String, String>{},
+    );
+  }
+
+  /// 预览卡标题：与选集面板卡片同构（「第N集 · 标题」，缺号时只显示标题）。
   String _episodePreviewTitle(Map<String, dynamic> episode) {
     final shortLabel = '${episode['shortLabel'] ?? ''}'.trim();
     final number = '${episode['episodeNumber'] ?? ''}'.trim();
@@ -2753,6 +2768,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                         onPrevious: _previousEpisode == null
                             ? null
                             : () => unawaited(_showPreviousEpisode()),
+                        onHoverPrevious: _previousEpisode == null
+                            ? null
+                            : (anchor) => _openHoverOverlay(
+                                PlayerHoverOverlayKind.previousEpisode,
+                                anchor,
+                              ),
                         onEpisodes: widget.episodes?.isNotEmpty == true
                             ? () => unawaited(_showEpisodes())
                             : null,
