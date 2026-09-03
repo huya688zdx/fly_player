@@ -191,6 +191,9 @@ class _MediaListScreenState extends State<MediaListScreen>
   bool _pendingContinueWatchingRefresh = false;
   int _posterBrowsePrewarmGeneration = 0;
 
+  /// 桌面搜索弹层的图标本体锚点：弹层搜索框右缘钉在该图标右缘向左衍生。
+  final LayerLink _searchAnchorLink = LayerLink();
+
   int get _continueLimit =>
       widget.secondaryHost ? _secondaryContinueLimit : _fallbackContinueLimit;
 

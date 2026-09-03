@@ -34,17 +34,24 @@ import 'desktop_hover_region.dart';
 /// 后端一次返回混合结果，分类页签只做本地过滤，不重复请求。
 ///
 /// 结果区复用 [DesktopFloatingPanel]；弹层仍位于内容区导航器内，侧栏保持可见。
-Future<void> showDesktopSearch(BuildContext context) {
+///
+/// [anchor] 为应用栏搜索图标本体的 [LayerLink]（`CompositedTransformTarget`）：
+/// 提供时搜索框右缘钉在图标右缘、垂直居中对齐——展开动效读作「图标本体向左
+/// 衍生」；为空（Ctrl+K 直开）时回退到右上角固定位置。
+Future<void> showDesktopSearch(BuildContext context, {LayerLink? anchor}) {
   return Navigator.of(
     context,
-  ).push<void>(_DesktopSearchRoute(navigationContext: context));
+  ).push<void>(_DesktopSearchRoute(navigationContext: context, anchor: anchor));
 }
 
 /// 保留路由级焦点与 Esc 返回，但遮罩不参与命中，让弹窗外的滚轮继续交给首页。
 class _DesktopSearchRoute extends PopupRoute<void> {
-  _DesktopSearchRoute({required this.navigationContext});
+  _DesktopSearchRoute({required this.navigationContext, this.anchor});
 
   final BuildContext navigationContext;
+
+  /// 图标锚点；见 [showDesktopSearch]。
+  final LayerLink? anchor;
 
   @override
   bool get barrierDismissible => false;
@@ -77,17 +84,31 @@ class _DesktopSearchRoute extends PopupRoute<void> {
         return KeyEventResult.ignored;
       },
       child: SafeArea(
-        child: Align(
-          alignment: Alignment.topRight,
-          child: Padding(
-            // 右缘贴近应用栏搜索按钮：展开起点就是图标所在位置。
-            padding: const EdgeInsets.fromLTRB(48, 8, 10, 24),
-            child: TapRegion(
-              onTapOutside: (_) => Navigator.of(context).pop(),
-              child: _DesktopSearchPanel(navigationContext: navigationContext),
-            ),
-          ),
-        ),
+        child: anchor != null
+            ? CompositedTransformFollower(
+                link: anchor!,
+                targetAnchor: Alignment.centerRight,
+                followerAnchor: Alignment.centerRight,
+                showWhenUnlinked: false,
+                child: TapRegion(
+                  onTapOutside: (_) => Navigator.of(context).pop(),
+                  child: _DesktopSearchPanel(
+                    navigationContext: navigationContext,
+                  ),
+                ),
+              )
+            : Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(48, 8, 66, 24),
+                  child: TapRegion(
+                    onTapOutside: (_) => Navigator.of(context).pop(),
+                    child: _DesktopSearchPanel(
+                      navigationContext: navigationContext,
+                    ),
+                  ),
+                ),
+              ),
       ),
     );
   }
@@ -527,13 +548,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
             ),
             child: Row(
               children: <Widget>[
-                const SizedBox(width: 16),
-                Icon(
-                  Icons.search_rounded,
-                  color: focused ? colors.accent : colors.textSecondary,
-                  size: 22,
-                ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 18),
                 Expanded(
                   child: TextField(
                     controller: _controller,
@@ -561,10 +576,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
                     child: FadeTransition(opacity: animation, child: child),
                   ),
                   child: _controller.text.isEmpty
-                      ? const SizedBox(
-                          key: ValueKey<String>('empty'),
-                          width: 42,
-                        )
+                      ? const SizedBox.shrink(key: ValueKey<String>('empty'))
                       : IconButton(
                           key: const ValueKey<String>('clear'),
                           tooltip: l10n.commonDelete,
@@ -580,7 +592,15 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
                           ),
                         ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
+                // 放大镜在输入框右端：与被锚定的应用栏图标本体位置重合，
+                // 展开动效读作「图标自身向左衍生」而非另起一个搜索框。
+                Icon(
+                  Icons.search_rounded,
+                  color: focused ? colors.accent : colors.textSecondary,
+                  size: 25,
+                ),
+                const SizedBox(width: 10),
               ],
             ),
           ),
