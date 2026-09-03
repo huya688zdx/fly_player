@@ -88,7 +88,8 @@ class _DesktopSearchRoute extends PopupRoute<void> {
             ? CompositedTransformFollower(
                 link: anchor!,
                 targetAnchor: Alignment.centerRight,
-                followerAnchor: Alignment.centerRight,
+                followerAnchor: Alignment.topRight,
+                offset: const Offset(0, -24),
                 showWhenUnlinked: false,
                 child: TapRegion(
                   onTapOutside: (_) => Navigator.of(context).pop(),

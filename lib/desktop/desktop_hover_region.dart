@@ -154,8 +154,7 @@ class _DesktopHoverRegionState extends State<DesktopHoverRegion> {
     if (renderObject is RenderBox &&
         renderObject.attached &&
         renderObject.hasSize) {
-      final raw =
-          renderObject.localToGlobal(Offset.zero) & renderObject.size;
+      final raw = renderObject.localToGlobal(Offset.zero) & renderObject.size;
       final insets = widget.hoverBoundsInsets;
       final bounds = insets == EdgeInsets.zero
           ? raw
