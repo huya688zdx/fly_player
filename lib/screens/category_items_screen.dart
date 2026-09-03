@@ -20,6 +20,7 @@ import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_detail_navigator.dart';
+import '../widgets/common/track_option_sheet.dart';
 import '../ui/catalog_filter_localizer.dart';
 import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
@@ -598,7 +599,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   Future<void> _openSortSheet() async {
     final localizer = _filterLocalizer;
-    final nasProvider = context.read<NasProvider>();
     final result = await AppCatalogSortSheet.show(
       context,
       options: <AppCatalogSortOption>[
@@ -612,10 +612,99 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       sortType: _sortType,
     );
     if (!mounted || result == null) return;
+    await _applySortSelection(field: result.field, type: result.sortType);
+  }
 
+  final GlobalKey<DesktopHoverDropdownState> _sortDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+  final GlobalKey<DesktopHoverDropdownState> _layoutDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+
+  /// 桌面端排序/布局走点击式下拉（触屏保留原 sheet）。
+  Future<void> _onSortTriggerTap() async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _sortDropdownKey.currentState?.toggle();
+      return;
+    }
+    await _openSortSheet();
+  }
+
+  Future<void> _onLayoutTriggerTap() async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _layoutDropdownKey.currentState?.toggle();
+      return;
+    }
+    await _openLayoutSheet();
+  }
+
+  DesktopHoverDropdownSpec get _sortDropdownSpec {
+    final l10n = AppLocalizations.of(context);
+    return DesktopHoverDropdownSpec(
+      groups: <DesktopDropdownOptionGroup>[
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            for (final column in _sortColumns)
+              TrackOptionSheetItem(
+                id: column,
+                title: _filterLocalizer.sortLabel(column),
+              ),
+          ],
+          selectedId: _sortColumn,
+          onSelected: (field) =>
+              _applySortSelection(field: field, type: _sortType),
+        ),
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            TrackOptionSheetItem(id: 'ASC', title: l10n.listSortAsc),
+            TrackOptionSheetItem(id: 'DESC', title: l10n.listSortDesc),
+          ],
+          selectedId: _sortType,
+          onSelected: (type) =>
+              _applySortSelection(field: _sortColumn, type: type),
+        ),
+      ],
+    );
+  }
+
+  DesktopHoverDropdownSpec get _layoutDropdownSpec {
+    final l10n = AppLocalizations.of(context);
+    String label(MediaCollectionViewType type) {
+      switch (type) {
+        case MediaCollectionViewType.list:
+          return l10n.collectionLayoutList;
+        case MediaCollectionViewType.horizontalPoster:
+          return l10n.collectionLayoutHorizontalPoster;
+        case MediaCollectionViewType.verticalPoster:
+          return l10n.collectionLayoutVerticalPoster;
+      }
+    }
+
+    return DesktopHoverDropdownSpec(
+      groups: <DesktopDropdownOptionGroup>[
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            for (final type in MediaCollectionViewType.values)
+              TrackOptionSheetItem(id: type.storageValue, title: label(type)),
+          ],
+          selectedId: _viewType.storageValue,
+          onSelected: (id) =>
+              _applyLayoutSelection(MediaCollectionViewTypeX.fromStorage(id)),
+        ),
+      ],
+    );
+  }
+
+  /// 桌面点击下拉直接落地排序（字段/方向各组独立选择）。
+  Future<void> _applySortSelection({
+    required String field,
+    required String type,
+  }) async {
+    if (field == _sortColumn && type == _sortType) return;
+    final nasProvider = context.read<NasProvider>();
+    if (!mounted) return;
     setState(() {
-      _sortColumn = result.field;
-      _sortType = result.sortType;
+      _sortColumn = field;
+      _sortType = type;
     });
     if (widget.category.id.trim().isNotEmpty && _isFeiniuBackend) {
       await FeiniuApi(nasProvider).setUserListSetting(
@@ -629,7 +718,23 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     _fetch();
   }
 
+  /// 桌面点击下拉直接落地视图切换。
+  Future<void> _applyLayoutSelection(MediaCollectionViewType next) async {
+    if (!mounted || next == _viewType) return;
+    setState(() => _viewType = next);
+    if (widget.category.id.trim().isNotEmpty && _isFeiniuBackend) {
+      await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
+        widget.category.id,
+        sortField: _sortColumn,
+        sortType: _sortType,
+        viewType: next.storageValue,
+      );
+    }
+  }
+
   bool _filterPanelOpen = false;
+  final LayerLink _filterAnchor = LayerLink();
+  final OverlayPortalController _filterPortal = OverlayPortalController();
   Timer? _filterFetchDebounce;
 
   /// 静默刷新进行中：列表原地更新（不显示全屏 loading），期间禁止触底加载。
@@ -666,12 +771,24 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   Future<void> _toggleFilterPanel() async {
     if (_filterPanelOpen) {
-      setState(() => _filterPanelOpen = false);
+      _closeFilterPanel();
       return;
     }
     if (!_metaLoaded) await _loadMeta();
     if (!mounted) return;
     setState(() => _filterPanelOpen = true);
+    _filterPortal.show();
+  }
+
+  void _closeFilterPanel() {
+    if (!_filterPanelOpen) return;
+    _filterPortal.hide();
+    setState(() => _filterPanelOpen = false);
+  }
+
+  bool _usesFloatingFilterPanel(BuildContext context) {
+    return DesktopEnvironment.isDesktopPlatform &&
+        MediaQuery.sizeOf(context).width < DesktopBreakpoints.sidebarMinWidth;
   }
 
   /// 内联面板点选：立即更新选择，防抖后刷新列表。
@@ -712,18 +829,71 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     }
   }
 
-  Widget _buildInlineFilterPanel() {
+  Widget _buildInlineFilterPanel({required bool floating}) {
     return AnimatedSize(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
       alignment: Alignment.topCenter,
-      child: _filterPanelOpen
+      child: _filterPanelOpen && !floating
           ? AppCatalogFilterInlinePanel(
               sections: _buildFilterSections(),
               onOptionSelected: _handleFilterOptionSelected,
-              onCollapse: () => setState(() => _filterPanelOpen = false),
+              onCollapse: _closeFilterPanel,
             )
           : const SizedBox(width: double.infinity),
+    );
+  }
+
+  Widget _buildFloatingFilterPanel(BuildContext overlayContext) {
+    if (!_filterPanelOpen || !_usesFloatingFilterPanel(overlayContext)) {
+      return const SizedBox.shrink();
+    }
+    final size = MediaQuery.sizeOf(overlayContext);
+    final panelWidth = min(560.0, max(320.0, size.width - 24));
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _closeFilterPanel,
+            child: const SizedBox.expand(),
+          ),
+        ),
+        Positioned.fill(
+          child: CompositedTransformFollower(
+            link: _filterAnchor,
+            showWhenUnlinked: false,
+            targetAnchor: Alignment.bottomRight,
+            followerAnchor: Alignment.topRight,
+            offset: const Offset(0, 8),
+            child: UnconstrainedBox(
+              alignment: Alignment.topRight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {},
+                child: DesktopFloatingPanel(
+                  child: SizedBox(
+                    width: panelWidth,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: size.height * 0.72,
+                      ),
+                      child: SingleChildScrollView(
+                        child: AppCatalogFilterInlinePanel(
+                          sections: _buildFilterSections(),
+                          onOptionSelected: _handleFilterOptionSelected,
+                          onCollapse: _closeFilterPanel,
+                          framed: false,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -776,6 +946,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   Widget _buildBody(String baseUrl, String token, String accessCode) {
     final layout = MediaLayoutProfile.of(context);
     final desktopTier = layout.isDesktopTier;
+    final floatingFilter = _usesFloatingFilterPanel(context);
     final colors = context.appColors;
     if (_isLoading) return const Center(child: BirdLoader(size: 132));
     if (_error != null) {
@@ -798,26 +969,30 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               Expanded(
                 child: Row(
                   children: [
-                    InkWell(
-                      onTap: _openSortSheet,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Row(
-                        children: [
-                          Text(
-                            _sortLabel,
-                            style: TextStyle(
-                              color: colors.textSecondary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                    desktopTapDropdownWrapper(
+                      dropdownKey: _sortDropdownKey,
+                      spec: _sortDropdownSpec,
+                      child: InkWell(
+                        onTap: _onSortTriggerTap,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Row(
+                          children: [
+                            Text(
+                              _sortLabel,
+                              style: TextStyle(
+                                color: colors.textSecondary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            _sortArrow,
-                            size: 16,
-                            color: colors.textSecondary,
-                          ),
-                        ],
+                            const SizedBox(width: 4),
+                            Icon(
+                              _sortArrow,
+                              size: 16,
+                              color: colors.textSecondary,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -842,24 +1017,35 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              _CategoryToolButton(
-                icon: Icons.grid_view_rounded,
-                active: _viewType != MediaCollectionViewType.list,
-                onTap: _openLayoutSheet,
+              desktopTapDropdownWrapper(
+                dropdownKey: _layoutDropdownKey,
+                spec: _layoutDropdownSpec,
+                child: _CategoryToolButton(
+                  icon: Icons.grid_view_rounded,
+                  active: _viewType != MediaCollectionViewType.list,
+                  onTap: _onLayoutTriggerTap,
+                ),
               ),
               const SizedBox(width: 10),
-              Tooltip(
-                message: _filterSummaryLabel,
-                child: _CategoryToolButton(
-                  icon: Icons.filter_alt_outlined,
-                  active: _hasActiveFilters || _filterPanelOpen,
-                  onTap: _toggleFilterPanel,
+              OverlayPortal(
+                controller: _filterPortal,
+                overlayChildBuilder: _buildFloatingFilterPanel,
+                child: CompositedTransformTarget(
+                  link: _filterAnchor,
+                  child: Tooltip(
+                    message: _filterSummaryLabel,
+                    child: _CategoryToolButton(
+                      icon: Icons.filter_alt_outlined,
+                      active: _hasActiveFilters || _filterPanelOpen,
+                      onTap: _toggleFilterPanel,
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
         ),
-        _buildInlineFilterPanel(),
+        _buildInlineFilterPanel(floating: floatingFilter),
         Expanded(
           child: Stack(
             children: [

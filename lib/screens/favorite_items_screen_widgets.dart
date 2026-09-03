@@ -163,28 +163,32 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           Expanded(
             child: Row(
               children: <Widget>[
-                InkWell(
-                  onTap: _openSortSheet,
-                  borderRadius: BorderRadius.circular(8),
-                  child: Row(
-                    children: <Widget>[
-                      Text(
-                        _sortLabelFor(_sortColumn),
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                desktopTapDropdownWrapper(
+                  dropdownKey: _sortDropdownKey,
+                  spec: _sortDropdownSpec,
+                  child: InkWell(
+                    onTap: _onSortTriggerTap,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Row(
+                      children: <Widget>[
+                        Text(
+                          _sortLabelFor(_sortColumn),
+                          style: TextStyle(
+                            color: colors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        _sortType == 'ASC'
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                        size: 16,
-                        color: colors.textSecondary,
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Icon(
+                          _sortType == 'ASC'
+                              ? Icons.arrow_upward
+                              : Icons.arrow_downward,
+                          size: 16,
+                          color: colors.textSecondary,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -209,10 +213,14 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
             ),
           ),
           const SizedBox(width: 10),
-          _FavoriteToolButton(
-            icon: Icons.grid_view_rounded,
-            active: _viewType != MediaCollectionViewType.list,
-            onTap: _openLayoutSheet,
+          desktopTapDropdownWrapper(
+            dropdownKey: _layoutDropdownKey,
+            spec: _layoutDropdownSpec,
+            child: _FavoriteToolButton(
+              icon: Icons.grid_view_rounded,
+              active: _viewType != MediaCollectionViewType.list,
+              onTap: _onLayoutTriggerTap,
+            ),
           ),
           if (showFilter) ...<Widget>[
             const SizedBox(width: 10),
