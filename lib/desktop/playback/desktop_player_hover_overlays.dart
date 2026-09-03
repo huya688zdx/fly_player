@@ -142,17 +142,36 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                         curve: Curves.easeOutCubic,
                         alignment: Alignment.bottomCenter,
                         child: AnimatedSwitcher(
-                          // 弹层之间切换（如音轨→设置放大）交叉淡入；
-                          // 首次弹出 duration 为零，避免与入场动画叠加。
-                          // 不加缩放：位置由 AnimatedPositioned 平滑滑动，
-                          // 缩放+平移叠加会显得抖。
+                          // 弹层之间切换（如音轨→设置放大）时新内容自下而上
+                          // 轻移+淡入，旧内容反向退场；首次弹出 duration 为零，
+                          // 避免与入场动画叠加。不加缩放：位置由
+                          // AnimatedPositioned 平滑滑动，缩放+平移叠加会显得抖。
                           duration: morphing
                               ? const Duration(milliseconds: 220)
                               : Duration.zero,
                           switchInCurve: Curves.easeOutCubic,
                           switchOutCurve: Curves.easeInCubic,
                           transitionBuilder: (child, animation) =>
-                              FadeTransition(opacity: animation, child: child),
+                              FadeTransition(
+                                opacity: animation,
+                                child: SlideTransition(
+                                  position: Tween<Offset>(
+                                    begin: const Offset(0, 0.06),
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                                  child: child,
+                                ),
+                              ),
+                          // 新旧内容底边对齐交叉：默认垂直居中会让矮面板
+                          // （字幕/音轨）在高面板退场时先悬在高处再坠落。
+                          layoutBuilder: (currentChild, previousChildren) =>
+                              Stack(
+                                alignment: Alignment.bottomCenter,
+                                children: <Widget>[
+                                  ...previousChildren,
+                                  if (currentChild != null) currentChild,
+                                ],
+                              ),
                           child: KeyedSubtree(
                             key: ValueKey<String>(nextKey),
                             child: GestureDetector(
