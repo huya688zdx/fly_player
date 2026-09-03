@@ -75,6 +75,7 @@ class DesktopPlayerControls extends StatefulWidget {
     this.onHoverQuality,
     this.onHoverSubtitle,
     this.onHoverAudio,
+    this.onHoverNext,
     this.onHoverSettings,
     this.onHoverExit,
     this.onAddBookmark,
@@ -138,6 +139,9 @@ class DesktopPlayerControls extends StatefulWidget {
   final ValueChanged<Rect>? onHoverQuality;
   final ValueChanged<Rect>? onHoverSubtitle;
   final ValueChanged<Rect>? onHoverAudio;
+
+  /// 下一集按钮悬停：弹出下一集预览卡（锚点为按钮矩形）。
+  final ValueChanged<Rect>? onHoverNext;
   final ValueChanged<Rect>? onHoverSettings;
   final VoidCallback? onHoverExit;
   final VoidCallback? onAddBookmark;
@@ -329,6 +333,8 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                             icon: Icons.skip_next_rounded,
                             tooltip: widget.episodeLabel,
                             onPressed: widget.onNext!,
+                            onHoverEnter: widget.onHoverNext,
+                            onHoverExit: widget.onHoverExit,
                           ),
                         ],
                         const SizedBox(width: 6),
