@@ -192,6 +192,205 @@ class _AppCatalogFilterSheetState extends State<AppCatalogFilterSheet> {
   }
 }
 
+/// 工具栏下方的内联筛选面板：点击筛选按钮原地展开/收起（AnimatedSize 包裹由
+/// 使用方控制），替代弹窗。选项即点即筛选，由 [onOptionSelected] 通知使用方。
+class AppCatalogFilterInlinePanel extends StatelessWidget {
+  const AppCatalogFilterInlinePanel({
+    super.key,
+    required this.sections,
+    required this.onOptionSelected,
+    required this.onCollapse,
+  });
+
+  final List<AppCatalogFilterSection> sections;
+  final void Function(AppCatalogFilterSection section, Object? value)
+  onOptionSelected;
+  final VoidCallback onCollapse;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.borderSubtle),
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.48,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                for (var i = 0; i < sections.length; i++) ...<Widget>[
+                  if (i > 0) const SizedBox(height: 10),
+                  _InlineFilterSectionRow(
+                    section: sections[i],
+                    onOptionSelected: onOptionSelected,
+                  ),
+                ],
+                Center(
+                  child: InkWell(
+                    onTap: onCollapse,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            l10n.listFilterCollapse,
+                            style: TextStyle(
+                              color: colors.textSecondary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Icon(
+                            Icons.keyboard_arrow_up_rounded,
+                            size: 18,
+                            color: colors.textSecondary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineFilterSectionRow extends StatelessWidget {
+  const _InlineFilterSectionRow({
+    required this.section,
+    required this.onOptionSelected,
+  });
+
+  final AppCatalogFilterSection section;
+  final void Function(AppCatalogFilterSection section, Object? value)
+  onOptionSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final selected = section.selectedValues;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SizedBox(
+          width: 84,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 7),
+            child: Text(
+              section.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: context.appColors.textSecondary,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: <Widget>[
+              _InlineFilterChip(
+                label: l10n.listFilterAll,
+                selected: selected.isEmpty,
+                onTap: () => onOptionSelected(section, null),
+              ),
+              for (final option in section.options)
+                _InlineFilterChip(
+                  label: option.label,
+                  selected: selected.contains(option.value),
+                  onTap: () => onOptionSelected(section, option.value),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InlineFilterChip extends StatelessWidget {
+  const _InlineFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final radius = BorderRadius.circular(10);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: appModalTileColor(colors, selected: selected),
+            borderRadius: radius,
+            border: Border.all(
+              color: selected
+                  ? appModalTileBorderColor(colors, selected: true)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (selected) ...<Widget>[
+                Icon(
+                  Icons.check_rounded,
+                  size: 14,
+                  color: colors.selectionStrong,
+                ),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? colors.textPrimary : colors.chipText,
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class AppCatalogSortSheet extends StatelessWidget {
   final List<AppCatalogSortOption> options;
   final String selectedField;

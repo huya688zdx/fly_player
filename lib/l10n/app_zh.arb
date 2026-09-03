@@ -98,6 +98,7 @@
   "listFilterButton": "筛选",
   "listFilterAll": "全部",
   "listFilterResetButton": "重置",
+  "listFilterCollapse": "收起",
   "listFilterDecadeRecent": "今年",
   "listTypeMovie": "电影",
   "listTypeTv": "电视剧",
