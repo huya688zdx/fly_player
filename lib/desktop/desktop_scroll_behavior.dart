@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 /// Windows 桌面统一滚动行为：纵向列表使用细窄、可拖拽的自绘滚动条；
 /// 横向 shelf 不渲染滚动条，移动端沿用 Flutter 默认行为。
+/// 尊重 [ScrollBehavior.scrollbars] 开关：悬浮卡/弹窗内关闭滚动条时不再强制绘制。
 class DesktopScrollBehavior extends MaterialScrollBehavior {
   const DesktopScrollBehavior();
 
@@ -116,17 +117,12 @@ class _DesktopScrollbarState extends State<DesktopScrollbar> {
         final active = _hovered || _dragging;
         return Stack(
           children: <Widget>[
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 14),
-                child: widget.child,
-              ),
-            ),
+            Positioned.fill(child: widget.child),
             Positioned(
               top: 0,
               right: 0,
               bottom: 0,
-              width: 14,
+              width: 6,
               child: MouseRegion(
                 cursor: SystemMouseCursors.resizeUpDown,
                 onEnter: (_) => setState(() => _hovered = true),
@@ -165,8 +161,8 @@ class _DesktopScrollbarState extends State<DesktopScrollbar> {
                         duration: const Duration(milliseconds: 120),
                         curve: Curves.easeOut,
                         top: thumbTop,
-                        left: active ? 3 : 5,
-                        right: active ? 3 : 5,
+                        left: active ? 1.5 : 2,
+                        right: active ? 1.5 : 2,
                         height: thumbHeight,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),

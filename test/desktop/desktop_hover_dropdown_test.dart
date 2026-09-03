@@ -47,7 +47,7 @@ void main() {
   }
 
   DesktopHoverDropdownSpec buildSpec({ValueChanged<String>? onSelected}) {
-    return DesktopHoverDropdownSpec(
+    return DesktopHoverDropdownSpec.single(
       title: '选择字幕',
       selectedId: 'sub-1',
       onSelected: onSelected ?? (_) {},
@@ -147,6 +147,63 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
     expect(opens, [true, false]);
+
+    await gesture.removePointer();
+  });
+  testWidgets('点击模式：触发件开合、点选外部关闭、点选条目上抛', (tester) async {
+    final dropdownKey = GlobalKey<DesktopHoverDropdownState>();
+    final selected = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: DesktopHoverDropdown(
+                key: dropdownKey,
+                activation: DesktopDropdownActivation.tap,
+                spec: buildSpec(onSelected: selected.add),
+                child: GestureDetector(
+                  onTap: () => dropdownKey.currentState?.toggle(),
+                  child: const SizedBox(
+                    width: 120,
+                    height: 24,
+                    child: Text('触发件'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 点击模式下悬停不展开。
+    final gesture = await hoverPointer(tester, const Offset(60, 36));
+    await tester.pumpAndSettle();
+    expect(find.text('法语-默认'), findsNothing);
+
+    // 点击展开（buildSpec 带 title,标题正常渲染）。
+    await tester.tap(find.text('触发件'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择字幕'), findsOneWidget);
+    expect(find.text('法语-默认'), findsOneWidget);
+
+    // 点击面板外（屏障）关闭。
+    await tester.tapAt(const Offset(600, 500));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+    expect(find.text('法语-默认'), findsNothing);
+
+    // 再次点击展开并点选条目。
+    await tester.tap(find.text('触发件'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('日语'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(selected, ['sub-2']);
+    expect(find.text('法语-默认'), findsNothing);
 
     await gesture.removePointer();
   });

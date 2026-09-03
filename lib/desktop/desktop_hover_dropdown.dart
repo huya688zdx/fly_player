@@ -3,35 +3,71 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../widgets/common/track_option_sheet.dart';
+import 'desktop_environment.dart';
 import 'desktop_floating_panel.dart';
 
-/// 悬停下拉弹窗的内容描述。
-///
-/// 条目复用 [TrackOptionSheetItem]（与选轨 sheet 同一模型，`onDelete` 用于
-/// 本地导入字幕的删除按钮）；[selectedId] 标记当前选中项，点选经
-/// [onSelected] 上抛后由调用方决定如何落地（弹窗自身只负责收起）。
-class DesktopHoverDropdownSpec {
-  const DesktopHoverDropdownSpec({
-    required this.title,
+/// 下拉唤起方式：悬停（选轨小窗）/ 点击（排序、布局等下拉菜单）。
+enum DesktopDropdownActivation { hover, tap }
+
+/// 一组互斥选项：组内 [selectedId] 高亮选中项，点选经 [onSelected] 上抛。
+class DesktopDropdownOptionGroup {
+  const DesktopDropdownOptionGroup({
     required this.items,
     required this.selectedId,
     required this.onSelected,
+  });
+
+  final List<TrackOptionSheetItem> items;
+  final String? selectedId;
+  final ValueChanged<String> onSelected;
+}
+
+/// 下拉面板的内容描述：多个选项组之间用分隔线隔开（如图 2 的「排序字段 +
+/// 升降序」双组形态），条目复用 [TrackOptionSheetItem]（`onDelete` 用于本地
+/// 导入字幕的删除按钮）。
+class DesktopHoverDropdownSpec {
+  const DesktopHoverDropdownSpec({
+    this.title,
+    required this.groups,
     this.width = 280,
     this.maxHeight = 380,
   });
 
-  final String title;
-  final List<TrackOptionSheetItem> items;
-  final String? selectedId;
-  final ValueChanged<String> onSelected;
+  /// 单组便捷构造（字幕/音轨等单列表场景）。
+  factory DesktopHoverDropdownSpec.single({
+    String? title,
+    required List<TrackOptionSheetItem> items,
+    required String? selectedId,
+    required ValueChanged<String> onSelected,
+    double width = 280,
+    double maxHeight = 380,
+  }) {
+    return DesktopHoverDropdownSpec(
+      title: title,
+      groups: <DesktopDropdownOptionGroup>[
+        DesktopDropdownOptionGroup(
+          items: items,
+          selectedId: selectedId,
+          onSelected: onSelected,
+        ),
+      ],
+      width: width,
+      maxHeight: maxHeight,
+    );
+  }
+
+  /// 面板标题；null 时不渲染标题行（排序/布局下拉直接以选项开头）。
+  final String? title;
+  final List<DesktopDropdownOptionGroup> groups;
 
   /// 面板固定宽度（紧凑下拉样式，条目过长省略号截断）。
   final double width;
   final double maxHeight;
 }
 
-/// 鼠标悬停触发的下拉弹窗：悬停触发件弹出 [DesktopFloatingPanel] 小窗，
-/// 移入小窗保持、移出（含 140ms 悬停走廊）自动收起。
+/// 下拉弹窗：[DesktopDropdownActivation.hover] 鼠标悬停触发件弹出、移出自动
+/// 收起；[DesktopDropdownActivation.tap] 点击开合、点击面板外关闭（排序/布局
+/// 菜单）。
 ///
 /// 定位：默认贴触发件下方左对齐（水平钳制到窗口边界内），下方空间不足时
 /// 翻转到上方；经 [CompositedTransformFollower] 锚定，页面滚动时跟随触发件。
@@ -40,18 +76,20 @@ class DesktopHoverDropdownSpec {
 /// 逃逸约束、按面板内容收缩——否则命中测试区会随弹层铺满全屏，鼠标永远
 /// 「在小窗内」，移出收起逻辑全部失效。
 ///
-/// 点选由外部收起：触发件自身的 onTap 在打开模态 sheet 前应先调用
-/// [DesktopHoverDropdownState.hide]，避免弹窗与模态 sheet 叠加。
+/// 点选由外部收起；触发件自身的 onTap 在打开模态 sheet 前应先调用
+/// [DesktopHoverDropdownState.hide]。
 class DesktopHoverDropdown extends StatefulWidget {
   const DesktopHoverDropdown({
     super.key,
     required this.child,
     required this.spec,
+    this.activation = DesktopDropdownActivation.hover,
     this.onOpenChanged,
   });
 
   final Widget child;
   final DesktopHoverDropdownSpec? spec;
+  final DesktopDropdownActivation activation;
 
   /// 展开态回调（详情页用它复用箭头旋转动画）。
   final ValueChanged<bool>? onOpenChanged;
@@ -71,11 +109,13 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
   Timer? _unmountTimer;
   bool _visible = false;
 
-  bool get _enabled => widget.spec != null && widget.spec!.items.isNotEmpty;
+  bool get _tapMode => widget.activation == DesktopDropdownActivation.tap;
+
+  bool get _enabled => widget.spec != null && widget.spec!.groups.isNotEmpty;
 
   void _notifyOpenChanged() => widget.onOpenChanged?.call(_visible);
 
-  /// 立即展开（鼠标移入触发件）。
+  /// 立即展开（悬停移入触发件 / 点击触发件）。
   void _openNow() {
     _graceTimer?.cancel();
     _graceTimer = null;
@@ -87,7 +127,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     _notifyOpenChanged();
   }
 
-  /// 收起（鼠标移出触发件与小窗，或点选完成 / 触发件被点击）。
+  /// 收起（悬停移出 / 点选完成 / 点击面板外 / 触发件被点击打开 sheet 前）。
   void _close() {
     _graceTimer?.cancel();
     _graceTimer = null;
@@ -101,7 +141,16 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     });
   }
 
-  /// 供外部（触发件点击打开模态 sheet 前）收起弹窗。
+  /// 点击式触发件开合入口。
+  void toggle() {
+    if (_visible) {
+      _close();
+    } else {
+      _openNow();
+    }
+  }
+
+  /// 供外部收起弹窗。
   void hide() => _close();
 
   /// 悬停走廊：指针在触发件与小窗之间的间隙时延迟收起。
@@ -132,6 +181,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
   @override
   Widget build(BuildContext context) {
+    final hoverMode = !_tapMode;
     final enabled = _enabled;
     return OverlayPortal(
       controller: _portal,
@@ -139,9 +189,11 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
       child: CompositedTransformTarget(
         link: _link,
         child: MouseRegion(
-          cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
-          onEnter: enabled ? (_) => _openNow() : null,
-          onExit: enabled
+          cursor: !hoverMode && enabled
+              ? SystemMouseCursors.click
+              : MouseCursor.defer,
+          onEnter: hoverMode && enabled ? (_) => _openNow() : null,
+          onExit: hoverMode && enabled
               // 移出触发件进入小窗前的间隙时延迟收起；移入小窗会取消该计时。
               ? (_) => _scheduleGraceClose()
               : null,
@@ -155,10 +207,10 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     // 淡出卸载期间 spec 可能已被置空（如媒体切换），此时直接返回占位。
     final spec = widget.spec;
     if (spec == null) return const SizedBox.shrink();
-    final placement = _resolvePlacement(overlayContext, spec);
+    final placement = _resolvePlacement(spec);
     if (placement == null) return const SizedBox.shrink();
 
-    return IgnorePointer(
+    final panel = IgnorePointer(
       ignoring: !_visible,
       child: CompositedTransformFollower(
         link: _link,
@@ -188,8 +240,8 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
               behavior: HitTestBehavior.opaque,
               onTap: () {},
               child: MouseRegion(
-                onEnter: (_) => _handlePanelEnter(),
-                onExit: (_) => _handlePanelExit(),
+                onEnter: _tapMode ? null : (_) => _handlePanelEnter(),
+                onExit: _tapMode ? null : (_) => _handlePanelExit(),
                 child: DesktopFloatingPanel(
                   child: SizedBox(
                     width: spec.width,
@@ -199,23 +251,27 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 9),
-                            child: Text(
-                              spec.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xBFFFFFFF),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.3,
+                          if (spec.title != null) ...<Widget>[
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 9,
+                              ),
+                              child: Text(
+                                spec.title!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xBFFFFFFF),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.3,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 9),
-                          const Divider(height: 1, color: Color(0x24FFFFFF)),
-                          const SizedBox(height: 6),
+                            const SizedBox(height: 9),
+                            const Divider(height: 1, color: Color(0x24FFFFFF)),
+                            const SizedBox(height: 6),
+                          ],
                           ConstrainedBox(
                             constraints: BoxConstraints(
                               maxHeight: placement.maxHeight,
@@ -224,16 +280,34 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                               padding: EdgeInsets.zero,
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  for (final item in spec.items)
-                                    _HoverDropdownOptionRow(
-                                      item: item,
-                                      selected: item.id == spec.selectedId,
-                                      onTap: () {
-                                        _close();
-                                        spec.onSelected(item.id);
-                                      },
-                                    ),
+                                  for (
+                                    var i = 0;
+                                    i < spec.groups.length;
+                                    i++
+                                  ) ...<Widget>[
+                                    if (i > 0) ...<Widget>[
+                                      const SizedBox(height: 4),
+                                      const Divider(
+                                        height: 1,
+                                        thickness: 1,
+                                        color: Color(0x24FFFFFF),
+                                      ),
+                                      const SizedBox(height: 4),
+                                    ],
+                                    for (final item in spec.groups[i].items)
+                                      _HoverDropdownOptionRow(
+                                        item: item,
+                                        selected:
+                                            item.id ==
+                                            spec.groups[i].selectedId,
+                                        onTap: () {
+                                          _close();
+                                          spec.groups[i].onSelected(item.id);
+                                        },
+                                      ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -249,24 +323,48 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
         ),
       ),
     );
+
+    if (!_tapMode) return panel;
+
+    // 点击式：面板打开时铺一层透明点击屏障——点击面板外任意处（含再次点击
+    // 触发件）关闭；面板绘制在屏障之上，不受影响。面板同样铺满弹层（锚点
+    // 变换把内容放回触发件旁），保证命中测试几何与悬停模式一致。
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(
+          child: IgnorePointer(
+            ignoring: !_visible,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _close,
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+        Positioned.fill(child: panel),
+      ],
+    );
   }
 
   /// 计算面板相对触发件的偏移与上下方向；触发件几何不可用时返回 null。
   ///
-  /// 弹层边界取 MediaQuery 窗口尺寸（承载弹层的 overlay 铺满窗口）；
-  /// 不在 overlay 子树构建期取其 RenderObject（可能尚未完成布局）。
-  _DropdownPlacement? _resolvePlacement(
-    BuildContext overlayContext,
-    DesktopHoverDropdownSpec spec,
-  ) {
+  /// 触发件与边界必须统一使用所属 Overlay 的局部坐标；嵌套导航器的内容区
+  /// 可能带有全局偏移，混用全局坐标与局部尺寸会把右侧菜单推向窗口左边。
+  _DropdownPlacement? _resolvePlacement(DesktopHoverDropdownSpec spec) {
     final triggerBox = context.findRenderObject();
+    final overlayBox = Overlay.of(context).context.findRenderObject();
     if (triggerBox is! RenderBox ||
         !triggerBox.attached ||
-        !triggerBox.hasSize) {
+        !triggerBox.hasSize ||
+        overlayBox is! RenderBox ||
+        !overlayBox.attached ||
+        !overlayBox.hasSize) {
       return null;
     }
-    final triggerRect = triggerBox.localToGlobal(Offset.zero) & triggerBox.size;
-    final overlaySize = MediaQuery.sizeOf(overlayContext);
+    final triggerRect =
+        triggerBox.localToGlobal(Offset.zero, ancestor: overlayBox) &
+        triggerBox.size;
+    final overlaySize = overlayBox.size;
 
     final spaceBelow = overlaySize.height - triggerRect.bottom;
     final spaceAbove = triggerRect.top;
@@ -290,6 +388,22 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
       maxHeight: maxHeight,
     );
   }
+}
+
+/// 桌面平台把 [child] 包成点击唤起的下拉触发件（锚定 [child] 定位）；其他
+/// 平台或 [spec] 为空时原样返回 [child]，由调用方走原有弹层入口。
+Widget desktopTapDropdownWrapper({
+  required GlobalKey<DesktopHoverDropdownState> dropdownKey,
+  required DesktopHoverDropdownSpec? spec,
+  required Widget child,
+}) {
+  if (!DesktopEnvironment.isDesktopPlatform || spec == null) return child;
+  return DesktopHoverDropdown(
+    key: dropdownKey,
+    activation: DesktopDropdownActivation.tap,
+    spec: spec,
+    child: child,
+  );
 }
 
 class _DropdownPlacement {
@@ -385,6 +499,15 @@ class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
                       ],
                     ),
                   ),
+                  if (selected)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 6),
+                      child: Icon(
+                        Icons.check_rounded,
+                        size: 18,
+                        color: Color(0xFF83B5FF),
+                      ),
+                    ),
                   if (item.onDelete != null)
                     IconButton(
                       onPressed: item.onDelete,
