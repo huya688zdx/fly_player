@@ -58,17 +58,20 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             if (isDesktopTier)
               Padding(
                 padding: const EdgeInsets.only(right: 4),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: colors.surface.withValues(alpha: 0.78),
-                    shape: BoxShape.circle,
-                  ),
-                  child: SizedBox.square(
-                    dimension: 44,
-                    child: IconButton(
-                      tooltip: AppLocalizations.of(context).searchPlaceholder,
-                      icon: const Icon(Icons.search_rounded, size: 25),
-                      onPressed: () => unawaited(_openDesktopSearchOverlay()),
+                child: CompositedTransformTarget(
+                  link: _searchAnchorLink,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colors.surface.withValues(alpha: 0.78),
+                      shape: BoxShape.circle,
+                    ),
+                    child: SizedBox.square(
+                      dimension: 44,
+                      child: IconButton(
+                        tooltip: AppLocalizations.of(context).searchPlaceholder,
+                        icon: const Icon(Icons.search_rounded, size: 25),
+                        onPressed: () => unawaited(_openDesktopSearchOverlay()),
+                      ),
                     ),
                   ),
                 ),
@@ -95,8 +98,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
   /// 桌面档右上角搜索：弹出 PC 专属搜索弹窗；结果详情由弹窗面板在
   /// 内容区导航器内打开（分屏优先，见 showDesktopSearch）。
+  /// 弹层以图标本体为锚（[_searchAnchorLink]），搜索框从图标处向左衍生。
   Future<void> _openDesktopSearchOverlay() {
-    return showDesktopSearch(context);
+    return showDesktopSearch(context, anchor: _searchAnchorLink);
   }
 
   Widget _buildBody(
