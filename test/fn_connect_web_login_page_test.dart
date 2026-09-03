@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/screens/fn_connect_web_login_page.dart';
+import 'package:fly_player/screens/fn_web_login_bridge_script.dart';
 
 void main() {
   group('FnConnectWebLoginEntry', () {
@@ -48,5 +49,20 @@ void main() {
     test('默认保留 WebView 登录态，避免每次重新输入 FN 账号密码', () {
       expect(FnConnectWebLoginSessionPolicy.preserveCookiesByDefault, isTrue);
     });
+  });
+
+  test('Windows FN Connect 桥接会在页面加载完成后再次探测 OAuth 配置', () {
+    final script = FnWebLoginBridgeScript.build(
+      bridgeName: 'FnConnectBridge',
+      userName: 'user',
+      password: 'password',
+      probeFnConnectOauth: true,
+      useWindowsWebViewMessage: true,
+    );
+
+    expect(
+      script,
+      contains("window.addEventListener('load', fetchSysConfigOnce)"),
+    );
   });
 }
