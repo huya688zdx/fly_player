@@ -10,6 +10,7 @@ class FnWebLoginBridgeScript {
     bool requireCredentialsForAutoLogin = false,
     bool reportBlockedState = false,
     bool probeFnConnectOauth = false,
+    bool useWindowsWebViewMessage = false,
   }) {
     final bridge = jsonEncode(bridgeName);
     final user = jsonEncode(userName);
@@ -132,11 +133,15 @@ class FnWebLoginBridgeScript {
         ? '''
   installXhrHook();
   installFetchHook();
+  window.addEventListener('load', fetchSysConfigOnce);
   setTimeout(fetchSysConfigOnce, 800);
 '''
         : '';
     final oauthTick = probeFnConnectOauth ? '    fetchSysConfigOnce();\n' : '';
 
+    final postExpression = useWindowsWebViewMessage
+        ? 'window.chrome.webview.postMessage(JSON.stringify(payload));'
+        : 'window[BRIDGE].postMessage(JSON.stringify(payload));';
     return '''
 (() => {
   const BRIDGE = $bridge;
@@ -149,7 +154,7 @@ class FnWebLoginBridgeScript {
       payload.cookie = document.cookie || '';
       payload.pageUrl = String(window.location.href || '');
 $blockedProbe
-      window[BRIDGE].postMessage(JSON.stringify(payload));
+      $postExpression
     } catch (_) {}
   }
 
