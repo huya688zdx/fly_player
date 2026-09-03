@@ -656,26 +656,28 @@ class _PaneFractionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected ? colors.selectionSoft : colors.surface,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected ? colors.selection : colors.chipBorder,
-            width: selected ? 1.4 : 1,
-          ),
+    return Material(
+      color: selected ? colors.selectionSoft : colors.surface,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: selected ? colors.selection : colors.chipBorder,
+          width: selected ? 1.4 : 1,
         ),
-        child: Text(
-          '${(fraction * 100).round()}%',
-          textScaler: TextScaler.noScaling,
-          style: TextStyle(
-            color: selected ? colors.textPrimary : colors.textSecondary,
-            fontSize: 12.5,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        hoverColor: colors.selection.withValues(alpha: 0.10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          child: Text(
+            '${(fraction * 100).round()}%',
+            textScaler: TextScaler.noScaling,
+            style: TextStyle(
+              color: selected ? colors.textPrimary : colors.textSecondary,
+              fontSize: 12.5,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
           ),
         ),
       ),
