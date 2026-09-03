@@ -19,6 +19,9 @@ enum PlayerHoverOverlayKind {
   nextEpisode,
 }
 
+/// 弹层底边统一内边距：所有 kind 与底部控制条/进度条保持同一间距。
+const double panelBottomInset = 78;
+
 /// 悬停弹层快照：[kind] 为空表示当前没有弹层。
 class PlayerHoverOverlaySnapshot {
   const PlayerHoverOverlaySnapshot({
@@ -174,38 +177,38 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                 ),
               );
 
-              if (isSettings) {
-                // 设置卡：在触发弹层的锚点位置原位放大（水平对齐锚点、钳制留边），
-                // 垂直方向上下留边全高，不盖住顶部栏与底部控制条。
-                final left = (value.anchor.center.dx - content.width / 2).clamp(
+              // 设置卡：在触发弹层的锚点位置原位放大（水平对齐锚点、钳制留边），
+              // 垂直方向上下留边全高，不盖住顶部栏与底部控制条。
+              //
+              // 所有 kind 共用同一个 Positioned 子树（靠 key 匹配，跨 kind 不重建），
+              // 只有几何参数随 kind 变化：快速扫动底栏按钮时弹层走 AnimatedSwitcher
+              // 原位交叉淡入，不再整窗销毁后重播入场动画；各 kind 底边统一同一
+              // 内边距，与进度条的距离保持一致。
+              final panelTop = isSettings || isEpisodes ? 76.0 : null;
+              final double panelLeft;
+              if (isEpisodes) {
+                panelLeft = size.width - 20 - content.width;
+              } else if (isSettings) {
+                panelLeft = (value.anchor.center.dx - content.width / 2).clamp(
                   20.0,
                   size.width - content.width - 20,
                 );
-                return Stack(
-                  children: <Widget>[
-                    Positioned(
-                      top: 76,
-                      left: left,
-                      bottom: 84,
-                      width: content.width,
-                      child: panel,
-                    ),
-                  ],
+              } else {
+                panelLeft = (value.anchor.center.dx - content.width / 2).clamp(
+                  14.0,
+                  size.width - content.width - 14,
                 );
               }
-              if (isEpisodes) {
-                // 选集：同样悬浮于控制条上方，附一条衔接底栏按钮的悬停走廊。
-                return Stack(
-                  children: <Widget>[
+
+              return Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  if (isEpisodes)
+                    // 选集：衔接底栏按钮的悬停走廊，防止移向面板途中弹层提前关闭。
                     Positioned(
+                      key: const ValueKey<String>('episodes-corridor'),
                       top: 76,
-                      right: 20,
-                      bottom: 84,
-                      width: content.width,
-                      child: panel,
-                    ),
-                    Positioned(
-                      right: 20,
+                      left: panelLeft,
                       bottom: 70,
                       width: content.width,
                       height: 14,
@@ -218,34 +221,23 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                         ),
                       ),
                     ),
-                  ],
-                );
-              }
-
-              // 其余（速度/画质/字幕/音轨）：锚定在触发按钮上方。
-              final left = (value.anchor.center.dx - content.width / 2).clamp(
-                14.0,
-                size.width - content.width - 14,
-              );
-              final bottom = (size.height - value.anchor.top + 10).clamp(
-                78.0,
-                size.height - 150,
-              );
-              return Stack(
-                children: <Widget>[
                   Positioned(
-                    left: left.toDouble(),
-                    bottom: bottom.toDouble(),
+                    key: const ValueKey<String>('hover-panel'),
+                    left: panelLeft,
+                    top: panelTop,
+                    bottom: panelBottomInset,
                     width: content.width,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: (value.anchor.top - 86).clamp(
-                          160.0,
-                          size.height - 180,
-                        ),
-                      ),
-                      child: panel,
-                    ),
+                    child: isSettings || isEpisodes
+                        ? panel
+                        : ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxHeight: (value.anchor.top - 86).clamp(
+                                160.0,
+                                size.height - 180,
+                              ),
+                            ),
+                            child: panel,
+                          ),
                   ),
                 ],
               );

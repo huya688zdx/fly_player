@@ -102,7 +102,7 @@ void main() {
     final glass = tester.getRect(find.byType(DesktopFloatingPanel));
 
     expect(glass.top, 76);
-    expect(glass.bottom, window.height - 84);
+    expect(glass.bottom, window.height - panelBottomInset);
     expect(glass.left, greaterThanOrEqualTo(20), reason: '左缘至少留 20 边距');
     expect(
       glass.right,
@@ -227,7 +227,7 @@ void main() {
     expect(find.text('第10集 · 起风'), findsOneWidget);
   });
 
-  testWidgets('上一集悬停弹层走通用定位：小窗悬于触发按钮正上方', (tester) async {
+  testWidgets('上一集悬停弹层走通用定位：底边与全局弹层统一间距', (tester) async {
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -246,8 +246,10 @@ void main() {
     expect(find.byType(DesktopFloatingPanel), findsOneWidget);
     expect(find.text('previousEpisode'), findsOneWidget);
 
+    final window = tester.getSize(find.byType(SizedBox).first);
     final glass = tester.getRect(find.byType(DesktopFloatingPanel));
-    expect(glass.bottom, lessThanOrEqualTo(anchor.top));
+    // 所有 kind 底边统一 panelBottomInset，与进度条距离一致（不再随锚点浮动）。
+    expect(glass.bottom, window.height - panelBottomInset);
     expect(glass.left, lessThanOrEqualTo(anchor.left));
     expect(glass.right, greaterThanOrEqualTo(anchor.right));
   });
