@@ -125,6 +125,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   @override
   void dispose() {
+    _filterFetchDebounce?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -185,9 +186,10 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     });
   }
 
-  Future<void> _fetch() async {
+  Future<void> _fetch({bool showLoader = true}) async {
+    final seq = ++_fetchSeq;
     setState(() {
-      _isLoading = true;
+      if (showLoader) _isLoading = true;
       _isLoadingMore = false;
       _error = null;
       _loadMoreError = null;
@@ -199,7 +201,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       final backend = context.read<MediaBackendProvider>().backend;
       final page = await backend.queryCatalogItems(_buildQuery(page: 1));
 
-      if (!mounted) return;
+      if (!mounted || seq != _fetchSeq) return;
       setState(() {
         _items = page.items;
         _total = page.total;
@@ -208,7 +210,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || seq != _fetchSeq) return;
       setState(() {
         _error = AppException.from(
           e,
@@ -351,7 +353,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
-    if (_isLoading || _isLoadingMore || !_hasMore || _error != null) return;
+    if (_isLoading ||
+        _isLoadingMore ||
+        !_hasMore ||
+        _error != null ||
+        _silentRefreshInFlight) {
+      return;
+    }
     final position = _scrollController.position;
     final remain = position.maxScrollExtent - position.pixels;
     if (remain <= _loadMoreTriggerOffset) {
@@ -621,58 +629,102 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     _fetch();
   }
 
-  bool _filterSheetOpen = false;
+  bool _filterPanelOpen = false;
+  Timer? _filterFetchDebounce;
 
-  /// 重入守卫：快速连点（或 await _loadMeta 期间再次点击）会各自打开筛选弹层，
-  /// 叠出多个筛选弹窗。整个打开流程串行化，开着时忽略后续点击。
-  Future<void> _openFilterSheet() async {
-    if (_filterSheetOpen) return;
-    _filterSheetOpen = true;
+  /// 静默刷新进行中：列表原地更新（不显示全屏 loading），期间禁止触底加载。
+  bool _silentRefreshInFlight = false;
+
+  /// 递增请求序号：内联筛选即点即刷可能连续触发 _fetch，
+  /// 丢弃慢返回的旧响应，避免旧结果覆盖新结果。
+  int _fetchSeq = 0;
+
+  /// 筛选维度 → 内联面板 sections（type 锁定时隐藏该维度，空维度不展示）。
+  List<AppCatalogFilterSection> _buildFilterSections() {
+    final localizer = _filterLocalizer;
+    return <AppCatalogFilterSection>[
+      for (final dimension in _schema.dimensions)
+        if (!(dimension.key == 'type' && _typeLocked) &&
+            dimension.options.isNotEmpty)
+          AppCatalogFilterSection(
+            key: dimension.key,
+            title: localizer.dimensionTitle(dimension),
+            options: <AppCatalogFilterOption>[
+              for (final option in dimension.options)
+                AppCatalogFilterOption(
+                  value: option.value,
+                  label: localizer.optionLabel(dimension, option),
+                ),
+            ],
+            selectedValues: Set<Object>.from(
+              _selection[dimension.key] ?? const <String>{},
+            ),
+            multiSelect: dimension.multiSelect,
+          ),
+    ];
+  }
+
+  Future<void> _toggleFilterPanel() async {
+    if (_filterPanelOpen) {
+      setState(() => _filterPanelOpen = false);
+      return;
+    }
+    if (!_metaLoaded) await _loadMeta();
+    if (!mounted) return;
+    setState(() => _filterPanelOpen = true);
+  }
+
+  /// 内联面板点选：立即更新选择，防抖后刷新列表。
+  void _handleFilterOptionSelected(
+    AppCatalogFilterSection section,
+    Object? value,
+  ) {
+    final current = Set<Object>.from(
+      _selection[section.key] ?? const <String>{},
+    );
+    if (value == null) {
+      current.clear();
+    } else if (section.multiSelect) {
+      if (!current.add(value)) current.remove(value);
+    } else if (current.contains(value)) {
+      current.clear();
+    } else {
+      current
+        ..clear()
+        ..add(value);
+    }
+    setState(() {
+      _selection[section.key] = current.map((v) => '$v').toSet();
+    });
+    _filterFetchDebounce?.cancel();
+    _filterFetchDebounce = Timer(const Duration(milliseconds: 260), () {
+      if (mounted) _refreshForFilterChange();
+    });
+  }
+
+  /// 筛选变更后的静默刷新：不展示全屏 loading，工具栏和面板保持原地。
+  Future<void> _refreshForFilterChange() async {
+    _silentRefreshInFlight = true;
     try {
-      await _openFilterSheetInner();
+      await _fetch(showLoader: false);
     } finally {
-      _filterSheetOpen = false;
+      _silentRefreshInFlight = false;
     }
   }
 
-  Future<void> _openFilterSheetInner() async {
-    if (!_metaLoaded) await _loadMeta();
-    if (!mounted) return;
-    final localizer = _filterLocalizer;
-    final result = await AppCatalogFilterSheet.show(
-      context,
-      sections: <AppCatalogFilterSection>[
-        for (final dimension in _schema.dimensions)
-          if (!(dimension.key == 'type' && _typeLocked) &&
-              dimension.options.isNotEmpty)
-            AppCatalogFilterSection(
-              key: dimension.key,
-              title: localizer.dimensionTitle(dimension),
-              options: <AppCatalogFilterOption>[
-                for (final option in dimension.options)
-                  AppCatalogFilterOption(
-                    value: option.value,
-                    label: localizer.optionLabel(dimension, option),
-                  ),
-              ],
-              selectedValues: Set<Object>.from(
-                _selection[dimension.key] ?? const <String>{},
-              ),
-              multiSelect: dimension.multiSelect,
-            ),
-      ],
+  Widget _buildInlineFilterPanel() {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: _filterPanelOpen
+          ? AppCatalogFilterInlinePanel(
+              sections: _buildFilterSections(),
+              onOptionSelected: _handleFilterOptionSelected,
+              onCollapse: () => setState(() => _filterPanelOpen = false),
+            )
+          : const SizedBox(width: double.infinity),
     );
-    if (!mounted || result == null) return;
-
-    setState(() {
-      _selection
-        ..clear()
-        ..addAll(<String, Set<String>>{
-          for (final entry in result.entries)
-            entry.key: entry.value.map((value) => '$value').toSet(),
-        });
-    });
-    _fetch();
   }
 
   @override
@@ -800,13 +852,14 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                 message: _filterSummaryLabel,
                 child: _CategoryToolButton(
                   icon: Icons.filter_alt_outlined,
-                  active: _hasActiveFilters,
-                  onTap: _openFilterSheet,
+                  active: _hasActiveFilters || _filterPanelOpen,
+                  onTap: _toggleFilterPanel,
                 ),
               ),
             ],
           ),
         ),
+        _buildInlineFilterPanel(),
         Expanded(
           child: Stack(
             children: [
