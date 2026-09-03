@@ -30,6 +30,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/track_option_sheet.dart';
 import '../widgets/common/app_catalog_query_sheets.dart';
 import '../widgets/app_atmospheric_background.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
@@ -75,6 +76,11 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     'title',
     'vote_average',
   ];
+
+  final GlobalKey<DesktopHoverDropdownState> _sortDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+  final GlobalKey<DesktopHoverDropdownState> _layoutDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
 
   late final TabController _tabController;
   late final Map<_FavoriteTab, ScrollController> _tabScrollControllers;

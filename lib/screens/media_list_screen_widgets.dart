@@ -425,22 +425,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               ),
             )
             .toList(growable: false);
-        void openContinueDetail(MediaLibraryItem item) {
-          _openItemDetail(
-            continueDetailTarget(
-              item,
-              context.read<MediaBackendProvider>().backend.capabilities.kind,
-            ),
-          );
-        }
-
         return HomeContinueWatchingSection(
           title: AppLocalizations.of(context).homeContinueWatching,
           items: cards,
           stableImageCacheWidth: layout.continueDecodeWidth,
           onOpenDetail: (card) {
             final item = itemsById[card.id];
-            if (item != null) openContinueDetail(item);
+            if (item != null) unawaited(_openContinueWatchingDetail(item));
           },
           onPlay: (card) {
             final item = itemsById[card.id];
@@ -462,7 +453,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               _showContinueItemContextMenu(
                 item: item,
                 globalPosition: position,
-                openDetail: () => openContinueDetail(item),
               ),
             );
           },
@@ -927,7 +917,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
   Future<void> _showContinueItemContextMenu({
     required MediaLibraryItem item,
     required Offset globalPosition,
-    required VoidCallback openDetail,
   }) async {
     final flags = await _loadContinueItemFlags(item);
     if (!mounted) return;
@@ -945,7 +934,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         DesktopContextMenuEntry(
           label: l10n.homeActionViewDetail,
           icon: Icons.info_outline,
-          onSelected: openDetail,
+          onSelected: () => unawaited(_openContinueWatchingDetail(item)),
         ),
         DesktopContextMenuEntry(
           label: flags.watched

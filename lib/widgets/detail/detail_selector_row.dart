@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_environment.dart';
 import '../../desktop/desktop_hover_dropdown.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
@@ -53,11 +54,17 @@ class _DetailSelectorRowState extends State<DetailSelectorRow> {
   final GlobalKey<DesktopHoverDropdownState> _audioDropdownKey =
       GlobalKey<DesktopHoverDropdownState>();
 
-  VoidCallback? _tapWithPopupDismiss({
+  /// 桌面端选轨由悬停小窗完整承接：点击不再唤起模态 sheet（触屏无 hover，
+  /// 保留点按打开 sheet）；触屏/未接弹窗时点按先收起弹窗再走原回调。
+  VoidCallback? _triggerTap({
     required GlobalKey<DesktopHoverDropdownState> dropdownKey,
+    required DesktopHoverDropdownSpec? spec,
     required VoidCallback? original,
   }) {
     if (original == null) return null;
+    if (spec != null && DesktopEnvironment.isDesktopPlatform) {
+      return () {};
+    }
     return () {
       dropdownKey.currentState?.hide();
       original();
@@ -101,8 +108,9 @@ class _DetailSelectorRowState extends State<DetailSelectorRow> {
               label: widget.subtitleLabel,
               showArrow: widget.showSubtitleArrow,
               expanded: widget.subtitleExpanded,
-              onTap: _tapWithPopupDismiss(
+              onTap: _triggerTap(
                 dropdownKey: _subtitleDropdownKey,
+                spec: widget.subtitleHoverPopup,
                 original: widget.onSubtitleTap,
               ),
             ),
@@ -116,8 +124,9 @@ class _DetailSelectorRowState extends State<DetailSelectorRow> {
               label: widget.audioLabel,
               showArrow: widget.showAudioArrow,
               expanded: widget.audioExpanded,
-              onTap: _tapWithPopupDismiss(
+              onTap: _triggerTap(
                 dropdownKey: _audioDropdownKey,
+                spec: widget.audioHoverPopup,
                 original: widget.onAudioTap,
               ),
             ),

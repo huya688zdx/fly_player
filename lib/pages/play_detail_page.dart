@@ -885,7 +885,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final neutralL10n = AppLocalizations.of(context);
     const subtitleOffId = PlayDetailSheetController.subtitleOffItemId;
     final subtitleHoverPopup = subtitleTracks.isNotEmpty
-        ? DesktopHoverDropdownSpec(
+        ? DesktopHoverDropdownSpec.single(
             title: neutralL10n.playerSubtitleSelectTitle,
             items: <TrackOptionSheetItem>[
               TrackOptionSheetItem(
@@ -912,7 +912,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           )
         : null;
     final audioHoverPopup = audioTracks.length > 1
-        ? DesktopHoverDropdownSpec(
+        ? DesktopHoverDropdownSpec.single(
             title: neutralL10n.playerAudioSelectTitle,
             items: audioTracks
                 .map(
@@ -3403,7 +3403,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           // 点开模态 sheet 前由 DetailSelectorRow 先收起弹窗）。
           final selectorL10n = AppLocalizations.of(context);
           final subtitleHoverPopup = showSubtitleArrow
-              ? DesktopHoverDropdownSpec(
+              ? DesktopHoverDropdownSpec.single(
                   title: selectorL10n.playerSubtitleSelectTitle,
                   items: PlayDetailSheetController.subtitleItems(
                     subtitleTracks: subtitleTracks,
@@ -3420,7 +3420,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             audioTracks: audioTracks,
           );
           final audioHoverPopup = showAudioArrow
-              ? DesktopHoverDropdownSpec(
+              ? DesktopHoverDropdownSpec.single(
                   title: selectorL10n.playerAudioSelectTitle,
                   items: audioSheetItems,
                   selectedId: PlayDetailSheetController.audioSelectedIdOf(

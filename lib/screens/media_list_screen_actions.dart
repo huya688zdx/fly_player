@@ -54,6 +54,42 @@ extension _MediaListScreenActions on _MediaListScreenState {
     return (watched: watched, favorite: favorite);
   }
 
+  Future<void> _openContinueWatchingDetail(MediaLibraryItem item) async {
+    final backend = context.read<MediaBackendProvider>().backend;
+    ContinueSeasonDetailTarget? seasonTarget;
+    try {
+      final detail = await backend.getItemDetail(item.guid);
+      seasonTarget = continueSeasonDetailTarget(item, detail);
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'resolve continue season detail target',
+        id: item.guid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'media_list_screen',
+      );
+    }
+    if (!mounted) return;
+    if (seasonTarget == null) {
+      await _openItemDetail(
+        continueDetailTarget(item, backend.capabilities.kind),
+      );
+      return;
+    }
+    _pendingContinueWatchingRefresh = true;
+    await AdaptiveDetailNavigator.open<void>(
+      context,
+      AdaptiveDetailRequest.season(
+        parentGuid: seasonTarget.parentGuid,
+        seriesTitle: seasonTarget.seriesTitle,
+        backdropPath: seasonTarget.backdropPath,
+        seasonItem: seasonTarget.seasonItem,
+        initialEpisodeGuid: seasonTarget.initialEpisodeGuid,
+      ),
+    );
+    if (mounted) unawaited(_refreshContinueWatching());
+  }
+
   Future<void> _showContinueWatchingActionsV2(MediaLibraryItem item) async {
     await AsyncActionGuard.run<void>(
       'continue_watch_sheet:${item.guid.trim()}',
@@ -101,38 +137,7 @@ extension _MediaListScreenActions on _MediaListScreenState {
         try {
           switch (action) {
             case _ContinueWatchingAction.viewDetail:
-              ContinueSeasonDetailTarget? seasonTarget;
-              try {
-                final detail = await backend.getItemDetail(item.guid);
-                seasonTarget = continueSeasonDetailTarget(item, detail);
-              } catch (error, stackTrace) {
-                await logSwallowedError(
-                  action: 'resolve continue season detail target',
-                  id: item.guid,
-                  error: error,
-                  stackTrace: stackTrace,
-                  source: 'media_list_screen',
-                );
-              }
-              if (!mounted) return;
-              if (seasonTarget == null) {
-                await _openItemDetail(
-                  continueDetailTarget(item, backend.capabilities.kind),
-                );
-                break;
-              }
-              _pendingContinueWatchingRefresh = true;
-              await AdaptiveDetailNavigator.open<void>(
-                context,
-                AdaptiveDetailRequest.season(
-                  parentGuid: seasonTarget.parentGuid,
-                  seriesTitle: seasonTarget.seriesTitle,
-                  backdropPath: seasonTarget.backdropPath,
-                  seasonItem: seasonTarget.seasonItem,
-                  initialEpisodeGuid: seasonTarget.initialEpisodeGuid,
-                ),
-              );
-              if (mounted) unawaited(_refreshContinueWatching());
+              await _openContinueWatchingDetail(item);
               break;
             case _ContinueWatchingAction.markWatched:
               final nextWatched = !flags.watched;

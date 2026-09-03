@@ -152,8 +152,13 @@ void main() {
     expect(continueWidgetSource, isNot(contains('heroTag')));
     expect(continueWidgetSource, isNot(contains('trailingText')));
     expect(landscapeWidgetSource, isNot(contains('MediaPosterCard')));
-    expect('continueDetailTarget('.allMatches(widgetsSource), hasLength(1));
+    expect(widgetsSource, isNot(contains('continueDetailTarget(')));
     expect('continueDetailTarget('.allMatches(actionsSource), hasLength(1));
+    expect(widgetsSource, contains('_openContinueWatchingDetail(item)'));
+    expect(
+      actionsSource,
+      contains('Future<void> _openContinueWatchingDetail('),
+    );
 
     expect(screenSource, contains('Future<void> _playContinueItem('));
     expect(screenSource, contains('_pendingContinueWatchingRefresh = true'));
