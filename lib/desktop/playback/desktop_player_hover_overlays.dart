@@ -204,12 +204,12 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                 fit: StackFit.expand,
                 children: <Widget>[
                   if (isEpisodes)
-                    // 选集：衔接底栏按钮的悬停走廊，防止移向面板途中弹层提前关闭。
+                    // 选集：衔接底栏按钮的悬停走廊，紧贴面板底边下方，
+                    // 防止移向面板途中弹层提前关闭。
                     Positioned(
                       key: const ValueKey<String>('episodes-corridor'),
-                      top: 76,
                       left: panelLeft,
-                      bottom: 70,
+                      bottom: panelBottomInset - 14,
                       width: content.width,
                       height: 14,
                       child: IgnorePointer(
