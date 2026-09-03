@@ -129,10 +129,10 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                     duration: const Duration(milliseconds: 170),
                     curve: Curves.easeOutCubic,
                     child: AnimatedSlide(
+                      // 入场/退场所有 kind 统一：从控制条方向（底部）升起，
+                      // 不再按分支区分右侧滑入与底部升起两套动效。
                       offset: value.visible
                           ? Offset.zero
-                          : isSettings || isEpisodes
-                          ? const Offset(0.045, 0)
                           : const Offset(0, 0.08),
                       duration: const Duration(milliseconds: 190),
                       curve: Curves.easeOutCubic,
@@ -140,9 +140,7 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                         scale: value.visible ? 1 : 0.975,
                         duration: const Duration(milliseconds: 190),
                         curve: Curves.easeOutCubic,
-                        alignment: isSettings || isEpisodes
-                            ? Alignment.centerRight
-                            : Alignment.bottomCenter,
+                        alignment: Alignment.bottomCenter,
                         child: AnimatedSwitcher(
                           // 弹层之间切换（如音轨→设置放大）交叉淡入+轻微缩放；
                           // 首次弹出 duration 为零，避免与入场动画叠加。
