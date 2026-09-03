@@ -5,6 +5,17 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../theme/app_theme.dart';
+import 'desktop_semantics_safe_slider.dart';
+
+Widget _tooltipOrChild({
+  required String message,
+  required Widget child,
+  required bool enabled,
+}) {
+  return enabled && message.trim().isNotEmpty
+      ? Tooltip(message: message, child: child)
+      : child;
+}
 
 /// 桌面播放器控制层（对齐 design/desktop 原型 .pl-top / .pl-bottom）：
 /// 顶栏只留返回 + 标题与一个设置齿轮；弹幕开关 / 倍速 / 选集 / 清晰度
@@ -201,7 +212,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         _DarkIconButton(
-          icon: Icons.arrow_back_ios_new_rounded,
+          icon: Icons.arrow_back_rounded,
           tooltip: MaterialLocalizations.of(context).backButtonTooltip,
           onPressed: widget.onBack,
         ),
@@ -334,13 +345,19 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                           const SizedBox(width: 2),
                           SizedBox(
                             width: 86,
-                            child: SliderTheme(
-                              data: _volumeSliderTheme(colors),
-                              child: Slider(
-                                value: widget.volume.clamp(0, 100).toDouble(),
-                                max: 100,
-                                onChanged: widget.onVolume,
+                            child: DesktopSemanticsSafeSlider(
+                              value: widget.volume.clamp(0, 100).toDouble(),
+                              min: 0,
+                              max: 100,
+                              onChanged: widget.onVolume,
+                              activeColor: colors.accent,
+                              inactiveColor: Colors.white.withValues(
+                                alpha: 0.18,
                               ),
+                              semanticsLabel: '音量',
+                              semanticsValue: '${widget.volume.round()}%',
+                              trackHeight: 2.5,
+                              thumbRadius: 5,
                             ),
                           ),
                         ],
@@ -480,18 +497,6 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
     );
   }
 
-  SliderThemeData _volumeSliderTheme(AppThemeColors colors) {
-    return SliderTheme.of(context).copyWith(
-      activeTrackColor: colors.accent,
-      inactiveTrackColor: Colors.white.withValues(alpha: 0.18),
-      thumbColor: Colors.white,
-      overlayColor: colors.accent.withValues(alpha: 0.16),
-      trackHeight: 2.5,
-      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-    );
-  }
-
   String _formatDuration(Duration value) {
     final safe = value < Duration.zero ? Duration.zero : value;
     final hours = safe.inHours;
@@ -508,17 +513,18 @@ class _ChromeAtmosphere extends StatelessWidget {
   Widget build(BuildContext context) {
     return const IgnorePointer(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           SizedBox(
-            height: 140,
+            height: 108,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: <Color>[
-                    Color(0xB8000000),
-                    Color(0x5205090E),
+                    Color(0xA8000000),
+                    Color(0x42000000),
                     Color(0x00000000),
                   ],
                 ),
@@ -527,7 +533,7 @@ class _ChromeAtmosphere extends StatelessWidget {
           ),
           Spacer(),
           SizedBox(
-            height: 190,
+            height: 142,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -535,8 +541,8 @@ class _ChromeAtmosphere extends StatelessWidget {
                   end: Alignment.bottomCenter,
                   colors: <Color>[
                     Color(0x00000000),
-                    Color(0x6B05090E),
-                    Color(0xC7000000),
+                    Color(0x4D000000),
+                    Color(0xB8000000),
                   ],
                 ),
               ),
@@ -562,23 +568,24 @@ class _DarkIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return _tooltipOrChild(
       message: tooltip,
+      enabled: true,
       child: _HoverSurface(
         builder: (hovered) => SizedBox.square(
-          dimension: 40,
+          dimension: 36,
           child: Material(
             color: hovered ? const Color(0xB3060B14) : const Color(0x99020810),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(13),
+              borderRadius: BorderRadius.circular(11),
               side: BorderSide(
                 color: Colors.white.withValues(alpha: hovered ? 0.24 : 0.14),
               ),
             ),
             child: InkWell(
               onTap: onPressed,
-              borderRadius: BorderRadius.circular(13),
-              child: Icon(icon, color: Colors.white, size: 18),
+              borderRadius: BorderRadius.circular(11),
+              child: Icon(icon, color: Colors.white, size: 20),
             ),
           ),
         ),
@@ -605,8 +612,9 @@ class _GearButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return _tooltipOrChild(
       message: tooltip,
+      enabled: onHoverEnter == null,
       child: _HoverSurface(
         onEnter: onHoverEnter,
         onExit: onHoverExit,
@@ -707,8 +715,9 @@ class _CtrlIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return _tooltipOrChild(
       message: tooltip,
+      enabled: onHoverEnter == null,
       child: _HoverSurface(
         onEnter: onHoverEnter,
         onExit: onHoverExit,
@@ -900,8 +909,9 @@ class _SpeedButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return _tooltipOrChild(
       message: tooltip,
+      enabled: false,
       child: _HoverSurface(
         onEnter: onHoverEnter,
         onExit: onHoverExit,

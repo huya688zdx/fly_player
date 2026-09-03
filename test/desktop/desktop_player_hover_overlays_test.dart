@@ -2,42 +2,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/desktop.dart';
 import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
+import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
 
 void main() {
   Future<void> pumpLayer(
     WidgetTester tester,
-    ValueNotifier<PlayerHoverOverlaySnapshot> snapshot,
-  ) async {
+    ValueNotifier<PlayerHoverOverlaySnapshot> snapshot, {
+    VoidCallback? onBackgroundTap,
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: SizedBox.expand(
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                const ColoredBox(color: Colors.black),
-                PlayerHoverOverlayLayer(
-                  snapshot: snapshot,
-                  contentBuilder: (kind, size, snapshot) {
-                    final isSettings = kind == PlayerHoverOverlayKind.settings;
-                    return PlayerHoverOverlayContent(
-                      width: isSettings
-                          ? (size.width * 0.30).clamp(360.0, 410.0).toDouble()
-                          : 164,
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: double.infinity,
-                        child: Text(
-                          kind.name,
-                          style: const TextStyle(color: Colors.white),
+          body: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onBackgroundTap,
+            child: SizedBox.expand(
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  const ColoredBox(color: Colors.black),
+                  PlayerHoverOverlayLayer(
+                    snapshot: snapshot,
+                    contentBuilder: (kind, size, snapshot) {
+                      final isSettings =
+                          kind == PlayerHoverOverlayKind.settings;
+                      return PlayerHoverOverlayContent(
+                        width: isSettings
+                            ? (size.width * 0.30).clamp(360.0, 410.0).toDouble()
+                            : 164,
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: double.infinity,
+                          child: Text(
+                            kind.name,
+                            style: const TextStyle(color: Colors.white),
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                  onPanelEnter: () {},
-                  onPanelExit: () {},
-                ),
-              ],
+                      );
+                    },
+                    onPanelEnter: () {},
+                    onPanelExit: () {},
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -97,9 +104,17 @@ void main() {
     expect(glass.top, 76);
     expect(glass.bottom, window.height - 84);
     expect(glass.left, greaterThanOrEqualTo(20), reason: '左缘至少留 20 边距');
-    expect(glass.right, lessThanOrEqualTo(window.width - 20), reason: '右缘至少留 20 边距');
+    expect(
+      glass.right,
+      lessThanOrEqualTo(window.width - 20),
+      reason: '右缘至少留 20 边距',
+    );
     expect(glass.left, lessThanOrEqualTo(anchorDx), reason: '设置卡应覆盖锚点（原位放大）');
-    expect(glass.right, greaterThanOrEqualTo(anchorDx), reason: '设置卡应覆盖锚点（原位放大）');
+    expect(
+      glass.right,
+      greaterThanOrEqualTo(anchorDx),
+      reason: '设置卡应覆盖锚点（原位放大）',
+    );
   });
 
   testWidgets('可见性翻转驱动淡出，随后清空种类', (tester) async {
@@ -118,5 +133,52 @@ void main() {
     snapshot.value = const PlayerHoverOverlaySnapshot();
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsNothing);
+  });
+
+  testWidgets('点击弹层内部非选项区域不会传给播放器背景', (tester) async {
+    var backgroundTapCount = 0;
+    final snapshot = ValueNotifier<PlayerHoverOverlaySnapshot>(
+      const PlayerHoverOverlaySnapshot(
+        kind: PlayerHoverOverlayKind.speed,
+        visible: true,
+        anchor: Rect.fromLTWH(300, 500, 32, 32),
+      ),
+    );
+    await pumpLayer(
+      tester,
+      snapshot,
+      onBackgroundTap: () => backgroundTapCount++,
+    );
+
+    final panel = tester.getRect(find.byType(DesktopFloatingPanel));
+    await tester.tapAt(panel.topLeft + const Offset(8, 8));
+    await tester.pump();
+
+    expect(backgroundTapCount, 0);
+  });
+
+  testWidgets('空字幕列表不显示无意义的关闭项', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 260,
+            height: 220,
+            child: DesktopHoverOptionsPanel(
+              title: '字幕',
+              options: const <DesktopPlayerPanelOption>[],
+              emptyLabel: '暂无可用字幕',
+              offLabel: '关闭',
+              onOff: () {},
+              onSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('暂无可用字幕'), findsOneWidget);
+    expect(find.text('关闭'), findsNothing);
   });
 }

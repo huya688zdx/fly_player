@@ -9,6 +9,7 @@ import '../../playback/bookmarks/bookmark_store.dart';
 import '../../playback/playback_source.dart';
 import '../../playback/settings/mpv_settings_l10n.dart';
 import '../../playback/settings/mpv_settings_store.dart';
+import 'desktop_semantics_safe_slider.dart';
 
 class DesktopPlayerPanelOption {
   const DesktopPlayerPanelOption({
@@ -2171,7 +2172,7 @@ class _SettingsSliderTile extends StatelessWidget {
             ),
           ],
         ),
-        Slider(
+        DesktopSemanticsSafeSlider(
           value: value.clamp(min, max),
           min: min,
           max: max,
@@ -2180,6 +2181,8 @@ class _SettingsSliderTile extends StatelessWidget {
           onChangeEnd: onChangeEnd,
           activeColor: const Color(0xFF6EA8FF),
           inactiveColor: const Color(0x28FFFFFF),
+          semanticsLabel: title,
+          semanticsValue: valueLabel,
         ),
       ],
     ),
@@ -2428,6 +2431,7 @@ class _OptionCard extends StatelessWidget {
     ),
     child: InkWell(
       borderRadius: BorderRadius.circular(10),
+      hoverColor: const Color(0x1AFFFFFF),
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -2653,6 +2657,7 @@ class _EpisodeCard extends StatelessWidget {
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
+          hoverColor: const Color(0x1AFFFFFF),
           onTap: onTap,
           child: Padding(padding: const EdgeInsets.all(10), child: content),
         ),
