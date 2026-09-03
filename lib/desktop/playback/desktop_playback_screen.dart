@@ -1841,6 +1841,25 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                 },
         );
         break;
+      case PlayerHoverOverlayKind.nextEpisode:
+        width = 224;
+        final episode = _nextEpisode;
+        if (episode == null) {
+          content = const SizedBox.shrink();
+        } else {
+          content = DesktopHoverNextEpisodePanel(
+            label: _l10n.nativePlayerText0062,
+            title: _episodePreviewTitle(episode),
+            posterPath: '${episode['poster'] ?? episode['posterPath'] ?? ''}'
+                .trim(),
+            headers:
+                (episode['imageHeaders'] as Map?)?.map(
+                  (key, value) => MapEntry('$key', '$value'),
+                ) ??
+                const <String, String>{},
+          );
+        }
+        break;
       case PlayerHoverOverlayKind.settings:
         width = (size.width * 0.42).clamp(420.0, 560.0).toDouble();
         content = DesktopPlaybackSettingsPanel(
@@ -2196,6 +2215,19 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     }
     if (index < 0 || index + 1 >= episodes.length) return null;
     return episodes[index + 1];
+  }
+
+  /// 下一集预览卡标题：与选集面板卡片同构（「第N集 · 标题」，缺号时只显示标题）。
+  String _episodePreviewTitle(Map<String, dynamic> episode) {
+    final shortLabel = '${episode['shortLabel'] ?? ''}'.trim();
+    final number = '${episode['episodeNumber'] ?? ''}'.trim();
+    final numberLabel = shortLabel.isNotEmpty ? shortLabel : number;
+    final rawTitle = '${episode['title'] ?? ''}'.trim();
+    final title = rawTitle.isNotEmpty
+        ? rawTitle
+        : (numberLabel.isNotEmpty ? '第$numberLabel集' : '');
+    if (title.isEmpty) return '—';
+    return numberLabel.isNotEmpty ? '第$numberLabel集 · $title' : title;
   }
 
   /// 上一集（与 [_nextEpisode] 同一定位规则，向前找一集）。
@@ -2712,6 +2744,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                         onNext: _nextEpisode == null
                             ? null
                             : () => unawaited(_showNextEpisode()),
+                        onHoverNext: _nextEpisode == null
+                            ? null
+                            : (anchor) => _openHoverOverlay(
+                                PlayerHoverOverlayKind.nextEpisode,
+                                anchor,
+                              ),
                         onPrevious: _previousEpisode == null
                             ? null
                             : () => unawaited(_showPreviousEpisode()),

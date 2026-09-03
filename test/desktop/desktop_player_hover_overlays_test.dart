@@ -181,4 +181,52 @@ void main() {
     expect(find.text('暂无可用字幕'), findsOneWidget);
     expect(find.text('关闭'), findsNothing);
   });
+
+  testWidgets('下一集预览卡：无海报时显示占位图，标签与集标题齐全', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Material(
+          child: SizedBox(
+            width: 224,
+            height: 240,
+            child: DesktopHoverNextEpisodePanel(
+              label: '下一集',
+              title: '第12集 · 寻得',
+              posterPath: '',
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('下一集'), findsOneWidget);
+    expect(find.text('第12集 · 寻得'), findsOneWidget);
+    expect(find.byIcon(Icons.movie_outlined), findsOneWidget);
+  });
+
+  testWidgets('下一集悬停弹层走通用定位：小窗悬于触发按钮正上方', (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    const anchor = Rect.fromLTWH(320.0, 800.0, 38.0, 38.0);
+    final snapshot = ValueNotifier<PlayerHoverOverlaySnapshot>(
+      const PlayerHoverOverlaySnapshot(
+        kind: PlayerHoverOverlayKind.nextEpisode,
+        visible: true,
+        anchor: anchor,
+      ),
+    );
+    await pumpLayer(tester, snapshot);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    expect(find.text('nextEpisode'), findsOneWidget);
+
+    final glass = tester.getRect(find.byType(DesktopFloatingPanel));
+    expect(glass.bottom, lessThanOrEqualTo(anchor.top));
+    expect(glass.left, lessThanOrEqualTo(anchor.left));
+    expect(glass.right, greaterThanOrEqualTo(anchor.right));
+  });
 }
