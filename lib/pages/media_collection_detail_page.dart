@@ -36,6 +36,9 @@ import '../widgets/common/app_catalog_query_sheets.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/liquid_glass.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
+import '../desktop/desktop_environment.dart';
+import '../desktop/desktop_hover_dropdown.dart';
+import '../widgets/common/track_option_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/play_control_row.dart';
@@ -821,9 +824,87 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       context,
       currentViewType: _viewType,
     );
-    if (!mounted || next == null || next == _viewType) {
+    if (!mounted || next == null) return;
+    await _applyLayoutSelection(next);
+  }
+
+  final GlobalKey<DesktopHoverDropdownState> _sortDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+  final GlobalKey<DesktopHoverDropdownState> _layoutDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+
+  /// 桌面端排序/布局走点击式下拉（触屏保留原 sheet）。
+  Future<void> _onSortTriggerTap() async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _sortDropdownKey.currentState?.toggle();
       return;
     }
+    await _openSortSheet();
+  }
+
+  Future<void> _onLayoutTriggerTap() async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _layoutDropdownKey.currentState?.toggle();
+      return;
+    }
+    await _openLayoutSheet();
+  }
+
+  DesktopHoverDropdownSpec get _sortDropdownSpec {
+    final l10n = AppLocalizations.of(context);
+    return DesktopHoverDropdownSpec(
+      groups: <DesktopDropdownOptionGroup>[
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            for (final column in _sortColumns)
+              TrackOptionSheetItem(id: column, title: _sortLabelFor(column)),
+          ],
+          selectedId: _sortColumn,
+          onSelected: (field) => _changeSort(field, _sortType),
+        ),
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            TrackOptionSheetItem(id: 'ASC', title: l10n.listSortAsc),
+            TrackOptionSheetItem(id: 'DESC', title: l10n.listSortDesc),
+          ],
+          selectedId: _sortType,
+          onSelected: (type) => _changeSort(_sortColumn, type),
+        ),
+      ],
+    );
+  }
+
+  DesktopHoverDropdownSpec get _layoutDropdownSpec {
+    final l10n = AppLocalizations.of(context);
+    String label(MediaCollectionViewType type) {
+      switch (type) {
+        case MediaCollectionViewType.list:
+          return l10n.collectionLayoutList;
+        case MediaCollectionViewType.horizontalPoster:
+          return l10n.collectionLayoutHorizontalPoster;
+        case MediaCollectionViewType.verticalPoster:
+          return l10n.collectionLayoutVerticalPoster;
+      }
+    }
+
+    return DesktopHoverDropdownSpec(
+      groups: <DesktopDropdownOptionGroup>[
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            for (final type in MediaCollectionViewType.values)
+              TrackOptionSheetItem(id: type.storageValue, title: label(type)),
+          ],
+          selectedId: _viewType.storageValue,
+          onSelected: (id) =>
+              _applyLayoutSelection(MediaCollectionViewTypeX.fromStorage(id)),
+        ),
+      ],
+    );
+  }
+
+  /// 桌面点击下拉直接落地视图切换。
+  Future<void> _applyLayoutSelection(MediaCollectionViewType next) async {
+    if (!mounted || next == _viewType) return;
     setState(() {
       _viewType = next;
     });
@@ -1150,28 +1231,32 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                             Expanded(
                               child: Row(
                                 children: [
-                                  InkWell(
-                                    onTap: _openSortSheet,
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Row(
-                                      children: [
-                                        Text(
-                                          _sortLabelFor(_sortColumn),
-                                          style: TextStyle(
-                                            color: colors.textPrimary,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
+                                  desktopTapDropdownWrapper(
+                                    dropdownKey: _sortDropdownKey,
+                                    spec: _sortDropdownSpec,
+                                    child: InkWell(
+                                      onTap: _onSortTriggerTap,
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Row(
+                                        children: [
+                                          Text(
+                                            _sortLabelFor(_sortColumn),
+                                            style: TextStyle(
+                                              color: colors.textPrimary,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Icon(
-                                          _sortType == 'ASC'
-                                              ? Icons.arrow_upward
-                                              : Icons.arrow_downward,
-                                          size: 16,
-                                          color: colors.textSecondary,
-                                        ),
-                                      ],
+                                          const SizedBox(width: 4),
+                                          Icon(
+                                            _sortType == 'ASC'
+                                                ? Icons.arrow_upward
+                                                : Icons.arrow_downward,
+                                            size: 16,
+                                            color: colors.textSecondary,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -1196,10 +1281,15 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            _CollectionToolButton(
-                              icon: Icons.grid_view_rounded,
-                              active: _viewType != MediaCollectionViewType.list,
-                              onTap: _openLayoutSheet,
+                            desktopTapDropdownWrapper(
+                              dropdownKey: _layoutDropdownKey,
+                              spec: _layoutDropdownSpec,
+                              child: _CollectionToolButton(
+                                icon: Icons.grid_view_rounded,
+                                active:
+                                    _viewType != MediaCollectionViewType.list,
+                                onTap: _onLayoutTriggerTap,
+                              ),
                             ),
                             const SizedBox(width: 10),
                             _CollectionToolButton(

@@ -200,73 +200,122 @@ class AppCatalogFilterInlinePanel extends StatelessWidget {
     required this.sections,
     required this.onOptionSelected,
     required this.onCollapse,
+    this.framed = true,
   });
 
   final List<AppCatalogFilterSection> sections;
   final void Function(AppCatalogFilterSection section, Object? value)
   onOptionSelected;
   final VoidCallback onCollapse;
+  final bool framed;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final colors = context.appColors;
+    final content = Padding(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          for (var i = 0; i < sections.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(height: 3),
+            _InlineFilterSectionRow(
+              section: sections[i],
+              onOptionSelected: onOptionSelected,
+            ),
+          ],
+          Center(
+            child: InkWell(
+              onTap: onCollapse,
+              borderRadius: BorderRadius.circular(8),
+              hoverColor: colors.surfaceSubtle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      l10n.listFilterCollapse,
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Icon(
+                      Icons.keyboard_arrow_up_rounded,
+                      size: 17,
+                      color: colors.textSecondary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!framed) return content;
+    // 分层背景：顶光渐变 + accentSoft 顶部氛围 + 1px 内高光，只换观感不动几何。
+    final topLight = Color.lerp(colors.surface, colors.textPrimary, 0.05)!;
+    final glow = colors.accentSoft;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-      child: DecoratedBox(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Container(
         decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: const <BoxShadow>[
+            BoxShadow(
+              color: Color(0x80020812),
+              offset: Offset(0, 14),
+              blurRadius: 34,
+            ),
+          ],
+        ),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: colors.borderSubtle),
         ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * 0.48,
-          ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                for (var i = 0; i < sections.length; i++) ...<Widget>[
-                  if (i > 0) const SizedBox(height: 10),
-                  _InlineFilterSectionRow(
-                    section: sections[i],
-                    onOptionSelected: onOptionSelected,
-                  ),
-                ],
-                Center(
-                  child: InkWell(
-                    onTap: onCollapse,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            l10n.listFilterCollapse,
-                            style: TextStyle(
-                              color: colors.textSecondary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Icon(
-                            Icons.keyboard_arrow_up_rounded,
-                            size: 18,
-                            color: colors.textSecondary,
-                          ),
-                        ],
-                      ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            children: <Widget>[
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: const <double>[0, 0.72],
+                      colors: <Color>[topLight, colors.surface],
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: const Alignment(0, -1),
+                      radius: 1.1,
+                      stops: const <double>[0, 0.55],
+                      colors: <Color>[glow, glow.withValues(alpha: 0)],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 1,
+                child: ColoredBox(
+                  color: colors.textPrimary.withValues(alpha: 0.05),
+                ),
+              ),
+              content,
+            ],
           ),
         ),
       ),
@@ -292,29 +341,30 @@ class _InlineFilterSectionRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         SizedBox(
-          width: 84,
+          width: 104,
           child: Padding(
-            padding: const EdgeInsets.only(top: 7),
+            padding: const EdgeInsets.only(top: 5),
             child: Text(
               section.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: context.appColors.textSecondary,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
         ),
         Expanded(
           child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
+            spacing: 3,
+            runSpacing: 2,
             children: <Widget>[
               _InlineFilterChip(
                 label: l10n.listFilterAll,
                 selected: selected.isEmpty,
+                selectedAsDefault: true,
                 onTap: () => onOptionSelected(section, null),
               ),
               for (final option in section.options)
@@ -331,59 +381,59 @@ class _InlineFilterSectionRow extends StatelessWidget {
   }
 }
 
-class _InlineFilterChip extends StatelessWidget {
+class _InlineFilterChip extends StatefulWidget {
   const _InlineFilterChip({
     required this.label,
     required this.selected,
+    this.selectedAsDefault = false,
     required this.onTap,
   });
 
   final String label;
   final bool selected;
+
+  /// 「全部」的默认选中：只加粗提亮，不占用 accent，让真实筛选更醒目。
+  final bool selectedAsDefault;
   final VoidCallback onTap;
+
+  @override
+  State<_InlineFilterChip> createState() => _InlineFilterChipState();
+}
+
+class _InlineFilterChipState extends State<_InlineFilterChip> {
+  bool _hovering = false;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final radius = BorderRadius.circular(10);
+    final radius = BorderRadius.circular(7);
+    final Color textColor;
+    final FontWeight fontWeight;
+    if (widget.selected) {
+      textColor = widget.selectedAsDefault
+          ? colors.textPrimary
+          : colors.accentStrong;
+      fontWeight = FontWeight.w700;
+    } else {
+      textColor = _hovering ? colors.textPrimary : colors.textSecondary;
+      fontWeight = FontWeight.w500;
+    }
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: widget.onTap,
         borderRadius: radius,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: appModalTileColor(colors, selected: selected),
-            borderRadius: radius,
-            border: Border.all(
-              color: selected
-                  ? appModalTileBorderColor(colors, selected: true)
-                  : Colors.transparent,
+        hoverColor: colors.surfaceSubtle,
+        onHover: (value) => setState(() => _hovering = value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 13,
+              fontWeight: fontWeight,
             ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              if (selected) ...<Widget>[
-                Icon(
-                  Icons.check_rounded,
-                  size: 14,
-                  color: colors.selectionStrong,
-                ),
-                const SizedBox(width: 4),
-              ],
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? colors.textPrimary : colors.chipText,
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                ),
-              ),
-            ],
           ),
         ),
       ),
