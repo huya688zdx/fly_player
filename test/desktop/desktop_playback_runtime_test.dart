@@ -46,6 +46,40 @@ void main() {
     expect(source, isNot(contains('onSecondaryTapDown: (details)')));
   });
 
+  test('全屏控制层单独监听播放状态变化', () {
+    final source = File(
+      'lib/desktop/playback/desktop_playback_screen.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('ValueNotifier<bool> _playingNotifier'));
+    expect(source, contains('Listenable.merge(<Listenable>['));
+    expect(source, contains('_playingNotifier,'));
+  });
+
+  test('窗口与全屏控制层各自持有快捷键焦点', () {
+    final source = File(
+      'lib/desktop/playback/desktop_playback_screen.dart',
+    ).readAsStringSync();
+    final screenStateSource = source.substring(
+      source.indexOf('class _DesktopPlaybackScreenState'),
+      source.indexOf('class _DesktopPlaybackKeyboardFocus'),
+    );
+
+    expect(source, contains('descendantsAreFocusable: false'));
+    expect(screenStateSource, isNot(contains('FocusNode _focusNode')));
+    expect(source, contains('class _DesktopPlaybackKeyboardFocus'));
+  });
+
+  test('Windows 播放路由不使用会触发无障碍崩溃的 Material Slider', () {
+    for (final path in <String>[
+      'lib/desktop/playback/desktop_player_controls.dart',
+      'lib/desktop/playback/desktop_player_panels.dart',
+    ]) {
+      final source = File(path).readAsStringSync();
+      expect(source, isNot(matches(RegExp(r'\bSlider\('))), reason: path);
+    }
+  });
+
   test('播放设置对齐安卓层级并接入章节与片头片尾跳过', () {
     final source = File(
       'lib/desktop/playback/desktop_playback_screen.dart',

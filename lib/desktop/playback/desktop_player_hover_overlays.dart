@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../desktop_floating_panel.dart';
+import '../../l10n/generated/app_localizations.dart';
+import '../../playback/playback_source.dart';
+import 'desktop_mpv_runtime.dart';
 import 'desktop_player_panels.dart';
 
 /// 播放器悬停弹层种类。
@@ -156,7 +159,11 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                               ),
                           child: KeyedSubtree(
                             key: ValueKey<String>(nextKey),
-                            child: DesktopFloatingPanel(child: content.child),
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {},
+                              child: DesktopFloatingPanel(child: content.child),
+                            ),
                           ),
                         ),
                       ),
@@ -317,7 +324,7 @@ class DesktopHoverOptionsPanel extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  if (onOff != null && offLabel != null)
+                  if (options.isNotEmpty && onOff != null && offLabel != null)
                     _DesktopHoverOptionRow(
                       title: offLabel!,
                       leading: Icons.block_rounded,
@@ -353,6 +360,370 @@ class DesktopHoverOptionsPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 画质悬停面板：主层按分辨率合并，自定义层再展开同档码率。
+class DesktopHoverQualityPanel extends StatefulWidget {
+  const DesktopHoverQualityPanel({
+    super.key,
+    required this.source,
+    required this.onSelected,
+  });
+
+  final MpvMediaSource source;
+  final ValueChanged<int> onSelected;
+
+  @override
+  State<DesktopHoverQualityPanel> createState() =>
+      _DesktopHoverQualityPanelState();
+}
+
+class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
+  bool _custom = false;
+  String? _expandedTier;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final menu = DesktopMpvRuntime.qualityMenu(widget.source);
+    final customLabel = l10n.nativePlayerText0054.replaceFirst('⚙', '').trim();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: InkWell(
+                    onTap: _custom
+                        ? () => setState(() => _custom = false)
+                        : null,
+                    borderRadius: BorderRadius.circular(8),
+                    hoverColor: const Color(0x38FFFFFF),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        if (_custom)
+                          const Icon(
+                            Icons.chevron_left_rounded,
+                            color: Colors.white70,
+                            size: 18,
+                          ),
+                        Text(
+                          _custom
+                              ? '$customLabel${l10n.nativePlayerText0021}'
+                              : l10n.nativePlayerText0021,
+                          style: const TextStyle(
+                            color: Color(0xD9FFFFFF),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_custom)
+                  Text(
+                    _currentSummary(menu, l10n),
+                    style: const TextStyle(
+                      color: Color(0xFF72A7FF),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                else
+                  TextButton(
+                    onPressed: () => setState(() => _custom = true),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      minimumSize: const Size(0, 28),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(customLabel),
+                        const Icon(Icons.chevron_right_rounded, size: 18),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Divider(height: 1, color: Color(0x24FFFFFF)),
+          const SizedBox(height: 7),
+          Flexible(
+            fit: FlexFit.loose,
+            child: SingleChildScrollView(
+              child: _custom
+                  ? _buildCustom(menu, l10n)
+                  : _buildMain(menu, l10n),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMain(DesktopQualityMenu menu, AppLocalizations l10n) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        for (final choice in menu.mainChoices)
+          _DesktopQualityRow(
+            title: choice.isOriginal
+                ? l10n.playerQualityOriginal
+                : choice.displayTier,
+            detail: DesktopMpvRuntime.isCurrentQuality(widget.source, choice)
+                ? _mainChoiceDetail(choice)
+                : '',
+            selected: DesktopMpvRuntime.isCurrentQuality(widget.source, choice),
+            onTap: () {
+              if (!DesktopMpvRuntime.isCurrentQuality(widget.source, choice)) {
+                widget.onSelected(choice.sourceIndex);
+              }
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCustom(DesktopQualityMenu menu, AppLocalizations l10n) {
+    _expandedTier ??=
+        _currentTier(menu) ??
+        (menu.customGroups.isEmpty ? null : menu.customGroups.keys.first);
+    final choices =
+        menu.customGroups[_expandedTier] ?? const <DesktopQualityChoice>[];
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              for (final group in menu.customGroups.entries) ...<Widget>[
+                _DesktopQualityTierButton(
+                  title: group.key,
+                  selected: group.key == _expandedTier,
+                  onTap: () => setState(() => _expandedTier = group.key),
+                ),
+                if (group.key != menu.customGroups.keys.last)
+                  const SizedBox(height: 6),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              for (final choice in choices)
+                _DesktopQualityBitrateButton(
+                  label: _choiceSummary(choice, l10n),
+                  selected: DesktopMpvRuntime.isCurrentQuality(
+                    widget.source,
+                    choice,
+                  ),
+                  onTap: () {
+                    if (!DesktopMpvRuntime.isCurrentQuality(
+                      widget.source,
+                      choice,
+                    )) {
+                      widget.onSelected(choice.sourceIndex);
+                    }
+                  },
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _currentSummary(DesktopQualityMenu menu, AppLocalizations l10n) {
+    for (final choices in menu.customGroups.values) {
+      for (final choice in choices) {
+        if (DesktopMpvRuntime.isCurrentQuality(widget.source, choice)) {
+          return '${choice.displayTier} ${_choiceSummary(choice, l10n)}';
+        }
+      }
+    }
+    return '';
+  }
+
+  String? _currentTier(DesktopQualityMenu menu) {
+    for (final group in menu.customGroups.entries) {
+      if (group.value.any(
+        (choice) => DesktopMpvRuntime.isCurrentQuality(widget.source, choice),
+      )) {
+        return group.key;
+      }
+    }
+    return null;
+  }
+
+  String _choiceSummary(DesktopQualityChoice choice, AppLocalizations l10n) {
+    return <String>[
+      DesktopMpvRuntime.qualityBitrateLabel(choice.quality.bitrate),
+      if (choice.isOriginal) l10n.playerQualityOriginal,
+    ].where((part) => part.isNotEmpty).join(' · ');
+  }
+
+  String _mainChoiceDetail(DesktopQualityChoice choice) {
+    return <String>[
+      if (choice.isOriginal) choice.displayTier,
+      DesktopMpvRuntime.qualityBitrateLabel(choice.quality.bitrate),
+    ].where((part) => part.isNotEmpty).join(' ');
+  }
+}
+
+class _DesktopQualityRow extends StatelessWidget {
+  const _DesktopQualityRow({
+    required this.title,
+    required this.detail,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String detail;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? const Color(0xFF72A7FF) : Colors.white;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      hoverColor: const Color(0x38FFFFFF),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
+            if (detail.isNotEmpty)
+              Text(
+                detail,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopQualityTierButton extends StatelessWidget {
+  const _DesktopQualityTierButton({
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(10),
+    hoverColor: const Color(0x38FFFFFF),
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 42),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0x22FFFFFF) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: selected ? const Color(0xFF72A7FF) : Colors.white70,
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.white,
+            size: 18,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _DesktopQualityBitrateButton extends StatelessWidget {
+  const _DesktopQualityBitrateButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      hoverColor: const Color(0x38FFFFFF),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 42),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0x22FFFFFF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected ? const Color(0xFF72A7FF) : Colors.white70,
+                  fontSize: 12,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
+            if (selected)
+              const Icon(Icons.check_rounded, color: Colors.white, size: 18),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _DesktopHoverOptionRow extends StatefulWidget {
