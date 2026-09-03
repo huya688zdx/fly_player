@@ -30,6 +30,7 @@ import 'download_list_screen.dart';
 import 'emby_fn_entry_login_page.dart';
 import 'fn_connect_web_login_page.dart';
 import 'login_history_screen.dart';
+import '../widgets/common/desktop_login_dialog.dart';
 import '../utils/app_confirm_dialog.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
 
@@ -600,11 +601,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     setState(() {
       _historyEntries = latest;
     });
-    final selected = await Navigator.of(context).push<LoginHistoryEntry>(
-      AppTransitions.leftToRightPageTurnRoute<LoginHistoryEntry>(
-        LoginHistoryScreen(entries: _historyEntries),
-        fullscreenDialog: true,
-      ),
+    final selected = await showDesktopLoginDialog<LoginHistoryEntry>(
+      context,
+      child: LoginHistoryScreen(entries: _historyEntries),
+      maxWidth: 760,
+      maxHeight: 600,
     );
     // 历史页内可能删除/清空，回来时同步最新列表。
     final refreshed = await LoginHistoryStore.load();
@@ -731,17 +732,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (!mounted) {
       return null;
     }
-    return Navigator.of(context).push<FnConnectWebLoginPageResult>(
-      AppTransitions.leftToRightPageTurnRoute<FnConnectWebLoginPageResult>(
-        FnConnectWebLoginPage(
-          fnConnectId: fnConnectId,
-          userName: userName,
-          password: password,
-          accessCode: accessCode,
-          relayHosts:
-              error.diagnostic.discovery?.relayHosts ?? const <String>[],
-        ),
-        fullscreenDialog: true,
+    return showDesktopLoginDialog<FnConnectWebLoginPageResult>(
+      context,
+      child: FnConnectWebLoginPage(
+        fnConnectId: fnConnectId,
+        userName: userName,
+        password: password,
+        accessCode: accessCode,
+        relayHosts: error.diagnostic.discovery?.relayHosts ?? const <String>[],
       ),
     );
   }
