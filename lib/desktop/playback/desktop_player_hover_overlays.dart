@@ -15,6 +15,7 @@ enum PlayerHoverOverlayKind {
   subtitle,
   audio,
   settings,
+  nextEpisode,
 }
 
 /// 悬停弹层快照：[kind] 为空表示当前没有弹层。
@@ -872,4 +873,70 @@ class _PanelHeaderTextButton extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// 下一集悬停预览卡：海报缩略图 + 「下一集」标签 + 集标题。
+/// 内容只负责展示；外观与定位仍由通用悬浮小窗外壳（DesktopFloatingPanel +
+/// PlayerHoverOverlayLayer 通用分支）承担。
+class DesktopHoverNextEpisodePanel extends StatelessWidget {
+  const DesktopHoverNextEpisodePanel({
+    super.key,
+    required this.label,
+    required this.title,
+    required this.posterPath,
+    this.headers = const <String, String>{},
+  });
+
+  final String label;
+  final String title;
+  final String posterPath;
+  final Map<String, String> headers;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: double.infinity,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: DesktopEpisodePoster(
+                posterPath,
+                true,
+                headers: headers,
+                current: false,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0x99FFFFFF),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

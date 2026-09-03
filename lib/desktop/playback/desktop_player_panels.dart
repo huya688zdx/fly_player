@@ -2564,7 +2564,7 @@ class _EpisodeCard extends StatelessWidget {
     final progress = duration > 0
         ? (watchedSeconds / duration).clamp(0, 1).toDouble()
         : 0.0;
-    final image = _EpisodePoster(
+    final image = DesktopEpisodePoster(
       poster,
       grid,
       headers: headers,
@@ -2674,10 +2674,11 @@ class _EpisodeCard extends StatelessWidget {
       '${s ~/ 3600 > 0 ? '${s ~/ 3600}:' : ''}${(s ~/ 60 % 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
 }
 
-class _EpisodePoster extends StatelessWidget {
-  const _EpisodePoster(
+class DesktopEpisodePoster extends StatelessWidget {
+  const DesktopEpisodePoster(
     this.path,
     this.grid, {
+    super.key,
     required this.headers,
     required this.current,
   });
