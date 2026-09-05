@@ -1,4 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import '../desktop/desktop_environment.dart';
+import 'storage_access_host.dart';
 
 /// 表示通过系统授权访问的目录节点。
 class ScopedBrowserDirectory {
@@ -188,18 +192,57 @@ class ScreenshotLibraryItem {
 }
 
 /// 封装文件访问、目录授权与截图库相关的平台桥接。
+///
+/// 截图与文件访问面经 [StorageAccessHost] 分发：Android 透传
+/// `fly_player/storage` 原生通道，桌面端（Windows/Linux/macOS）由
+/// `DesktopStorageAccessHost` 提供语义等价实现（该通道仅 Android 注册，
+/// 直连在桌面必抛 MissingPluginException，曾让「其他」设置页永久卡在
+/// 加载态）。`primaryStorageRoot` 与 Scoped Tree 系列仍为 Android 专属
+/// 流程（外部存储导出 / SAF 浏览），桌面端不可达，接入桌面语义时迁移进宿主。
 class StorageAccessService {
   static const MethodChannel _channel = MethodChannel('fly_player/storage');
 
+  static StorageAccessHost? _debugHostOverride;
+
+  /// 平台存储宿主：Android 走 `fly_player/storage` 原生通道；桌面端无该通道
+  /// 实现，改用 Dart 等价宿主。测试环境保持通道语义，兼容既有 mock。
+  static StorageAccessHost get _host {
+    final override = _debugHostOverride;
+    if (override != null) return override;
+    if (_isTestMessenger()) return const MethodChannelStorageAccessHost();
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return const DesktopStorageAccessHost();
+    }
+    return const MethodChannelStorageAccessHost();
+  }
+
+  static bool _isTestMessenger() {
+    try {
+      return ServicesBinding.instance.defaultBinaryMessenger.runtimeType
+          .toString()
+          .contains('Test');
+    } catch (_) {
+      return true;
+    }
+  }
+
+  @visibleForTesting
+  static StorageAccessHost get debugHost => _host;
+
+  @visibleForTesting
+  static void setHostForTesting(StorageAccessHost? host) {
+    _debugHostOverride = host;
+  }
+
   /// 判断应用当前是否具备常规文件访问权限。
   static Future<bool> hasFileAccess() async {
-    final result = await _channel.invokeMethod<bool>('hasFileAccess');
+    final result = await _host.hasFileAccess();
     return result == true;
   }
 
   /// 请求系统授予常规文件访问权限。
   static Future<bool> requestFileAccess() async {
-    final result = await _channel.invokeMethod<bool>('requestFileAccess');
+    final result = await _host.requestFileAccess();
     return result == true;
   }
 
@@ -266,9 +309,7 @@ class StorageAccessService {
   /// 获取截图自定义保存目录的当前配置。
   static Future<ScreenshotCustomDirectoryInfo?>
   getScreenshotCustomDirectory() async {
-    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
-      'getScreenshotCustomDirectory',
-    );
+    final raw = await _host.getScreenshotCustomDirectory();
     if (raw == null || raw.isEmpty) return null;
     return ScreenshotCustomDirectoryInfo.fromMap(raw);
   }
@@ -276,27 +317,21 @@ class StorageAccessService {
   /// 请求用户重新选择截图自定义保存目录。
   static Future<ScreenshotCustomDirectoryInfo?>
   requestScreenshotCustomDirectory() async {
-    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
-      'requestScreenshotCustomDirectory',
-    );
+    final raw = await _host.requestScreenshotCustomDirectory();
     if (raw == null || raw.isEmpty) return null;
     return ScreenshotCustomDirectoryInfo.fromMap(raw);
   }
 
   /// 清除截图自定义保存目录配置。
   static Future<bool> clearScreenshotCustomDirectory() async {
-    final result = await _channel.invokeMethod<bool>(
-      'clearScreenshotCustomDirectory',
-    );
+    final result = await _host.clearScreenshotCustomDirectory();
     return result == true;
   }
 
   /// 列出截图库中的全部可管理截图。
   static Future<List<ScreenshotLibraryItem>> listScreenshotLibrary() async {
-    final raw = await _channel.invokeMethod<List<dynamic>>(
-      'listScreenshotLibrary',
-    );
-    return (raw ?? const <dynamic>[])
+    final raw = await _host.listScreenshotLibrary();
+    return (raw ?? const <Object?>[])
         .whereType<Map>()
         .map(
           (item) =>
@@ -313,12 +348,9 @@ class StorageAccessService {
     final trimmedSource = sourceKind.trim();
     final trimmedPath = pathOrIdentifier.trim();
     if (trimmedSource.isEmpty || trimmedPath.isEmpty) return null;
-    return _channel.invokeMethod<Uint8List>(
-      'readScreenshotFileBytes',
-      <String, Object?>{
-        'sourceKind': trimmedSource,
-        'pathOrIdentifier': trimmedPath,
-      },
+    return _host.readScreenshotFileBytes(
+      sourceKind: trimmedSource,
+      pathOrIdentifier: trimmedPath,
     );
   }
 
@@ -327,11 +359,8 @@ class StorageAccessService {
     List<ScreenshotLibraryItem> items,
   ) async {
     if (items.isEmpty) return 0;
-    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
-      'deleteScreenshotFiles',
-      <String, Object?>{
-        'items': items.map((item) => item.toDeletePayload()).toList(),
-      },
+    final raw = await _host.deleteScreenshotFiles(
+      items.map((item) => item.toDeletePayload()).toList(growable: false),
     );
     if (raw == null || raw.isEmpty) return 0;
     return switch (raw['deletedCount']) {
