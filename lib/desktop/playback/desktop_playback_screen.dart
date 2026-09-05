@@ -3077,138 +3077,121 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         ? _l10n.playerAutoPlayNextPrompt(_autoNextSeconds)
         : '';
     return Positioned.fill(
-      child: Material(
-        color: const Color(0xB8000000),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: DesktopFloatingPanel(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(28, 26, 28, 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Container(
-                        width: 58,
-                        height: 58,
-                        decoration: BoxDecoration(
-                          color: const Color(0x226EA8FF),
-                          borderRadius: BorderRadius.circular(19),
-                          border: Border.all(color: const Color(0x4D6EA8FF)),
+      // 全屏黑底吞掉指针：空白处点击不再落到视频区（误触播放暂停/双击全屏）。
+      child: DesktopPanelGestureShield(
+        child: Material(
+          color: const Color(0xB8000000),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: DesktopFloatingPanel(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(28, 26, 28, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: const Color(0x226EA8FF),
+                            borderRadius: BorderRadius.circular(19),
+                            border: Border.all(color: const Color(0x4D6EA8FF)),
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            color: Color(0xFF9CC4FF),
+                            size: 31,
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.check_rounded,
-                          color: Color(0xFF9CC4FF),
-                          size: 31,
-                        ),
-                      ),
-                      const SizedBox(height: 17),
-                      Text(
-                        _source.title.trim().isEmpty
-                            ? _l10n.playerCurrentVideo
-                            : _source.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 19,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                        ),
-                      ),
-                      if (_subtitle.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 17),
                         Text(
-                          _subtitle,
+                          _source.title.trim().isEmpty
+                              ? _l10n.playerCurrentVideo
+                              : _source.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 12,
+                            color: Colors.white,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w700,
+                            height: 1.25,
                           ),
                         ),
-                      ],
-                      if (autoNextLabel.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 18),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0x16FFFFFF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              const SizedBox.square(
-                                dimension: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.8,
-                                  color: Color(0xFF9CC4FF),
-                                ),
-                              ),
-                              const SizedBox(width: 9),
-                              Text(
-                                autoNextLabel,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(width: 5),
-                              IconButton(
-                                tooltip: _l10n.commonClose,
-                                onPressed: _cancelAutoNext,
-                                icon: const Icon(Icons.close_rounded),
-                                color: Colors.white54,
-                                iconSize: 15,
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 26,
-                                  height: 26,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => unawaited(_replayCompleted()),
-                              icon: const Icon(Icons.replay_rounded),
-                              label: Text(_l10n.playerReplayAction),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(
-                                  color: Color(0x35FFFFFF),
-                                ),
-                                minimumSize: const Size.fromHeight(46),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
+                        if (_subtitle.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 6),
+                          Text(
+                            _subtitle,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
                             ),
                           ),
-                          if (nextEpisode != null) ...<Widget>[
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: () => unawaited(_showNextEpisode()),
-                                icon: const Icon(Icons.skip_next_rounded),
-                                label: Text(
-                                  _l10n.nativeNotificationActionNextEpisode,
+                        ],
+                        if (autoNextLabel.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 18),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0x16FFFFFF),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                const SizedBox.square(
+                                  dimension: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.8,
+                                    color: Color(0xFF9CC4FF),
+                                  ),
                                 ),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFF6EA8FF),
-                                  foregroundColor: const Color(0xFF0B1119),
+                                const SizedBox(width: 9),
+                                Text(
+                                  autoNextLabel,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                IconButton(
+                                  tooltip: _l10n.commonClose,
+                                  onPressed: _cancelAutoNext,
+                                  icon: const Icon(Icons.close_rounded),
+                                  color: Colors.white54,
+                                  iconSize: 15,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 26,
+                                    height: 26,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () => unawaited(_replayCompleted()),
+                                icon: const Icon(Icons.replay_rounded),
+                                label: Text(_l10n.playerReplayAction),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(
+                                    color: Color(0x35FFFFFF),
+                                  ),
                                   minimumSize: const Size.fromHeight(46),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(14),
@@ -3216,19 +3199,40 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                                 ),
                               ),
                             ),
+                            if (nextEpisode != null) ...<Widget>[
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: () =>
+                                      unawaited(_showNextEpisode()),
+                                  icon: const Icon(Icons.skip_next_rounded),
+                                  label: Text(
+                                    _l10n.nativeNotificationActionNextEpisode,
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF6EA8FF),
+                                    foregroundColor: const Color(0xFF0B1119),
+                                    minimumSize: const Size.fromHeight(46),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      TextButton.icon(
-                        onPressed: () => unawaited(_leavePlayer(videoState)),
-                        icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                        label: Text(_l10n.playerBackAction),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white54,
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 10),
+                        TextButton.icon(
+                          onPressed: () => unawaited(_leavePlayer(videoState)),
+                          icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                          label: Text(_l10n.playerBackAction),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white54,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
