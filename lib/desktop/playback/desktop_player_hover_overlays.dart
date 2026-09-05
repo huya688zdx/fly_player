@@ -913,7 +913,7 @@ class _DesktopHoverEpisodePreviewPanelState
   @override
   Widget build(BuildContext context) {
     // 上/下一集共用同一个玻璃外壳，动画只发生在内容层：标签/标题/海报任一
-    // 变化即内部交叉（淡入+轻微上移），窗口本身不动、不闪。
+    // 变化即内部纯淡出淡入，窗口本身不动、不闪。
     final contentKey = ValueKey<String>(
       '${widget.label}|${widget.title}|${widget.posterPath}',
     );
@@ -923,16 +923,9 @@ class _DesktopHoverEpisodePreviewPanelState
         duration: const Duration(milliseconds: 200),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.05),
-              end: Offset.zero,
-            ).animate(animation),
-            child: child,
-          ),
-        ),
+        // 纯淡出淡入：位移分量会让退场内容呈下坠感，不要。
+        transitionBuilder: (child, animation) =>
+            FadeTransition(opacity: animation, child: child),
         layoutBuilder: (currentChild, previousChildren) => Stack(
           alignment: Alignment.bottomCenter,
           children: <Widget>[
