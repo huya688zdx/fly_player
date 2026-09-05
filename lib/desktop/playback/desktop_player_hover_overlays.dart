@@ -114,8 +114,15 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
               final isSettings = kind == PlayerHoverOverlayKind.settings;
               final isEpisodes = kind == PlayerHoverOverlayKind.episodes;
 
+              final isEpisodePreview =
+                  kind == PlayerHoverOverlayKind.previousEpisode ||
+                  kind == PlayerHoverOverlayKind.nextEpisode;
+              // 上/下一集是同一个小窗的两种内容：共用内容键，跨方向切换不重建
+              // 玻璃外壳（整窗交叉淡入会叠加位置滑动产生抖动感），海报与文字
+              // 的过渡由预览卡内部动画完成。
               final nextKey =
-                  '${kind.name}:${value.initialPage?.name ?? 'root'}';
+                  '${isEpisodePreview ? 'episode-preview' : kind.name}:'
+                  '${value.initialPage?.name ?? 'root'}';
               final morphing = _contentKey != null && _contentKey != nextKey;
               _contentKey = nextKey;
 
@@ -142,26 +149,16 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                         curve: Curves.easeOutCubic,
                         alignment: Alignment.bottomCenter,
                         child: AnimatedSwitcher(
-                          // 弹层之间切换（如音轨→设置放大）时新内容自下而上
-                          // 轻移+淡入，旧内容反向退场；首次弹出 duration 为零，
-                          // 避免与入场动画叠加。不加缩放：位置由
-                          // AnimatedPositioned 平滑滑动，缩放+平移叠加会显得抖。
+                          // 弹层之间切换只做交叉淡入（底边对齐、旧内容脱离布局流），
+                          // 不加位移/缩放：容器位置由 AnimatedPositioned 平滑滑动，
+                          // 窗口级动效叠加会产生抖动感；内容级动画归各面板内部自理。
                           duration: morphing
                               ? const Duration(milliseconds: 220)
                               : Duration.zero,
                           switchInCurve: Curves.easeOutCubic,
                           switchOutCurve: Curves.easeInCubic,
                           transitionBuilder: (child, animation) =>
-                              FadeTransition(
-                                opacity: animation,
-                                child: SlideTransition(
-                                  position: Tween<Offset>(
-                                    begin: const Offset(0, 0.06),
-                                    end: Offset.zero,
-                                  ).animate(animation),
-                                  child: child,
-                                ),
-                              ),
+                              FadeTransition(opacity: animation, child: child),
                           // 新旧内容底边对齐交叉：默认垂直居中会让矮面板
                           // （字幕/音轨）在高面板退场时先悬在高处再坠落。
                           // 旧内容脱离布局流（Positioned 挂底边）：容器尺寸
@@ -892,7 +889,7 @@ class _PanelHeaderTextButton extends StatelessWidget {
 /// 上/下一集悬停预览卡：海报缩略图 + 方向标签（「上一集」/「下一集」）+ 集标题。
 /// 内容只负责展示；外观与定位仍由通用悬浮小窗外壳（DesktopFloatingPanel +
 /// PlayerHoverOverlayLayer 通用分支）承担。
-class DesktopHoverEpisodePreviewPanel extends StatelessWidget {
+class DesktopHoverEpisodePreviewPanel extends StatefulWidget {
   const DesktopHoverEpisodePreviewPanel({
     super.key,
     required this.label,
@@ -907,49 +904,92 @@ class DesktopHoverEpisodePreviewPanel extends StatelessWidget {
   final Map<String, String> headers;
 
   @override
+  State<DesktopHoverEpisodePreviewPanel> createState() =>
+      _DesktopHoverEpisodePreviewPanelState();
+}
+
+class _DesktopHoverEpisodePreviewPanelState
+    extends State<DesktopHoverEpisodePreviewPanel> {
+  @override
   Widget build(BuildContext context) {
+    // 上/下一集共用同一个玻璃外壳，动画只发生在内容层：标签/标题/海报任一
+    // 变化即内部交叉（淡入+轻微上移），窗口本身不动、不闪。
+    final contentKey = ValueKey<String>(
+      '${widget.label}|${widget.title}|${widget.posterPath}',
+    );
     return Padding(
       padding: const EdgeInsets.all(12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: double.infinity,
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: DesktopEpisodePoster(
-                posterPath,
-                true,
-                headers: headers,
-                current: false,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.05),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        ),
+        layoutBuilder: (currentChild, previousChildren) => Stack(
+          alignment: Alignment.bottomCenter,
+          children: <Widget>[
+            for (final child in previousChildren)
+              Positioned(left: 0, right: 0, bottom: 0, child: child),
+            if (currentChild != null) currentChild,
+          ],
+        ),
+        child: KeyedSubtree(
+          key: contentKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              SizedBox(
+                width: double.infinity,
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: DesktopEpisodePoster(
+                    widget.posterPath,
+                    true,
+                    headers: widget.headers,
+                    current: false,
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: 10),
+              Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0x99FFFFFF),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const SizedBox(height: 4),
+              // 固定两行高度：不同集标题行数不同也不改变窗口高度，
+              // 内容交叉时几何完全稳定。
+              SizedBox(
+                height: 38,
+                child: Text(
+                  widget.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0x99FFFFFF),
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.3,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
