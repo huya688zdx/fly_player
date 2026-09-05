@@ -417,76 +417,88 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: InkWell(
-                    onTap: _custom
-                        ? () => setState(() => _custom = false)
-                        : null,
-                    borderRadius: BorderRadius.circular(8),
-                    hoverColor: const Color(0x38FFFFFF),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        if (_custom)
-                          const Icon(
-                            Icons.chevron_left_rounded,
-                            color: Colors.white70,
-                            size: 18,
-                          ),
-                        // Flexible+ellipsis：面板宽度 morph 压窄时标题可截断，
-                        // 否则固定固有宽度会撑爆 Row。
-                        Flexible(
-                          child: Text(
-                            _custom
-                                ? '$customLabel${l10n.nativePlayerText0021}'
-                                : l10n.nativePlayerText0021,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xD9FFFFFF),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
+          AnimatedSwitcher(
+            // 主页↔自定义二级页切换：标题与内容各自交叉淡入。
+            duration: const Duration(milliseconds: 160),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) =>
+                FadeTransition(opacity: animation, child: child),
+            child: Padding(
+              key: ValueKey<bool>(_custom),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: InkWell(
+                      onTap: _custom
+                          ? () => setState(() => _custom = false)
+                          : null,
+                      borderRadius: BorderRadius.circular(8),
+                      // 悬停底弱于选中药丸，避免悬停看起来像选中。
+                      hoverColor: const Color(0x14FFFFFF),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          if (_custom)
+                            const Icon(
+                              Icons.chevron_left_rounded,
+                              color: Colors.white70,
+                              size: 18,
+                            ),
+                          // Flexible+ellipsis：面板宽度 morph 压窄时标题可截断，
+                          // 否则固定固有宽度会撑爆 Row。
+                          Flexible(
+                            child: Text(
+                              _custom
+                                  ? '$customLabel${l10n.nativePlayerText0021}'
+                                  : l10n.nativePlayerText0021,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xD9FFFFFF),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (_custom)
-                  Flexible(
-                    child: Text(
-                      _currentSummary(menu, l10n),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF72A7FF),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        ],
                       ),
                     ),
-                  )
-                else
-                  TextButton(
-                    onPressed: () => setState(() => _custom = true),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      minimumSize: const Size(0, 28),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(customLabel),
-                        const Icon(Icons.chevron_right_rounded, size: 18),
-                      ],
-                    ),
                   ),
-              ],
+                  if (_custom)
+                    Flexible(
+                      child: Text(
+                        _currentSummary(menu, l10n),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF72A7FF),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  else
+                    TextButton(
+                      onPressed: () => setState(() => _custom = true),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 28),
+                        // TextButton 默认悬停底观感接近选中，压到 6% 白。
+                        overlayColor: Colors.white.withValues(alpha: 0.06),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(customLabel),
+                          const Icon(Icons.chevron_right_rounded, size: 18),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -495,9 +507,27 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
           Flexible(
             fit: FlexFit.loose,
             child: SingleChildScrollView(
-              child: _custom
-                  ? _buildCustom(menu, l10n)
-                  : _buildMain(menu, l10n),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) =>
+                    FadeTransition(opacity: animation, child: child),
+                layoutBuilder: (currentChild, previousChildren) => Stack(
+                  alignment: Alignment.topCenter,
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey<bool>(_custom),
+                  child: _custom
+                      ? _buildCustom(menu, l10n)
+                      : _buildMain(menu, l10n),
+                ),
+              ),
             ),
           ),
         ],
@@ -637,7 +667,8 @@ class _DesktopQualityRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
-      hoverColor: const Color(0x38FFFFFF),
+      // 主列表选中态只靠蓝字加粗区分，悬停底压暗避免混淆。
+      hoverColor: const Color(0x14FFFFFF),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         child: Row(
@@ -683,7 +714,8 @@ class _DesktopQualityTierButton extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     borderRadius: BorderRadius.circular(10),
-    hoverColor: const Color(0x38FFFFFF),
+    // 选中行不再叠加悬停底；未选中行悬停底弱于选中药丸。
+    hoverColor: selected ? Colors.transparent : const Color(0x14FFFFFF),
     child: Container(
       constraints: const BoxConstraints(minHeight: 42),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
@@ -731,7 +763,8 @@ class _DesktopQualityBitrateButton extends StatelessWidget {
     child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
-      hoverColor: const Color(0x38FFFFFF),
+      // 选中行不再叠加悬停底；未选中行悬停底弱于选中药丸。
+      hoverColor: selected ? Colors.transparent : const Color(0x14FFFFFF),
       child: Container(
         constraints: const BoxConstraints(minHeight: 42),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
