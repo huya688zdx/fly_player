@@ -42,6 +42,30 @@ String _screenshotSavePathDescription(AppLocalizations l10n, String value) {
   };
 }
 
+/// 单项加载容错：任一依赖失败只把该项降级为兜底值并记录日志，
+/// 不让单个异常把子页永久卡在加载态（此前桌面端 `fly_player/storage`
+/// 通道抛 MissingPluginException 即触发该问题）。日志异步落盘，
+/// 降级路径不等日志 IO。
+Future<T> _tolerantLoad<T>(
+  String action,
+  Future<T> Function() load,
+  T fallback,
+) async {
+  try {
+    return await load();
+  } catch (error, stackTrace) {
+    unawaited(
+      logSwallowedError(
+        action: action,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'screenshot_settings_screen',
+      ),
+    );
+    return fallback;
+  }
+}
+
 class OtherSettingsScreen extends StatefulWidget {
   const OtherSettingsScreen({super.key});
 
@@ -83,10 +107,29 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
 
   Future<void> _loadSettings() async {
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      _screenshotStore.load(),
-      _danmakuStore.load(),
-      _bookmarkStore.loadAll(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        _screenshotStore.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad(
+        'load danmaku settings',
+        _danmakuStore.load,
+        DanmakuSettings.defaults,
+      ),
+      _tolerantLoad(
+        'load bookmarks',
+        _bookmarkStore.loadAll,
+        const <PlayerBookmarkEntry>[],
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
@@ -317,8 +360,19 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
 
   Future<void> _loadSettings() async {
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      _store.load(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        _store.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
@@ -690,7 +744,11 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
   }
 
   Future<void> _loadCustomDirectoryInfo() async {
-    final info = await StorageAccessService.getScreenshotCustomDirectory();
+    final info = await _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+      'load screenshot custom directory',
+      StorageAccessService.getScreenshotCustomDirectory,
+      null,
+    );
     if (!mounted) return;
     setState(() {
       _customDirectoryInfo = info;
@@ -705,8 +763,19 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
       ),
     );
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      widget.store.load(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        widget.store.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
@@ -961,8 +1030,19 @@ class _ScreenshotCustomDirectoryScreenState
 
   Future<void> _load() async {
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      widget.store.load(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        widget.store.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
