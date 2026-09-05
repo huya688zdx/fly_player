@@ -123,6 +123,10 @@ class _DesktopSemanticsSafeSliderState
               onHorizontalDragCancel: () =>
                   setState(() => _interactionValue = null),
               child: CustomPaint(
+                // CustomPaint 无子节点时首选尺寸是零，不会随松宽度约束撑开：
+                // 设置卡（Column start，宽度松约束）里会塌成 0 宽——轨道画不出、
+                // 手势命中区为 0 调不动。显式取父级给到的可用宽度。
+                size: Size(constraints.maxWidth, 28),
                 painter: _DesktopSafeSliderPainter(
                   fraction: fraction.clamp(0, 1).toDouble(),
                   activeColor: widget.activeColor,
