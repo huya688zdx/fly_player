@@ -26,6 +26,7 @@ import '../utils/app_confirm_dialog.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'mpv_player_settings_screen.dart';
 import 'screenshot_settings_screen.dart';
 import 'settings_search_screen.dart';
@@ -1002,8 +1003,8 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
       settings: settings,
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
-      pageBuilder: (context, _, __) =>
-          Container(color: context.appColors.backgroundBase),
+      // 双栏模式 '/' 仅占位：透出壳层整窗晕染，与网格右缘无缝衔接。
+      pageBuilder: (context, _, __) => const SizedBox.expand(),
     );
   }
 
@@ -1203,17 +1204,16 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final compact = MediaQuery.sizeOf(context).width < 720;
     final visibleSections = widget.sections
         .map((section) => section.filtered(_query))
         .whereType<_SettingsSection>()
         .toList();
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      body: _DesktopSettingsAtmosphere(
-        child: SafeArea(
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
           child: CallbackShortcuts(
             bindings: <ShortcutActivator, VoidCallback>{
               const SingleActivator(
@@ -1769,8 +1769,8 @@ class _DesktopSettingsHomeView extends StatelessWidget {
   }
 }
 
-/// 设置子页容器：桌面端统一外观 —— 基底底色 + 氛围光晕叠加在内容上方；
-/// 子页自身仍是完整 Scaffold（头部由 buildSecondaryHostAppBar 统一）。
+/// 设置子页容器：统一栅格对齐与页边距；子页仍是完整 Scaffold
+/// （自绘 AppAmbientPage 氛围底，头部由 buildSecondaryHostAppBar 统一）。
 class _DesktopSettingsSubPage extends StatelessWidget {
   final Widget child;
 
@@ -1788,44 +1788,30 @@ class _DesktopSettingsSubPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (!alignToGrid) {
-      return Container(
-        color: colors.backgroundBase,
-        child: _DesktopSettingsAtmosphere(
-          overlay: true,
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 940),
-              child: child,
-            ),
-          ),
+      return Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 940),
+          child: child,
         ),
       );
     }
     final compact = MediaQuery.sizeOf(context).width < 720;
-    return Container(
-      color: colors.backgroundBase,
-      child: _DesktopSettingsAtmosphere(
-        overlay: true,
-        // 视口与首页网格同宽，内建滚动条会悬空在内容盒边缘；
-        // 屏蔽后由 _SubPageEdgeScrollbar 监听滚动指标、画在窗口右缘。
-        child: _SubPageEdgeScrollbar(
-          color: colors.textMuted.withValues(alpha: 0.35),
-          child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(
-              context,
-            ).copyWith(scrollbars: false),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 40),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: _DesktopSettingsGrid._gridMaxWidth,
-                  ),
-                  child: child,
-                ),
+    // 视口与首页网格同宽，内建滚动条会悬空在内容盒边缘；
+    // 屏蔽后由 _SubPageEdgeScrollbar 监听滚动指标、画在窗口右缘。
+    return _SubPageEdgeScrollbar(
+      color: colors.textMuted.withValues(alpha: 0.35),
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 40),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: _DesktopSettingsGrid._gridMaxWidth,
               ),
+              child: child,
             ),
           ),
         ),
@@ -1955,79 +1941,4 @@ class _EdgeScrollbarPainter extends CustomPainter {
   @override
   bool shouldRepaint(_EdgeScrollbarPainter oldDelegate) =>
       !snapshot.sameAs(oldDelegate.snapshot) || color != oldDelegate.color;
-}
-
-/// 桌面设置区氛围：右上「放映光束」+ 左下环境反光。
-/// 颜色一律取自 [context.appColors] 的 selection 色，
-/// 主题预设与动态取色切换时同步变化。
-class _DesktopSettingsAtmosphere extends StatelessWidget {
-  final Widget child;
-
-  /// true：光晕叠加在内容上方（子页内容自带不透明背景时使用）。
-  final bool overlay;
-
-  const _DesktopSettingsAtmosphere({required this.child, this.overlay = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final beamAlpha = overlay ? 0.06 : 0.10;
-    final beam = Positioned.fill(
-      child: IgnorePointer(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: const Alignment(0.9, -1.15),
-              radius: 1.4,
-              colors: <Color>[
-                colors.selection.withValues(alpha: beamAlpha),
-                colors.selection.withValues(alpha: 0),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    final floor = Positioned.fill(
-      child: IgnorePointer(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: const Alignment(-1.05, 1.15),
-              radius: 1.2,
-              colors: <Color>[
-                colors.selection.withValues(alpha: beamAlpha / 2),
-                colors.selection.withValues(alpha: 0),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    if (overlay) {
-      return Stack(
-        children: <Widget>[
-          Positioned.fill(child: child),
-          beam,
-          floor,
-        ],
-      );
-    }
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-        ),
-      ),
-      child: Stack(
-        children: <Widget>[
-          beam,
-          floor,
-          Positioned.fill(child: child),
-        ],
-      ),
-    );
-  }
 }
