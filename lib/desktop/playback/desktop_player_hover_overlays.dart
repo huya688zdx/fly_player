@@ -131,59 +131,72 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                 child: MouseRegion(
                   onEnter: (_) => widget.onPanelEnter(),
                   onExit: (_) => widget.onPanelExit(),
-                  child: AnimatedOpacity(
-                    opacity: value.visible ? 1 : 0,
-                    duration: const Duration(milliseconds: 170),
-                    curve: Curves.easeOutCubic,
-                    child: AnimatedSlide(
-                      // 入场/退场所有 kind 统一：从控制条方向（底部）升起，
-                      // 不再按分支区分右侧滑入与底部升起两套动效。
-                      offset: value.visible
-                          ? Offset.zero
-                          : const Offset(0, 0.08),
-                      duration: const Duration(milliseconds: 190),
+                  // 隐藏中的面板从语义树摘除：淡出残留/快速扫动时节点高频
+                  // 增删会把 Windows AXTree 桥打挂（Nodes left pending 刷屏），
+                  // 悬停弹层不可见时本来也不该暴露给读屏器。
+                  child: ExcludeSemantics(
+                    excluding: !value.visible,
+                    child: AnimatedOpacity(
+                      opacity: value.visible ? 1 : 0,
+                      duration: const Duration(milliseconds: 170),
                       curve: Curves.easeOutCubic,
-                      child: AnimatedScale(
-                        scale: value.visible ? 1 : 0.975,
+                      child: AnimatedSlide(
+                        // 入场/退场所有 kind 统一：从控制条方向（底部）升起，
+                        // 不再按分支区分右侧滑入与底部升起两套动效。
+                        offset: value.visible
+                            ? Offset.zero
+                            : const Offset(0, 0.08),
                         duration: const Duration(milliseconds: 190),
                         curve: Curves.easeOutCubic,
-                        alignment: Alignment.bottomCenter,
-                        child: AnimatedSwitcher(
-                          // 弹层之间切换只做交叉淡入（底边对齐、旧内容脱离布局流），
-                          // 不加位移/缩放：容器位置由 AnimatedPositioned 平滑滑动，
-                          // 窗口级动效叠加会产生抖动感；内容级动画归各面板内部自理。
-                          duration: morphing
-                              ? const Duration(milliseconds: 220)
-                              : Duration.zero,
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          transitionBuilder: (child, animation) =>
-                              FadeTransition(opacity: animation, child: child),
-                          // 新旧内容底边对齐交叉：默认垂直居中会让矮面板
-                          // （字幕/音轨）在高面板退场时先悬在高处再坠落。
-                          // 旧内容脱离布局流（Positioned 挂底边）：容器尺寸
-                          // 立即取新内容，不被退场中的旧内容撑高再塌缩——
-                          // 字幕↔音轨这类高度不等的切换否则会顶边抖动。
-                          layoutBuilder: (currentChild, previousChildren) =>
-                              Stack(
-                                alignment: Alignment.bottomCenter,
-                                children: <Widget>[
-                                  for (final child in previousChildren)
-                                    Positioned(
-                                      left: 0,
-                                      right: 0,
-                                      bottom: 0,
-                                      child: child,
-                                    ),
-                                  if (currentChild != null) currentChild,
-                                ],
+                        child: AnimatedScale(
+                          scale: value.visible ? 1 : 0.975,
+                          duration: const Duration(milliseconds: 190),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.bottomCenter,
+                          child: AnimatedSwitcher(
+                            // 弹层之间切换只做交叉淡入（底边对齐、旧内容脱离布局流），
+                            // 不加位移/缩放：容器位置由 AnimatedPositioned 平滑滑动，
+                            // 窗口级动效叠加会产生抖动感；内容级动画归各面板内部自理。
+                            duration: morphing
+                                ? const Duration(milliseconds: 220)
+                                : Duration.zero,
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                            // 新旧内容底边对齐交叉：默认垂直居中会让矮面板
+                            // （字幕/音轨）在高面板退场时先悬在高处再坠落。
+                            // 旧内容脱离布局流（Positioned 挂底边）：容器尺寸
+                            // 立即取新内容，不被退场中的旧内容撑高再塌缩——
+                            // 字幕↔音轨这类高度不等的切换否则会顶边抖动。
+                            layoutBuilder: (currentChild, previousChildren) =>
+                                Stack(
+                                  alignment: Alignment.bottomCenter,
+                                  children: <Widget>[
+                                    for (final child in previousChildren)
+                                      Positioned(
+                                        left: 0,
+                                        right: 0,
+                                        bottom: 0,
+                                        // 退场幽灵不进语义树：交叉期间新旧两棵
+                                        // 子树并存正是 AXTree 更新失败的高发点。
+                                        child: ExcludeSemantics(child: child),
+                                      ),
+                                    if (currentChild != null) currentChild,
+                                  ],
+                                ),
+                            child: KeyedSubtree(
+                              key: ValueKey<String>(nextKey),
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {},
+                                child: DesktopFloatingPanel(
+                                  child: content.child,
+                                ),
                               ),
-                          child: KeyedSubtree(
-                            key: ValueKey<String>(nextKey),
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {},
-                              child: DesktopFloatingPanel(child: content.child),
                             ),
                           ),
                         ),
@@ -192,7 +205,6 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                   ),
                 ),
               );
-
               // 设置卡：在触发弹层的锚点位置原位放大（水平对齐锚点、钳制留边），
               // 垂直方向上下留边全高，不盖住顶部栏与底部控制条。
               //
@@ -930,7 +942,12 @@ class _DesktopHoverEpisodePreviewPanelState
           alignment: Alignment.bottomCenter,
           children: <Widget>[
             for (final child in previousChildren)
-              Positioned(left: 0, right: 0, bottom: 0, child: child),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ExcludeSemantics(child: child),
+              ),
             if (currentChild != null) currentChild,
           ],
         ),
