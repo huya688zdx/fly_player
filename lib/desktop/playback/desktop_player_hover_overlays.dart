@@ -153,47 +153,58 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                           duration: const Duration(milliseconds: 190),
                           curve: Curves.easeOutCubic,
                           alignment: Alignment.bottomCenter,
-                          child: AnimatedSwitcher(
-                            // 弹层之间切换只做交叉淡入（底边对齐、旧内容脱离布局流），
-                            // 不加位移/缩放：容器位置由 AnimatedPositioned 平滑滑动，
-                            // 窗口级动效叠加会产生抖动感；内容级动画归各面板内部自理。
-                            duration: morphing
-                                ? const Duration(milliseconds: 220)
-                                : Duration.zero,
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeInCubic,
-                            transitionBuilder: (child, animation) =>
-                                FadeTransition(
-                                  opacity: animation,
-                                  child: child,
-                                ),
-                            // 新旧内容底边对齐交叉：默认垂直居中会让矮面板
-                            // （字幕/音轨）在高面板退场时先悬在高处再坠落。
-                            // 旧内容脱离布局流（Positioned 挂底边）：容器尺寸
-                            // 立即取新内容，不被退场中的旧内容撑高再塌缩——
-                            // 字幕↔音轨这类高度不等的切换否则会顶边抖动。
-                            layoutBuilder: (currentChild, previousChildren) =>
-                                Stack(
-                                  alignment: Alignment.bottomCenter,
-                                  children: <Widget>[
-                                    for (final child in previousChildren)
-                                      Positioned(
-                                        left: 0,
-                                        right: 0,
-                                        bottom: 0,
-                                        // 退场幽灵不进语义树：交叉期间新旧两棵
-                                        // 子树并存正是 AXTree 更新失败的高发点。
-                                        child: ExcludeSemantics(child: child),
-                                      ),
-                                    if (currentChild != null) currentChild,
-                                  ],
-                                ),
-                            child: KeyedSubtree(
-                              key: ValueKey<String>(nextKey),
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () {},
-                                child: DesktopFloatingPanel(
+                          // 玻璃恒定唯一（不随内容切换淡出淡入）：交叉期间
+                          // 两块玻璃叠加会闪烁，且 BackdropFilter 在淡出的
+                          // OpacityLayer 里会越过 Stack 裁切，按原始尺寸画到
+                          // 新面板之外（画质 420 → 字幕/音轨 254 的残影来源，
+                          // 选集↔原画因两者脚印几乎同大而看不出来）。玻璃只
+                          // 包一层后，幽灵只剩内容，被玻璃圆角正常裁切。
+                          child: DesktopFloatingPanel(
+                            child: AnimatedSwitcher(
+                              // 弹层之间切换只做内容交叉淡入（底边对齐、旧内容
+                              // 脱离布局流），不加位移/缩放：容器位置由
+                              // AnimatedPositioned 平滑滑动，窗口级动效叠加
+                              // 会产生抖动感。
+                              duration: morphing
+                                  ? const Duration(milliseconds: 220)
+                                  : Duration.zero,
+                              switchInCurve: Curves.easeOutCubic,
+                              switchOutCurve: Curves.easeInCubic,
+                              transitionBuilder: (child, animation) =>
+                                  FadeTransition(
+                                    opacity: animation,
+                                    child: child,
+                                  ),
+                              // 新旧内容底边对齐交叉：默认垂直居中会让矮面板
+                              // （字幕/音轨）在高面板退场时先悬在高处再坠落。
+                              // 旧内容脱离布局流（Positioned 挂底边）：容器尺寸
+                              // 立即取新内容，不被退场中的旧内容撑高再塌缩——
+                              // 字幕↔音轨这类高度不等的切换否则会顶边抖动。
+                              layoutBuilder:
+                                  (
+                                    Widget? currentChild,
+                                    List<Widget> previousChildren,
+                                  ) => Stack(
+                                    alignment: Alignment.bottomCenter,
+                                    children: <Widget>[
+                                      for (final child in previousChildren)
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          bottom: 0,
+                                          // 退场幽灵不进语义树：交叉期间新旧
+                                          // 两棵子树并存正是 AXTree 更新
+                                          // 失败的高发点。
+                                          child: ExcludeSemantics(child: child),
+                                        ),
+                                      if (currentChild != null) currentChild,
+                                    ],
+                                  ),
+                              child: KeyedSubtree(
+                                key: ValueKey<String>(nextKey),
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {},
                                   child: content.child,
                                 ),
                               ),
