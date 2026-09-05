@@ -2597,7 +2597,9 @@ class _EpisodeCard extends StatelessWidget {
           )
         : Row(
             children: [
-              image,
+              // Flexible：面板宽度 morph（选集↔倍速等）时退场卡片会被临时
+              // 压窄，固定宽海报会直接溢出报错；允许收缩即可优雅降级。
+              Flexible(child: image),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
