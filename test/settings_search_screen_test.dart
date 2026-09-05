@@ -64,7 +64,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.search_rounded).first);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings_open_full_search')),
+    );
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'deband');
@@ -95,7 +97,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.search_rounded).first);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings_open_full_search')),
+    );
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '海报首页');
     await tester.pumpAndSettle();
