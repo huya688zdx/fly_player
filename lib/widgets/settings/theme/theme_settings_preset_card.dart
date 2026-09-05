@@ -24,15 +24,14 @@ class ThemeSettingsPresetCard extends StatelessWidget {
     final currentColors = context.appColors;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        width: 232,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: selected ? currentColors.selectionSoft : currentColors.surface,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected
                 ? currentColors.selection
@@ -43,7 +42,7 @@ class ThemeSettingsPresetCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Container(
-              height: 94,
+              height: 84,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 gradient: LinearGradient(
@@ -107,30 +106,39 @@ class ThemeSettingsPresetCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: currentColors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(15),
+                      fontSize: AdaptiveText.roleSize(14),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
-                Icon(
-                  selected
-                      ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  color: selected
-                      ? currentColors.selectionStrong
-                      : currentColors.textMuted,
-                  size: 18,
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    color: selected
+                        ? currentColors.selectionStrong
+                        : currentColors.textMuted,
+                    size: 15,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 5),
             Text(
               subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: currentColors.textSecondary,
-                fontSize: AdaptiveText.roleSize(13.2),
+                fontSize: AdaptiveText.roleSize(11.5),
                 height: 1.35,
               ),
             ),
