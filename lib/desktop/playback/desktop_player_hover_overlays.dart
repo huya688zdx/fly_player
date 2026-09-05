@@ -164,11 +164,20 @@ class _PlayerHoverOverlayLayerState extends State<PlayerHoverOverlayLayer> {
                               ),
                           // 新旧内容底边对齐交叉：默认垂直居中会让矮面板
                           // （字幕/音轨）在高面板退场时先悬在高处再坠落。
+                          // 旧内容脱离布局流（Positioned 挂底边）：容器尺寸
+                          // 立即取新内容，不被退场中的旧内容撑高再塌缩——
+                          // 字幕↔音轨这类高度不等的切换否则会顶边抖动。
                           layoutBuilder: (currentChild, previousChildren) =>
                               Stack(
                                 alignment: Alignment.bottomCenter,
                                 children: <Widget>[
-                                  ...previousChildren,
+                                  for (final child in previousChildren)
+                                    Positioned(
+                                      left: 0,
+                                      right: 0,
+                                      bottom: 0,
+                                      child: child,
+                                    ),
                                   if (currentChild != null) currentChild,
                                 ],
                               ),
