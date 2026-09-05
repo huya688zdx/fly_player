@@ -979,6 +979,25 @@ class _DesktopPlaybackSettingsPanelState
   DesktopPlaybackSettingsPage get _page => _pages.last;
   // 页面切换方向：push 自右滑入，pop 自左滑回。
   bool _popping = false;
+  // 主页滚动位置：进二级页会卸载主列表，返回时恢复到离开处。
+  final ScrollController _mainScrollController = ScrollController();
+  double _mainScrollOffset = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _mainScrollController.addListener(() {
+      if (_mainScrollController.hasClients) {
+        _mainScrollOffset = _mainScrollController.offset;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _mainScrollController.dispose();
+    super.dispose();
+  }
 
   void _push(DesktopPlaybackSettingsPage page) => setState(() {
     _popping = false;
@@ -991,6 +1010,16 @@ class _DesktopPlaybackSettingsPanelState
       _popping = true;
       _pages.removeLast();
     });
+    if (_page == DesktopPlaybackSettingsPage.main) {
+      // 主列表重新挂载后跳回离开时的位置（1 帧内完成，被转场动画盖住）。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final controller = _mainScrollController;
+        if (!mounted || !controller.hasClients) return;
+        controller.jumpTo(
+          _mainScrollOffset.clamp(0.0, controller.position.maxScrollExtent),
+        );
+      });
+    }
   }
 
   @override
@@ -1118,12 +1147,14 @@ class _DesktopPlaybackSettingsPanelState
       widget.danmakuSourcesPageBuilder(_pop),
   };
 
-  Widget _settingsList(List<Widget> children) => ListView.separated(
-    padding: EdgeInsets.zero,
-    itemCount: children.length,
-    separatorBuilder: (_, __) => const SizedBox(height: 10),
-    itemBuilder: (_, index) => children[index],
-  );
+  Widget _settingsList(List<Widget> children, {ScrollController? controller}) =>
+      ListView.separated(
+        padding: EdgeInsets.zero,
+        controller: controller,
+        itemCount: children.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (_, index) => children[index],
+      );
 
   String _labelFor(AppLocalizations l10n, String key) =>
       MpvSettingsL10n.labelForSetting(l10n, key, _mpvSettings);
@@ -1212,7 +1243,7 @@ class _DesktopPlaybackSettingsPanelState
       icon: Icons.info_outline_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.trackInfo),
     ),
-  ]);
+  ], controller: _mainScrollController);
 
   // 画质与解码：对齐安卓 buildAdvancedMpvPage 的四段分组。
   Widget _buildAdvancedMpvPage(AppLocalizations l10n) => _settingsList(<Widget>[
