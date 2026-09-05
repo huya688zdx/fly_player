@@ -6,6 +6,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../services/settings_search_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
+import '../widgets/common/app_ambient_page.dart';
 
 class SettingsSearchEntry {
   final String id;
@@ -121,70 +122,68 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
         ? l10n.settingsSearchResults
         : l10n.settingsSearchFrequent;
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Container(
-          height: 42,
-          decoration: BoxDecoration(
-            color: colors.backgroundElevated,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colors.borderSubtle),
-          ),
-          child: Row(
-            children: <Widget>[
-              const SizedBox(width: 12),
-              Icon(Icons.search_rounded, color: colors.textSecondary, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  autofocus: true,
-                  onChanged: (value) => setState(() => _query = value),
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: AdaptiveText.roleSize(15),
-                    fontWeight: FontWeight.w500,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: l10n.settingsSearchHint,
-                    hintStyle: TextStyle(
-                      color: colors.textMuted,
+    // 页面自绘与首页同源的氛围底（整面覆盖，防转场残影）。
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          titleSpacing: 0,
+          title: Container(
+            height: 42,
+            decoration: BoxDecoration(
+              color: colors.backgroundElevated,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: colors.borderSubtle),
+            ),
+            child: Row(
+              children: <Widget>[
+                const SizedBox(width: 12),
+                Icon(
+                  Icons.search_rounded,
+                  color: colors.textSecondary,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    autofocus: true,
+                    onChanged: (value) => setState(() => _query = value),
+                    style: TextStyle(
+                      color: colors.textPrimary,
                       fontSize: AdaptiveText.roleSize(15),
+                      fontWeight: FontWeight.w500,
                     ),
-                    border: InputBorder.none,
-                    isDense: true,
+                    decoration: InputDecoration(
+                      hintText: l10n.settingsSearchHint,
+                      hintStyle: TextStyle(
+                        color: colors.textMuted,
+                        fontSize: AdaptiveText.roleSize(15),
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
                   ),
                 ),
-              ),
-              if (hasQuery)
-                IconButton(
-                  onPressed: () {
-                    _controller.clear();
-                    setState(() => _query = '');
-                  },
-                  icon: Icon(
-                    Icons.close_rounded,
-                    color: colors.textSecondary,
-                    size: 18,
-                  ),
-                )
-              else
-                const SizedBox(width: 8),
-            ],
+                if (hasQuery)
+                  IconButton(
+                    onPressed: () {
+                      _controller.clear();
+                      setState(() => _query = '');
+                    },
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: colors.textSecondary,
+                      size: 18,
+                    ),
+                  )
+                else
+                  const SizedBox(width: 8),
+              ],
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: visibleEntries.isEmpty
               ? Center(
