@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../utils/swallowed_error_logger.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'danmaku_manager_screen.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
 
@@ -142,27 +143,20 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
-        title: Text(
-          l10n.danmakuSettingsTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(
+            l10n.danmakuSettingsTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))

@@ -1445,6 +1445,20 @@
   "settingsBookmarkManagerTitle": "书签管理",
   "settingsBookmarkEmptySummary": "还没有书签",
   "settingsBookmarkCountSummary": "共 {count} 个书签",
+  "settingsBookmarkWorksCountSummary": "{works} 部作品 · 共 {count} 个书签",
+  "@settingsBookmarkWorksCountSummary": {
+    "placeholders": {
+      "works": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
+  "settingsBookmarkEpisodesCountSummary": "{episodes} 集 · 共 {count} 个书签",
+  "@settingsBookmarkEpisodesCountSummary": {
+    "placeholders": {
+      "episodes": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
   "@settingsBookmarkCountSummary": {
     "placeholders": {
       "count": {
