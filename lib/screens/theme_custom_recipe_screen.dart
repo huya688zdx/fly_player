@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../theme/app_theme_l10n.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_top_tip.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/settings/theme/theme_settings_color_picker_dialog.dart';
 import '../widgets/settings/theme/theme_settings_helpers.dart';
@@ -18,59 +19,52 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     final provider = context.watch<AppThemeProvider>();
     final themeColors = provider.themeColors;
     final l10n = AppLocalizations.of(context);
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(l10n.settingsCustomRecipeTitle),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () async {
-              final result = await showSaveThemeDialog(
-                context,
-                initialName: provider.nextSavedThemeNameFromBase(
-                  l10n.themeCustomBaseName,
-                ),
-                suggestedName: provider.nextSavedThemeNameFromBase(
-                  l10n.themeCustomBaseName,
-                ),
-              );
-              if (!context.mounted || result == null) {
-                return;
-              }
-              await provider.saveThemeSnapshot(
-                colors: provider.themeColors,
-                name: result.name,
-                description: result.description,
-                clearRuntimeBroadcastToMain: false,
-              );
-              if (!context.mounted) {
-                return;
-              }
-              AppTopTip().show(
-                context,
-                message: l10n.detailThemeSaved(result.name),
-                color: context.appColors.success,
-              );
-            },
-            child: Text(l10n.detailSaveCurrentTheme),
-          ),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
+    // 页面自绘与首页同源的氛围底（整面覆盖，防转场残影）。
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(l10n.settingsCustomRecipeTitle),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () async {
+                final result = await showSaveThemeDialog(
+                  context,
+                  initialName: provider.nextSavedThemeNameFromBase(
+                    l10n.themeCustomBaseName,
+                  ),
+                  suggestedName: provider.nextSavedThemeNameFromBase(
+                    l10n.themeCustomBaseName,
+                  ),
+                );
+                if (!context.mounted || result == null) {
+                  return;
+                }
+                await provider.saveThemeSnapshot(
+                  colors: provider.themeColors,
+                  name: result.name,
+                  description: result.description,
+                  clearRuntimeBroadcastToMain: false,
+                );
+                if (!context.mounted) {
+                  return;
+                }
+                AppTopTip().show(
+                  context,
+                  message: l10n.detailThemeSaved(result.name),
+                  color: context.appColors.success,
+                );
+              },
+              child: Text(l10n.detailSaveCurrentTheme),
+            ),
+          ],
         ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
