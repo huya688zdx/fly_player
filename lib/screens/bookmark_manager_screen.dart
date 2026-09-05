@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/item_playback_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../playback/bookmarks/bookmark_display.dart';
 import '../playback/bookmarks/bookmark_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
@@ -12,66 +13,8 @@ import '../ui/bookmark_note_preview.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
-
-bool _bookmarkIsTv(PlayerBookmarkEntry entry) {
-  final type = entry.mediaType.trim().toLowerCase();
-  return type == 'episode' || type == 'tv';
-}
-
-String _bookmarkAncestorLabel(
-  PlayerBookmarkEntry entry,
-  AppLocalizations l10n,
-) {
-  final label = entry.ancestorName.trim();
-  if (label.isNotEmpty) return label;
-  return l10n.bookmarkManagerLegacyBookmark;
-}
-
-String _bookmarkSeriesLabel(PlayerBookmarkEntry entry, AppLocalizations l10n) {
-  final seriesTitle = entry.seriesTitle.trim();
-  if (seriesTitle.isNotEmpty) return seriesTitle;
-  final title = entry.title.trim();
-  if (title.isNotEmpty) return title;
-  return l10n.bookmarkManagerUnnamedWork;
-}
-
-String _bookmarkSeasonLabel(PlayerBookmarkEntry entry, AppLocalizations l10n) {
-  if (entry.seasonNumber <= 0) return l10n.bookmarkManagerSpecialSeason;
-  return l10n.bookmarkManagerSeasonLabel(entry.seasonNumber);
-}
-
-String _bookmarkEpisodeLabel(PlayerBookmarkEntry entry, AppLocalizations l10n) {
-  if (entry.episodeNumber > 0) {
-    return l10n.bookmarkManagerEpisodeLabel(entry.episodeNumber);
-  }
-  final title = entry.title.trim();
-  if (title.isNotEmpty) return title;
-  return l10n.bookmarkManagerUnnamedEpisode;
-}
-
-int _bookmarkSeasonOrder(PlayerBookmarkEntry entry) {
-  return entry.seasonNumber <= 0 ? 0 : entry.seasonNumber;
-}
-
-int _bookmarkEpisodeOrder(PlayerBookmarkEntry entry) {
-  return entry.episodeNumber <= 0 ? 9999 : entry.episodeNumber;
-}
-
-String _formatBookmarkTime(Duration duration) {
-  final hours = duration.inHours;
-  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-  return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
-}
-
-String _formatBookmarkCreatedAt(DateTime value) {
-  final month = value.month.toString().padLeft(2, '0');
-  final day = value.day.toString().padLeft(2, '0');
-  final hour = value.hour.toString().padLeft(2, '0');
-  final minute = value.minute.toString().padLeft(2, '0');
-  return '$month-$day $hour:$minute';
-}
 
 class BookmarkManagerScreen extends StatefulWidget {
   const BookmarkManagerScreen({super.key});
@@ -129,7 +72,7 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
     final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     for (final entry in _bookmarks) {
-      final key = _bookmarkAncestorLabel(entry, l10n);
+      final key = bookmarkAncestorLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
     }
     final groups =
@@ -151,11 +94,11 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
   }
 
   Future<void> _openAncestor(_AncestorGroup group) async {
-    final hasTvEntries = group.entries.any(_bookmarkIsTv);
+    final hasTvEntries = group.entries.any(bookmarkIsTv);
     final routePage = hasTvEntries
         ? _BookmarkSeriesListScreen(
             ancestorLabel: group.label,
-            entries: group.entries.where(_bookmarkIsTv).toList(growable: false),
+            entries: group.entries.where(bookmarkIsTv).toList(growable: false),
           )
         : _BookmarkDirectEntryScreen(
             ancestorLabel: group.label,
@@ -171,32 +114,25 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final groups = _ancestorGroups();
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          l10n.settingsBookmarkManagerTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            l10n.settingsBookmarkManagerTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
+          actions: <Widget>[
+            if (_bookmarks.isNotEmpty)
+              TextButton(onPressed: _clearAll, child: Text(l10n.commonClear)),
+          ],
         ),
-        actions: <Widget>[
-          if (_bookmarks.isNotEmpty)
-            TextButton(onPressed: _clearAll, child: Text(l10n.commonClear)),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))
@@ -222,7 +158,8 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
                     return _BookmarkFolderTile(
                       icon: Icons.folder_copy_outlined,
                       title: group.label,
-                      subtitle: l10n.settingsBookmarkCountSummary(
+                      subtitle: l10n.settingsBookmarkWorksCountSummary(
+                        bookmarkWorkCount(group.entries),
                         group.entries.length,
                       ),
                       onTap: () => _openAncestor(group),
@@ -280,8 +217,8 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
           all
               .where(
                 (entry) =>
-                    _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry, l10n) == widget.ancestorLabel,
+                    bookmarkIsTv(entry) &&
+                    bookmarkAncestorLabel(entry, l10n) == widget.ancestorLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -292,7 +229,7 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
     final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     for (final entry in _entries) {
-      final key = _bookmarkSeriesLabel(entry, l10n);
+      final key = bookmarkSeriesLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
     }
     final groups =
@@ -329,30 +266,41 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final groups = _seriesGroups();
-    return Scaffold(
-      backgroundColor: context.appColors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.ancestorLabel),
-      ),
-      body: groups.isEmpty
-          ? const SizedBox.shrink()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              itemCount: groups.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final group = groups[index];
-                return _BookmarkFolderTile(
-                  icon: Icons.tv_outlined,
-                  title: group.label,
-                  subtitle: l10n.settingsBookmarkCountSummary(
-                    group.entries.length,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.ancestorLabel),
+        ),
+        body: groups.isEmpty
+            ? Center(
+                child: Text(
+                  l10n.settingsBookmarkEmptySummary,
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(14),
                   ),
-                  onTap: () => _openSeries(group),
-                );
-              },
-            ),
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: groups.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return _BookmarkFolderTile(
+                    icon: Icons.tv_outlined,
+                    title: group.label,
+                    subtitle: l10n.settingsBookmarkEpisodesCountSummary(
+                      bookmarkMediaCount(group.entries),
+                      group.entries.length,
+                    ),
+                    onTap: () => _openSeries(group),
+                  );
+                },
+              ),
+      ),
     );
   }
 }
@@ -404,10 +352,10 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
           all
               .where(
                 (entry) =>
-                    _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry, l10n) ==
+                    bookmarkIsTv(entry) &&
+                    bookmarkAncestorLabel(entry, l10n) ==
                         widget.ancestorLabel &&
-                    _bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel,
+                    bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -419,9 +367,9 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     final orders = <String, int>{};
     for (final entry in _entries) {
-      final key = _bookmarkSeasonLabel(entry, l10n);
+      final key = bookmarkSeasonLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
-      orders[key] = _bookmarkSeasonOrder(entry);
+      orders[key] = bookmarkSeasonOrder(entry);
     }
     final groups =
         buckets.entries
@@ -455,30 +403,41 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final groups = _seasonGroups();
-    return Scaffold(
-      backgroundColor: context.appColors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.seriesLabel),
-      ),
-      body: groups.isEmpty
-          ? const SizedBox.shrink()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              itemCount: groups.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final group = groups[index];
-                return _BookmarkFolderTile(
-                  icon: Icons.video_library_outlined,
-                  title: group.label,
-                  subtitle: l10n.settingsBookmarkCountSummary(
-                    group.entries.length,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.seriesLabel),
+        ),
+        body: groups.isEmpty
+            ? Center(
+                child: Text(
+                  l10n.settingsBookmarkEmptySummary,
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(14),
                   ),
-                  onTap: () => _openSeason(group),
-                );
-              },
-            ),
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: groups.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return _BookmarkFolderTile(
+                    icon: Icons.video_library_outlined,
+                    title: group.label,
+                    subtitle: l10n.settingsBookmarkEpisodesCountSummary(
+                      bookmarkMediaCount(group.entries),
+                      group.entries.length,
+                    ),
+                    onTap: () => _openSeason(group),
+                  );
+                },
+              ),
+      ),
     );
   }
 }
@@ -533,11 +492,11 @@ class _BookmarkEpisodeListScreenState
           all
               .where(
                 (entry) =>
-                    _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry, l10n) ==
+                    bookmarkIsTv(entry) &&
+                    bookmarkAncestorLabel(entry, l10n) ==
                         widget.ancestorLabel &&
-                    _bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel &&
-                    _bookmarkSeasonLabel(entry, l10n) == widget.seasonLabel,
+                    bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel &&
+                    bookmarkSeasonLabel(entry, l10n) == widget.seasonLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => a.positionMs.compareTo(b.positionMs));
@@ -549,9 +508,9 @@ class _BookmarkEpisodeListScreenState
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     final orders = <String, int>{};
     for (final entry in _entries) {
-      final key = _bookmarkEpisodeLabel(entry, l10n);
+      final key = bookmarkEpisodeLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
-      orders[key] = _bookmarkEpisodeOrder(entry);
+      orders[key] = bookmarkEpisodeOrder(entry);
     }
     final groups =
         buckets.entries
@@ -586,30 +545,40 @@ class _BookmarkEpisodeListScreenState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final groups = _episodeGroups();
-    return Scaffold(
-      backgroundColor: context.appColors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.seasonLabel),
-      ),
-      body: groups.isEmpty
-          ? const SizedBox.shrink()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              itemCount: groups.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final group = groups[index];
-                return _BookmarkFolderTile(
-                  icon: Icons.movie_filter_outlined,
-                  title: group.label,
-                  subtitle: l10n.settingsBookmarkCountSummary(
-                    group.bookmarks.length,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.seasonLabel),
+        ),
+        body: groups.isEmpty
+            ? Center(
+                child: Text(
+                  l10n.settingsBookmarkEmptySummary,
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(14),
                   ),
-                  onTap: () => _openEpisode(group),
-                );
-              },
-            ),
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: groups.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return _BookmarkFolderTile(
+                    icon: Icons.movie_filter_outlined,
+                    title: group.label,
+                    subtitle: l10n.settingsBookmarkCountSummary(
+                      group.bookmarks.length,
+                    ),
+                    onTap: () => _openEpisode(group),
+                  );
+                },
+              ),
+      ),
     );
   }
 }
@@ -667,12 +636,12 @@ class _BookmarkEpisodeBookmarksScreenState
           all
               .where(
                 (entry) =>
-                    _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry, l10n) ==
+                    bookmarkIsTv(entry) &&
+                    bookmarkAncestorLabel(entry, l10n) ==
                         widget.ancestorLabel &&
-                    _bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel &&
-                    _bookmarkSeasonLabel(entry, l10n) == widget.seasonLabel &&
-                    _bookmarkEpisodeLabel(entry, l10n) == widget.episodeLabel,
+                    bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel &&
+                    bookmarkSeasonLabel(entry, l10n) == widget.seasonLabel &&
+                    bookmarkEpisodeLabel(entry, l10n) == widget.episodeLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => a.positionMs.compareTo(b.positionMs));
@@ -709,7 +678,7 @@ class _BookmarkEpisodeBookmarksScreenState
     await _launcher.open(
       context,
       itemGuid: itemGuid,
-      fallbackTitle: _bookmarkSeriesLabel(entry, l10n),
+      fallbackTitle: bookmarkSeriesLabel(entry, l10n),
       resumePosition: entry.position,
     );
   }
@@ -718,43 +687,45 @@ class _BookmarkEpisodeBookmarksScreenState
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.episodeLabel),
-      ),
-      body: _entries.isEmpty
-          ? Center(
-              child: Text(
-                l10n.bookmarkManagerNoEpisodeBookmarks,
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: AdaptiveText.roleSize(
-                    14,
-                    role: AdaptiveFontRole.body,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.episodeLabel),
+        ),
+        body: _entries.isEmpty
+            ? Center(
+                child: Text(
+                  l10n.bookmarkManagerNoEpisodeBookmarks,
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(
+                      14,
+                      role: AdaptiveFontRole.body,
+                    ),
                   ),
                 ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: _entries.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final entry = _entries[index];
+                  return _RichBookmarkEntryCard(
+                    note: entry.note,
+                    title: formatBookmarkTime(entry.position),
+                    subtitle: l10n.playerBookmarkCreatedAt(
+                      formatBookmarkCreatedAt(entry.createdAt),
+                    ),
+                    onTap: () => _openBookmark(entry),
+                    onEdit: () => _editBookmarkNote(entry),
+                    onDelete: () => _deleteBookmark(entry),
+                  );
+                },
               ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              itemCount: _entries.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final entry = _entries[index];
-                return _RichBookmarkEntryCard(
-                  note: entry.note,
-                  title: _formatBookmarkTime(entry.position),
-                  subtitle: l10n.playerBookmarkCreatedAt(
-                    _formatBookmarkCreatedAt(entry.createdAt),
-                  ),
-                  onTap: () => _openBookmark(entry),
-                  onEdit: () => _editBookmarkNote(entry),
-                  onDelete: () => _deleteBookmark(entry),
-                );
-              },
-            ),
+      ),
     );
   }
 }
@@ -806,8 +777,8 @@ class _BookmarkDirectEntryScreenState
           all
               .where(
                 (entry) =>
-                    !_bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry, l10n) == widget.ancestorLabel,
+                    !bookmarkIsTv(entry) &&
+                    bookmarkAncestorLabel(entry, l10n) == widget.ancestorLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -844,7 +815,7 @@ class _BookmarkDirectEntryScreenState
     await _launcher.open(
       context,
       itemGuid: itemGuid,
-      fallbackTitle: _bookmarkSeriesLabel(entry, l10n),
+      fallbackTitle: bookmarkSeriesLabel(entry, l10n),
       resumePosition: entry.position,
     );
   }
@@ -853,7 +824,7 @@ class _BookmarkDirectEntryScreenState
     final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     for (final entry in _entries) {
-      final key = _bookmarkSeriesLabel(entry, l10n);
+      final key = bookmarkSeriesLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
     }
     final groups =
@@ -873,60 +844,73 @@ class _BookmarkDirectEntryScreenState
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final groups = _groups();
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.ancestorLabel),
-      ),
-      body: groups.isEmpty
-          ? const SizedBox.shrink()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              itemCount: groups.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final group = groups[index];
-                return Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(22),
-                    color: colors.surfaceSubtle,
-                    border: Border.all(color: colors.borderSubtle),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.ancestorLabel),
+        ),
+        body: groups.isEmpty
+            ? Center(
+                child: Text(
+                  l10n.settingsBookmarkEmptySummary,
+                  style: TextStyle(
+                    color: context.appColors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(14),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          group.label,
-                          style: TextStyle(
-                            color: colors.textPrimary,
-                            fontSize: AdaptiveText.roleSize(
-                              16,
-                              role: AdaptiveFontRole.title,
-                            ),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        for (var i = 0; i < group.bookmarks.length; i++) ...[
-                          _RichBookmarkEntryRow(
-                            entry: group.bookmarks[i],
-                            onTap: () => _openBookmark(group.bookmarks[i]),
-                            onEdit: () => _editBookmarkNote(group.bookmarks[i]),
-                            onDelete: () => _deleteBookmark(group.bookmarks[i]),
-                          ),
-                          if (i != group.bookmarks.length - 1)
-                            Divider(color: colors.borderSubtle, height: 14),
-                        ],
-                      ],
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: groups.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(22),
+                      color: colors.surfaceSubtle,
+                      border: Border.all(color: colors.borderSubtle),
                     ),
-                  ),
-                );
-              },
-            ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            group.label,
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: AdaptiveText.roleSize(
+                                16,
+                                role: AdaptiveFontRole.title,
+                              ),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          for (var i = 0; i < group.bookmarks.length; i++) ...[
+                            _RichBookmarkEntryRow(
+                              entry: group.bookmarks[i],
+                              onTap: () => _openBookmark(group.bookmarks[i]),
+                              onEdit: () =>
+                                  _editBookmarkNote(group.bookmarks[i]),
+                              onDelete: () =>
+                                  _deleteBookmark(group.bookmarks[i]),
+                            ),
+                            if (i != group.bookmarks.length - 1)
+                              Divider(color: colors.borderSubtle, height: 14),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }
@@ -1143,7 +1127,7 @@ class _RichBookmarkEntryRow extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: Text(
-                    '${_formatBookmarkTime(entry.position)}  ·  ${_formatBookmarkCreatedAt(entry.createdAt)}',
+                    '${formatBookmarkTime(entry.position)}  ·  ${formatBookmarkCreatedAt(entry.createdAt)}',
                     style: TextStyle(
                       color: colors.textSecondary,
                       fontSize: AdaptiveText.roleSize(
