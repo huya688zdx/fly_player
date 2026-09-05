@@ -569,185 +569,8 @@ class AppSettingsScreen extends StatelessWidget {
     return l10n.settingsMpvTitle;
   }
 
-  // ---------------------------------------------------------------------------
-  // 设置首页条目（单栏列表与桌面双栏右栏共用，行为必须保持一致）。
-  // ---------------------------------------------------------------------------
-
-  Widget _themeEntryTile(
-    BuildContext context,
-    AppLocalizations l10n,
-    AppThemeProvider themeProvider,
-  ) {
-    return _SettingsEntryTile(
-      icon: Icons.palette_outlined,
-      title: l10n.settingsThemeTitle,
-      subtitle: l10n.settingsThemeSubtitle(
-        AppThemeL10n.currentThemeTitle(l10n, themeProvider),
-        AppThemeL10n.currentThemeSubtitle(l10n, themeProvider),
-      ),
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(context, SettingsDestinationRoutes.theme),
-        );
-      },
-    );
-  }
-
-  Widget _languageEntryTile(
-    BuildContext context,
-    AppLocalizations l10n,
-    AppLocaleProvider localeProvider,
-  ) {
-    return _SettingsEntryTile(
-      icon: Icons.language_rounded,
-      title: l10n.settingsLanguageTitle,
-      subtitle: localeProvider.mode == AppLocaleMode.zhCN
-          ? l10n.settingsLanguageSubtitleZhCN
-          : l10n.settingsLanguageSubtitleSystem,
-      onTap: () {
-        unawaited(_openLanguageSheet(context));
-      },
-    );
-  }
-
-  Widget _startupPosterHomeEntryTile(
-    BuildContext context,
-    AppLocalizations l10n,
-    StartupPreferencesProvider startupPreferences,
-  ) {
-    return _SettingsSwitchTile(
-      icon: Icons.slideshow_rounded,
-      title: l10n.settingsStartupPosterHomeTitle,
-      subtitle: l10n.settingsStartupPosterHomeSubtitle,
-      value: startupPreferences.openPosterHomeOnStartup,
-      onChanged: startupPreferences.isReady
-          ? (value) => unawaited(
-              _setStartupPosterHome(context, startupPreferences, value),
-            )
-          : null,
-    );
-  }
-
-  Widget _mpvEntryTile(BuildContext context, AppLocalizations l10n) {
-    return _SettingsEntryTile(
-      icon: Icons.video_settings_rounded,
-      title: l10n.settingsMpvTitle,
-      subtitle: l10n.settingsMpvSubtitle,
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(context, SettingsDestinationRoutes.mpv),
-        );
-      },
-    );
-  }
-
-  Widget _parallelWindowEntryTile(
-    BuildContext context,
-    AppLocalizations l10n,
-    String parallelSummary,
-  ) {
-    return _SettingsEntryTile(
-      icon: Icons.splitscreen_outlined,
-      title: l10n.settingsParallelWindowTitle,
-      subtitle: parallelSummary,
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(
-            context,
-            SettingsDestinationRoutes.parallelWindow,
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _storageEntryTile(BuildContext context, AppLocalizations l10n) {
-    return _SettingsEntryTile(
-      icon: Icons.storage_rounded,
-      title: l10n.settingsStorageTitle,
-      subtitle: l10n.settingsStorageSubtitle,
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(context, SettingsDestinationRoutes.storage),
-        );
-      },
-    );
-  }
-
-  Widget _downloadsEntryTile(BuildContext context, AppLocalizations l10n) {
-    return _SettingsEntryTile(
-      icon: Icons.download_rounded,
-      title: l10n.settingsDownloadTitle,
-      subtitle: l10n.settingsDownloadSubtitle,
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(
-            context,
-            SettingsDestinationRoutes.downloads,
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _playStatsEntryTile(BuildContext context, AppLocalizations l10n) {
-    return _SettingsEntryTile(
-      icon: Icons.bar_chart_rounded,
-      title: l10n.settingsPlayStatsTitle,
-      subtitle: l10n.settingsPlayStatsSubtitle,
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(
-            context,
-            SettingsDestinationRoutes.playStats,
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _otherEntryTile(BuildContext context, AppLocalizations l10n) {
-    return _SettingsEntryTile(
-      icon: Icons.more_horiz_rounded,
-      title: l10n.settingsOtherTitle,
-      subtitle: l10n.settingsOtherSubtitle,
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(context, SettingsDestinationRoutes.other),
-        );
-      },
-    );
-  }
-
-  Widget _logsEntryTile(BuildContext context, AppLocalizations l10n) {
-    return _SettingsEntryTile(
-      icon: Icons.receipt_long_outlined,
-      title: l10n.settingsLogTitle,
-      subtitle: l10n.settingsLogSubtitle,
-      onTap: () {
-        unawaited(
-          _openSettingsDestination(context, SettingsDestinationRoutes.logs),
-        );
-      },
-    );
-  }
-
-  Widget _fnConnectReloginEntryTile(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) {
-    return _SettingsEntryTile(
-      icon: Icons.cloud_sync_outlined,
-      title: l10n.fnConnectReloginTitle,
-      subtitle: l10n.fnConnectReloginShortSubtitle,
-      onTap: () {
-        unawaited(_resetFnConnectWebLoginState(context));
-      },
-    );
-  }
-
-  /// 桌面端设置分组定义：条目指向与移动端单栏列表一致，
-  /// 行组件为桌面紧凑样式（行尾当前值预览）。
+  /// 设置分组定义：全部形态共用（桌面双栏与手机/平板/窄窗单列网格
+  /// 同构），行组件为紧凑样式（行尾当前值预览）。
   List<_SettingsSection> _buildDesktopSettingsSections(
     BuildContext context, {
     required AppLocalizations l10n,
@@ -901,7 +724,6 @@ class AppSettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final localeProvider = context.watch<AppLocaleProvider>();
     final themeProvider = context.watch<AppThemeProvider>();
@@ -909,10 +731,6 @@ class AppSettingsScreen extends StatelessWidget {
     final startupPreferences = context.watch<StartupPreferencesProvider>();
     final media = MediaQuery.of(context);
     final compact = media.size.width < 720;
-    final titleSize = AdaptiveText.roleSize(
-      compact ? 19 : 21,
-      role: AdaptiveFontRole.title,
-    );
 
     return FutureBuilder<bool>(
       future: EmbeddedDetailLauncher.isParallelWindowSupported(),
@@ -927,16 +745,16 @@ class AppSettingsScreen extends StatelessWidget {
                   : l10n.settingsParallelSummaryEnabledRight)
             : l10n.settingsParallelSummaryDisabled;
 
-        if (DesktopEnvironment.isDesktopPlatform &&
-            !secondaryHost &&
-            media.size.width >= DesktopBreakpoints.sidebarMinWidth) {
-          // 桌面端：设置区自带 AppBar 与内部导航（分组卡片网格首页），
-          // 子页在该 Navigator 内推入，只替换内容区、保留左侧应用侧栏。
+        if (DesktopEnvironment.isDesktopPlatform && !secondaryHost) {
+          // 桌面端：设置区自带页头与内部导航（分组卡片网格首页），
+          // 子页只替换设置内容区、保留左侧应用侧栏。子页形态跟随
+          // 「并行窗口」开关：开 → 网格 | 右栏双栏；关 → 单屏铺满内容区。
           return _DesktopSettingsArea(
             key: const ValueKey<String>('desktop_settings_area'),
             bottomInset: MainNavigationMetrics.contentBottomInset(
               media.viewPadding.bottom,
             ),
+            twoPane: parallelSettings.enabled,
             buildSections: (context) => _buildDesktopSettingsSections(
               context,
               l10n: AppLocalizations.of(context),
@@ -948,132 +766,44 @@ class AppSettingsScreen extends StatelessWidget {
             ),
             onOpenSearch: (context) => _openSettingsSearch(
               context,
-              context.watch<AppThemeProvider>(),
+              // 事件回调里不得再 watch：复用 build 阶段已取好的 provider。
+              themeProvider,
               parallelSummary,
               parallelWindowSupported,
             ),
           );
         }
 
-        return Scaffold(
-          backgroundColor: colors.backgroundBase,
-          appBar: AppBar(
-            leading: secondaryHost
-                ? IconButton(
-                    onPressed: () {
-                      EmbeddedDetailLauncher.closeHostOrPop(context);
-                    },
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                  )
-                : null,
-            title: Text(
-              l10n.settingsTitle,
-              style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: titleSize,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            actions: <Widget>[
-              IconButton(
-                onPressed: () => _openSettingsSearch(
-                  context,
-                  themeProvider,
-                  parallelSummary,
-                  parallelWindowSupported,
-                ),
-                icon: const Icon(Icons.search_rounded),
-                tooltip: l10n.settingsSearchTooltip,
-              ),
-            ],
+        // 手机 / 平板 / 窄桌面窗 / 分屏副窗：与桌面设置区同构的分组卡片
+        // 首页（窄视口自动单列），子页仍走整页导航，观感与桌面双栏一致。
+        return _DesktopSettingsGrid(
+          sections: _buildDesktopSettingsSections(
+            context,
+            l10n: l10n,
+            localeProvider: localeProvider,
+            themeProvider: themeProvider,
+            startupPreferences: startupPreferences,
+            parallelWindowSupported: parallelWindowSupported,
+            parallelSummary: parallelSummary,
           ),
-          body: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[
-                  colors.backgroundElevated,
-                  colors.backgroundBase,
-                ],
-              ),
-            ),
-            child: SafeArea(
-              top: false,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // 单栏设置列表：桌面宽视口由 maxWidth 收窄居中，
-                  // 移动端 / 嵌入 pane 等窄视口同构，行为保持一致。
-                  final maxContentWidth = constraints.maxWidth >= 1080
-                      ? 960.0
-                      : 760.0;
-                  return Align(
-                    alignment: Alignment.topCenter,
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.fromLTRB(
-                        compact ? 16 : 24,
-                        10,
-                        compact ? 16 : 24,
-                        // 主窗口下内容延伸到悬浮导航条后方，需预留底栏高度；
-                        // 分屏副窗没有底栏，维持原有留白。
-                        secondaryHost
-                            ? (compact ? 24 : 32)
-                            : MainNavigationMetrics.contentBottomInset(
-                                media.viewPadding.bottom,
-                              ),
-                      ),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: maxContentWidth),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            _SettingsGroupCard(
-                              children: <Widget>[
-                                _themeEntryTile(context, l10n, themeProvider),
-                                const _SettingsGroupDivider(),
-                                _languageEntryTile(
-                                  context,
-                                  l10n,
-                                  localeProvider,
-                                ),
-                                const _SettingsGroupDivider(),
-                                _startupPosterHomeEntryTile(
-                                  context,
-                                  l10n,
-                                  startupPreferences,
-                                ),
-                                const _SettingsGroupDivider(),
-                                _mpvEntryTile(context, l10n),
-                                if (parallelWindowSupported) ...<Widget>[
-                                  const _SettingsGroupDivider(),
-                                  _parallelWindowEntryTile(
-                                    context,
-                                    l10n,
-                                    parallelSummary,
-                                  ),
-                                ],
-                                const _SettingsGroupDivider(),
-                                _storageEntryTile(context, l10n),
-                                const _SettingsGroupDivider(),
-                                _downloadsEntryTile(context, l10n),
-                                const _SettingsGroupDivider(),
-                                _playStatsEntryTile(context, l10n),
-                                const _SettingsGroupDivider(),
-                                _otherEntryTile(context, l10n),
-                                const _SettingsGroupDivider(),
-                                _logsEntryTile(context, l10n),
-                                const _SettingsGroupDivider(),
-                                _fnConnectReloginEntryTile(context, l10n),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+          bottomInset: secondaryHost
+              ? (compact ? 24.0 : 32.0)
+              : MainNavigationMetrics.contentBottomInset(
+                  media.viewPadding.bottom,
+                ).toDouble(),
+          leading: secondaryHost
+              ? IconButton(
+                  onPressed: () {
+                    EmbeddedDetailLauncher.closeHostOrPop(context);
+                  },
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                )
+              : null,
+          onOpenFullSearch: () => _openSettingsSearch(
+            context,
+            themeProvider,
+            parallelSummary,
+            parallelWindowSupported,
           ),
         );
       },
@@ -1128,185 +858,6 @@ class _LanguageOptionTile extends StatelessWidget {
   }
 }
 
-class _SettingsGroupCard extends StatelessWidget {
-  final List<Widget> children;
-
-  const _SettingsGroupCard({required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Column(children: children),
-    );
-  }
-}
-
-class _SettingsGroupDivider extends StatelessWidget {
-  const _SettingsGroupDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 18),
-      height: 1,
-      color: colors.borderSubtle,
-    );
-  }
-}
-
-class _SettingsEntryTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _SettingsEntryTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: colors.surfaceSubtle,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              alignment: Alignment.center,
-              child: Icon(icon, color: colors.textPrimary, size: 22),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(16),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: AdaptiveText.roleSize(13.2),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: colors.textMuted,
-              size: 24,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsSwitchTile extends StatelessWidget {
-  const _SettingsSwitchTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return InkWell(
-      onTap: onChanged == null ? null : () => onChanged!(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: colors.surfaceSubtle,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              alignment: Alignment.center,
-              child: Icon(icon, color: colors.textPrimary, size: 22),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(16),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: AdaptiveText.roleSize(13.2),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Switch.adaptive(
-              key: const ValueKey<String>('startup_poster_home_switch'),
-              value: value,
-              onChanged: onChanged,
-              // 显式取 AppThemeColors，跟随主题预设与动态取色。
-              activeThumbColor: context.appColors.selection,
-              activeTrackColor: context.appColors.selection.withValues(
-                alpha: 0.45,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 桌面端设置行数据：紧凑行的静态描述，行组件按此渲染并支持搜索过滤。
 class _DesktopRowData {
   final IconData icon;
   final String title;
@@ -1370,19 +921,24 @@ class _SettingsSection {
   }
 }
 
-/// 桌面端设置区：左栏分组卡片网格（二级）+ 右栏子页列（三级）。
-/// 右栏由内部 Navigator 承载设置子页，滑入/滑出不替换网格、
-/// 也不影响左侧应用侧栏；手机 / 平板不进入此分支。
+/// 桌面端设置区：分组卡片网格首页 + 内部导航承载设置子页（三级），
+/// 不替换内容区外的布局、也不影响左侧应用侧栏。
+/// 子页形态跟随「并行窗口」开关：开且内容区够宽 → 网格 | 右栏双栏；
+/// 关（或内容区不够宽）→ 单屏，子页整区铺开、返回即回网格。
 class _DesktopSettingsArea extends StatefulWidget {
   final double bottomInset;
   final List<_SettingsSection> Function(BuildContext) buildSections;
   final void Function(BuildContext) onOpenSearch;
+
+  /// 「并行窗口」开关：true 时子页在右栏并排打开，false 时单屏铺满。
+  final bool twoPane;
 
   const _DesktopSettingsArea({
     super.key,
     required this.bottomInset,
     required this.buildSections,
     required this.onOpenSearch,
+    required this.twoPane,
   });
 
   @override
@@ -1393,7 +949,19 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
   static const double _subMinWidth = 430;
   static const double _subMaxWidth = 800;
 
+  /// 双栏的最低内容区宽度：低于此值即使并行开启也退单屏，
+  /// 避免网格被压到不可读。
+  static const double _twoPaneMinWidth = 900;
+
   final GlobalKey<NavigatorState> _subNavKey = GlobalKey<NavigatorState>();
+
+  /// 单屏模式的内部导航键：与双栏右栏分开，避免形态切换时
+  /// GlobalKey 复用把首页路由搬进隐形右栏。
+  final GlobalKey<NavigatorState> _singlePaneNavKey =
+      GlobalKey<NavigatorState>();
+
+  /// 当前帧实际生效的形态（build 中同步），供打开子页时选键。
+  bool _twoPaneActive = false;
 
   /// 右栏当前栈顶路由名；'/' 表示未打开任何子页。
   String? _topRoute;
@@ -1402,11 +970,13 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
 
   void openDestination(String routeName) {
     if (_topRoute == routeName) return;
-    _subNavKey.currentState?.pushNamed(routeName);
+    (_twoPaneActive ? _subNavKey : _singlePaneNavKey).currentState?.pushNamed(
+      routeName,
+    );
   }
 
   void openSearch() {
-    final nav = _subNavKey.currentState;
+    final nav = (_twoPaneActive ? _subNavKey : _singlePaneNavKey).currentState;
     if (nav == null) return;
     widget.onOpenSearch(nav.context);
   }
@@ -1440,6 +1010,14 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
   Route<dynamic> _onGenerateRoute(RouteSettings settings) {
     final name = settings.name ?? '/';
     if (name == '/' || name == SettingsDestinationRoutes.home) {
+      // 单屏模式：'/' 即分组卡片首页（经作用域取最新分组数据）；
+      // 双栏模式网格在导航器外，'/' 只占位。
+      if (!_twoPaneActive) {
+        return MaterialPageRoute<void>(
+          settings: settings,
+          builder: (_) => const _DesktopSettingsHomeView(),
+        );
+      }
       return _blankRoute(settings);
     }
     final destination = SettingsDestinationRoutes.buildRoute(name);
@@ -1447,7 +1025,7 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
       return _blankRoute(settings);
     }
     return AppTransitions.leftToRightPageTurnRoute<void>(
-      _DesktopSettingsSubPage(child: destination),
+      _DesktopSettingsSubPage(alignToGrid: !_twoPaneActive, child: destination),
       settings: settings,
     );
   }
@@ -1459,6 +1037,25 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
       state: this,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          // 「并行窗口」关闭或内容区不够宽时退单屏：子页整区铺开，
+          // 返回即回网格，应用侧栏始终保留。
+          final twoPane =
+              widget.twoPane && constraints.maxWidth >= _twoPaneMinWidth;
+          _twoPaneActive = twoPane;
+          if (!twoPane) {
+            return KeyedSubtree(
+              key: const ValueKey<String>('desktop_settings_navigator'),
+              child: Navigator(
+                key: _singlePaneNavKey,
+                initialRoute: '/',
+                observers: <NavigatorObserver>[
+                  _SettingsAreaNavObserver(_handleStackChanged),
+                ],
+                onGenerateRoute: _onGenerateRoute,
+                onUnknownRoute: _onGenerateRoute,
+              ),
+            );
+          }
           final openWidth = math
               .max(constraints.maxWidth * 0.45, _subMinWidth)
               .clamp(0.0, _subMaxWidth)
@@ -1564,9 +1161,16 @@ class _DesktopSettingsAreaScope extends InheritedWidget {
 
 /// 设置区首页（设计稿「放映控制台」）：页头标题 + 即时过滤搜索框，
 /// 分组卡片网格（宽视口双列，窄视口单列），行尾当前值预览。
+/// 桌面双栏与手机/平板/窄窗单列形态共用此首页。
 class _DesktopSettingsGrid extends StatefulWidget {
   final List<_SettingsSection> sections;
   final double bottomInset;
+
+  /// 分屏副窗等宿主的返回钮（主窗口首页为 null）。
+  final Widget? leading;
+
+  /// 完整设置搜索入口（跨子页深搜）；null 时不显示入口。
+  final VoidCallback? onOpenFullSearch;
 
   static const double _gridMaxWidth = 1128;
   static const double _twoColumnMinWidth = 1000;
@@ -1574,6 +1178,8 @@ class _DesktopSettingsGrid extends StatefulWidget {
   const _DesktopSettingsGrid({
     required this.sections,
     required this.bottomInset,
+    this.leading,
+    this.onOpenFullSearch,
   });
 
   @override
@@ -1599,6 +1205,7 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
+    final compact = MediaQuery.sizeOf(context).width < 720;
     final visibleSections = widget.sections
         .map((section) => section.filtered(_query))
         .whereType<_SettingsSection>()
@@ -1607,7 +1214,6 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
       backgroundColor: colors.backgroundBase,
       body: _DesktopSettingsAtmosphere(
         child: SafeArea(
-          top: false,
           child: CallbackShortcuts(
             bindings: <ShortcutActivator, VoidCallback>{
               const SingleActivator(
@@ -1617,7 +1223,12 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
                   _searchFocus.requestFocus(),
             },
             child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(40, 26, 40, widget.bottomInset + 28),
+              padding: EdgeInsets.fromLTRB(
+                compact ? 16 : 40,
+                26,
+                compact ? 16 : 40,
+                widget.bottomInset + 28,
+              ),
               child: Align(
                 alignment: Alignment.topCenter,
                 child: ConstrainedBox(
@@ -1683,58 +1294,97 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
 
   Widget _buildHeader(BuildContext context, AppLocalizations l10n) {
     final colors = context.appColors;
+    final compact = MediaQuery.sizeOf(context).width < 720;
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            if (widget.leading != null) ...<Widget>[
+              widget.leading!,
+              const SizedBox(width: 10),
+            ],
+            Text(
+              l10n.settingsTitle,
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontSize: AdaptiveText.roleSize(
+                  24,
+                  role: AdaptiveFontRole.title,
+                ),
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(width: 12),
+            // 标题后的强调色短划：放映光束的品牌记号。
+            Container(
+              width: 26,
+              height: 3,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(3),
+                gradient: LinearGradient(
+                  colors: <Color>[
+                    colors.selection,
+                    colors.selection.withValues(alpha: 0),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '${l10n.settingsDesktopSummary(widget.sections.length, _totalRows)}　'
+          '${l10n.settingsDesktopSummaryHint}',
+          maxLines: compact ? 2 : 1,
+          style: TextStyle(
+            color: colors.textMuted,
+            fontSize: AdaptiveText.roleSize(12.5),
+          ),
+        ),
+      ],
+    );
+    final searchField = _buildSearchField(context, l10n);
+    final fullSearchButton = widget.onOpenFullSearch == null
+        ? null
+        : IconButton(
+            key: const ValueKey<String>('settings_open_full_search'),
+            tooltip: l10n.settingsSearchTooltip,
+            onPressed: widget.onOpenFullSearch,
+            icon: Icon(
+              Icons.manage_search_rounded,
+              size: 22,
+              color: colors.textSecondary,
+            ),
+          );
+
+    if (compact) {
+      // 窄视口：标题行与搜索框分两行排布，搜索框占满行宽。
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          titleBlock,
+          const SizedBox(height: 14),
+          Row(
+            children: <Widget>[
+              Expanded(child: searchField),
+              if (fullSearchButton != null) fullSearchButton,
+            ],
+          ),
+        ],
+      );
+    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Text(
-                    l10n.settingsTitle,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(
-                        24,
-                        role: AdaptiveFontRole.title,
-                      ),
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // 标题后的强调色短划：放映光束的品牌记号。
-                  Container(
-                    width: 26,
-                    height: 3,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(3),
-                      gradient: LinearGradient(
-                        colors: <Color>[
-                          colors.selection,
-                          colors.selection.withValues(alpha: 0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${l10n.settingsDesktopSummary(widget.sections.length, _totalRows)}　'
-                '${l10n.settingsDesktopSummaryHint}',
-                style: TextStyle(
-                  color: colors.textMuted,
-                  fontSize: AdaptiveText.roleSize(12.5),
-                ),
-              ),
-            ],
-          ),
-        ),
+        Expanded(child: titleBlock),
         const SizedBox(width: 24),
-        _buildSearchField(context, l10n),
+        searchField,
+        if (fullSearchButton != null) ...<Widget>[
+          const SizedBox(width: 6),
+          fullSearchButton,
+        ],
       ],
     );
   }
@@ -1742,8 +1392,9 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
   Widget _buildSearchField(BuildContext context, AppLocalizations l10n) {
     final colors = context.appColors;
     final hasQuery = _query.trim().isNotEmpty;
+    final compact = MediaQuery.sizeOf(context).width < 720;
     return Container(
-      width: 292,
+      width: compact ? double.infinity : 292,
       height: 38,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
@@ -1789,7 +1440,7 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
                 color: colors.textMuted,
               ),
             )
-          else
+          else if (!compact)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -2101,31 +1752,209 @@ class _DesktopSearchEmptyHint extends StatelessWidget {
   }
 }
 
-/// 设置子页容器：桌面端统一外观 —— 基底底色 + 氛围光晕叠加在内容上方，
-/// 内容宽度收敛居中；子页自身仍是完整 Scaffold（头部由
-/// buildSecondaryHostAppBar 的桌面变体统一）。
+/// 单屏模式（并行窗口关闭）的设置首页路由页：经作用域取最新分组数据，
+/// 与双栏模式的网格共用同一份数据源。
+class _DesktopSettingsHomeView extends StatelessWidget {
+  const _DesktopSettingsHomeView();
+
+  @override
+  Widget build(BuildContext context) {
+    final area = _DesktopSettingsAreaScope.maybeOf(context);
+    return _DesktopSettingsGrid(
+      sections:
+          area?.widget.buildSections(context) ?? const <_SettingsSection>[],
+      bottomInset: area?.widget.bottomInset ?? 0,
+      onOpenFullSearch: area == null ? null : () => area.openSearch(),
+    );
+  }
+}
+
+/// 设置子页容器：桌面端统一外观 —— 基底底色 + 氛围光晕叠加在内容上方；
+/// 子页自身仍是完整 Scaffold（头部由 buildSecondaryHostAppBar 统一）。
 class _DesktopSettingsSubPage extends StatelessWidget {
   final Widget child;
 
-  const _DesktopSettingsSubPage({required this.child});
+  /// 单屏模式：与首页网格同页边距（40 / 窄窗 16）与上限（1128），
+  /// 进出子页时左右边缘与首页卡片对齐；滚动条由 [_SubPageEdgeScrollbar]
+  /// 画在窗口右缘。双栏右栏维持原 940 居中（视口=栏宽，无悬空问题）。
+  final bool alignToGrid;
+
+  const _DesktopSettingsSubPage({
+    required this.child,
+    this.alignToGrid = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    if (!alignToGrid) {
+      return Container(
+        color: colors.backgroundBase,
+        child: _DesktopSettingsAtmosphere(
+          overlay: true,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 940),
+              child: child,
+            ),
+          ),
+        ),
+      );
+    }
+    final compact = MediaQuery.sizeOf(context).width < 720;
     return Container(
       color: colors.backgroundBase,
       child: _DesktopSettingsAtmosphere(
         overlay: true,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 940),
-            child: child,
+        // 视口与首页网格同宽，内建滚动条会悬空在内容盒边缘；
+        // 屏蔽后由 _SubPageEdgeScrollbar 监听滚动指标、画在窗口右缘。
+        child: _SubPageEdgeScrollbar(
+          color: colors.textMuted.withValues(alpha: 0.35),
+          child: ScrollConfiguration(
+            behavior: ScrollConfiguration.of(
+              context,
+            ).copyWith(scrollbars: false),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 40),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: _DesktopSettingsGrid._gridMaxWidth,
+                  ),
+                  child: child,
+                ),
+              ),
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+/// 窗口右缘滚动指示条：子页滚动视口与首页网格同宽（居中），
+/// 内建滚动条会画在视口边缘而悬空；这里监听后代滚动通知，
+/// 把指示条画在容器（窗口）最右缘，符合桌面端滚动条贴边的惯例。
+class _SubPageEdgeScrollbar extends StatefulWidget {
+  const _SubPageEdgeScrollbar({required this.child, required this.color});
+
+  final Widget child;
+  final Color color;
+
+  @override
+  State<_SubPageEdgeScrollbar> createState() => _SubPageEdgeScrollbarState();
+}
+
+class _SubPageEdgeScrollbarState extends State<_SubPageEdgeScrollbar> {
+  _ScrollbarMetricsSnapshot? _snapshot;
+
+  bool _handleNotification(Notification notification) {
+    final ScrollMetrics metrics;
+    if (notification is ScrollMetricsNotification) {
+      metrics = notification.metrics;
+    } else if (notification is ScrollUpdateNotification) {
+      metrics = notification.metrics;
+    } else {
+      return false;
+    }
+    // 只响应主纵向滚动；嵌套横向列表（如主题预设横排）不触发。
+    if (metrics.axis != Axis.vertical) return false;
+    final snapshot = _ScrollbarMetricsSnapshot.from(metrics);
+    final old = _snapshot;
+    if (old == null || !old.sameAs(snapshot)) {
+      setState(() => _snapshot = snapshot);
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<Notification>(
+      onNotification: _handleNotification,
+      child: CustomPaint(
+        foregroundPainter: _snapshot == null
+            ? null
+            : _EdgeScrollbarPainter(snapshot: _snapshot!, color: widget.color),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// 滚动指标快照：ScrollMetrics 由可变位置实现，留存数值而非引用。
+class _ScrollbarMetricsSnapshot {
+  const _ScrollbarMetricsSnapshot({
+    required this.pixels,
+    required this.minExtent,
+    required this.maxExtent,
+    required this.viewportDimension,
+  });
+
+  factory _ScrollbarMetricsSnapshot.from(ScrollMetrics metrics) {
+    return _ScrollbarMetricsSnapshot(
+      pixels: metrics.pixels,
+      minExtent: metrics.minScrollExtent,
+      maxExtent: metrics.maxScrollExtent,
+      viewportDimension: metrics.viewportDimension,
+    );
+  }
+
+  final double pixels;
+  final double minExtent;
+  final double maxExtent;
+  final double viewportDimension;
+
+  bool get scrollable => maxExtent > minExtent + 0.01;
+
+  double get progress =>
+      ((pixels - minExtent) / (maxExtent - minExtent)).clamp(0.0, 1.0);
+
+  double get thumbRatio =>
+      (viewportDimension / (viewportDimension + maxExtent - minExtent)).clamp(
+        0.08,
+        1.0,
+      );
+
+  bool sameAs(_ScrollbarMetricsSnapshot other) =>
+      pixels == other.pixels &&
+      minExtent == other.minExtent &&
+      maxExtent == other.maxExtent &&
+      viewportDimension == other.viewportDimension;
+}
+
+class _EdgeScrollbarPainter extends CustomPainter {
+  const _EdgeScrollbarPainter({required this.snapshot, required this.color});
+
+  final _ScrollbarMetricsSnapshot snapshot;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (!snapshot.scrollable) return;
+    const double marginY = 10;
+    const double thumbWidth = 6;
+    const double edgeInset = 4;
+    final trackHeight = size.height - marginY * 2;
+    if (trackHeight <= 0) return;
+    final thumbHeight = trackHeight * snapshot.thumbRatio;
+    final thumbTop = marginY + (trackHeight - thumbHeight) * snapshot.progress;
+    final rect = Rect.fromLTWH(
+      size.width - edgeInset - thumbWidth,
+      thumbTop,
+      thumbWidth,
+      thumbHeight,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(3)),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_EdgeScrollbarPainter oldDelegate) =>
+      !snapshot.sameAs(oldDelegate.snapshot) || color != oldDelegate.color;
 }
 
 /// 桌面设置区氛围：右上「放映光束」+ 左下环境反光。

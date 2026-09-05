@@ -128,19 +128,68 @@ void main() {
     expect(find.byIcon(Icons.search_rounded), findsOneWidget);
   });
 
-  testWidgets('桌面端点击条目在右侧子页列打开三级页，网格保持可见', (tester) async {
+  testWidgets('并行开启时点击条目在右侧子页列打开三级页，网格保持可见', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
+    // 并行窗口开启：右栏子页形态生效。
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(embeddingChannel, (call) async {
+          if (call.method == 'isParallelWindowSupported') return false;
+          if (call.method == 'getParallelWindowSettings') {
+            return <String, Object>{
+              'enabled': true,
+              'preferredPrimaryPaneSide': 'left',
+              'preferredPlaybackPrimaryPaneSide': 'right',
+              'splitRatioPreset': 'balanced',
+              'defaultPlaybackFullscreen': true,
+              'immersiveStatusBar': true,
+            };
+          }
+          return null;
+        });
     await pumpSettings(tester, size: const Size(1400, 900));
 
     await tester.tap(find.text('主题设置'));
     await tester.pumpAndSettle();
 
-    // 三栏形态：子页（ThemeSettingsScreen）在右栏打开，
+    // 双栏形态：子页（ThemeSettingsScreen）在右栏打开，
     // 中间网格（通用分组）保持可见。
     expect(find.byType(ThemeSettingsScreen), findsOneWidget);
     expect(find.text('通用'), findsOneWidget);
 
     // 右栏返回后子页列收起，网格不受影响。
+    tester
+        .state<NavigatorState>(
+          find.descendant(
+            of: find.byKey(
+              const ValueKey<String>('desktop_settings_navigator'),
+            ),
+            matching: find.byType(Navigator),
+          ),
+        )
+        .pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(ThemeSettingsScreen), findsNothing);
+    expect(find.text('通用'), findsOneWidget);
+  });
+
+  testWidgets('并行关闭时二级页单屏铺满设置区，返回即回网格', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await pumpSettings(tester, size: const Size(1400, 900));
+
+    expect(
+      find.byKey(const ValueKey<String>('desktop_settings_two_pane_row')),
+      findsNothing,
+      reason: '并行关闭时不应出现网格 | 右栏双栏布局',
+    );
+
+    await tester.tap(find.text('主题设置'));
+    await tester.pumpAndSettle();
+
+    // 单屏形态：子页铺满设置内容区，分组网格被覆盖。
+    expect(find.byType(ThemeSettingsScreen), findsOneWidget);
+    expect(find.text('通用'), findsNothing);
+
+    // 返回后网格恢复。
     tester
         .state<NavigatorState>(
           find.descendant(
@@ -187,25 +236,29 @@ void main() {
     expect(rowColor('主题设置'), colors.selection.withValues(alpha: 0.08));
   });
 
-  testWidgets('窄视口回落既有单栏列表：无分组网格', (tester) async {
+  testWidgets('桌面窄窗同构分组卡片首页：单屏内部导航、无右栏', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     await pumpSettings(tester);
 
+    // 桌面窄窗（< 侧栏阈值）同样进入设置区，只是单列、无双栏 Row。
     expect(
       find.byKey(const ValueKey<String>('desktop_settings_area')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('desktop_settings_two_pane_row')),
       findsNothing,
     );
-    expect(find.text('通用'), findsNothing);
 
-    // 既有单栏列表完整保留。
+    // 与桌面同构的分组卡片首页（窄视口单列）。
+    expect(find.text('通用'), findsOneWidget);
     expect(find.text('主题设置'), findsOneWidget);
     expect(find.text('应用语言'), findsOneWidget);
     expect(find.byKey(startupSwitchKey), findsOneWidget);
     expect(find.text('日志信息'), findsOneWidget);
-    expect(find.byIcon(Icons.search_rounded), findsOneWidget);
   });
 
-  testWidgets('非桌面平台宽视口保持既有单栏列表', (tester) async {
+  testWidgets('非桌面平台宽视口同构分组卡片网格', (tester) async {
     DesktopEnvironment.debugOverridePlatform = false;
     await pumpSettings(tester, size: const Size(1400, 900));
 
@@ -213,7 +266,7 @@ void main() {
       find.byKey(const ValueKey<String>('desktop_settings_area')),
       findsNothing,
     );
-    expect(find.text('通用'), findsNothing);
+    expect(find.text('通用'), findsOneWidget);
     expect(find.byKey(startupSwitchKey), findsOneWidget);
     expect(find.text('主题设置'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
