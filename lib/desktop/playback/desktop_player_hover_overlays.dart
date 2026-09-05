@@ -437,14 +437,20 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
                             color: Colors.white70,
                             size: 18,
                           ),
-                        Text(
-                          _custom
-                              ? '$customLabel${l10n.nativePlayerText0021}'
-                              : l10n.nativePlayerText0021,
-                          style: const TextStyle(
-                            color: Color(0xD9FFFFFF),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
+                        // Flexible+ellipsis：面板宽度 morph 压窄时标题可截断，
+                        // 否则固定固有宽度会撑爆 Row。
+                        Flexible(
+                          child: Text(
+                            _custom
+                                ? '$customLabel${l10n.nativePlayerText0021}'
+                                : l10n.nativePlayerText0021,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xD9FFFFFF),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ],
@@ -452,12 +458,16 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
                   ),
                 ),
                 if (_custom)
-                  Text(
-                    _currentSummary(menu, l10n),
-                    style: const TextStyle(
-                      color: Color(0xFF72A7FF),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                  Flexible(
+                    child: Text(
+                      _currentSummary(menu, l10n),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF72A7FF),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   )
                 else
