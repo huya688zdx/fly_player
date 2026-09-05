@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="18dp"
+    android:height="18dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <!-- 弹幕设置：气泡 + 三点，与弹幕开关(气泡+横线)、字幕(矩形)区分 -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.8"
+        android:pathData="M4,6.5h16v9.5H9l-5,3v-12.5z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7.6,10.2h1.6v1.6H7.6zM11.2,10.2h1.6v1.6h-1.6zM14.8,10.2h1.6v1.6h-1.6z" />
+</vector>
