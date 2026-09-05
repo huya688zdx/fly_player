@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File, FileMode;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1581,26 +1579,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     });
   }
 
-  /// 临时诊断：排查弹窗被误关的真实触发路径，定位后整体移除。
-  void _hoverDbg(String message) {
-    if (kReleaseMode) return;
-    try {
-      final now = DateTime.now();
-      final stamp =
-          '${now.hour.toString().padLeft(2, '0')}:'
-          '${now.minute.toString().padLeft(2, '0')}:'
-          '${now.second.toString().padLeft(2, '0')}.'
-          '${now.millisecond.toString().padLeft(3, '0')}';
-      File('F:/fly_wt/desktop-playback-poc/hoverdbg.log').writeAsStringSync(
-        '[$stamp] $message\n'
-        '${StackTrace.current.toString().split('\n').take(7).join('\n')}\n\n',
-        mode: FileMode.append,
-      );
-    } catch (_) {}
-  }
-
   void _scheduleHoverOverlayClose() {
-    _hoverDbg('scheduleClose kind=$_hoverOverlayKind');
     _hoverOpenTimer?.cancel();
     _hoverCloseTimer?.cancel();
     _hoverCloseTimer = Timer(const Duration(milliseconds: 210), () {
@@ -1628,7 +1607,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   void _dismissHoverOverlay() {
-    _hoverDbg('dismiss kind=$_hoverOverlayKind');
     _hoverOpenTimer?.cancel();
     _hoverCloseTimer?.cancel();
     _hoverClearTimer?.cancel();
@@ -2692,7 +2670,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () {
-                _hoverDbg('video onTap kind=$_hoverOverlayKind');
                 if (_hoverOverlayKind != null) {
                   _dismissHoverOverlay();
                   return;
@@ -2700,16 +2677,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                 unawaited(_togglePlayback());
               },
               onDoubleTap: () {
-                _hoverDbg('video onDoubleTap kind=$_hoverOverlayKind');
-                if (_hoverOverlayKind != null) {
-                  _dismissHoverOverlay();
-                  return;
-                }
+                // 弹窗开着时双击既不关弹窗也不切全屏：双击识别器不走竞技场
+                // （第一下在 PointerRouter 层直接记账并 hold 序列，第二下直接
+                // 胜出），玻璃外壳的挡板拦不住它，只能在这里按状态忽略。
+                if (_hoverOverlayKind != null) return;
                 _wakeControls();
                 unawaited(videoState.toggleFullscreen());
               },
               onSecondaryTapUp: (details) {
-                _hoverDbg('video onSecondaryTap kind=$_hoverOverlayKind');
                 if (_hoverOverlayKind != null) {
                   _dismissHoverOverlay();
                   return;
