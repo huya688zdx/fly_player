@@ -1131,6 +1131,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // （内置走 sid、外挂/本地走文件加载）。否则外挂初始字幕没人加载，mpv 退回默认内置轨。
     private var pendingInitialSubtitle = false
     private var lastRecordedTs = -1L
+    private var lastProgressPaused = true
+    private var lastProgressEnded = false
     private val progressReportRunnable = object : Runnable {
         override fun run() {
             if (!isPeriodicReportRunning) return
@@ -2846,6 +2848,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         episodePickerLoadedOnce = false // 换源：新内容需重新完整落地选集数据
         episodeViewModeUserDirty = false // 换源：新内容按服务端/本地偏好重新决定视图
         lastRecordedTs = -1L
+        lastProgressPaused = true
+        lastProgressEnded = false
         resetPlaybackProgressTracking() // 换源后重置「已开播」兜底，让 loading 重新从切换态开始
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
@@ -9350,6 +9354,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyState(state: MpvPlayerState) {
         if (!nativePanelShouldApplyPlaybackState(activityDestroying)) return
+        val ended = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
+        if (state.loadNonce == (loadArgsMap["loadNonce"] as? Number)?.toInt()) {
+            if ((!lastProgressPaused && state.paused) || (!lastProgressEnded && ended)) {
+                reportProgress(force = true, snapshot = state)
+            }
+            lastProgressPaused = state.paused
+            lastProgressEnded = ended
+        }
         lastDurationMs = state.durationMs
         speedButton.text = nativePanelPlaybackSpeedLabel(state.speed)
 
@@ -10118,17 +10130,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 全在 loadArgsMap（source.toMap）里，连同 ts/duration 一起回传。本地源缺 mediaGuid，
      * Flutter 端会自动跳过。节流：ts 秒级未变则不重复上报。
      */
-    private fun reportProgress(periodic: Boolean = false) {
+    private fun reportProgress(
+        periodic: Boolean = false,
+        force: Boolean = false,
+        snapshot: MpvPlayerState? = null,
+    ) {
         if (!this::playerSurface.isInitialized) return
-        val state = playerSurface.state
+        val state = snapshot ?: playerSurface.state
         val durationSec = state.durationMs / 1000
         if (durationSec <= 0L) return
         val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
         val paused = state.paused
         // 同秒去重只对播放态生效；暂停时放行为心跳，供 Flutter 统计端区分「暂停」与
         // 「已退出」。pausedHeartbeat 标记重复帧，服务端回写（飞牛/Emby）按它跳过。
-        val pausedHeartbeat = paused && ts == lastRecordedTs
-        if (ts == lastRecordedTs && !paused) return
+        val pausedHeartbeat = !force && paused && ts == lastRecordedTs
+        if (!force && ts == lastRecordedTs && !paused) return
         lastRecordedTs = ts
         val args = HashMap<String, Any?>()
         args["isPaused"] = paused
