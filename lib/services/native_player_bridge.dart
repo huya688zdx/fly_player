@@ -36,6 +36,7 @@ class NativePlayerBridge {
   /// 用 token 让 unbindReentry 只清「自己仍是当前持有者」的情形，避免旧入口 dispose
   /// 误清最新入口刚注册的 handler。
   static Object? _activeBindToken;
+  static Future<void> Function()? _onUnbind;
 
   /// 启动原生播放壳。
   ///
@@ -140,6 +141,10 @@ class NativePlayerBridge {
       MediaSessionReloadIntent intent,
     )?
     onReloadServerSession,
+    Future<void> Function(String playLink)? onReleaseServerSession,
+    Future<String?> Function(String loadArgs, int positionMs)?
+    onResolveSegmentedSubtitle,
+    Future<void> Function()? onUnbind,
     Future<Map<String, dynamic>?> Function(
       String currentLoadArgs, {
       String? seasonGuid,
@@ -152,9 +157,22 @@ class NativePlayerBridge {
     Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleRemoved,
   }) {
     final token = Object();
+    unawaited(_onUnbind?.call());
+    _onUnbind = onUnbind;
     _activeBindToken = token;
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'resolveSegmentedSubtitle':
+          final args = (call.arguments as Map?) ?? const {};
+          return await onResolveSegmentedSubtitle?.call(
+            (args['loadArgs'] ?? '').toString(),
+            (args['positionMs'] as num?)?.toInt() ?? 0,
+          );
+        case 'releaseServerSession':
+          final args = (call.arguments as Map?) ?? const {};
+          final link = (args['playLink'] ?? '').toString().trim();
+          if (link.isNotEmpty) await onReleaseServerSession?.call(link);
+          return null;
         case 'resolvePlayback':
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final guid = (args['itemGuid'] ?? '').toString();
@@ -501,6 +519,8 @@ class NativePlayerBridge {
   static void unbindReentry(Object token) {
     if (!identical(_activeBindToken, token)) return;
     _activeBindToken = null;
+    unawaited(_onUnbind?.call());
+    _onUnbind = null;
     unawaited(_channel.invokeMethod<void>('unbindReentryHost'));
     _channel.setMethodCallHandler(null);
   }
