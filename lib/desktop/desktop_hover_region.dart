@@ -39,7 +39,7 @@ class DesktopPointerPosition {
   }
 
   static void _validateAllHovering() {
-    // 拷贝遍历：校验中的 setState 不会增删监听者，dispose 在树变化时才发生。
+    // 校验可能取消悬停并移除监听，使用快照保证本轮遍历安全。
     for (final callback in List<VoidCallback>.of(_listeners)) {
       callback();
     }
@@ -123,7 +123,19 @@ class _DesktopHoverRegionState extends State<DesktopHoverRegion> {
   @override
   void initState() {
     super.initState();
-    DesktopPointerPosition._register(_validateHover);
+    if (widget.hoverBoundsInsets != EdgeInsets.zero) {
+      DesktopPointerPosition._register(_validateHover);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopHoverRegion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.hoverBoundsInsets == widget.hoverBoundsInsets) return;
+    DesktopPointerPosition._unregister(_validateHover);
+    if (_hovering || widget.hoverBoundsInsets != EdgeInsets.zero) {
+      DesktopPointerPosition._register(_validateHover);
+    }
   }
 
   @override
@@ -135,6 +147,15 @@ class _DesktopHoverRegionState extends State<DesktopHoverRegion> {
   /// enter 事件：指针刚进入（必在边界内）；指针位置未知时也立即点亮。
   void _setHovering(bool value) {
     if (_hovering == value) return;
+    // 普通控件由 MouseRegion 负责进入，仅已悬停者需要逐帧检查是否移出。
+    // 外扩命中区不在 MouseRegion 内，仍需主动校验以支持贴边按钮。
+    if (widget.hoverBoundsInsets == EdgeInsets.zero) {
+      if (value) {
+        DesktopPointerPosition._register(_validateHover);
+      } else {
+        DesktopPointerPosition._unregister(_validateHover);
+      }
+    }
     setState(() => _hovering = value);
   }
 
@@ -166,7 +187,7 @@ class _DesktopHoverRegionState extends State<DesktopHoverRegion> {
             );
       final hovering = bounds.contains(pointer);
       if (hovering != _hovering) {
-        setState(() => _hovering = hovering);
+        _setHovering(hovering);
       }
     }
   }

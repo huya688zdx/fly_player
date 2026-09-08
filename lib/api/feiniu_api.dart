@@ -2086,7 +2086,7 @@ class FeiniuApi {
         data: <String, dynamic>{
           'item_guid': itemGuid,
           'media_guid': mediaGuid,
-          'video_guid': videoGuid,
+          if (videoGuid.trim().isNotEmpty) 'video_guid': videoGuid.trim(),
           'audio_guid': (audioGuid ?? '').trim(),
           'subtitle_guid': (subtitleGuid ?? '').trim(),
           'resolution': (resolution ?? '').trim(),
