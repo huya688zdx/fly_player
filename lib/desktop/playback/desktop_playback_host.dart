@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:provider/provider.dart';
 
+import '../../api/feiniu_api.dart';
+import '../../services/feiniu_segmented_subtitle.dart';
 import '../../controllers/item_playback_launcher.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_backend.dart';
@@ -52,71 +54,96 @@ final class DesktopPlaybackHost implements PlaybackHost {
             backend: backend,
           );
     if (!context.mounted) return false;
+    final subtitles = backend.capabilities.usesLegacyFeiniuFlow
+        ? FeiniuSegmentedSubtitle(FeiniuApi(effectiveNas))
+        : null;
     unawaited(
-      Navigator.of(context, rootNavigator: true).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => DesktopPlaybackScreen(
-            onRecordProgress: backend.capabilities.usesLegacyFeiniuFlow
-                ? (progress) => NativeReentrySupport.recordProgress(
-                    effectiveNas,
-                    progress,
-                  )
-                : serverReporter.report,
-            source: source,
-            episodes: effectiveEpisodes,
-            resolveEpisode:
-                effectiveEpisodes == null || effectiveEpisodes.isEmpty
-                ? null
-                : (episode) async {
-                    final itemGuid =
-                        '${episode['itemGuid'] ?? episode['guid'] ?? ''}'
-                            .trim();
-                    if (itemGuid.isEmpty) return null;
-                    final resolved = await const ItemPlaybackLauncher()
-                        .resolveForNative(
+      Navigator.of(context, rootNavigator: true)
+          .push<void>(
+            MaterialPageRoute<void>(
+              builder: (_) => DesktopPlaybackScreen(
+                resolveSegmentedSubtitle: subtitles?.resolve,
+                releaseServerSession: backend.capabilities.usesLegacyFeiniuFlow
+                    ? (link) => NativeReentrySupport.releaseServerSession(
+                        effectiveNas,
+                        link,
+                      )
+                    : null,
+                resolveSubtitleFile: backend.capabilities.usesLegacyFeiniuFlow
+                    ? (guid, {format}) =>
+                          NativeReentrySupport.resolveSubtitleFile(
+                            effectiveNas,
+                            guid,
+                            format: format,
+                          )
+                    : (guid, {format}) => backend.resolveExternalSubtitleFile(
+                        guid,
+                        format: format,
+                      ),
+                onRecordProgress: backend.capabilities.usesLegacyFeiniuFlow
+                    ? (progress) => NativeReentrySupport.recordProgress(
+                        effectiveNas,
+                        progress,
+                      )
+                    : serverReporter.report,
+                source: source,
+                episodes: effectiveEpisodes,
+                resolveEpisode:
+                    effectiveEpisodes == null || effectiveEpisodes.isEmpty
+                    ? null
+                    : (episode) async {
+                        final itemGuid =
+                            '${episode['itemGuid'] ?? episode['guid'] ?? ''}'
+                                .trim();
+                        if (itemGuid.isEmpty) return null;
+                        final resolved = await const ItemPlaybackLauncher()
+                            .resolveForNative(
+                              effectiveNas,
+                              backend: backend,
+                              itemGuid: itemGuid,
+                              fallbackTitle:
+                                  '${episode['title'] ?? episode['shortLabel'] ?? ''}',
+                              episodes: effectiveEpisodes,
+                              l10n: l10n,
+                            );
+                        final raw = resolved?['loadArgs'];
+                        if (raw is! String || raw.isEmpty) return null;
+                        return (
+                          source: MpvMediaSource.fromMap(
+                            jsonDecode(raw) as Map<String, dynamic>,
+                          ),
+                          danmakuFilePath: resolved?['danmakuFile']
+                              ?.toString()
+                              .trim(),
+                        );
+                      },
+                reloadSource: (current, intent) async {
+                  final currentLoadArgs = jsonEncode(current.toMap());
+                  final result = backend.capabilities.usesLegacyFeiniuFlow
+                      ? await NativeReentrySupport.reloadServerSession(
                           effectiveNas,
-                          backend: backend,
-                          itemGuid: itemGuid,
-                          fallbackTitle:
-                              '${episode['title'] ?? episode['shortLabel'] ?? ''}',
-                          episodes: effectiveEpisodes,
+                          currentLoadArgs: currentLoadArgs,
+                          intent: intent,
+                        )
+                      : await ServerReentrySupport.reloadServerSession(
+                          backend,
+                          currentLoadArgs: currentLoadArgs,
+                          intent: intent,
                           l10n: l10n,
                         );
-                    final raw = resolved?['loadArgs'];
-                    if (raw is! String || raw.isEmpty) return null;
-                    return (
-                      source: MpvMediaSource.fromMap(
-                        jsonDecode(raw) as Map<String, dynamic>,
-                      ),
-                      danmakuFilePath: resolved?['danmakuFile']
-                          ?.toString()
-                          .trim(),
-                    );
-                  },
-            reloadSource: (current, intent) async {
-              final currentLoadArgs = jsonEncode(current.toMap());
-              final result = backend.capabilities.usesLegacyFeiniuFlow
-                  ? await NativeReentrySupport.reloadServerSession(
-                      effectiveNas,
-                      currentLoadArgs: currentLoadArgs,
-                      intent: intent,
-                    )
-                  : await ServerReentrySupport.reloadServerSession(
-                      backend,
-                      currentLoadArgs: currentLoadArgs,
-                      intent: intent,
-                      l10n: l10n,
-                    );
-              final raw = result?['loadArgs'];
-              if (raw is! String || raw.isEmpty) return null;
-              return MpvMediaSource.fromMap(
-                jsonDecode(raw) as Map<String, dynamic>,
-              );
-            },
-            danmakuFilePath: danmakuFilePath,
-          ),
-        ),
-      ),
+                  final raw = result?['loadArgs'];
+                  if (raw is! String || raw.isEmpty) return null;
+                  return MpvMediaSource.fromMap(
+                    jsonDecode(raw) as Map<String, dynamic>,
+                  );
+                },
+                danmakuFilePath: danmakuFilePath,
+              ),
+            ),
+          )
+          .whenComplete(() async {
+            await subtitles?.dispose();
+          }),
     );
     return true;
   }
