@@ -14,6 +14,7 @@ import '../../playback/playback_host.dart';
 import '../../playback/playback_source.dart';
 import '../../providers/nas_provider.dart';
 import '../../services/native_reentry_support.dart';
+import '../../services/native_playback_reentry.dart';
 import '../../services/server_native_picker_support.dart';
 import '../../services/server_reentry_support.dart';
 import 'desktop_playback_screen.dart';
@@ -41,6 +42,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
     MediaKit.ensureInitialized();
     final backend = context.read<MediaBackendProvider>().backend;
     final effectiveNas = nas ?? context.read<NasProvider>();
+    final serverReporter = ServerPlaybackReporter(backend);
     final l10n = AppLocalizations.of(context);
     final effectiveEpisodes = episodes?.isNotEmpty == true
         ? episodes
@@ -54,6 +56,12 @@ final class DesktopPlaybackHost implements PlaybackHost {
       Navigator.of(context, rootNavigator: true).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => DesktopPlaybackScreen(
+            onRecordProgress: backend.capabilities.usesLegacyFeiniuFlow
+                ? (progress) => NativeReentrySupport.recordProgress(
+                    effectiveNas,
+                    progress,
+                  )
+                : serverReporter.report,
             source: source,
             episodes: effectiveEpisodes,
             resolveEpisode:

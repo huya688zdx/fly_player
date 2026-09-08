@@ -25,7 +25,20 @@ class PlaybackProgressOfflineQueue {
       'playback_server_progress_offline_queue_v1';
   static const int _maxEntries = 200;
 
-  static bool _flushing = false;
+  static Future<void> _pending = Future<void>.value();
+
+  // 串行处理回写与队列，保证旧记录不会在新进度之后发出。
+  static Future<void> _ordered(Future<void> Function() action) {
+    final result = _pending.then((_) => action());
+    _pending = result.catchError((Object _) {});
+    return result;
+  }
+
+  static Future<void> record(NasProvider nas, Map<String, dynamic> progress) =>
+      _ordered(() async {
+        await _enqueue(progress);
+        await _flush(nas);
+      });
   static bool _serverFlushing = false;
 
   static Future<void> enqueueServer({
@@ -114,12 +127,15 @@ class PlaybackProgressOfflineQueue {
     return '$item|$media|$video';
   }
 
-  /// 入队（按 key upsert，保留最新）。仅在回写失败且可恢复时调用。
-  static Future<void> enqueue(Map<String, dynamic> progress) async {
+  /// 入队（按 key upsert，保留最新），发送失败时留待下次重放。
+  static Future<void> enqueue(Map<String, dynamic> progress) =>
+      _ordered(() => _enqueue(progress));
+
+  static Future<void> _enqueue(Map<String, dynamic> progress) async {
     final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
     final videoGuid = (progress['videoGuid'] ?? '').toString().trim();
-    if (itemGuid.isEmpty || mediaGuid.isEmpty || videoGuid.isEmpty) return;
+    if (itemGuid.isEmpty || mediaGuid.isEmpty) return;
     final duration = (progress['duration'] as num?)?.toInt() ?? 0;
     if (duration <= 0) return;
     try {
@@ -146,9 +162,10 @@ class PlaybackProgressOfflineQueue {
   }
 
   /// 重放队列：旧的先发。成功删除；仍断网保留并提前结束；不可恢复错误丢弃该条。
-  static Future<void> flush(NasProvider nas) async {
-    if (_flushing || !nas.isConfigured) return;
-    _flushing = true;
+  static Future<void> flush(NasProvider nas) => _ordered(() => _flush(nas));
+
+  static Future<void> _flush(NasProvider nas) async {
+    if (!nas.isConfigured) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final map = _read(prefs);
@@ -164,25 +181,13 @@ class PlaybackProgressOfflineQueue {
           continue;
         }
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
-        final ts = (entry['ts'] as num?)?.toInt() ?? 0;
         if (duration <= 0) {
           map.remove(key);
           dirty = true;
           continue;
         }
         try {
-          await api.recordPlayback(
-            itemGuid: (entry['itemGuid'] ?? '').toString(),
-            mediaGuid: (entry['mediaGuid'] ?? '').toString(),
-            videoGuid: (entry['videoGuid'] ?? '').toString(),
-            audioGuid: (entry['audioGuid'] ?? '').toString(),
-            subtitleGuid: (entry['subtitleGuid'] ?? '').toString(),
-            resolution: (entry['resolution'] ?? '').toString(),
-            bitrate: (entry['bitrate'] as num?)?.toInt() ?? 0,
-            ts: ts.clamp(0, duration),
-            duration: duration,
-            playLink: (entry['playLink'] ?? '').toString(),
-          );
+          await _send(api, Map<String, dynamic>.from(entry));
           map.remove(key);
           dirty = true;
         } catch (e) {
@@ -205,9 +210,24 @@ class PlaybackProgressOfflineQueue {
       }
     } catch (_) {
       // 重放失败静默，条目仍在盘上，下次再试。
-    } finally {
-      _flushing = false;
     }
+  }
+
+  static Future<void> _send(FeiniuApi api, Map<String, dynamic> entry) async {
+    final duration = (entry['duration'] as num?)?.toInt() ?? 0;
+    final ts = (entry['ts'] as num?)?.toInt() ?? 0;
+    await api.recordPlayback(
+      itemGuid: (entry['itemGuid'] ?? '').toString(),
+      mediaGuid: (entry['mediaGuid'] ?? '').toString(),
+      videoGuid: (entry['videoGuid'] ?? '').toString(),
+      audioGuid: (entry['audioGuid'] ?? '').toString(),
+      subtitleGuid: (entry['subtitleGuid'] ?? '').toString(),
+      resolution: (entry['resolution'] ?? '').toString(),
+      bitrate: (entry['bitrate'] as num?)?.toInt() ?? 0,
+      ts: ts.clamp(0, duration),
+      duration: duration,
+      playLink: (entry['playLink'] ?? '').toString(),
+    );
   }
 
   static Map<String, dynamic> _read(SharedPreferences prefs) {

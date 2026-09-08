@@ -48,6 +48,7 @@ class DesktopPlaybackScreen extends StatefulWidget {
     this.resolveEpisode,
     this.reloadSource,
     this.danmakuFilePath,
+    this.onRecordProgress,
   });
 
   final MpvMediaSource source;
@@ -60,6 +61,7 @@ class DesktopPlaybackScreen extends StatefulWidget {
   )?
   reloadSource;
   final String? danmakuFilePath;
+  final Future<void> Function(Map<String, dynamic>)? onRecordProgress;
 
   @override
   State<DesktopPlaybackScreen> createState() => _DesktopPlaybackScreenState();
@@ -98,6 +100,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Timer? _resumePromptTimer;
   Timer? _autoNextTimer;
   Timer? _toastTimer;
+  Timer? _progressTimer;
+  Future<void> _progressPending = Future<void>.value();
+  bool _reportReady = false;
   String? _errorMessage;
   String? _toastMessage;
   bool _isLoading = true;
@@ -206,6 +211,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   @override
   void dispose() {
+    _reportProgress();
+    _progressTimer?.cancel();
     _controlsHideTimer?.cancel();
     _hoverOpenTimer?.cancel();
     _hoverCloseTimer?.cancel();
@@ -880,10 +887,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       }
       unawaited(_loadDanmakuForSource(widget.danmakuFilePath));
       unawaited(_preloadNextEpisodeIfEnabled());
+      _reportReady = true;
     } catch (_) {
       _showGenericError(_l10n.desktopPlaybackErrorStartFailed);
     } finally {
       _finishLoading();
+      _scheduleProgressReport();
     }
   }
 
@@ -910,6 +919,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       }
       _preloadedNextSource = null;
       _preloadedNextItemGuid = '';
+      _reportProgress();
+      _reportReady = false;
       _source = resolved.source;
       _pausedByUser = resolved.source.startPaused;
       _playbackRate = _validPlaybackRate(resolved.source.playbackSpeed);
@@ -924,10 +935,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       unawaited(_loadDanmakuForSource(resolved.danmakuFilePath));
       await _loadBookmarks();
       unawaited(_preloadNextEpisodeIfEnabled());
+      _reportReady = true;
     } catch (_) {
       _showGenericError(_l10n.desktopPlaybackErrorEpisodeSwitchFailed);
     } finally {
       _finishLoading();
+      _scheduleProgressReport();
     }
   }
 
@@ -964,12 +977,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         );
         return;
       }
+      _reportProgress();
+      _reportReady = false;
       _source = resolved;
       await _player.open(DesktopMpvRuntime.mediaFor(resolved), play: false);
       await _applyDesktopMpvProperties();
       await _applyPreferredSubtitle(resolved);
       await _player.setRate(_playbackRate);
       if (wasPlaying) await _player.play();
+      _reportReady = true;
     } catch (_) {
       _showGenericError(
         qualityIndex == null
@@ -978,7 +994,59 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       );
     } finally {
       _finishLoading();
+      _scheduleProgressReport();
     }
+  }
+
+  void _scheduleProgressReport() {
+    _progressTimer?.cancel();
+    if (!mounted ||
+        !_reportReady ||
+        !_isPlaying ||
+        widget.onRecordProgress == null) {
+      return;
+    }
+    _progressTimer = Timer(const Duration(seconds: 1), () {
+      _reportProgress();
+      _progressTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+        if (_isPlaying && !_isBuffering) _reportProgress();
+      });
+    });
+  }
+
+  void _reportProgress() {
+    final report = widget.onRecordProgress;
+    if (!_reportReady ||
+        report == null ||
+        _source.externalLocalSource ||
+        _errorMessage != null) {
+      return;
+    }
+    final duration = _player.state.duration.inSeconds;
+    if (duration <= 0) return;
+    // 在排队前固定源与位置，切集后的异步回调不能串到新一集。
+    final progress = <String, dynamic>{
+      'itemGuid': _source.itemGuid,
+      'mediaGuid': _source.mediaGuid,
+      'videoGuid': _source.videoGuid,
+      'audioGuid': _source.audioTrackGuid ?? '',
+      'subtitleGuid': _source.subtitleTrackGuid ?? '',
+      'resolution': _source.resolution,
+      'bitrate': _source.bitrate,
+      'playLink': _source.playLink ?? '',
+      'ts': _player.state.completed
+          ? duration
+          : _player.state.position.inSeconds.clamp(0, duration),
+      'duration': duration,
+      'isPaused': !_player.state.playing,
+    };
+    _progressPending = _progressPending
+        .then((_) => report(progress))
+        .catchError((Object error, StackTrace stack) {
+          FlutterError.reportError(
+            FlutterErrorDetails(exception: error, stack: stack),
+          );
+        });
   }
 
   double _validPlaybackRate(double value) {
@@ -1029,6 +1097,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   void _onPlayingChanged(bool playing) {
     if (!mounted) return;
+    if (!playing) _reportProgress();
     setState(() {
       _isPlaying = playing;
       if (playing) _pausedByUser = false;
@@ -1036,7 +1105,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     });
     if (playing) {
       _scheduleControlsHide();
+      _scheduleProgressReport();
     } else {
+      _progressTimer?.cancel();
       _controlsHideTimer?.cancel();
     }
   }
@@ -1056,6 +1127,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   void _onCompletedChanged(bool completed) {
     if (!mounted || !completed || _playbackCompleted) return;
+    _reportProgress();
+    _progressTimer?.cancel();
     _controlsHideTimer?.cancel();
     _resumePromptTimer?.cancel();
     setState(() {
@@ -1320,6 +1393,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _reopenCurrentMedia() async {
     if (_source.url.trim().isEmpty || _isLoading) return;
+    _reportProgress();
+    _reportReady = false;
     final position = _player.state.position;
     final wasPlaying = _isPlaying;
     _wakeControls(scheduleHide: false);
@@ -1336,10 +1411,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       await _applyPreferredSubtitle(_source);
       await _player.setRate(_playbackRate);
       if (wasPlaying) await _player.play();
+      _reportReady = true;
     } catch (_) {
       _showGenericError(_l10n.desktopPlaybackErrorStartFailed);
     } finally {
       _finishLoading();
+      _scheduleProgressReport();
     }
   }
 
