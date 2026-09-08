@@ -49,6 +49,9 @@ class DesktopPlaybackScreen extends StatefulWidget {
     this.reloadSource,
     this.danmakuFilePath,
     this.onRecordProgress,
+    this.resolveSubtitleFile,
+    this.releaseServerSession,
+    this.resolveSegmentedSubtitle,
   });
 
   final MpvMediaSource source;
@@ -62,6 +65,11 @@ class DesktopPlaybackScreen extends StatefulWidget {
   reloadSource;
   final String? danmakuFilePath;
   final Future<void> Function(Map<String, dynamic>)? onRecordProgress;
+  final Future<String?> Function(String guid, {String? format})?
+  resolveSubtitleFile;
+  final Future<void> Function(String playLink)? releaseServerSession;
+  final Future<String?> Function(MpvMediaSource source, Duration position)?
+  resolveSegmentedSubtitle;
 
   @override
   State<DesktopPlaybackScreen> createState() => _DesktopPlaybackScreenState();
@@ -101,6 +109,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Timer? _autoNextTimer;
   Timer? _toastTimer;
   Timer? _progressTimer;
+  bool _subtitleWindowPending = false;
+  int _subtitleWindowSecond = -100;
   Future<void> _progressPending = Future<void>.value();
   bool _reportReady = false;
   String? _errorMessage;
@@ -212,6 +222,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   @override
   void dispose() {
     _reportProgress();
+    _releaseSource(_source);
     _progressTimer?.cancel();
     _controlsHideTimer?.cancel();
     _hoverOpenTimer?.cancel();
@@ -790,6 +801,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   /// 片头片尾跳过提示：对齐安卓 updateIntroOutroSkip 的时长窗口逻辑
   /// （片头窗口 2s→上限，片尾窗口 时长-上限→结尾；章节推断边界待接入）。
   void _onPositionChanged(Duration position) {
+    unawaited(_refreshSegmentedSubtitle(position));
     final kind = _computeSkipPromptKind(position);
     if (kind == _skipPromptKindNotifier.value) return;
     _skipPromptKindNotifier.value = kind;
@@ -897,6 +909,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   Future<void> _openEpisode(Map<String, dynamic> episode) async {
+    final previousSource = _source;
     final resolver = widget.resolveEpisode;
     if (resolver == null) return;
     final episodeGuid = '${episode['itemGuid'] ?? episode['guid'] ?? ''}'
@@ -913,6 +926,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
           ? _preloadedNextSource
           : null;
       final resolved = cached ?? await resolver(episode);
+      if (!mounted) {
+        if (resolved != null) _releaseSource(resolved.source);
+        return;
+      }
       if (resolved == null || resolved.source.url.trim().isEmpty) {
         _showGenericError(_l10n.desktopPlaybackErrorEpisodeResolveFailed);
         return;
@@ -939,6 +956,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     } catch (_) {
       _showGenericError(_l10n.desktopPlaybackErrorEpisodeSwitchFailed);
     } finally {
+      _releaseSource(previousSource, replacement: _source);
       _finishLoading();
       _scheduleProgressReport();
     }
@@ -951,6 +969,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     int? qualityIndex,
   }) async {
     final resolver = widget.reloadSource;
+    final previousSource = _source;
     if (resolver == null) return;
     final wasPlaying = _isPlaying;
     _wakeControls(scheduleHide: false);
@@ -969,6 +988,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
           startPosition: _player.state.position,
         ),
       );
+      if (!mounted) {
+        if (resolved != null) _releaseSource(resolved);
+        return;
+      }
       if (resolved == null || resolved.url.trim().isEmpty) {
         _showGenericError(
           qualityIndex == null
@@ -993,9 +1016,17 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
             : _l10n.nativePlayerSwitchQualityUnavailable,
       );
     } finally {
+      _releaseSource(previousSource, replacement: _source);
       _finishLoading();
       _scheduleProgressReport();
     }
+  }
+
+  void _releaseSource(MpvMediaSource source, {MpvMediaSource? replacement}) {
+    final link = source.playLink?.trim() ?? '';
+    if (link.isEmpty || link == replacement?.playLink) return;
+    final release = widget.releaseServerSession;
+    if (release != null) unawaited(_progressPending.then((_) => release(link)));
   }
 
   void _scheduleProgressReport() {
@@ -1053,19 +1084,53 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     return value.isFinite && value > 0 ? value : 1;
   }
 
+  Future<void> _refreshSegmentedSubtitle(Duration position) async {
+    final resolve = widget.resolveSegmentedSubtitle;
+    if (resolve == null ||
+        _isLoading ||
+        _subtitleWindowPending ||
+        (position.inSeconds - _subtitleWindowSecond).abs() < 3) {
+      return;
+    }
+    final source = _source;
+    _subtitleWindowPending = true;
+    _subtitleWindowSecond = position.inSeconds;
+    try {
+      final path = await resolve(source, position);
+      if (!mounted ||
+          !identical(source, _source) ||
+          path == null ||
+          (_player.state.position - position).abs() >
+              const Duration(seconds: 12)) {
+        return;
+      }
+      await _player.setSubtitleTrack(SubtitleTrack.uri(_subtitleUri(path)));
+    } finally {
+      _subtitleWindowPending = false;
+    }
+  }
+
   Future<void> _applyPreferredSubtitle(MpvMediaSource source) async {
     final selectedGuid = source.subtitleTrackGuid?.trim() ?? '';
     if (selectedGuid.isEmpty) return;
-    final path = source.localSubtitleFiles[selectedGuid]?.trim() ?? '';
-    if (path.isEmpty) return;
+    var path = source.localSubtitleFiles[selectedGuid]?.trim() ?? '';
     String? title;
     String? language;
     for (final track in source.subtitleTracks) {
       if (track.guid != selectedGuid) continue;
       title = track.title.trim().isEmpty ? null : track.title.trim();
       language = track.language.trim().isEmpty ? null : track.language.trim();
+      if (path.isEmpty && (track.isExternal == 1 || track.extraFile == 1)) {
+        path =
+            await widget.resolveSubtitleFile?.call(
+              selectedGuid,
+              format: track.format,
+            ) ??
+            '';
+      }
       break;
     }
+    if (!mounted || !identical(source, _source) || path.isEmpty) return;
     await _player.setSubtitleTrack(
       SubtitleTrack.uri(_subtitleUri(path), title: title, language: language),
     );

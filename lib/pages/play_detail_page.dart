@@ -2238,6 +2238,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final initialPlayback = await const PlayerSourceController()
             .buildInitialPlaybackResult(
               api: api,
+              itemGuid: _currentItemGuid,
               directUrl: streamUrl,
               mediaGuid: mediaGuid,
               videoGuid: initialPlaybackVideoGuid,
@@ -2288,8 +2289,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           tmdbId: item.trimId,
           episodeNumber: item.episodeNumber,
           startPosition: resolvedStartPosition,
-          audioTrackIndex: selectedAudio?.index,
-          subtitleTrackIndex: embeddedSubtitleTrackIndex,
+          audioTrackIndex: initialPlayback.playbackMode.isServerManaged
+              ? null
+              : selectedAudio?.index,
+          subtitleTrackIndex: initialPlayback.playbackMode.isServerManaged
+              ? null
+              : embeddedSubtitleTrackIndex,
           audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
           subtitleTrackGuid: selectedSubtitle?.guid ?? data.subtitleGuid,
           resolution: initialPlaybackResolution,

@@ -6,6 +6,7 @@ import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
 import '../models/media_library_item.dart';
+import '../models/stream_track_data.dart';
 import '../playback/playback_source.dart';
 import '../playback/player_source_controller.dart';
 import '../providers/nas_provider.dart';
@@ -420,6 +421,47 @@ class NativeReentrySupport {
       return null;
     }
 
+    // 飞牛内嵌文本字幕可复用同一会话；位图烧录和跨类型切换仍需重新出流。
+    if (intent.qualityIndex == null &&
+        (intent.audioTrackId == null ||
+            intent.audioTrackId == source.audioTrackGuid) &&
+        !intent.subtitleDisabled &&
+        intent.subtitleTrackId != null &&
+        (source.playLink ?? '').isNotEmpty) {
+      final selected = source.subtitleTracks
+          .where((track) => track.guid == intent.subtitleTrackId)
+          .firstOrNull;
+      final previous = source.subtitleTracks
+          .where((track) => track.guid == source.subtitleTrackGuid)
+          .firstOrNull;
+      bool isText(SubtitleTrackOption? track) =>
+          track != null &&
+          track.isBitmap != 1 &&
+          track.isExternal != 1 &&
+          track.extraFile != 1 &&
+          !{'sup', 'dvb', 'pgs', 'sub'}.contains(track.format.toLowerCase());
+      if (isText(selected) && isText(previous)) {
+        final position = intent.startPosition ?? source.startPosition;
+        await FeiniuApi(nas).resetServerSubtitle(
+          playLink: source.playLink!,
+          subtitleIndex: selected!.index,
+          startTimestamp: position.inSeconds,
+        );
+        final changed = source.copyWith(
+          loadNonce: createMpvLoadNonce(),
+          subtitleTrackGuid: selected.guid,
+          clearSubtitleTrackIndex: true,
+          clearAudioTrackIndex: true,
+          startPosition: position,
+        );
+        return {
+          'loadArgs': jsonEncode(
+            preserveEpisodesForServerReload(raw, changed.toMap()),
+          ),
+        };
+      }
+    }
+
     final api = FeiniuApi(nas);
     final snapshot = PlayerSourceSnapshot(
       itemGuid: source.itemGuid,
@@ -500,13 +542,26 @@ class NativeReentrySupport {
       bitDepth: result.currentBitDepth,
       playbackMode: result.playbackMode,
       startPosition: resolvedStart,
-      // 服务端会话把所选音轨/字幕烧录进流，mpv 端不再按 sid 选轨。
+      // 新转码流重新发现轨道，不能沿用原文件的轨号。
       clearAudioTrackIndex: true,
       clearSubtitleTrackIndex: true,
       preferExternalSubtitle: false,
     );
     final newArgs = preserveEpisodesForServerReload(raw, newSource.toMap());
     return <String, dynamic>{'loadArgs': jsonEncode(newArgs)};
+  }
+
+  static Future<void> releaseServerSession(
+    NasProvider nas,
+    String playLink,
+  ) async {
+    if (playLink.trim().isEmpty) return;
+    try {
+      await PlaybackProgressOfflineQueue.flush(nas);
+      await FeiniuApi(nas).quitServerPlaySession(playLink);
+    } catch (_) {
+      // 释放失败不能阻止退出，服务端仍可通过超时回收。
+    }
   }
 
   /// 服务端会话重载（切画质/切轨道）后并回 `episodes`。
