@@ -95,6 +95,7 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
     final initialPlayback = await const PlayerSourceController()
         .buildInitialPlaybackResult(
           api: api,
+          itemGuid: request.itemId,
           directUrl: context.directUrl,
           mediaGuid: context.effectiveSourceId,
           videoGuid: context.videoTrackId,
@@ -147,8 +148,13 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
       tmdbId: item.trimId,
       episodeNumber: item.episodeNumber,
       startPosition: resolvedStartPosition,
-      audioTrackIndex: selectedAudio?.index,
-      subtitleTrackIndex: embeddedSubtitleTrackIndex,
+      // 转码流的轨号与原文件不同，交给 mpv 识别新流中的默认轨。
+      audioTrackIndex: initialPlayback.playbackMode.isServerManaged
+          ? null
+          : selectedAudio?.index,
+      subtitleTrackIndex: initialPlayback.playbackMode.isServerManaged
+          ? null
+          : embeddedSubtitleTrackIndex,
       audioTrackGuid: selectedAudio?.guid ?? playInfo.audioGuid,
       // 显式关闭字幕（subtitleTrackExplicitlyDisabled）时落空串，避免回退到服务端默认轨；
       // 复刻 launcher 的 `selectedSubtitle?.guid ?? (overrideSubtitleGuid ?? subtitleGuid)`。
