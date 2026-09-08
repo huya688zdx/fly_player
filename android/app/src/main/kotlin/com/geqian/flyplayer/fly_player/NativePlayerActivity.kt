@@ -1140,6 +1140,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 playerSurface.state.nativeLibLoaded
             ) {
                 reportProgress(periodic = true)
+                refreshSegmentedSubtitle()
             }
             if (this@NativePlayerActivity::bottomBar.isInitialized) {
                 bottomBar.postDelayed(this, 3000L)
@@ -2459,6 +2460,34 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
+    private var segmentedSubtitlePending = false
+
+    private fun refreshSegmentedSubtitle() {
+        if (segmentedSubtitlePending || !isServerManagedPlayback() || selectedSubtitleGuid.isEmpty()) return
+        val guid = selectedSubtitleGuid
+        if (loadArgsMap["subtitleTrackGuid"]?.toString() != guid) return
+        val link = loadArgsMap["playLink"]?.toString().orEmpty()
+        if (link.isEmpty()) return
+        val position = playerSurface.state.positionMs
+        val nonce = loadArgsMap["loadNonce"]
+        segmentedSubtitlePending = true
+        NativePlayerReverseBridge.dispatch(
+            method = "resolveSegmentedSubtitle",
+            args = mapOf("loadArgs" to JSONObject(loadArgsMap).toString(), "positionMs" to position),
+            onResult = { result ->
+                runOnUiThread {
+                    segmentedSubtitlePending = false
+                    val path = result?.toString()?.takeIf { it.isNotEmpty() }
+                    if (!activityDestroying && selectedSubtitleGuid == guid &&
+                        loadArgsMap["playLink"]?.toString() == link && loadArgsMap["loadNonce"] == nonce && path != null &&
+                        kotlin.math.abs(playerSurface.state.positionMs - position) < 12000L
+                    ) playerSurface.setExternalSubtitleFile(path)
+                }
+            },
+            onError = { runOnUiThread { segmentedSubtitlePending = false } },
+        )
+    }
+
     private fun selectExternalSubtitle(track: Map<String, Any?>) {
         val guid = track["guid"]?.toString().orEmpty()
         val localPath = localSubtitleFilePath(guid)
@@ -2832,6 +2861,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
         )
         reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
+        val previousPlayLink = loadArgsMap["playLink"]?.toString().orEmpty()
+        if (previousPlayLink.isNotEmpty() && previousPlayLink != effectiveLoadArgs["playLink"]?.toString()) {
+            NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to previousPlayLink))
+        }
         mediaTitle = resolveTitle(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
         refreshSeekThumbnails()
@@ -9463,13 +9496,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val guid = selectedSubtitleGuid
         if (guid.isEmpty()) return // 关闭/未选：交给 controller（sid=no 或默认轨）
         if (isServerManagedPlayback()) {
-            // 服务端转码：内置/服务端字幕已由服务端烧录进流，不用动；但「外挂字幕」服务端不烧录
-            // （reloadServerPlaySession 里 subtitleShouldUseExternalFile→空 subtitleGuid），
-            // 必须在转码流上 sub-add 外挂文件，否则切到外挂字幕会「掉字幕」。
+            // 位图由服务端烧录；飞牛内嵌文本由分段字幕回调加载。
+            // 外挂字幕仍需主动 sub-add，Emby 等后端保持自己的字幕处理。
             val track = trackList("subtitleTracks")
                 .firstOrNull { it["guid"]?.toString() == guid }
             if (track != null && subtitleShouldUseExternalFile(track)) {
                 selectExternalSubtitle(track)
+            } else {
+                refreshSegmentedSubtitle()
             }
             return
         }
@@ -10164,6 +10198,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
+        val playLink = loadArgsMap["playLink"]?.toString().orEmpty()
+        if (playLink.isNotEmpty()) {
+            NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to playLink))
+        }
         activityDestroying = true
         NativeMediaCommandCoordinator.detach(this)
         // 先停媒体服务，再释放 playerSurface。释放内核可能同步/异步回调最终状态，不能让
