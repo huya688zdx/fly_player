@@ -10,7 +10,6 @@ import '../playback/playback_source.dart';
 import '../playback/player_source_controller.dart';
 import '../providers/nas_provider.dart';
 import '../utils/api_url_helper.dart';
-import '../utils/app_exception.dart';
 import '../utils/nas_image_headers.dart';
 import 'download_task_service.dart';
 import 'playback_progress_offline_queue.dart';
@@ -170,34 +169,10 @@ class NativeReentrySupport {
     if (progress['pausedHeartbeat'] == true) return;
     final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
-    final videoGuid = (progress['videoGuid'] ?? '').toString().trim();
-    if (itemGuid.isEmpty || mediaGuid.isEmpty || videoGuid.isEmpty) return;
-    final ts = (progress['ts'] as num?)?.toInt() ?? 0;
+    if (itemGuid.isEmpty || mediaGuid.isEmpty) return;
     final duration = (progress['duration'] as num?)?.toInt() ?? 0;
     if (duration <= 0) return;
-    try {
-      await FeiniuApi(nas).recordPlayback(
-        itemGuid: itemGuid,
-        mediaGuid: mediaGuid,
-        videoGuid: videoGuid,
-        audioGuid: (progress['audioGuid'] ?? '').toString(),
-        subtitleGuid: (progress['subtitleGuid'] ?? '').toString(),
-        resolution: (progress['resolution'] ?? '').toString(),
-        bitrate: (progress['bitrate'] as num?)?.toInt() ?? 0,
-        ts: ts.clamp(0, duration),
-        duration: duration,
-        playLink: (progress['playLink'] ?? '').toString(),
-      );
-      // 回写成功 = 网络可用，顺带重放离线队列里断网期间积压的进度。
-      unawaited(PlaybackProgressOfflineQueue.flush(nas));
-    } catch (e) {
-      // 断网/超时（可恢复）→ 落盘排队，网络恢复或下次启动重放；
-      // 鉴权/数据/致命等不可恢复错误不入队（与在线播放器一致，静默丢弃）。
-      final ex = AppException.from(e, action: 'playback record');
-      if (ex.isTransient) {
-        await PlaybackProgressOfflineQueue.enqueue(progress);
-      }
-    }
+    await PlaybackProgressOfflineQueue.record(nas, progress);
   }
 
   static List<Map<String, dynamic>> _episodesFromLoadArgs(
