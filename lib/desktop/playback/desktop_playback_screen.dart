@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -52,6 +53,7 @@ class DesktopPlaybackScreen extends StatefulWidget {
     this.resolveSubtitleFile,
     this.releaseServerSession,
     this.resolveSegmentedSubtitle,
+    this.refreshDirectLink,
   });
 
   final MpvMediaSource source;
@@ -70,6 +72,8 @@ class DesktopPlaybackScreen extends StatefulWidget {
   final Future<void> Function(String playLink)? releaseServerSession;
   final Future<String?> Function(MpvMediaSource source, Duration position)?
   resolveSegmentedSubtitle;
+  final Future<MpvMediaSource> Function(MpvMediaSource source)?
+  refreshDirectLink;
 
   @override
   State<DesktopPlaybackScreen> createState() => _DesktopPlaybackScreenState();
@@ -109,6 +113,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Timer? _autoNextTimer;
   Timer? _toastTimer;
   Timer? _progressTimer;
+  Timer? _directLinkTimer;
+  bool _directLinkRefreshPending = false;
+  DateTime? _lastDirectLinkRefreshAttempt;
+  int _sourceChangeGeneration = 0;
   bool _subtitleWindowPending = false;
   int _subtitleWindowSecond = -100;
   Future<void> _progressPending = Future<void>.value();
@@ -224,6 +232,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _reportProgress();
     _releaseSource(_source);
     _progressTimer?.cancel();
+    _directLinkTimer?.cancel();
     _controlsHideTimer?.cancel();
     _hoverOpenTimer?.cancel();
     _hoverCloseTimer?.cancel();
@@ -877,6 +886,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   Future<void> _openSource() async {
+    final generation = ++_sourceChangeGeneration;
+    _lastDirectLinkRefreshAttempt = null;
     _resetPlaybackOverlays();
     _pausedByUser = _source.startPaused;
     if (_source.url.trim().isEmpty) {
@@ -886,6 +897,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     }
 
     try {
+      final source = await _freshDirectLinkSource(_source);
+      if (!mounted || generation != _sourceChangeGeneration) return;
+      _source = source;
       await _applyDesktopMpvProperties();
       await _player.open(DesktopMpvRuntime.mediaFor(_source), play: false);
       await _applyDesktopMpvProperties();
@@ -901,10 +915,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       unawaited(_preloadNextEpisodeIfEnabled());
       _reportReady = true;
     } catch (_) {
-      _showGenericError(_l10n.desktopPlaybackErrorStartFailed);
+      if (mounted && generation == _sourceChangeGeneration) {
+        _showGenericError(_l10n.desktopPlaybackErrorStartFailed);
+      }
     } finally {
-      _finishLoading();
-      _scheduleProgressReport();
+      if (mounted && generation == _sourceChangeGeneration) {
+        _finishLoading();
+        _scheduleProgressReport();
+      }
     }
   }
 
@@ -912,6 +930,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     final previousSource = _source;
     final resolver = widget.resolveEpisode;
     if (resolver == null) return;
+    final generation = ++_sourceChangeGeneration;
+    _lastDirectLinkRefreshAttempt = null;
     final episodeGuid = '${episode['itemGuid'] ?? episode['guid'] ?? ''}'
         .trim();
     _resetPlaybackOverlays();
@@ -934,31 +954,40 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         _showGenericError(_l10n.desktopPlaybackErrorEpisodeResolveFailed);
         return;
       }
+      final source = await _freshDirectLinkSource(resolved.source);
+      if (!mounted || generation != _sourceChangeGeneration) {
+        _releaseSource(source, replacement: _source);
+        return;
+      }
       _preloadedNextSource = null;
       _preloadedNextItemGuid = '';
       _reportProgress();
       _reportReady = false;
-      _source = resolved.source;
-      _pausedByUser = resolved.source.startPaused;
-      _playbackRate = _validPlaybackRate(resolved.source.playbackSpeed);
-      await _player.open(DesktopMpvRuntime.mediaFor(resolved.source));
+      _source = source;
+      _pausedByUser = source.startPaused;
+      _playbackRate = _validPlaybackRate(source.playbackSpeed);
+      await _player.open(DesktopMpvRuntime.mediaFor(source));
       await _applyDesktopMpvProperties();
-      await _applyPreferredSubtitle(resolved.source);
-      if (resolved.source.startPosition > Duration.zero) {
-        _showResumeFromPrompt(resolved.source.startPosition);
+      await _applyPreferredSubtitle(source);
+      if (source.startPosition > Duration.zero) {
+        _showResumeFromPrompt(source.startPosition);
       }
       await _player.setRate(_playbackRate);
-      if (!resolved.source.startPaused) await _player.play();
+      if (!source.startPaused) await _player.play();
       unawaited(_loadDanmakuForSource(resolved.danmakuFilePath));
       await _loadBookmarks();
       unawaited(_preloadNextEpisodeIfEnabled());
       _reportReady = true;
     } catch (_) {
-      _showGenericError(_l10n.desktopPlaybackErrorEpisodeSwitchFailed);
+      if (mounted && generation == _sourceChangeGeneration) {
+        _showGenericError(_l10n.desktopPlaybackErrorEpisodeSwitchFailed);
+      }
     } finally {
-      _releaseSource(previousSource, replacement: _source);
-      _finishLoading();
-      _scheduleProgressReport();
+      if (mounted && generation == _sourceChangeGeneration) {
+        _releaseSource(previousSource, replacement: _source);
+        _finishLoading();
+        _scheduleProgressReport();
+      }
     }
   }
 
@@ -971,6 +1000,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     final resolver = widget.reloadSource;
     final previousSource = _source;
     if (resolver == null) return;
+    _sourceChangeGeneration++;
+    _lastDirectLinkRefreshAttempt = null;
     final wasPlaying = _isPlaying;
     _wakeControls(scheduleHide: false);
     setState(() {
@@ -1031,6 +1062,17 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   void _scheduleProgressReport() {
     _progressTimer?.cancel();
+    _directLinkTimer?.cancel();
+    if (mounted &&
+        _reportReady &&
+        _isPlaying &&
+        _source.playbackMode.isDirectLink &&
+        widget.refreshDirectLink != null) {
+      unawaited(_refreshDirectLinkIfNeeded());
+      _directLinkTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        unawaited(_refreshDirectLinkIfNeeded());
+      });
+    }
     if (!mounted ||
         !_reportReady ||
         !_isPlaying ||
@@ -1043,6 +1085,97 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         if (_isPlaying && !_isBuffering) _reportProgress();
       });
     });
+  }
+
+  /// 预加载下一集可能早于真正起播；到播放时按墙钟重新检查有效期。
+  Future<MpvMediaSource> _freshDirectLinkSource(MpvMediaSource source) async {
+    final refresh = widget.refreshDirectLink;
+    if (refresh == null ||
+        !DesktopMpvRuntime.directLinkNeedsRefresh(source, DateTime.now())) {
+      return source;
+    }
+    return refresh(source);
+  }
+
+  Future<void> _refreshDirectLinkIfNeeded({bool beforePlay = false}) async {
+    final refresh = widget.refreshDirectLink;
+    final now = DateTime.now();
+    if (!mounted ||
+        !_reportReady ||
+        (!_isPlaying && !beforePlay) ||
+        _isLoading ||
+        _directLinkRefreshPending ||
+        refresh == null ||
+        !DesktopMpvRuntime.directLinkNeedsRefresh(_source, now) ||
+        (_lastDirectLinkRefreshAttempt != null &&
+            now.difference(_lastDirectLinkRefreshAttempt!) <
+                const Duration(seconds: 30))) {
+      return;
+    }
+    _directLinkRefreshPending = true;
+    _lastDirectLinkRefreshAttempt = now;
+    final previousSource = _source;
+    final generation = _sourceChangeGeneration;
+    bool isCurrent() =>
+        mounted &&
+        generation == _sourceChangeGeneration &&
+        _source.loadNonce == previousSource.loadNonce;
+    var reopening = false;
+    try {
+      final refreshed = await refresh(previousSource);
+      if (!isCurrent() || _isLoading || _source.url != previousSource.url) {
+        return;
+      }
+      final changed =
+          refreshed.url != _source.url ||
+          !mapEquals(refreshed.headers, _source.headers);
+      _source = _source.copyWith(
+        url: refreshed.url,
+        headers: refreshed.headers,
+        qualities: refreshed.qualities,
+      );
+      if (!changed) return;
+      // 网络请求完成后才取当前位置，不能回到请求开始时的旧进度。
+      final position = _player.state.position;
+      final wasPlaying = _player.state.playing;
+      final audio = _player.state.track.audio;
+      final subtitle = _player.state.track.subtitle;
+      _reportProgress();
+      _reportReady = false;
+      reopening = true;
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+      await _player.open(
+        DesktopMpvRuntime.mediaFor(_source, startPosition: position),
+        play: false,
+      );
+      if (!isCurrent()) return;
+      await _applyDesktopMpvProperties();
+      if (!isCurrent()) return;
+      await _player.setAudioTrack(audio);
+      if (!isCurrent()) return;
+      await _player.setSubtitleTrack(subtitle);
+      if (!isCurrent()) return;
+      await _player.setRate(_playbackRate);
+      if (!isCurrent()) return;
+      if (wasPlaying) await _player.play();
+      if (isCurrent()) _reportReady = true;
+    } catch (_) {
+      // 续签失败保留当前播放，下个周期再试；不把临时网络错误升级为播放失败。
+      debugPrint('[desktop-playback] 直链续期失败');
+      if (reopening && isCurrent()) {
+        _reportReady = true;
+        _showGenericError(_l10n.desktopPlaybackErrorStartFailed);
+      }
+    } finally {
+      _directLinkRefreshPending = false;
+      if (reopening && isCurrent()) {
+        _finishLoading();
+        _scheduleProgressReport();
+      }
+    }
   }
 
   void _reportProgress() {
@@ -1173,6 +1306,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _scheduleProgressReport();
     } else {
       _progressTimer?.cancel();
+      _directLinkTimer?.cancel();
       _controlsHideTimer?.cancel();
     }
   }
@@ -1194,6 +1328,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     if (!mounted || !completed || _playbackCompleted) return;
     _reportProgress();
     _progressTimer?.cancel();
+    _directLinkTimer?.cancel();
     _controlsHideTimer?.cancel();
     _resumePromptTimer?.cancel();
     setState(() {
@@ -1304,6 +1439,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _togglePlayback() async {
     _wakeControls();
+    if (!_isPlaying) await _refreshDirectLinkIfNeeded(beforePlay: true);
+    if (!mounted || _isLoading) return;
     _pausedByUser = _isPlaying;
     await _player.playOrPause();
   }
@@ -1458,6 +1595,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _reopenCurrentMedia() async {
     if (_source.url.trim().isEmpty || _isLoading) return;
+    _sourceChangeGeneration++;
     _reportProgress();
     _reportReady = false;
     final position = _player.state.position;
@@ -1652,7 +1790,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
           try {
             final track = option.value;
             if (audio) {
-              await _player.setAudioTrack(track as AudioTrack);
+              await _selectLocalAudioTrack(track as AudioTrack);
             } else {
               await _player.setSubtitleTrack(track as SubtitleTrack);
             }
@@ -1686,7 +1824,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
           try {
             final track = option.value;
             if (audio) {
-              await _player.setAudioTrack(track as AudioTrack);
+              await _selectLocalAudioTrack(track as AudioTrack);
             } else {
               await _player.setSubtitleTrack(track as SubtitleTrack);
             }
@@ -1861,13 +1999,39 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     }
     try {
       if (audio) {
-        await _player.setAudioTrack(option.value as AudioTrack);
+        await _selectLocalAudioTrack(option.value as AudioTrack);
       } else {
         await _player.setSubtitleTrack(option.value as SubtitleTrack);
       }
     } catch (_) {
       _showGenericError(_l10n.desktopPlaybackErrorTrackSwitchFailed);
     }
+  }
+
+  Future<void> _selectLocalAudioTrack(AudioTrack track) async {
+    final source = _source;
+    await _player.setAudioTrack(track);
+    int? streamIndex;
+    final platform = _player.platform;
+    if (platform is NativePlayer) {
+      try {
+        streamIndex = int.tryParse(
+          await platform.getProperty('current-tracks/audio/ff-index'),
+        );
+      } catch (_) {
+        // 切轨已经成功；无法识别原文件索引时不再上报旧 GUID。
+      }
+    }
+    if (!mounted ||
+        _isLoading ||
+        source.loadNonce != _source.loadNonce ||
+        source.url != _source.url) {
+      return;
+    }
+    setState(() {
+      _source = DesktopMpvRuntime.sourceWithAudioStream(_source, streamIndex);
+    });
+    _reportProgress();
   }
 
   Future<void> _disableHoverSubtitle() async {

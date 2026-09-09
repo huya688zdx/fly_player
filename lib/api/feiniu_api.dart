@@ -2149,7 +2149,8 @@ class FeiniuApi {
           'item_guid': itemGuid,
           'media_guid': mediaGuid,
           if (videoGuid.trim().isNotEmpty) 'video_guid': videoGuid.trim(),
-          'audio_guid': (audioGuid ?? '').trim(),
+          if ((audioGuid ?? '').trim().isNotEmpty)
+            'audio_guid': audioGuid!.trim(),
           'subtitle_guid': (subtitleGuid ?? '').trim(),
           'resolution': (resolution ?? '').trim(),
           'bitrate': bitrate ?? 0,
@@ -2556,15 +2557,16 @@ class FeiniuApi {
     }
   }
 
-  /// 取消服务端下载任务（暂停/取消下载时调用）。
+  /// 删除服务端下载任务和产物，仅在明确删除时调用。
   Future<void> deleteDownloadTask(String taskId, {String lan = 'zh-CN'}) async {
     final normalizedTaskId = taskId.trim();
     if (normalizedTaskId.isEmpty) return;
     try {
-      await _dio.delete(
+      final response = await _dio.delete(
         '$_downloadTaskPath/$normalizedTaskId',
         data: <String, dynamic>{'lan': lan.trim()},
       );
+      _requireSuccessPayload(response.data, 'delete download task');
     } catch (error, stackTrace) {
       await logSwallowedError(
         action: 'delete download task',
@@ -2573,7 +2575,7 @@ class FeiniuApi {
         stackTrace: stackTrace,
         source: 'feiniu_api',
       );
-      // Best-effort: server-side cleanup should not block the local UX.
+      // 服务端清理失败保留日志，仍允许完成本地删除。
     }
   }
 
