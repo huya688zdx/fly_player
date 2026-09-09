@@ -15,6 +15,7 @@ final class NativePlaybackHost implements PlaybackHost {
     String? danmakuFilePath,
     String? startSource,
     NasProvider? nas,
+    bool offline = false,
   }) {
     return NativePlayerBridge.maybeLaunch(
       source.toMap(),
@@ -22,7 +23,7 @@ final class NativePlaybackHost implements PlaybackHost {
       initialPlayInfo: initialPlayInfo?.toJson(),
       danmakuFilePath: danmakuFilePath,
       startSource: startSource,
-      nas: nas,
+      nas: offline ? null : nas,
     );
   }
 }
