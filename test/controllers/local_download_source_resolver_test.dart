@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -16,8 +17,11 @@ import 'package:fly_player/models/playback_stream.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/services/app_log_service.dart';
 
-/// 三个回放元数据接口全部抛错的 fake gateway，用于锁定降级路径。
+/// 可控制首个元数据请求的响应，其余接口抛错以验证本地回退。
 class _ThrowingGateway implements FeiniuDetailDataGateway {
+  _ThrowingGateway({this.playInfoResponse});
+
+  final Future<PlayInfoData>? playInfoResponse;
   int playInfoCalls = 0;
   int trackDataCalls = 0;
   int playbackStreamCalls = 0;
@@ -25,6 +29,7 @@ class _ThrowingGateway implements FeiniuDetailDataGateway {
   @override
   Future<PlayInfoData> getPlayInfo(String itemGuid) async {
     playInfoCalls++;
+    if (playInfoResponse != null) return await playInfoResponse!;
     throw StateError('play info unavailable');
   }
 
@@ -145,13 +150,14 @@ void main() {
     expect(gateway.playbackStreamCalls, 0);
   });
 
-  test('三条网络元数据全失败时降级到下载记录字段,并留痕 logSwallowedError', () async {
+  test('NAS 无响应时短时回退本地，且不继续请求另外两个接口', () async {
     final token = 'tk${DateTime.now().microsecondsSinceEpoch}';
     final itemGuid = 'itm-$token';
     final mediaGuid = 'med-$token';
     final file = File('${tempDir.path}${Platform.pathSeparator}video.mkv')
       ..writeAsBytesSync(const <int>[0, 1, 2, 3]);
-    final gateway = _ThrowingGateway();
+    final pending = Completer<PlayInfoData>();
+    final gateway = _ThrowingGateway(playInfoResponse: pending.future);
     final record = _record(
       filePath: file.path,
       itemGuid: itemGuid,
@@ -162,12 +168,12 @@ void main() {
       record,
       gateway,
       l10n: l10n,
-    );
+    ).timeout(const Duration(seconds: 3));
 
-    // 三条请求各发起一次,失败不阻塞播放。
+    // 首个请求超时即回退，不再为另外两个接口各等一次超时。
     expect(gateway.playInfoCalls, 1);
-    expect(gateway.trackDataCalls, 1);
-    expect(gateway.playbackStreamCalls, 1);
+    expect(gateway.trackDataCalls, 0);
+    expect(gateway.playbackStreamCalls, 0);
 
     // 降级路径:全部字段来自下载记录 fallback。
     expect(result, isNotNull);
@@ -177,7 +183,7 @@ void main() {
     expect(source.url, Uri.file(file.path).toString());
     expect(source.itemGuid, itemGuid);
     expect(source.mediaGuid, mediaGuid);
-    expect(source.posterPath, 'http://nas.local/poster.jpg');
+    expect(source.posterPath, isEmpty);
     expect(source.resolution, '1080p');
     expect(source.audioTracks, hasLength(1));
     expect(source.audioTrackGuid, 'aud-1');
@@ -187,7 +193,7 @@ void main() {
     expect(source.seasonNumber, 2);
     expect(source.episodeNumber, 5);
 
-    // logSwallowedError 行为锁定:三条降级各留一条 warning,来源与 action 固定。
+    // 元数据查询失败只留一条诊断日志。
     await pumpEventQueue();
     final swallowed = AppLogService.instance.entries
         .where(
@@ -196,16 +202,50 @@ void main() {
               (entry.details ?? '').contains(token),
         )
         .toList(growable: false);
-    expect(swallowed, hasLength(3));
+    expect(swallowed, hasLength(1));
     expect(
       swallowed.every((entry) => entry.level == AppLogLevel.warning),
       isTrue,
     );
     final details = swallowed.map((entry) => entry.details ?? '').join('\n');
-    expect(details, contains('action=resolve local download play info'));
-    expect(details, contains('action=resolve local download stream tracks'));
-    expect(details, contains('action=resolve local download playback stream'));
+    expect(details, contains('action=resolve local download metadata'));
     expect(details, contains('id=$itemGuid'));
-    expect(details, contains('id=$mediaGuid'));
+    pending.completeError(StateError('迟到的请求失败'));
+    await pumpEventQueue();
+    expect(gateway.trackDataCalls, 0);
+    expect(gateway.playbackStreamCalls, 0);
+  });
+
+  test('离线入口不提供网络网关，直接解析本地文件', () async {
+    final file = File('${tempDir.path}/offline.mkv')
+      ..writeAsStringSync('video');
+    final result = await resolveLocalDownloadSource(
+      _record(filePath: file.path, itemGuid: 'offline', mediaGuid: 'media'),
+      null,
+      l10n: l10n,
+      startPositionMs: 18000,
+    ).timeout(const Duration(seconds: 1));
+    expect(result!.source.url, Uri.file(file.path).toString());
+    expect(result.source.startPosition, const Duration(seconds: 18));
+    expect(result.playInfo, isNull);
+  });
+
+  test('NAS 在线播放本地文件时仍读取服务端续播进度', () async {
+    final file = File('${tempDir.path}/online.mkv')..writeAsStringSync('video');
+    final playInfo = PlayInfoData.fromJson({
+      'ts': 42,
+      'media_guid': 'media',
+      'item': <String, dynamic>{'duration': 600},
+    });
+    final gateway = _ThrowingGateway(playInfoResponse: Future.value(playInfo));
+    final result = await resolveLocalDownloadSource(
+      _record(filePath: file.path, itemGuid: 'online', mediaGuid: 'media'),
+      gateway,
+      l10n: l10n,
+    );
+    expect(gateway.playInfoCalls, 1);
+    expect(result!.playInfo, same(playInfo));
+    expect(result.source.url, Uri.file(file.path).toString());
+    expect(result.source.startPosition, const Duration(seconds: 42));
   });
 }
