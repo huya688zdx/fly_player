@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +27,19 @@ void main() {
     final feiniuLoginButtonY = tester
         .getTopLeft(find.byType(ElevatedButton))
         .dy;
+
+    final address = find.byKey(const Key('connectionServerAddressField'));
+    await tester.enterText(address, 'https://nas.example.test:5667');
+    final mouse = await tester.startGesture(
+      tester.getCenter(address) + const Offset(60, 0),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    await mouse.moveBy(const Offset(-160, 0));
+    await mouse.up();
+    await tester.pumpAndSettle();
+    expect(address, findsOneWidget);
+    expect(find.byKey(const Key('serverAddress_emby')), findsNothing);
 
     await tester.dragFrom(const Offset(400, 300), const Offset(-360, 0));
     await tester.pumpAndSettle();
@@ -149,7 +163,7 @@ void main() {
     expect(title.top - selector.bottom, lessThanOrEqualTo(11));
   });
 
-  testWidgets('服务切换动画中同时保留旧表单和新表单', (tester) async {
+  testWidgets('服务切换使用原位淡入淡出，不横移表单', (tester) async {
     await tester.pumpWidget(_connectionScreen());
     await tester.pumpAndSettle();
 
@@ -162,7 +176,13 @@ void main() {
     );
     expect(find.byKey(const Key('serverAddress_emby')), findsOneWidget);
     expect(find.byType(FadeTransition), findsWidgets);
-    expect(find.byType(SlideTransition), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('connectionLoginFormPanel')),
+        matching: find.byType(SlideTransition),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('各服务输入状态独立保留', (tester) async {

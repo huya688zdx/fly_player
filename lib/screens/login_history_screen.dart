@@ -8,6 +8,8 @@ import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_backend_registry.dart';
 import '../services/login_history_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
+import '../widgets/common/app_modal_surface.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
 import '../utils/swallowed_error_logger.dart';
@@ -109,71 +111,75 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
       TargetPlatform.linux => true,
       _ => false,
     };
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
-        automaticallyImplyLeading: !isDesktop,
-        backgroundColor: colors.surface,
-        elevation: 0,
-        foregroundColor: colors.textPrimary,
-        title: Text(
-          l10n.connectionLoginHistory,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          automaticallyImplyLeading: !isDesktop,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          foregroundColor: colors.textPrimary,
+          title: Text(
+            l10n.connectionLoginHistory,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-        actions: [
-          if (_entries.isNotEmpty)
-            TextButton(
-              onPressed: _clear,
-              child: Text(
-                l10n.connectionClear,
-                style: TextStyle(color: colors.accent),
-              ),
-            ),
-          if (isDesktop)
-            Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: IconButton(
-                tooltip: l10n.commonClose,
-                onPressed: () => Navigator.of(context).pop(),
-                style: IconButton.styleFrom(
-                  backgroundColor: colors.surfaceStrong,
-                  foregroundColor: colors.textPrimary,
-                  side: BorderSide(color: colors.borderSubtle),
-                ),
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: _entries.isEmpty
-            ? Center(
+          actions: [
+            if (_entries.isNotEmpty)
+              TextButton(
+                onPressed: _clear,
                 child: Text(
-                  l10n.connectionNoLoginHistory,
-                  style: TextStyle(
-                    color: colors.textSecondary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  l10n.connectionClear,
+                  style: TextStyle(color: colors.accent),
                 ),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-                itemCount: _entries.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final entry = _entries[index];
-                  return _LoginHistoryTile(
-                    entry: entry,
-                    onTap: () => Navigator.of(context).pop(entry),
-                    onDelete: () => _delete(entry),
-                  );
-                },
               ),
+            if (isDesktop)
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: IconButton(
+                  tooltip: l10n.commonClose,
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: IconButton.styleFrom(
+                    backgroundColor: colors.accent.withValues(alpha: 0.08),
+                    foregroundColor: colors.textPrimary,
+                    side: BorderSide(color: appModalTileBorderColor(colors)),
+                  ),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          child: _entries.isEmpty
+              ? Center(
+                  child: Text(
+                    l10n.connectionNoLoginHistory,
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                  itemCount: _entries.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final entry = _entries[index];
+                    return _LoginHistoryTile(
+                      entry: entry,
+                      onTap: () => Navigator.of(context).pop(entry),
+                      onDelete: () => _delete(entry),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }
@@ -202,13 +208,15 @@ class _LoginHistoryTile extends StatelessWidget {
               : '${entry.userName} · $backendName');
     final colors = context.appColors;
     return Material(
-      color: colors.surface,
+      color: appModalTileColor(colors).withValues(alpha: 0.72),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: colors.borderSubtle),
+        side: BorderSide(color: appModalTileBorderColor(colors)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
+        hoverColor: colors.accent.withValues(alpha: 0.08),
+        highlightColor: colors.accent.withValues(alpha: 0.10),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
