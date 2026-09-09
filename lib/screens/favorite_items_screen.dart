@@ -110,6 +110,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   Set<dynamic> _selectedAudioType = <dynamic>{};
   Set<dynamic> _selectedRecognitionStatus = <dynamic>{};
   Set<dynamic> _selectedWatched = <dynamic>{};
+  Map<String, Set<Object>>? _filterDraft;
 
   @override
   void initState() {
@@ -661,6 +662,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     if (mounted) {
       setState(() {
         _selectedTab = tab;
+        _filterDraft = null;
       });
     }
     _tabController.animateTo(
@@ -815,6 +817,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     if (_selectedTab != tab && mounted) {
       setState(() {
         _selectedTab = tab;
+        _filterDraft = null;
       });
     }
     if (!_tabController.indexIsChanging) {

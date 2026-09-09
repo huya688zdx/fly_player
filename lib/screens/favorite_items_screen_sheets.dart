@@ -15,7 +15,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
     await _applySortSelection(field: result.field, type: result.sortType);
   }
 
-  Future<void> _openFilterSheet() async {
+  List<AppCatalogFilterSection> _buildFilterSections() {
     final l10n = AppLocalizations.of(context);
 
     AppCatalogFilterSection? section(
@@ -105,12 +105,30 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
       ),
     ];
 
+    return candidates.whereType<AppCatalogFilterSection>().toList();
+  }
+
+  Future<void> _openFilterSheet() async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _setStateIfMounted(() {
+        _filterDraft = _filterDraft == null
+            ? {
+                for (final section in _buildFilterSections())
+                  section.key: Set<Object>.from(section.selectedValues),
+              }
+            : null;
+      });
+      return;
+    }
     final result = await AppCatalogFilterSheet.show(
       context,
-      sections: candidates.whereType<AppCatalogFilterSection>().toList(),
+      sections: _buildFilterSections(),
     );
     if (!mounted || result == null) return;
+    _applyFilterSelection(result);
+  }
 
+  void _applyFilterSelection(Map<String, Set<Object>> result) {
     Set<dynamic> valuesFor(String key) =>
         Set<dynamic>.from(result[key] ?? const <Object>{});
     _setStateIfMounted(() {
@@ -125,6 +143,61 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
       _selectedWatched = valuesFor('watched');
     });
     _reloadAfterQueryChanged();
+  }
+
+  void _closeDesktopFilter() => _setStateIfMounted(() => _filterDraft = null);
+
+  Widget _buildDesktopFilterPanel(bool floating) {
+    final l10n = AppLocalizations.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppCatalogFilterInlinePanel(
+          framed: !floating,
+          sections: [
+            for (final section in _buildFilterSections())
+              AppCatalogFilterSection(
+                key: section.key,
+                title: section.title,
+                options: section.options,
+                selectedValues: _filterDraft![section.key] ?? const {},
+              ),
+          ],
+          onOptionSelected: (section, value) => _setStateIfMounted(() {
+            final values = _filterDraft![section.key]!;
+            final wasSelected = values.contains(value);
+            values.clear();
+            if (value != null && !wasSelected) values.add(value);
+          }),
+          onCollapse: _closeDesktopFilter,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => _setStateIfMounted(() {
+                  for (final values in _filterDraft!.values) {
+                    values.clear();
+                  }
+                }),
+                child: Text(l10n.listFilterResetButton),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.tonal(
+                onPressed: () {
+                  final result = _filterDraft!;
+                  _closeDesktopFilter();
+                  _applyFilterSelection(result);
+                },
+                child: Text(l10n.commonConfirm),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   /// 桌面端排序/布局走点击式下拉（触屏保留原 sheet）。

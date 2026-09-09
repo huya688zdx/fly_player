@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fly_player/desktop/desktop_environment.dart';
+import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/app_catalog_query_sheets.dart';
@@ -62,6 +63,7 @@ void main() {
                     title: '影视分类',
                     options: [
                       AppCatalogFilterOption(value: 'Movie', label: '电影'),
+                      AppCatalogFilterOption(value: 'TV', label: '电视剧'),
                     ],
                   ),
                 ],
@@ -75,8 +77,33 @@ void main() {
     await tester.tap(find.text('打开筛选'));
     await tester.pumpAndSettle();
     expect(find.byType(AppCatalogFilterInlinePanel), findsOneWidget);
+    final nextOptionRect = tester.getRect(find.text('电视剧'));
+    final initialWeight = tester
+        .widget<Text>(find.text('电影'))
+        .style!
+        .fontWeight;
+    final allFill = tester
+        .widget<Material>(
+          find
+              .ancestor(of: find.text('全部'), matching: find.byType(Material))
+              .first,
+        )
+        .color;
+    expect(
+      allFill,
+      tester
+          .element(find.text('全部'))
+          .appColors
+          .selection
+          .withValues(alpha: 0.12),
+    );
     await tester.tap(find.text('电影'));
     await tester.pumpAndSettle();
+    expect(tester.getRect(find.text('电视剧')), nextOptionRect);
+    expect(
+      tester.widget<Text>(find.text('电影')).style!.fontWeight,
+      initialWeight,
+    );
     expect(
       tester
           .widget<AppCatalogFilterInlinePanel>(
@@ -106,6 +133,84 @@ void main() {
     expect(result, <String, Set<Object>>{
       'type': {'Movie'},
     });
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('筛选打开后随窗口宽度切换位置并保留选择', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    tester.view.physicalSize = const Size(800, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var expanded = false;
+    var selected = <Object>{};
+    await tester.pumpWidget(
+      _app(
+        (context) => Scaffold(
+          body: StatefulBuilder(
+            builder: (context, update) => AppCatalogFilterRegion(
+              expanded: expanded,
+              onDismiss: () => update(() => expanded = false),
+              toolbar: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => update(() => expanded = !expanded),
+                    child: const Text('筛选'),
+                  ),
+                ),
+              ),
+              panelBuilder: (floating) => AppCatalogFilterInlinePanel(
+                framed: !floating,
+                sections: [
+                  AppCatalogFilterSection(
+                    key: 'type',
+                    title: '影视分类',
+                    selectedValues: selected,
+                    options: const [
+                      AppCatalogFilterOption(value: 'Movie', label: '电影'),
+                    ],
+                  ),
+                ],
+                onOptionSelected: (_, value) =>
+                    update(() => selected = {if (value != null) value}),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('筛选'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    await tester.tap(find.text('电影'));
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = const Size(1400, 700);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    final panel = find.byType(AppCatalogFilterInlinePanel);
+    expect(panel, findsOneWidget);
+    expect(
+      tester
+          .widget<AppCatalogFilterInlinePanel>(panel)
+          .sections
+          .single
+          .selectedValues,
+      {'Movie'},
+    );
+    tester.view.physicalSize = const Size(800, 700);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    expect(panel, findsOneWidget);
+    expect(
+      tester
+          .widget<AppCatalogFilterInlinePanel>(panel)
+          .sections
+          .single
+          .selectedValues,
+      {'Movie'},
+    );
     expect(tester.takeException(), isNull);
   });
 
