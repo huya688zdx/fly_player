@@ -10,6 +10,7 @@ import '../api/feiniu_api.dart';
 import '../api/feiniu_access_code_transport.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'fn_web_login_bridge_script.dart';
 import '../utils/login_error_resolver.dart';
 import '../utils/swallowed_error_logger.dart';
@@ -162,7 +163,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       fnConnectId: widget.fnConnectId,
       relayHosts: widget.relayHosts,
     );
-    unawaited(_initialize());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_initialize());
+    });
   }
 
   Future<void> _initialize() async {
@@ -173,9 +176,11 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           await windows_webview.WebviewController.initializeEnvironment();
           _windowsEnvironmentInitialized = true;
         }
+        if (!mounted || _isClosing) return;
         final controller = windows_webview.WebviewController();
         _windowsController = controller;
         await controller.initialize();
+        if (!mounted || _isClosing) return;
         await controller.setBackgroundColor(const Color(0xFF08111A));
         await controller.setPopupWindowPolicy(
           windows_webview.WebviewPopupWindowPolicy.sameWindow,
@@ -183,6 +188,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         await controller.addScriptToExecuteOnDocumentCreated(
           _buildInjectionScript(),
         );
+        if (!mounted || _isClosing) return;
         _windowsUrlSubscription = controller.url.listen((url) {
           if (!mounted || _isClosing) return;
           _windowsCurrentUrl = url;
@@ -226,6 +232,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           setState(() => _statusText = error.name);
         });
         if (await _tryNavigateToSigninFromRelayConfig()) return;
+        if (!mounted || _isClosing) return;
         await controller.loadUrl(_entry.initialUrl);
         return;
       }
@@ -689,66 +696,70 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     final statusText = _statusText.isEmpty
         ? l10n.fnConnectEntryOpening
         : _statusText;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
-        automaticallyImplyLeading: !isDesktop,
-        backgroundColor: colors.surface,
-        foregroundColor: colors.textPrimary,
-        title: Text(l10n.fnConnectWebLoginTitle(widget.fnConnectId)),
-        actions: [
-          IconButton(
-            tooltip: l10n.fnConnectEntryReload,
-            onPressed: _isReady
-                ? () => _windowsController != null
-                      ? _windowsController!.reload()
-                      : _controller!.reload()
-                : null,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          IconButton(
-            tooltip: l10n.commonClose,
-            onPressed: () {
-              if (_isClosing) return;
-              Navigator.of(context).pop();
-            },
-            icon: const Icon(Icons.close_rounded),
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(28),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                LinearProgressIndicator(
-                  value: progress <= 0 || progress >= 1 ? null : progress,
-                  backgroundColor: colors.surfaceStrong,
-                  valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  statusText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: colors.textSecondary, fontSize: 12),
-                ),
-              ],
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          automaticallyImplyLeading: !isDesktop,
+          backgroundColor: colors.surface,
+          foregroundColor: colors.textPrimary,
+          title: Text(l10n.fnConnectWebLoginTitle(widget.fnConnectId)),
+          actions: [
+            IconButton(
+              tooltip: l10n.fnConnectEntryReload,
+              onPressed: _isReady
+                  ? () => _windowsController != null
+                        ? _windowsController!.reload()
+                        : _controller!.reload()
+                  : null,
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+            IconButton(
+              tooltip: l10n.commonClose,
+              onPressed: () {
+                if (_isClosing) return;
+                _isClosing = true;
+                Navigator.of(context).pop();
+              },
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(28),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LinearProgressIndicator(
+                    value: progress <= 0 || progress >= 1 ? null : progress,
+                    backgroundColor: colors.surfaceStrong,
+                    valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    statusText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: colors.textSecondary, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
+        body: _isReady
+            ? (_windowsController != null
+                  ? windows_webview.Webview(_windowsController!)
+                  : WebViewWidget(controller: _controller!))
+            : const Center(child: BirdLoader(size: 120)),
       ),
-      body: _isReady
-          ? (_windowsController != null
-                ? windows_webview.Webview(_windowsController!)
-                : WebViewWidget(controller: _controller!))
-          : const Center(child: BirdLoader(size: 120)),
     );
   }
 
   @override
   void dispose() {
+    _isClosing = true;
     unawaited(_windowsUrlSubscription?.cancel());
     unawaited(_windowsLoadingSubscription?.cancel());
     unawaited(_windowsMessageSubscription?.cancel());

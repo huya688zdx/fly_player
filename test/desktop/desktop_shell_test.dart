@@ -172,7 +172,7 @@ void main() {
           pages: const <Widget>[Text('影视内容页'), Text('设置内容页')],
         ),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await gesture.addPointer(location: const Offset(400, 400));
@@ -231,52 +231,96 @@ void main() {
       expect(find.text('content:/screen/settings/appearance'), findsNothing);
     });
 
-    testWidgets('分屏开关在设置：provider 开 → 右栏宿主出现，比例可调，关 → 恢复', (tester) async {
+    testWidgets('分屏按设置展开与换边，返回保留开关和主屏状态', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
-
       await tester.pumpWidget(
         _desktopApp(pages: const <Widget>[Text('影视内容页'), Text('设置内容页')]),
       );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-
-      // 分屏默认关闭（测试设置 enabled=false）：无右栏宿主、侧栏也无开关。
-      expect(find.byType(DesktopDetailPaneHost), findsNothing);
+      await tester.pumpAndSettle();
       final context = tester.element(find.byType(DesktopSideBar));
       final provider = context.read<ParallelWindowSettingsProvider>();
-      expect(provider.enabled, isFalse);
-
-      // 经设置（provider）开启分屏：右栏宿主出现。
+      final proxy = PlayerPaneHostScope.maybeOf(context)!;
+      final homeElement = tester.element(find.text('影视内容页'));
       await provider.setEnabled(true);
       await tester.pumpAndSettle();
-      expect(find.byType(DesktopDetailPaneHost), findsOneWidget);
-
-      final controller = tester
-          .element(find.text('42%'))
-          .read<DesktopSplitController>();
-      expect(controller.paneFraction, 0.50);
-
-      await tester.tap(find.text('65%'));
-      await tester.pump();
-      expect(controller.paneFraction, 0.65);
-
-      // 分屏后内容列与右栏按 paneFraction 弹性分配（右栏 65）。
-      final flexes = tester
-          .widgetList<Expanded>(find.byType(Expanded))
-          .map((expanded) => expanded.flex)
-          .toList();
-      expect(flexes, containsAll(<int>[35, 65]));
-
-      // 右栏关闭按钮：经控制器回写 provider，设置与分屏状态一致。
-      await tester.tap(
-        find.byKey(const ValueKey<String>('desktop_pane_close')),
-      );
-      await tester.pumpAndSettle();
-      expect(controller.enabled, isFalse);
-      expect(provider.enabled, isFalse);
       expect(find.byType(DesktopDetailPaneHost), findsNothing);
+
+      final browse = find.byType(IndexedStack);
+      final fullWidth = tester.getSize(browse).width;
+      await proxy.openRoute('/detail/item?itemGuid=a');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final openingWidth = tester.getRect(browse).width;
+      final openingLayoutWidth = tester.getSize(browse).width;
+      expect(openingWidth, lessThan(fullWidth));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(tester.getSize(browse).width, openingLayoutWidth);
+      await tester.pumpAndSettle();
+      expect(openingWidth, greaterThan(tester.getSize(browse).width));
+      final pane = find.byType(DesktopDetailPaneHost);
+      final controller = tester.element(pane).read<DesktopSplitController>();
+      expect(controller.paneFraction, 0.58);
+      expect(find.text('item'), findsNothing);
+      expect(find.text('50%'), findsNothing);
+      expect(
+        tester.getTopLeft(pane).dx,
+        greaterThan(tester.getTopLeft(find.text('影视内容页')).dx),
+      );
+      final state = tester.state<DesktopDetailPaneHostState>(pane);
+      final paneWidth = tester.getSize(pane).width;
+      final pageContext = tester.element(
+        find.text('pane:/detail/item?itemGuid=a'),
+      );
+      expect(MediaQuery.sizeOf(pageContext).width, paneWidth);
+
+      await provider.setPreferredPrimaryPaneSide('right');
+      await provider.setSplitRatioPreset('focus_detail');
+      await tester.pumpAndSettle();
+      expect(controller.paneFraction, 0.65);
+      expect(tester.state(pane), same(state));
+      expect(
+        tester.getTopLeft(pane).dx,
+        lessThan(tester.getTopLeft(find.text('影视内容页')).dx),
+      );
+
+      final splitWidth = tester.getSize(browse).width;
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final closingWidth = tester.getRect(browse).width;
+      expect(tester.getSize(browse).width, fullWidth);
+      expect(closingWidth, greaterThan(splitWidth));
+      expect(closingWidth, lessThan(fullWidth));
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopDetailPaneHost), findsNothing);
+      expect(provider.enabled, isTrue);
+      expect(tester.element(find.text('影视内容页')), same(homeElement));
+      await proxy.openRoute('/detail/item?itemGuid=b');
+      await tester.pumpAndSettle();
+      expect(find.text('pane:/detail/item?itemGuid=b'), findsOneWidget);
+      // 窗口缩窄时保留当前详情，返回后新详情在主屏打开。
+      tester.view.physicalSize = const Size(1100, 900);
+      await tester.pumpAndSettle();
+      expect(find.text('影视内容页'), findsNothing);
+      expect(find.text('pane:/detail/item?itemGuid=b'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final detailContext = tester.element(
+        find.text('pane:/detail/item?itemGuid=b'),
+      );
+      Navigator.of(detailContext).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopDetailPaneHost), findsNothing);
+      await proxy.openRoute('/detail/item?itemGuid=c');
+      await tester.pumpAndSettle();
+      expect(find.text('content:/detail/item?itemGuid=c'), findsOneWidget);
+      await proxy.closePane();
+      await tester.pumpAndSettle();
+      expect(provider.enabled, isTrue);
+      expect(controller.paneVisible, isFalse);
+      await tester.pump(const Duration(seconds: 2));
     });
 
     testWidgets('快捷键：数字 1/2 切 tab，Ctrl+K 打开搜索弹窗', (tester) async {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/playback/desktop_danmaku_overlay.dart';
 import 'package:fly_player/desktop/playback/desktop_mpv_runtime.dart';
+import 'package:fly_player/desktop/playback/desktop_playback_chapters.dart';
+import 'package:fly_player/desktop/playback/desktop_playback_reporter.dart';
 import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
 import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
@@ -17,6 +20,66 @@ import 'package:fly_player/playback/settings/mpv_settings_store.dart';
 import 'package:media_kit/media_kit.dart';
 
 void main() {
+  testWidgets('无章节最多补读一次，换源后旧读取失效并保留零秒章节', (tester) async {
+    var reads = 0;
+    final pending = Completer<String>();
+    final chapters = DesktopPlaybackChapters(() {
+      reads++;
+      return reads <= 2 ? Future.value('[]') : pending.future;
+    });
+    addTearDown(chapters.dispose);
+    chapters.load(const Duration(minutes: 20));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(seconds: 30));
+    expect(reads, 2);
+    chapters.reset();
+    chapters.load(const Duration(minutes: 20));
+    chapters.reset();
+    pending.complete('[{"title":"旧章节","time":0}]');
+    await tester.pump();
+    expect(chapters.value, isEmpty);
+    chapters.load(const Duration(minutes: 20));
+    await tester.pump();
+    expect(chapters.value.single.position, Duration.zero);
+  });
+
+  test('进度固定采样媒体身份，最终上报完成后再释放服务端会话', () async {
+    final firstReport = Completer<void>();
+    final released = Completer<void>();
+    final events = <String>[];
+    final reporter = DesktopPlaybackReporter(
+      reportProgress: (progress) async {
+        events.add('${progress['itemGuid']}:${progress['ts']}');
+        if (events.length == 1) await firstReport.future;
+      },
+      releaseServerSession: (link) async {
+        events.add('释放:$link');
+        released.complete();
+      },
+    );
+    final source = _qualitySource().copyWith(playLink: '旧会话');
+    for (final sample in [
+      (source, 10),
+      (source.copyWith(itemGuid: '下一集'), 20),
+    ]) {
+      reporter.recordServer(
+        sample.$1,
+        position: Duration(seconds: sample.$2),
+        duration: const Duration(minutes: 20),
+        paused: false,
+        completed: false,
+      );
+    }
+    reporter.release(source);
+    await Future<void>.delayed(Duration.zero);
+    expect(events, ['item:10']);
+    firstReport.complete();
+    await released.future;
+    expect(events, ['item:10', '下一集:20', '释放:旧会话']);
+    await reporter.dispose();
+  });
+
   test('主动暂停与媒体切换期间的 MPV 日志错误不升级为致命弹层', () {
     final source = File(
       'lib/desktop/playback/desktop_playback_screen.dart',
@@ -55,6 +118,7 @@ void main() {
     expect(source, contains('ValueNotifier<bool> _playingNotifier'));
     expect(source, contains('Listenable.merge(<Listenable>['));
     expect(source, contains('_playingNotifier,'));
+    expect(source, contains('_viewRevision,'));
   });
 
   test('窗口与全屏控制层各自持有快捷键焦点', () {

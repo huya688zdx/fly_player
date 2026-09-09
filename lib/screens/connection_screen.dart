@@ -16,6 +16,7 @@ import '../providers/backend_session_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/media_backend_connection_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/app_transitions.dart';
 import '../utils/action_rate_limiter.dart';
 import '../utils/app_error_reporter.dart';
@@ -836,18 +837,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
-    final colors = context.appColors;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      body: Listener(
-        onPointerDown: _handleSwipePointerDown,
-        onPointerMove: _handleSwipePointerMove,
-        onPointerUp: _handleSwipePointerUp,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => FocusScope.of(context).unfocus(),
-          child: SafeArea(
-            child: _buildResponsiveConnectionBody(context, theme, l10n),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Listener(
+          onPointerDown: _handleSwipePointerDown,
+          onPointerMove: _handleSwipePointerMove,
+          onPointerUp: _handleSwipePointerUp,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: SafeArea(
+              child: _buildResponsiveConnectionBody(context, theme, l10n),
+            ),
           ),
         ),
       ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
 import '../widgets/common/track_option_sheet.dart';
 import 'desktop_environment.dart';
 import 'desktop_floating_panel.dart';
@@ -207,6 +208,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     // 淡出卸载期间 spec 可能已被置空（如媒体切换），此时直接返回占位。
     final spec = widget.spec;
     if (spec == null) return const SizedBox.shrink();
+    final colors = context.appColors;
     final placement = _resolvePlacement(spec);
     if (placement == null) return const SizedBox.shrink();
 
@@ -260,8 +262,8 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                                 spec.title!,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xBFFFFFFF),
+                                style: TextStyle(
+                                  color: colors.textSecondary,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.3,
@@ -269,7 +271,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                               ),
                             ),
                             const SizedBox(height: 9),
-                            const Divider(height: 1, color: Color(0x24FFFFFF)),
+                            Divider(height: 1, color: colors.borderSubtle),
                             const SizedBox(height: 6),
                           ],
                           ConstrainedBox(
@@ -289,10 +291,10 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                                   ) ...<Widget>[
                                     if (i > 0) ...<Widget>[
                                       const SizedBox(height: 4),
-                                      const Divider(
+                                      Divider(
                                         height: 1,
                                         thickness: 1,
-                                        color: Color(0x24FFFFFF),
+                                        color: colors.borderSubtle,
                                       ),
                                       const SizedBox(height: 4),
                                     ],
@@ -441,7 +443,8 @@ class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
   Widget build(BuildContext context) {
     final item = widget.item;
     final selected = widget.selected;
-    final titleColor = selected ? const Color(0xFF83B5FF) : Colors.white;
+    final colors = context.appColors;
+    final titleColor = selected ? colors.selection : colors.textPrimary;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: MouseRegion(
@@ -453,9 +456,9 @@ class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
           curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             color: selected
-                ? const Color(0x2E4F9EFF)
+                ? colors.selectionSoft
                 : _hovered
-                ? const Color(0x1FFFFFFF)
+                ? colors.selection.withValues(alpha: 0.08)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
           ),
@@ -489,9 +492,7 @@ class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: selected
-                                  ? const Color(0x99A9C9FF)
-                                  : const Color(0x80FFFFFF),
+                              color: colors.textSecondary,
                               fontSize: 10.5,
                             ),
                           ),
@@ -500,12 +501,12 @@ class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
                     ),
                   ),
                   if (selected)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
                       child: Icon(
                         Icons.check_rounded,
                         size: 18,
-                        color: Color(0xFF83B5FF),
+                        color: colors.selection,
                       ),
                     ),
                   if (item.onDelete != null)
@@ -518,9 +519,7 @@ class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
                         minHeight: 28,
                       ),
                       iconSize: 17,
-                      color: _hovered
-                          ? const Color(0xCCFFFFFF)
-                          : const Color(0x73FFFFFF),
+                      color: _hovered ? colors.textPrimary : colors.textMuted,
                       icon: const Icon(Icons.delete_outline),
                       tooltip: MaterialLocalizations.of(
                         context,

@@ -20,11 +20,14 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(4));
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsOneWidget);
     expect(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is Image &&
-            widget.image is AssetImage &&
-            (widget.image as AssetImage).assetName == 'lib/img/app_logo.png',
+      find.descendant(
+        of: find.byType(ConnectionScreen),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is Image &&
+              widget.image is AssetImage &&
+              (widget.image as AssetImage).assetName == 'lib/img/app_logo.png',
+        ),
       ),
       findsOneWidget,
     );

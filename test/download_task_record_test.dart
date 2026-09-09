@@ -62,7 +62,7 @@ DownloadTaskRecord _downloadedEpisode({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('删除下载只清理所属账号的远端任务，业务失败记录日志并完成本地删除', () async {
+  test('并发恢复复用同一请求，删除仅清理所属账号且远端失败不阻止本地删除', () async {
     SharedPreferences.setMockInitialValues({});
     final previous = HttpOverrides.current;
     HttpOverrides.global = null;
@@ -98,6 +98,12 @@ void main() {
         owned.copyWith(id: 'foreign', remoteOwnerKey: 'http://other-nas|user'),
         owned.copyWith(id: 'legacy', remoteOwnerKey: ''),
       ]);
+      await Future.wait([
+        service.resumeDownload(nas, owned.id),
+        service.resumeDownload(nas, owned.id),
+      ]);
+      expect(requests, ['GET /v/api/v1/download/taskProgress']);
+      requests.clear();
       expect(await service.clearActiveDownloadRecords(provider: nas), 3);
       expect(requests, ['DELETE /v/api/v1/download/task/remote-owned']);
       expect(service.records, isEmpty);

@@ -264,6 +264,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   String _searchedQuery = '';
   _SearchCategory _category = _SearchCategory.all;
   bool _isSearching = false;
+  int _searchGeneration = 0;
   AppException? _error;
 
   @override
@@ -291,8 +292,9 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   }
 
   Future<void> _loadHistory() async {
+    final key = _historyKey();
     final prefs = await SharedPreferences.getInstance();
-    final values = prefs.getStringList(_historyKey()) ?? const <String>[];
+    final values = prefs.getStringList(key) ?? const <String>[];
     if (!mounted) return;
     setState(() {
       _history = values;
@@ -309,8 +311,9 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
     if (nextHistory.length > _maxHistoryCount) {
       nextHistory.removeRange(_maxHistoryCount, nextHistory.length);
     }
+    final key = _historyKey();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_historyKey(), nextHistory);
+    await prefs.setStringList(key, nextHistory);
     if (!mounted) return;
     setState(() {
       _history = nextHistory;
@@ -323,6 +326,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
       _query = value;
       _error = null;
       if (trimmed.isEmpty) {
+        _searchGeneration++;
         _isSearching = false;
         _results = const <MediaItemCard>[];
         _searchedQuery = '';
@@ -336,6 +340,7 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
     final trimmed = query.trim();
     if (trimmed.isEmpty || !mounted) return;
     if (_isSearching && _searchedQuery == trimmed) return;
+    final generation = ++_searchGeneration;
     setState(() {
       _isSearching = true;
       _searchedQuery = trimmed;
@@ -346,14 +351,14 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
           .read<MediaBackendProvider>()
           .backend
           .searchItems(trimmed);
-      if (!mounted || trimmed != _controller.text.trim()) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _results = results;
         _searchedQuery = trimmed;
         _isSearching = false;
       });
     } catch (e) {
-      if (!mounted || trimmed != _controller.text.trim()) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _error = AppException.from(
           e,
@@ -370,6 +375,8 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
 
   /// Enter：打开当前分类下的首个结果；无结果时立即补一次搜索。
   void _submitActive(String value) {
+    // 新查询仍在请求时保留旧结果展示，但不能把旧条目当成新查询首项打开。
+    if (_isSearching) return;
     final trimmed = value.trim();
     final visible = _visibleResults;
     if (_searchedQuery != trimmed || visible.isEmpty) {

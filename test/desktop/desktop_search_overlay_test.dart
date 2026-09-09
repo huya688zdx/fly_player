@@ -136,10 +136,31 @@ void main() {
     );
     expect(resultTitle, findsOneWidget);
 
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.byType(TextField), findsOneWidget);
+    expect(backend.queries, <String>['白', '白箱']);
+
     backend.complete('白箱', const <MediaItemCard>[]);
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsOneWidget);
     expect(resultTitle, findsNothing);
+
+    await tester.enterText(find.byType(TextField), '白');
+    await tester.enterText(find.byType(TextField), '');
+    await tester.enterText(find.byType(TextField), '白');
+    backend.complete('白', const <MediaItemCard>[
+      MediaItemCard(
+        id: 'stale',
+        title: '过期结果',
+        type: 'Movie',
+        primaryImage: MediaImageRef.empty,
+      ),
+    ]);
+    await tester.pump();
+    expect(find.text('过期结果'), findsNothing);
+    backend.complete('白', const <MediaItemCard>[]);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('搜索弹层外滚轮继续滚动底层页面', (tester) async {
@@ -205,8 +226,7 @@ Future<BuildContext> _pumpSearchHost(
 
 class _ControlledSearchBackend extends Fake implements MediaBackend {
   final List<String> queries = <String>[];
-  final Map<String, Completer<List<MediaItemCard>>> _requests =
-      <String, Completer<List<MediaItemCard>>>{};
+  final Map<String, List<Completer<List<MediaItemCard>>>> _requests = {};
 
   @override
   MediaBackendCapabilities get capabilities =>
@@ -216,12 +236,12 @@ class _ControlledSearchBackend extends Fake implements MediaBackend {
   Future<List<MediaItemCard>> searchItems(String query) {
     queries.add(query);
     final request = Completer<List<MediaItemCard>>();
-    _requests[query] = request;
+    (_requests[query] ??= []).add(request);
     return request.future;
   }
 
   void complete(String query, List<MediaItemCard> results) {
-    _requests[query]!.complete(results);
+    _requests[query]!.removeAt(0).complete(results);
   }
 }
 

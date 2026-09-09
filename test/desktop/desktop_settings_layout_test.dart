@@ -8,6 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/desktop/desktop_shell.dart';
+import 'package:fly_player/desktop/desktop_detail_pane_host.dart';
+import 'package:fly_player/desktop/desktop_side_bar.dart';
+import 'package:fly_player/ui/player_pane_host_scope.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/providers/app_locale_provider.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
@@ -98,6 +101,13 @@ void main() {
               ? DesktopShell(
                   pages: const <Widget>[SizedBox(), AppSettingsScreen()],
                   contentRouteFactory: (_) => null,
+                  paneRouteFactory: (settings) =>
+                      settings.name == '/detail/item?itemGuid=old'
+                      ? MaterialPageRoute<void>(
+                          settings: settings,
+                          builder: (_) => const Text('旧影片详情'),
+                        )
+                      : null,
                 )
               : const AppSettingsScreen(),
         ),
@@ -172,6 +182,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsNothing);
     expect(find.byType(ThemeSettingsScreen), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(ThemeSettingsScreen), findsNothing);
+    expect(find.text('通用'), findsOneWidget);
   });
 
   testWidgets('语言从列表和搜索进入同一子页，选择保存后保留页面', (tester) async {
@@ -255,6 +270,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ThemeSettingsScreen), findsNothing);
     expect(find.text('通用'), findsOneWidget);
+  });
+
+  testWidgets('切到设置清掉旧详情，设置选项进入壳层副屏并可返回', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await pumpSettings(tester, size: const Size(1400, 900), inShell: true);
+    final context = tester.element(find.byType(DesktopSideBar));
+    await context.read<ParallelWindowSettingsProvider>().setEnabled(true);
+    await tester.pumpAndSettle();
+    final host = PlayerPaneHostScope.maybeOf(context)!;
+    await host.openRoute('/detail/item?itemGuid=old');
+    await tester.pumpAndSettle();
+    expect(find.text('旧影片详情'), findsOneWidget);
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    expect(find.text('旧影片详情'), findsNothing);
+    expect(find.byType(DesktopDetailPaneHost), findsNothing);
+    await tester.tap(find.text('应用语言'));
+    await tester.pumpAndSettle();
+    expect(find.text('通用'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(DesktopDetailPaneHost),
+        matching: find.byType(LanguageSettingsScreen),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('desktop_settings_two_pane_row')),
+      findsNothing,
+    );
+    await host.backInPane();
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopDetailPaneHost), findsNothing);
+    expect(find.text('通用'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
   });
 
   testWidgets('并行关闭时二级页单屏铺满设置区，返回即回网格', (tester) async {

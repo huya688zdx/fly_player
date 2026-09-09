@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/local_download_source_resolver.dart';
@@ -18,9 +22,11 @@ import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/download_task_service.dart';
+import '../services/storage_access_host.dart';
 import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
 import '../ui/detail_artwork_resolver.dart';
@@ -32,6 +38,27 @@ import '../utils/swallowed_error_logger.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
 
 enum DownloadListTab { downloaded, downloading }
+
+Future<void> _openDownloadFolder(
+  BuildContext context,
+  String path, {
+  bool create = false,
+}) async {
+  try {
+    final directory = Directory(path);
+    if (create) await directory.create(recursive: true);
+    if (!await directory.exists() ||
+        !await launchUrl(Uri.directory(directory.absolute.path))) {
+      throw const FileSystemException('无法打开文件夹');
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法打开文件夹，请检查保存路径是否存在')));
+    }
+  }
+}
 
 extension DownloadListTabX on DownloadListTab {
   String get routeValue => switch (this) {
@@ -84,6 +111,8 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   String _listStructureSignature = '';
   bool _editing = false;
   bool _recoveringDownloads = false;
+  String? _downloadDirectory;
+  bool _choosingDirectory = false;
 
   @override
   void initState() {
@@ -91,6 +120,9 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     _service.initialize();
     _refreshListStructureSnapshot(force: true);
     _service.addListener(_handleServiceChanged);
+    if (DesktopEnvironment.isDesktopPlatform) {
+      unawaited(_loadDownloadDirectory());
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final provider = context.read<NasProvider>();
@@ -109,6 +141,52 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
 
   void _handleServiceChanged() {
     _refreshListStructureSnapshot();
+  }
+
+  Future<void> _loadDownloadDirectory() async {
+    try {
+      final path = await _service.downloadRootDirectory();
+      if (mounted) setState(() => _downloadDirectory = path);
+    } catch (_) {
+      if (mounted) {
+        _topTip.show(
+          context,
+          message: '读取下载目录失败',
+          color: context.appColors.danger,
+        );
+      }
+    }
+  }
+
+  Future<void> _chooseDownloadDirectory() async {
+    setState(() => _choosingDirectory = true);
+    try {
+      final selected = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: '选择下载位置（将在其中创建 FlyPlayer 文件夹）',
+        initialDirectory: _downloadDirectory == null
+            ? null
+            : p.dirname(_downloadDirectory!),
+      );
+      if (selected == null) return;
+      await const DesktopStorageAccessHost().setDownloadDirectory(selected);
+      await _loadDownloadDirectory();
+      if (!mounted) return;
+      _topTip.show(
+        context,
+        message: '新下载将保存到此处，已有任务位置不变',
+        color: context.appColors.success,
+      );
+    } catch (_) {
+      if (mounted) {
+        _topTip.show(
+          context,
+          message: '无法保存到该目录，请选择可写入的文件夹',
+          color: context.appColors.danger,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _choosingDirectory = false);
+    }
   }
 
   void _refreshListStructureSnapshot({bool force = false}) {
@@ -247,176 +325,220 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
         if (didPop) return;
         _exitEditingMode();
       },
-      child: Scaffold(
-        backgroundColor: colors.backgroundBase,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
-                child: Row(
-                  children: <Widget>[
-                    _TopActionButton(
-                      icon: Icons.arrow_back_ios_new_rounded,
-                      onTap: () {
-                        unawaited(_handleBackNavigation());
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Center(
-                        child: _DownloadTabSwitcher(
-                          selectedTab: _selectedTab,
-                          onChanged: (tab) => unawaited(_switchTab(tab)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _TopActionButton(
-                      icon: Icons.refresh_rounded,
-                      tooltip: l10n.downloadRefreshFilesTooltip,
-                      busy: _recoveringDownloads,
-                      onTap: _recoveringDownloads
-                          ? null
-                          : () => unawaited(_handleRecoverDownloadedFiles()),
-                    ),
-                    const SizedBox(width: 4),
-                    AnimatedBuilder(
-                      animation: _service,
-                      builder: (context, _) {
-                        final canEdit =
-                            _selectedTab == DownloadListTab.downloaded &&
-                            _service
-                                .groupsByStatus(DownloadTaskStatus.downloaded)
-                                .isNotEmpty;
-                        return TextButton(
-                          onPressed: !canEdit
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _editing = !_editing;
-                                    if (!_editing) {
-                                      _selectedGroupIds.clear();
-                                    }
-                                  });
-                                },
-                          style: TextButton.styleFrom(
-                            foregroundColor: _editing
-                                ? colors.textPrimary
-                                : colors.textMuted,
-                            minimumSize: Size.zero,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 6,
-                            ),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            textStyle: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          child: Text(
-                            _editing ? l10n.commonCancel : l10n.commonEdit,
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  onPageChanged: _handlePageChanged,
-                  physics: const BouncingScrollPhysics(),
-                  children: <Widget>[
-                    _buildDownloadedPage(
-                      context: context,
-                      token: token,
-                      accessCode: nas.accessCode,
-                      baseUrl: nas.baseUrl,
-                      groups: _downloadedGroupsSnapshot,
-                    ),
-                    _buildDownloadingPage(
-                      context: context,
-                      token: token,
-                      accessCode: nas.accessCode,
-                      baseUrl: nas.baseUrl,
-                      records: _activeRecordsSnapshot,
-                    ),
-                  ],
-                ),
-              ),
-              if (_editing) ...<Widget>[
-                const SizedBox(height: 8),
+      child: AppAmbientPage(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: <Widget>[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
                   child: Row(
                     children: <Widget>[
+                      _TopActionButton(
+                        icon: Icons.arrow_back_ios_new_rounded,
+                        onTap: () {
+                          unawaited(_handleBackNavigation());
+                        },
+                      ),
+                      const SizedBox(width: 8),
                       Expanded(
-                        child: FilledButton.tonal(
-                          onPressed: () {
-                            final groups = _service.groupsByStatus(
-                              _selectedTab.status,
-                            );
-                            setState(() {
-                              if (_selectedGroupIds.length == groups.length &&
-                                  groups.isNotEmpty) {
-                                _selectedGroupIds.clear();
-                              } else {
-                                _selectedGroupIds
-                                  ..clear()
-                                  ..addAll(groups.map((group) => group.id));
-                              }
-                            });
-                          },
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(58),
-                            backgroundColor: colors.surfaceStrong,
-                            foregroundColor: colors.textPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                          ),
-                          child: Text(
-                            _selectedGroupIds.length ==
-                                        _service
-                                            .groupsByStatus(_selectedTab.status)
-                                            .length &&
-                                    _service
-                                        .groupsByStatus(_selectedTab.status)
-                                        .isNotEmpty
-                                ? l10n.commonDeselectAll
-                                : l10n.commonSelectAll,
+                        child: Center(
+                          child: _DownloadTabSwitcher(
+                            selectedTab: _selectedTab,
+                            onChanged: (tab) => unawaited(_switchTab(tab)),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 18),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _selectedGroupIds.isEmpty
-                              ? null
-                              : () => _confirmDeleteSelectedGroups(context),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(58),
-                            backgroundColor: const Color(0xFF7E0913),
-                            disabledBackgroundColor: const Color(
-                              0xFF7E0913,
-                            ).withValues(alpha: 0.35),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
+                      const SizedBox(width: 8),
+                      _TopActionButton(
+                        icon: Icons.refresh_rounded,
+                        tooltip: l10n.downloadRefreshFilesTooltip,
+                        busy: _recoveringDownloads,
+                        onTap: _recoveringDownloads
+                            ? null
+                            : () => unawaited(_handleRecoverDownloadedFiles()),
+                      ),
+                      const SizedBox(width: 4),
+                      AnimatedBuilder(
+                        animation: _service,
+                        builder: (context, _) {
+                          final canEdit =
+                              _selectedTab == DownloadListTab.downloaded &&
+                              _service
+                                  .groupsByStatus(DownloadTaskStatus.downloaded)
+                                  .isNotEmpty;
+                          return TextButton(
+                            onPressed: !canEdit
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _editing = !_editing;
+                                      if (!_editing) {
+                                        _selectedGroupIds.clear();
+                                      }
+                                    });
+                                  },
+                            style: TextButton.styleFrom(
+                              foregroundColor: _editing
+                                  ? colors.textPrimary
+                                  : colors.textMuted,
+                              minimumSize: Size.zero,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
+                              ),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              textStyle: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                          child: Text(l10n.commonDelete),
-                        ),
+                            child: Text(
+                              _editing ? l10n.commonCancel : l10n.commonEdit,
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
                 ),
+                if (DesktopEnvironment.isDesktopPlatform)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.folder_outlined,
+                          size: 20,
+                          color: colors.textMuted,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SelectableText(
+                            '下载目录：${_downloadDirectory ?? '正在读取…'}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _choosingDirectory
+                              ? null
+                              : _chooseDownloadDirectory,
+                          child: const Text('更改目录'),
+                        ),
+                        IconButton(
+                          tooltip: '打开下载文件夹',
+                          onPressed: _downloadDirectory == null
+                              ? null
+                              : () => _openDownloadFolder(
+                                  context,
+                                  _downloadDirectory!,
+                                  create: true,
+                                ),
+                          icon: const Icon(Icons.folder_open_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: _handlePageChanged,
+                    physics: const BouncingScrollPhysics(),
+                    children: <Widget>[
+                      _buildDownloadedPage(
+                        context: context,
+                        token: token,
+                        accessCode: nas.accessCode,
+                        baseUrl: nas.baseUrl,
+                        groups: _downloadedGroupsSnapshot,
+                      ),
+                      _buildDownloadingPage(
+                        context: context,
+                        token: token,
+                        accessCode: nas.accessCode,
+                        baseUrl: nas.baseUrl,
+                        records: _activeRecordsSnapshot,
+                      ),
+                    ],
+                  ),
+                ),
+                if (_editing) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: FilledButton.tonal(
+                            onPressed: () {
+                              final groups = _service.groupsByStatus(
+                                _selectedTab.status,
+                              );
+                              setState(() {
+                                if (_selectedGroupIds.length == groups.length &&
+                                    groups.isNotEmpty) {
+                                  _selectedGroupIds.clear();
+                                } else {
+                                  _selectedGroupIds
+                                    ..clear()
+                                    ..addAll(groups.map((group) => group.id));
+                                }
+                              });
+                            },
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(58),
+                              backgroundColor: colors.surfaceStrong,
+                              foregroundColor: colors.textPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: Text(
+                              _selectedGroupIds.length ==
+                                          _service
+                                              .groupsByStatus(
+                                                _selectedTab.status,
+                                              )
+                                              .length &&
+                                      _service
+                                          .groupsByStatus(_selectedTab.status)
+                                          .isNotEmpty
+                                  ? l10n.commonDeselectAll
+                                  : l10n.commonSelectAll,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: _selectedGroupIds.isEmpty
+                                ? null
+                                : () => _confirmDeleteSelectedGroups(context),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(58),
+                              backgroundColor: const Color(0xFF7E0913),
+                              disabledBackgroundColor: const Color(
+                                0xFF7E0913,
+                              ).withValues(alpha: 0.35),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: Text(l10n.commonDelete),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -1023,260 +1145,266 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
         if (didPop) return;
         _exitEditingMode();
       },
-      child: Scaffold(
-        backgroundColor: colors.backgroundBase,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
-                child: Row(
-                  children: <Widget>[
-                    _TopActionButton(
-                      icon: Icons.arrow_back_ios_new_rounded,
-                      onTap: () {
-                        unawaited(_handleBackNavigation());
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _editing
-                            ? l10n.downloadSelectedCount(selectedCount)
-                            : title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    TextButton(
-                      onPressed:
-                          records.isEmpty ||
-                              launchingRecordId != null ||
-                              _selectedTab != DownloadListTab.downloaded
-                          ? null
-                          : () {
-                              setState(() {
-                                _editing = !_editing;
-                                if (!_editing) {
-                                  _selectedRecordIds.clear();
-                                }
-                              });
-                            },
-                      style: TextButton.styleFrom(
-                        foregroundColor: _editing
-                            ? colors.textPrimary
-                            : colors.textMuted,
-                        textStyle: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      child: Text(
-                        _editing ? l10n.commonCancel : l10n.commonEdit,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: records.isEmpty
-                    ? Center(
-                        child: Text(
-                          _selectedTab.emptyLabel(l10n),
-                          style: TextStyle(
-                            color: colors.textMuted,
-                            fontSize: 16,
-                          ),
-                        ),
-                      )
-                    : _selectedTab == DownloadListTab.downloaded && !_editing
-                    ? ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                        itemCount: recordVersionGroups.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 18),
-                        itemBuilder: (context, index) {
-                          final group = recordVersionGroups[index];
-                          final lead = group.records.first;
-                          final expanded = _expandedVersionGroupKeys.contains(
-                            group.key,
-                          );
-                          if (group.records.length <= 1) {
-                            return _DownloadRecordRow(
-                              key: ValueKey<String>(lead.id),
-                              record: lead,
-                              token: token,
-                              accessCode: nas.accessCode,
-                              baseUrl: nas.baseUrl,
-                              busy: launchingRecordId == lead.id,
-                              dimmed:
-                                  launchingRecordId != null &&
-                                  launchingRecordId != lead.id,
-                              onLongPress: launchingRecordId != null
-                                  ? null
-                                  : () => _handleRecordLongPress(lead.id),
-                              onTap: launchingRecordId != null
-                                  ? null
-                                  : () => _playDownloadedRecord(lead),
-                            );
-                          }
-                          return _DownloadRecordVersionGroup(
-                            key: ValueKey<String>('versions:${group.key}'),
-                            records: group.records,
-                            token: token,
-                            accessCode: nas.accessCode,
-                            baseUrl: nas.baseUrl,
-                            expanded: expanded,
-                            busyRecordId: launchingRecordId,
-                            onToggle: () {
-                              setState(() {
-                                if (expanded) {
-                                  _expandedVersionGroupKeys.remove(group.key);
-                                } else {
-                                  _expandedVersionGroupKeys.add(group.key);
-                                }
-                              });
-                            },
-                            onRecordTap: (record) {
-                              if (launchingRecordId != null) return;
-                              _playDownloadedRecord(record);
-                            },
-                            onRecordLongPress: (record) {
-                              if (launchingRecordId != null) return;
-                              _handleRecordLongPress(record.id);
-                            },
-                          );
-                        },
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                        itemCount: records.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 18),
-                        itemBuilder: (context, index) {
-                          final record = records[index];
-                          return ListenableBuilder(
-                            key: ValueKey<String>(record.id),
-                            listenable: _service,
-                            builder: (context, _) {
-                              final currentRecord =
-                                  _service.recordById(record.id) ?? record;
-                              return _DownloadRecordRow(
-                                record: currentRecord,
-                                token: token,
-                                accessCode: nas.accessCode,
-                                baseUrl: nas.baseUrl,
-                                busy: launchingRecordId == currentRecord.id,
-                                dimmed:
-                                    launchingRecordId != null &&
-                                    launchingRecordId != currentRecord.id,
-                                downloadSpeedBytesPerSecond: _service
-                                    .downloadSpeedBytesPerSecondFor(
-                                      currentRecord.id,
-                                    ),
-                                editing: _editing,
-                                selected: _selectedRecordIds.contains(
-                                  currentRecord.id,
-                                ),
-                                onLongPress: launchingRecordId != null
-                                    ? null
-                                    : () => _handleRecordLongPress(
-                                        currentRecord.id,
-                                      ),
-                                onSelectToggle: _editing
-                                    ? (launchingRecordId != null
-                                          ? null
-                                          : () => _toggleRecordSelection(
-                                              currentRecord.id,
-                                            ))
-                                    : null,
-                                onTap: launchingRecordId != null
-                                    ? null
-                                    : _editing
-                                    ? () => _toggleRecordSelection(
-                                        currentRecord.id,
-                                      )
-                                    : _selectedTab != DownloadListTab.downloaded
-                                    ? null
-                                    : () =>
-                                          _playDownloadedRecord(currentRecord),
-                              );
-                            },
-                          );
-                        },
-                      ),
-              ),
-              if (_editing) ...<Widget>[
-                const SizedBox(height: 8),
+      child: AppAmbientPage(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: <Widget>[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
                   child: Row(
                     children: <Widget>[
+                      _TopActionButton(
+                        icon: Icons.arrow_back_ios_new_rounded,
+                        onTap: () {
+                          unawaited(_handleBackNavigation());
+                        },
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: FilledButton.tonal(
-                          onPressed: records.isEmpty
-                              ? null
-                              : () {
-                                  setState(() {
-                                    if (_selectedRecordIds.length ==
-                                        records.length) {
-                                      _selectedRecordIds.clear();
-                                    } else {
-                                      _selectedRecordIds
-                                        ..clear()
-                                        ..addAll(
-                                          records.map((record) => record.id),
-                                        );
-                                    }
-                                  });
-                                },
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(58),
-                            backgroundColor: colors.surfaceStrong,
-                            foregroundColor: colors.textPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                          ),
-                          child: Text(
-                            _selectedRecordIds.length == records.length &&
-                                    records.isNotEmpty
-                                ? l10n.commonDeselectAll
-                                : l10n.commonSelectAll,
+                        child: Text(
+                          _editing
+                              ? l10n.downloadSelectedCount(selectedCount)
+                              : title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: colors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 18),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _selectedRecordIds.isEmpty
-                              ? null
-                              : () => _confirmDeleteSelected(context),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(58),
-                            backgroundColor: const Color(0xFF7E0913),
-                            disabledBackgroundColor: const Color(
-                              0xFF7E0913,
-                            ).withValues(alpha: 0.35),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
+                      const SizedBox(width: 12),
+                      TextButton(
+                        onPressed:
+                            records.isEmpty ||
+                                launchingRecordId != null ||
+                                _selectedTab != DownloadListTab.downloaded
+                            ? null
+                            : () {
+                                setState(() {
+                                  _editing = !_editing;
+                                  if (!_editing) {
+                                    _selectedRecordIds.clear();
+                                  }
+                                });
+                              },
+                        style: TextButton.styleFrom(
+                          foregroundColor: _editing
+                              ? colors.textPrimary
+                              : colors.textMuted,
+                          textStyle: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
                           ),
-                          child: Text(l10n.commonDelete),
+                        ),
+                        child: Text(
+                          _editing ? l10n.commonCancel : l10n.commonEdit,
                         ),
                       ),
                     ],
                   ),
                 ),
+                Expanded(
+                  child: records.isEmpty
+                      ? Center(
+                          child: Text(
+                            _selectedTab.emptyLabel(l10n),
+                            style: TextStyle(
+                              color: colors.textMuted,
+                              fontSize: 16,
+                            ),
+                          ),
+                        )
+                      : _selectedTab == DownloadListTab.downloaded && !_editing
+                      ? ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                          itemCount: recordVersionGroups.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 18),
+                          itemBuilder: (context, index) {
+                            final group = recordVersionGroups[index];
+                            final lead = group.records.first;
+                            final expanded = _expandedVersionGroupKeys.contains(
+                              group.key,
+                            );
+                            if (group.records.length <= 1) {
+                              return _DownloadRecordRow(
+                                key: ValueKey<String>(lead.id),
+                                record: lead,
+                                token: token,
+                                accessCode: nas.accessCode,
+                                baseUrl: nas.baseUrl,
+                                busy: launchingRecordId == lead.id,
+                                dimmed:
+                                    launchingRecordId != null &&
+                                    launchingRecordId != lead.id,
+                                onLongPress: launchingRecordId != null
+                                    ? null
+                                    : () => _handleRecordLongPress(lead.id),
+                                onTap: launchingRecordId != null
+                                    ? null
+                                    : () => _playDownloadedRecord(lead),
+                              );
+                            }
+                            return _DownloadRecordVersionGroup(
+                              key: ValueKey<String>('versions:${group.key}'),
+                              records: group.records,
+                              token: token,
+                              accessCode: nas.accessCode,
+                              baseUrl: nas.baseUrl,
+                              expanded: expanded,
+                              busyRecordId: launchingRecordId,
+                              onToggle: () {
+                                setState(() {
+                                  if (expanded) {
+                                    _expandedVersionGroupKeys.remove(group.key);
+                                  } else {
+                                    _expandedVersionGroupKeys.add(group.key);
+                                  }
+                                });
+                              },
+                              onRecordTap: (record) {
+                                if (launchingRecordId != null) return;
+                                _playDownloadedRecord(record);
+                              },
+                              onRecordLongPress: (record) {
+                                if (launchingRecordId != null) return;
+                                _handleRecordLongPress(record.id);
+                              },
+                            );
+                          },
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                          itemCount: records.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 18),
+                          itemBuilder: (context, index) {
+                            final record = records[index];
+                            return ListenableBuilder(
+                              key: ValueKey<String>(record.id),
+                              listenable: _service,
+                              builder: (context, _) {
+                                final currentRecord =
+                                    _service.recordById(record.id) ?? record;
+                                return _DownloadRecordRow(
+                                  record: currentRecord,
+                                  token: token,
+                                  accessCode: nas.accessCode,
+                                  baseUrl: nas.baseUrl,
+                                  busy: launchingRecordId == currentRecord.id,
+                                  dimmed:
+                                      launchingRecordId != null &&
+                                      launchingRecordId != currentRecord.id,
+                                  downloadSpeedBytesPerSecond: _service
+                                      .downloadSpeedBytesPerSecondFor(
+                                        currentRecord.id,
+                                      ),
+                                  editing: _editing,
+                                  selected: _selectedRecordIds.contains(
+                                    currentRecord.id,
+                                  ),
+                                  onLongPress: launchingRecordId != null
+                                      ? null
+                                      : () => _handleRecordLongPress(
+                                          currentRecord.id,
+                                        ),
+                                  onSelectToggle: _editing
+                                      ? (launchingRecordId != null
+                                            ? null
+                                            : () => _toggleRecordSelection(
+                                                currentRecord.id,
+                                              ))
+                                      : null,
+                                  onTap: launchingRecordId != null
+                                      ? null
+                                      : _editing
+                                      ? () => _toggleRecordSelection(
+                                          currentRecord.id,
+                                        )
+                                      : _selectedTab !=
+                                            DownloadListTab.downloaded
+                                      ? null
+                                      : () => _playDownloadedRecord(
+                                          currentRecord,
+                                        ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                ),
+                if (_editing) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: FilledButton.tonal(
+                            onPressed: records.isEmpty
+                                ? null
+                                : () {
+                                    setState(() {
+                                      if (_selectedRecordIds.length ==
+                                          records.length) {
+                                        _selectedRecordIds.clear();
+                                      } else {
+                                        _selectedRecordIds
+                                          ..clear()
+                                          ..addAll(
+                                            records.map((record) => record.id),
+                                          );
+                                      }
+                                    });
+                                  },
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(58),
+                              backgroundColor: colors.surfaceStrong,
+                              foregroundColor: colors.textPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: Text(
+                              _selectedRecordIds.length == records.length &&
+                                      records.isNotEmpty
+                                  ? l10n.commonDeselectAll
+                                  : l10n.commonSelectAll,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: _selectedRecordIds.isEmpty
+                                ? null
+                                : () => _confirmDeleteSelected(context),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(58),
+                              backgroundColor: const Color(0xFF7E0913),
+                              disabledBackgroundColor: const Color(
+                                0xFF7E0913,
+                              ).withValues(alpha: 0.35),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: Text(l10n.commonDelete),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -2172,6 +2300,18 @@ class _DownloadRecordRow extends StatelessWidget {
                             child: BirdGlyph(size: 16),
                           ),
                         ],
+                        if (DesktopEnvironment.isDesktopPlatform && !editing)
+                          IconButton(
+                            tooltip: '打开文件夹：${p.dirname(record.filePath)}',
+                            onPressed: () => _openDownloadFolder(
+                              context,
+                              p.dirname(record.filePath),
+                            ),
+                            icon: const Icon(
+                              Icons.folder_open_rounded,
+                              size: 20,
+                            ),
+                          ),
                         if (trailingAction != null) ...<Widget>[
                           const SizedBox(width: 10),
                           trailingAction!,

@@ -64,8 +64,10 @@ class MediaLayoutProfile {
   // 传统海报行仍直接消费固定物理解码宽度。
   int get homePosterDecodeWidth => _homePosterDecodeWidth;
 
-  int get categoryGridRequestWidth =>
-      (categoryGridCardWidth * 2.5).round().clamp(240, 960);
+  // 桌面网格随分屏重排，但请求尺寸不变，复用已加载的海报。
+  int get categoryGridRequestWidth => DesktopEnvironment.isDesktopPlatform
+      ? 600
+      : (categoryGridCardWidth * 2.5).round().clamp(240, 960);
 
   /// 首页横向海报行高：图片高度固定，文字区随系统真实缩放扩展。
   double homePosterRowHeightFor(TextScaler textScaler) {
