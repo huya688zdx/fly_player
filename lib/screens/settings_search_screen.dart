@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../desktop/desktop_floating_panel.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/settings_search_store.dart';
 import '../theme/app_theme.dart';
@@ -48,7 +49,13 @@ class SettingsSearchEntry {
 class SettingsSearchScreen extends StatefulWidget {
   final List<SettingsSearchEntry> entries;
 
-  const SettingsSearchScreen({super.key, required this.entries});
+  final bool asPanel;
+
+  const SettingsSearchScreen({
+    super.key,
+    required this.entries,
+    this.asPanel = false,
+  });
 
   @override
   State<SettingsSearchScreen> createState() => _SettingsSearchScreenState();
@@ -122,110 +129,126 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
         ? l10n.settingsSearchResults
         : l10n.settingsSearchFrequent;
 
-    // 页面自绘与首页同源的氛围底（整面覆盖，防转场残影）。
+    final searchField = Container(
+      height: 42,
+      decoration: BoxDecoration(
+        color: colors.backgroundElevated,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      child: Row(
+        children: <Widget>[
+          const SizedBox(width: 12),
+          Icon(Icons.search_rounded, color: colors.textSecondary, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              autofocus: true,
+              onChanged: (value) => setState(() => _query = value),
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontSize: AdaptiveText.roleSize(15),
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                hintText: l10n.settingsSearchHint,
+                hintStyle: TextStyle(
+                  color: colors.textMuted,
+                  fontSize: AdaptiveText.roleSize(15),
+                ),
+                border: InputBorder.none,
+                isDense: true,
+              ),
+            ),
+          ),
+          if (hasQuery)
+            IconButton(
+              onPressed: () {
+                _controller.clear();
+                setState(() => _query = '');
+              },
+              icon: Icon(
+                Icons.close_rounded,
+                color: colors.textSecondary,
+                size: 18,
+              ),
+            )
+          else
+            const SizedBox(width: 8),
+        ],
+      ),
+    );
+    final body = SafeArea(
+      top: false,
+      child: visibleEntries.isEmpty
+          ? Center(
+              child: Text(
+                hasQuery
+                    ? l10n.settingsSearchEmptyResults
+                    : l10n.settingsSearchEmptyPrompt,
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: AdaptiveText.roleSize(14),
+                ),
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                  child: Text(
+                    sectionTitle,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: AdaptiveText.roleSize(15.5),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                for (var index = 0; index < visibleEntries.length; index++) ...[
+                  _SearchResultTile(
+                    entry: visibleEntries[index],
+                    inPanel: widget.asPanel,
+                    onTap: () => _handleSelect(visibleEntries[index]),
+                  ),
+                  if (index != visibleEntries.length - 1)
+                    SizedBox(height: widget.asPanel ? 4 : 12),
+                ],
+              ],
+            ),
+    );
+    if (widget.asPanel) {
+      return DesktopFloatingPanel(
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: searchField),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(child: body),
+          ],
+        ),
+      );
+    }
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          titleSpacing: 0,
-          title: Container(
-            height: 42,
-            decoration: BoxDecoration(
-              color: colors.backgroundElevated,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: colors.borderSubtle),
-            ),
-            child: Row(
-              children: <Widget>[
-                const SizedBox(width: 12),
-                Icon(
-                  Icons.search_rounded,
-                  color: colors.textSecondary,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    autofocus: true,
-                    onChanged: (value) => setState(() => _query = value),
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(15),
-                      fontWeight: FontWeight.w500,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: l10n.settingsSearchHint,
-                      hintStyle: TextStyle(
-                        color: colors.textMuted,
-                        fontSize: AdaptiveText.roleSize(15),
-                      ),
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                if (hasQuery)
-                  IconButton(
-                    onPressed: () {
-                      _controller.clear();
-                      setState(() => _query = '');
-                    },
-                    icon: Icon(
-                      Icons.close_rounded,
-                      color: colors.textSecondary,
-                      size: 18,
-                    ),
-                  )
-                else
-                  const SizedBox(width: 8),
-              ],
-            ),
-          ),
-        ),
-        body: SafeArea(
-          top: false,
-          child: visibleEntries.isEmpty
-              ? Center(
-                  child: Text(
-                    hasQuery
-                        ? l10n.settingsSearchEmptyResults
-                        : l10n.settingsSearchEmptyPrompt,
-                    style: TextStyle(
-                      color: colors.textSecondary,
-                      fontSize: AdaptiveText.roleSize(14),
-                    ),
-                  ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                  children: <Widget>[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
-                      child: Text(
-                        sectionTitle,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: AdaptiveText.roleSize(15.5),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    for (
-                      var index = 0;
-                      index < visibleEntries.length;
-                      index++
-                    ) ...[
-                      _SearchResultTile(
-                        entry: visibleEntries[index],
-                        onTap: () => _handleSelect(visibleEntries[index]),
-                      ),
-                      if (index != visibleEntries.length - 1)
-                        const SizedBox(height: 12),
-                    ],
-                  ],
-                ),
-        ),
+        appBar: AppBar(titleSpacing: 0, title: searchField),
+        body: body,
       ),
     );
   }
@@ -234,8 +257,13 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
 class _SearchResultTile extends StatelessWidget {
   final SettingsSearchEntry entry;
   final VoidCallback onTap;
+  final bool inPanel;
 
-  const _SearchResultTile({required this.entry, required this.onTap});
+  const _SearchResultTile({
+    required this.entry,
+    required this.onTap,
+    this.inPanel = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -243,14 +271,14 @@ class _SearchResultTile extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(inPanel ? 10 : 20),
         onTap: onTap,
         child: Ink(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(inPanel ? 12 : 16),
           decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: colors.borderSubtle),
+            color: inPanel ? Colors.transparent : colors.surface,
+            borderRadius: BorderRadius.circular(inPanel ? 10 : 20),
+            border: inPanel ? null : Border.all(color: colors.borderSubtle),
           ),
           child: Row(
             children: <Widget>[

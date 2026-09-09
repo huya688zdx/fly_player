@@ -11,6 +11,7 @@ import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/providers/parallel_window_settings_provider.dart';
 import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/screens/app_settings_screen.dart';
+import 'package:fly_player/screens/settings_search_screen.dart';
 
 void main() {
   const embeddingChannel = MethodChannel('fly_player/embedding');
@@ -104,6 +105,12 @@ void main() {
     await tester.enterText(find.byType(TextField), '海报首页');
     await tester.pumpAndSettle();
 
-    expect(find.text('启动直达海报首页'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SettingsSearchScreen),
+        matching: find.text('启动直达海报首页'),
+      ),
+      findsOneWidget,
+    );
   });
 }
