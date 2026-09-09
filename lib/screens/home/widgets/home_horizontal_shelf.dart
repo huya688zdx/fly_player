@@ -2,8 +2,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../desktop/desktop.dart';
+import '../../../ui/layout_adaptive.dart';
+
 /// 首页内容的连续横向媒体架。
-class HomeHorizontalShelf<T> extends StatelessWidget {
+///
+/// 桌面设备在窄窗口和分屏下仍保留鼠标翻页；卡片密度按可用宽度调整。
+class HomeHorizontalShelf<T> extends StatefulWidget {
   const HomeHorizontalShelf({
     super.key,
     required this.storageKey,
@@ -28,14 +33,28 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
   final double gap;
 
   @override
+  State<HomeHorizontalShelf<T>> createState() => _HomeHorizontalShelfState<T>();
+}
+
+class _HomeHorizontalShelfState<T> extends State<HomeHorizontalShelf<T>> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (items.isEmpty ||
-        !_isPositiveFinite(idealItemWidth) ||
-        !_isPositiveFinite(minItemWidth) ||
-        !_isPositiveFinite(maxItemWidth) ||
-        !_isPositiveFinite(itemAspectRatio) ||
-        !_isNonNegativeFinite(textLinesHeight) ||
-        !_isNonNegativeFinite(gap)) {
+    final widget = this.widget;
+    if (widget.items.isEmpty ||
+        !_isPositiveFinite(widget.idealItemWidth) ||
+        !_isPositiveFinite(widget.minItemWidth) ||
+        !_isPositiveFinite(widget.maxItemWidth) ||
+        !_isPositiveFinite(widget.itemAspectRatio) ||
+        !_isNonNegativeFinite(widget.textLinesHeight) ||
+        !_isNonNegativeFinite(widget.gap)) {
       return const SizedBox.shrink();
     }
 
@@ -46,8 +65,11 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final configuredUpper = math.min(idealItemWidth, maxItemWidth);
-        final configuredLower = math.min(minItemWidth, configuredUpper);
+        final configuredUpper = math.min(
+          widget.idealItemWidth,
+          widget.maxItemWidth,
+        );
+        final configuredLower = math.min(widget.minItemWidth, configuredUpper);
         final lowerBound = math.min(maxWidth, configuredLower);
         final upperBound = math.min(maxWidth, configuredUpper);
         if (lowerBound <= 0 || upperBound <= 0) {
@@ -75,24 +97,48 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
             .max(bodyRatio, metadataRatio)
             .clamp(1.0, double.infinity);
         final height =
-            cardWidth / itemAspectRatio + textLinesHeight * textHeightRatio;
-        if (!_isPositiveFinite(height)) {
-          return const SizedBox.shrink();
+            cardWidth / widget.itemAspectRatio +
+            widget.textLinesHeight * textHeightRatio;
+
+        // 桌面档卡片悬浮放大（HoverLift 1.03）：视口留上下头部并关闭裁剪，
+        // 放大边缘才不会被裁切；非桌面档保持旧输出（零回归）。
+        final desktopTier = MediaLayoutProfile.of(context).isDesktopTier;
+        final listPadding = desktopTier
+            ? const EdgeInsets.symmetric(vertical: 8)
+            : EdgeInsets.zero;
+
+        Widget buildListView({ScrollController? controller}) =>
+            ListView.separated(
+              key: PageStorageKey<String>('home-shelf-${widget.storageKey}'),
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              physics: const ClampingScrollPhysics(),
+              clipBehavior: desktopTier ? Clip.none : Clip.hardEdge,
+              padding: listPadding,
+              itemCount: widget.items.length,
+              separatorBuilder: (context, index) => SizedBox(width: widget.gap),
+              itemBuilder: (context, index) => SizedBox(
+                width: cardWidth,
+                child: widget.itemBuilder(
+                  context,
+                  widget.items[index],
+                  cardWidth,
+                ),
+              ),
+            );
+
+        // 鼠标翻页属于桌面设备能力，不随布局降到窄屏档而关闭。
+        if (!desktopTier && !DesktopEnvironment.isDesktopPlatform) {
+          return SizedBox(height: height, child: buildListView());
         }
 
         return SizedBox(
-          height: height,
-          child: ListView.separated(
-            key: PageStorageKey<String>('home-shelf-$storageKey'),
-            scrollDirection: Axis.horizontal,
-            physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.zero,
-            itemCount: items.length,
-            separatorBuilder: (context, index) => SizedBox(width: gap),
-            itemBuilder: (context, index) => SizedBox(
-              width: cardWidth,
-              child: itemBuilder(context, items[index], cardWidth),
-            ),
+          height: height + (desktopTier ? 16 : 0),
+          child: HoverScrollArrows(
+            scrollController: _scrollController,
+            // 按钮保持在列表可命中范围内。
+            edgePadding: MediaLayoutProfile.of(context).pageHorizontalPadding,
+            child: buildListView(controller: _scrollController),
           ),
         );
       },

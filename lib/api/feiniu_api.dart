@@ -1896,6 +1896,7 @@ class FeiniuApi {
   ///
   /// 用于需要服务端保活、鉴权续期或统一回收的播放链路。
   Future<ServerPlaySessionData> createServerPlaySession({
+    String itemGuid = '',
     required String mediaGuid,
     required String videoGuid,
     required String audioGuid,
@@ -1911,6 +1912,7 @@ class FeiniuApi {
       final response = await _dio.post(
         _playPlayPath,
         data: <String, dynamic>{
+          if (itemGuid.trim().isNotEmpty) 'item_guid': itemGuid.trim(),
           'media_guid': mediaGuid.trim(),
           'video_guid': videoGuid.trim(),
           'video_encoder': videoEncoder.trim(),
@@ -1932,6 +1934,66 @@ class FeiniuApi {
         fallbackKind: AppExceptionKind.transient,
       );
     }
+  }
+
+  /// 飞牛转码会话内切换文本字幕，轨号使用服务端 stream/list 的 index。
+  Future<void> resetServerSubtitle({
+    required String playLink,
+    required int subtitleIndex,
+    required int startTimestamp,
+  }) => _controlServerSession('media.resetSubtitle', playLink, {
+    'subtitleIndex': subtitleIndex,
+    'startTimestamp': startTimestamp,
+  });
+
+  Future<void> quitServerPlaySession(String playLink) =>
+      _controlServerSession('media.quit', playLink, const {});
+
+  Future<void> _controlServerSession(
+    String method,
+    String playLink,
+    Map<String, dynamic> parameters,
+  ) async {
+    if (playLink.trim().isEmpty) return;
+    final clientId = await _playbackClientIdStore.ensureClientId();
+    final response = await _dio.post(
+      _playMediaBridgePath,
+      data: {
+        'req': method,
+        'reqid': clientId.substring(0, min(16, clientId.length)).toUpperCase(),
+        'playLink': playLink,
+        ...parameters,
+      },
+    );
+    final errno = _extractMediaBridgeErrno(response.data);
+    if (errno != null && errno != 0) {
+      throw StateError('$method failed: errno=$errno');
+    }
+    final payload = response.data;
+    final data = payload is Map ? payload['data'] : null;
+    if (data is Map && data['result'] != null && data['result'] != 'succ') {
+      throw StateError('$method failed');
+    }
+    if (payload is! Map || (payload['code'] != null && payload['code'] != 0)) {
+      throw StateError('$method returned an invalid response');
+    }
+  }
+
+  /// 读取飞牛会话内的字幕清单/分段，沿用 NAS 鉴权与网络配置。
+  Future<String> readServerSubtitleResource(String path) async {
+    final base = Uri.parse(ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl));
+    final uri = base.resolve(path);
+    if (uri.origin != base.origin || !uri.path.startsWith('/v/media/')) {
+      throw ArgumentError('字幕资源不属于当前飞牛播放会话');
+    }
+    final response = await _dio.get<String>(
+      uri.toString(),
+      options: Options(
+        responseType: ResponseType.plain,
+        receiveTimeout: const Duration(seconds: 4),
+      ),
+    );
+    return response.data ?? '';
   }
 
   /// 获取字幕下载地址。
@@ -2086,8 +2148,9 @@ class FeiniuApi {
         data: <String, dynamic>{
           'item_guid': itemGuid,
           'media_guid': mediaGuid,
-          'video_guid': videoGuid,
-          'audio_guid': (audioGuid ?? '').trim(),
+          if (videoGuid.trim().isNotEmpty) 'video_guid': videoGuid.trim(),
+          if ((audioGuid ?? '').trim().isNotEmpty)
+            'audio_guid': audioGuid!.trim(),
           'subtitle_guid': (subtitleGuid ?? '').trim(),
           'resolution': (resolution ?? '').trim(),
           'bitrate': bitrate ?? 0,
@@ -2494,15 +2557,16 @@ class FeiniuApi {
     }
   }
 
-  /// 取消服务端下载任务（暂停/取消下载时调用）。
+  /// 删除服务端下载任务和产物，仅在明确删除时调用。
   Future<void> deleteDownloadTask(String taskId, {String lan = 'zh-CN'}) async {
     final normalizedTaskId = taskId.trim();
     if (normalizedTaskId.isEmpty) return;
     try {
-      await _dio.delete(
+      final response = await _dio.delete(
         '$_downloadTaskPath/$normalizedTaskId',
         data: <String, dynamic>{'lan': lan.trim()},
       );
+      _requireSuccessPayload(response.data, 'delete download task');
     } catch (error, stackTrace) {
       await logSwallowedError(
         action: 'delete download task',
@@ -2511,7 +2575,7 @@ class FeiniuApi {
         stackTrace: stackTrace,
         source: 'feiniu_api',
       );
-      // Best-effort: server-side cleanup should not block the local UX.
+      // 服务端清理失败保留日志，仍允许完成本地删除。
     }
   }
 

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../desktop/desktop.dart';
 import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
 import '../media_backend/media_backend_kind.dart';
@@ -29,6 +30,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/track_option_sheet.dart';
 import '../widgets/common/app_catalog_query_sheets.dart';
 import '../widgets/app_atmospheric_background.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
@@ -75,6 +77,11 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     'vote_average',
   ];
 
+  final GlobalKey<DesktopHoverDropdownState> _sortDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+  final GlobalKey<DesktopHoverDropdownState> _layoutDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+
   late final TabController _tabController;
   late final Map<_FavoriteTab, ScrollController> _tabScrollControllers;
   late final Map<_FavoriteTab, _FavoriteTabData> _tabData;
@@ -103,6 +110,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   Set<dynamic> _selectedAudioType = <dynamic>{};
   Set<dynamic> _selectedRecognitionStatus = <dynamic>{};
   Set<dynamic> _selectedWatched = <dynamic>{};
+  Map<String, Set<Object>>? _filterDraft;
 
   @override
   void initState() {
@@ -654,6 +662,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     if (mounted) {
       setState(() {
         _selectedTab = tab;
+        _filterDraft = null;
       });
     }
     _tabController.animateTo(
@@ -723,11 +732,92 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     );
   }
 
+  /// 右键菜单展示前预取已看/收藏态；列表内缓存可能过期，失败回退列表值。
+  Future<({bool watched, bool favorite})> _loadItemFlags(
+    MediaLibraryItem item,
+  ) async {
+    var watched = item.watched == 1;
+    var favorite = true;
+    try {
+      final detail = await context
+          .read<MediaBackendProvider>()
+          .backend
+          .getItemDetail(item.guid);
+      watched = detail.watched;
+      favorite = detail.favorite;
+    } catch (error) {
+      debugPrint('[UI][FAVORITE] item flags load failed ${item.guid}: $error');
+    }
+    return (watched: watched, favorite: favorite);
+  }
+
+  /// 桌面档媒体卡右键菜单：动作与长按动作表（_showFavoriteItemActions）同源；
+  /// 人物条目无「已看」语义，与长按 favoriteOnly 一致只保留详情 + 收藏。
+  /// 取消收藏后行从列表移除（与长按动作表 onChanged 同语义）。
+  Future<void> _showFavoriteItemContextMenu(
+    MediaLibraryItem item,
+    Offset position,
+  ) async {
+    final favoriteOnly = _isPersonItem(item);
+    final flags = await _loadItemFlags(item);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    const controller = MediaItemActionSheetController();
+    await showDesktopContextMenu(
+      context,
+      position: position,
+      entries: <DesktopContextMenuEntry>[
+        DesktopContextMenuEntry(
+          label: l10n.homeActionViewDetail,
+          icon: Icons.info_outline,
+          onSelected: () => unawaited(_openItemDetail(item)),
+        ),
+        if (!favoriteOnly)
+          DesktopContextMenuEntry(
+            label: flags.watched
+                ? l10n.actionMarkAsUnwatched
+                : l10n.actionMarkAsWatched,
+            icon: flags.watched
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            onSelected: () async {
+              final state = await controller.setItemWatched(
+                context,
+                itemId: item.guid,
+                watched: !flags.watched,
+              );
+              if (state == null) return;
+              _replaceFavoriteItemLocally(
+                item.guid,
+                (current) => current.copyWith(watched: state ? 1 : 0),
+              );
+            },
+          ),
+        DesktopContextMenuEntry(
+          label: flags.favorite
+              ? l10n.actionFavoriteRemove
+              : l10n.actionFavoriteAdd,
+          icon: flags.favorite ? Icons.favorite : Icons.favorite_border,
+          onSelected: () async {
+            final state = await controller.setItemFavorite(
+              context,
+              itemId: item.guid,
+              favorite: !flags.favorite,
+            );
+            if (state == null || state) return;
+            _removeFavoriteItemLocally(item.guid);
+          },
+        ),
+      ],
+    );
+  }
+
   void _handleTabControllerChanged() {
     final tab = _FavoriteTab.values[_tabController.index];
     if (_selectedTab != tab && mounted) {
       setState(() {
         _selectedTab = tab;
+        _filterDraft = null;
       });
     }
     if (!_tabController.indexIsChanging) {

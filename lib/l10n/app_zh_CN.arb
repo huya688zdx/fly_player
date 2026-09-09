@@ -99,6 +99,7 @@
   "listFilterButton": "筛选",
   "listFilterAll": "全部",
   "listFilterResetButton": "重置",
+  "listFilterCollapse": "收起",
   "listFilterDecadeRecent": "今年",
   "listTypeMovie": "电影",
   "listTypeTv": "电视剧",
@@ -430,6 +431,20 @@
   "settingsMpvCompatibilitySection": "兼容与诊断",
   "settingsSearchResults": "搜索结果",
   "settingsSearchFrequent": "常用入口",
+  "settingsSectionGeneral": "通用",
+  "settingsSectionPlayback": "外观与播放",
+  "settingsSectionData": "数据与下载",
+  "settingsSectionSystem": "系统",
+  "settingsDesktopSummary": "{groups} 个分组 · {items} 项配置",
+  "@settingsDesktopSummary": {
+    "placeholders": {
+      "groups": { "type": "int" },
+      "items": { "type": "int" }
+    }
+  },
+  "settingsDesktopSummaryHint": "行尾实时显示当前值，单击进入子页",
+  "settingsDesktopSearchEmpty": "没有找到相关设置项，换个关键词试试",
+  "sidebarCategorySectionLabel": "分类",
   "settingsSearchHint": "搜索设置项",
   "settingsSearchEmptyResults": "没有找到相关设置项。",
   "settingsSearchEmptyPrompt": "先输入关键字，或从常用入口开始。",
@@ -497,7 +512,7 @@
   "mpvAudioQuickPresetSubtitle": "高保真、EQ、低音增强、人声增强一键切换",
   "mpvAudioQuickPresetDescription": "一键切换高保真、对白增强、低频氛围和夜间压缩，不再和画质预设混在一起。",
   "mpvCustomManagementTitle": "自定义管理",
-  "mpvCustomManagementSubtitle": "把画质自定义、音频自定义和即时调节统一收进三级页面管理",
+  "mpvCustomManagementSubtitle": "即时调节、画质/音频自定义与已保存预设统一管理",
   "mpvCustomManagementDescription": "首页只保留快速预设；即时调节、分类细调和保存当前预设都统一收进这里。",
   "mpvPictureCustomTitle": "画质自定义",
   "mpvPictureCustomSubtitle": "即时调节、滤镜、渲染、HDR、插帧、同步、缓存和兼容项",
@@ -813,6 +828,10 @@
   "mpvNoSavedAudioPresetTitle": "暂无已保存音频预设",
   "mpvNoSavedAudioPresetContent": "可在“音频自定义”中保存预设。",
   "mpvPresetManagementStatus": "预设管理",
+  "mpvDeepTuneSectionTitle": "深入调节",
+  "mpvDeepTuneSectionSubtitle": "单项设置一级直达，调整立即生效",
+  "mpvSavePictureGhostLabel": "另存当前画质",
+  "mpvSaveAudioGhostLabel": "另存当前音频",
   "mpvPresetManagementSummary": "画质自定义、音频自定义与已保存预设管理。",
   "mpvSavedPresetDefaultDescription": "已保存的独立预设，可随时再次应用。",
   "mpvPresetApplied": "当前已应用",
@@ -1448,6 +1467,20 @@
   "settingsBookmarkManagerTitle": "书签管理",
   "settingsBookmarkEmptySummary": "还没有书签",
   "settingsBookmarkCountSummary": "共 {count} 个书签",
+  "settingsBookmarkWorksCountSummary": "{works} 部作品 · 共 {count} 个书签",
+  "@settingsBookmarkWorksCountSummary": {
+    "placeholders": {
+      "works": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
+  "settingsBookmarkEpisodesCountSummary": "{episodes} 集 · 共 {count} 个书签",
+  "@settingsBookmarkEpisodesCountSummary": {
+    "placeholders": {
+      "episodes": { "type": "int" },
+      "count": { "type": "int" }
+    }
+  },
   "@settingsBookmarkCountSummary": {
     "placeholders": {
       "count": {
@@ -2459,6 +2492,13 @@
   "parallelWindowImmersiveTitle": "平行窗口沉浸模式",
   "parallelWindowImmersiveOnSubtitle": "进入平行窗口后隐藏状态栏，内容直接顶到屏幕顶部。",
   "parallelWindowImmersiveOffSubtitle": "保留状态栏，使用常规分屏显示。",
+  "parallelWindowPreviewTitle": "实时预览",
+  "parallelWindowPreviewMain": "主屏",
+  "parallelWindowPreviewSecondary": "副屏",
+  "parallelWindowPreviewPlayer": "播放器",
+  "parallelWindowPreviewMainRole": "浏览 · 首页 / 列表",
+  "parallelWindowPreviewSecondaryRole": "详情 / 设置",
+  "parallelWindowPreviewPlayerRole": "分屏播放",
   "danmakuSettingsTitle": "弹幕设置",
   "danmakuSpeedSlow": "慢",
   "danmakuSpeedNormal": "正常",
@@ -3733,4 +3773,43 @@
   "nativePlayerText0281": "在当前位置添加书签",
   "nativePlayerText0282": "暂无书签",
   "nativePlayerText0283": "删除"
+,
+  "desktopPlaybackErrorGeneric": "播放发生错误，请检查媒体是否仍可访问。",
+  "desktopPlaybackErrorSourceUnavailable": "媒体地址不可用。",
+  "desktopPlaybackErrorStartFailed": "无法开始播放，请检查媒体与网络状态。",
+  "desktopPlaybackErrorEpisodeResolveFailed": "无法解析该集媒体。",
+  "desktopPlaybackErrorEpisodeSwitchFailed": "切换选集失败，请稍后重试。",
+  "desktopPlaybackErrorTrackSwitchFailed": "切换轨道失败，请稍后重试。",
+  "desktopPlaybackNoAudioTracks": "暂无可用音轨",
+  "desktopPlaybackNoSubtitleTracks": "暂无可用字幕",
+  "desktopPlaybackExitFullscreen": "退出全屏",
+  "desktopPlaybackFullscreen": "全屏",
+  "desktopPlaybackExitFullscreenTooltip": "退出全屏 (F)",
+  "desktopPlaybackFullscreenTooltip": "全屏 (F)",
+  "desktopPlaybackFitTooltip": "画面适配：{mode}",
+  "@desktopPlaybackFitTooltip": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
+  "desktopPlaybackMoreOptions": "更多播放选项",
+  "desktopPlaybackPlayTooltip": "播放 (Space)",
+  "desktopPlaybackPauseTooltip": "暂停 (Space)",
+  "desktopPlaybackRewindTooltip": "后退 10 秒 (←)",
+  "desktopPlaybackForwardTooltip": "前进 10 秒 (→)",
+  "desktopPlaybackMute": "静音",
+  "desktopPlaybackRestoreVolume": "恢复音量",
+  "desktopPlaybackMuteTooltip": "静音 (M)",
+  "desktopPlaybackRestoreVolumeTooltip": "恢复音量 (M)",
+  "desktopPlaybackAspectStretch": "拉伸",
+  "desktopPlaybackEpisodesEmpty": "暂无选集数据",
+  "desktopPlaybackOptionsTitle": "播放选项",
+  "desktopPlaybackShortcutHint": "←/→ 10 秒   Space 播放/暂停",
+  "desktopPlaybackScreenshotAction": "保存截图",
+  "desktopPlaybackScreenshotDialogTitle": "保存当前画面",
+  "desktopPlaybackPrevEpisodeTooltip": "上一集 (P)",
+  "desktopPlaybackNextEpisodeTooltip": "下一集 (N)",
+  "desktopPlaybackPrevEpisodeLabel": "上一集"
 }

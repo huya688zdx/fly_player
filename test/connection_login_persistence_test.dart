@@ -12,8 +12,54 @@ import 'package:fly_player/screens/fn_connect_web_login_page.dart';
 import 'package:fly_player/services/login_history_store.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/widgets/common/desktop_login_dialog.dart';
 
 void main() {
+  testWidgets('桌面登录辅助页使用非全屏弹窗并可显式关闭', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                await showDesktopLoginDialog<void>(
+                  context,
+                  child: Scaffold(
+                    appBar: AppBar(
+                      actions: [
+                        IconButton(
+                          key: const Key('desktopLoginDialogClose'),
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const Key('desktopLoginDialogSurface'))).width,
+      lessThan(1200),
+    );
+
+    await tester.tap(find.byKey(const Key('desktopLoginDialogClose')));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+  });
+
   group('FN Connect Web 访问码目标策略', () {
     final entry = FnConnectWebLoginEntry.resolve(
       fnConnectId: 'abc123',
