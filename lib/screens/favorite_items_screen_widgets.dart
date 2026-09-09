@@ -52,7 +52,12 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
   ) {
     return Column(
       children: <Widget>[
-        _buildSortFilterRow(layout, tab),
+        AppCatalogFilterRegion(
+          expanded: _filterDraft != null && tab == _selectedTab,
+          toolbar: _buildSortFilterRow(layout, tab),
+          onDismiss: _closeDesktopFilter,
+          panelBuilder: _buildDesktopFilterPanel,
+        ),
         Expanded(
           child: _buildGrid(tab: tab, layout: layout),
         ),
@@ -230,7 +235,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               message: _filterSummaryLabel,
               child: _FavoriteToolButton(
                 icon: Icons.filter_alt_outlined,
-                active: _hasActiveFilters,
+                active: _hasActiveFilters || _filterDraft != null,
                 onTap: _openFilterSheet,
               ),
             ),

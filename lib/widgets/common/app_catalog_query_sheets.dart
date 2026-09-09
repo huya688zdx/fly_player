@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../desktop/desktop_environment.dart';
+import '../../desktop/desktop_breakpoints.dart';
 import '../../desktop/desktop_floating_panel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
@@ -283,6 +284,104 @@ class _AppCatalogFilterSheetState extends State<AppCatalogFilterSheet> {
   }
 }
 
+/// 筛选工具栏与面板共用的自适应容器，窗口缩放时由实际内容宽度决定呈现位置。
+class AppCatalogFilterRegion extends StatefulWidget {
+  const AppCatalogFilterRegion({
+    super.key,
+    required this.expanded,
+    required this.toolbar,
+    required this.panelBuilder,
+    required this.onDismiss,
+  });
+
+  final bool expanded;
+  final Widget toolbar;
+  final Widget Function(bool floating) panelBuilder;
+  final VoidCallback onDismiss;
+
+  @override
+  State<AppCatalogFilterRegion> createState() => _AppCatalogFilterRegionState();
+}
+
+class _AppCatalogFilterRegionState extends State<AppCatalogFilterRegion> {
+  final LayerLink _anchor = LayerLink();
+  // 保持门户挂载，内容随 expanded 和当前宽度构建，避免跨断点后遗留旧弹窗。
+  final OverlayPortalController _portal = OverlayPortalController()..show();
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final floating =
+          DesktopEnvironment.isDesktopPlatform &&
+          constraints.maxWidth < DesktopBreakpoints.sidebarMinWidth;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OverlayPortal(
+            controller: _portal,
+            overlayChildBuilder: (overlayContext) {
+              if (!widget.expanded || !floating) return const SizedBox.shrink();
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: widget.onDismiss,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: CompositedTransformFollower(
+                      link: _anchor,
+                      showWhenUnlinked: false,
+                      targetAnchor: Alignment.bottomRight,
+                      followerAnchor: Alignment.topRight,
+                      offset: const Offset(-12, 0),
+                      child: UnconstrainedBox(
+                        alignment: Alignment.topRight,
+                        child: DesktopFloatingPanel(
+                          child: SizedBox(
+                            width: math.min(
+                              560,
+                              math.max(0, constraints.maxWidth - 24),
+                            ),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight:
+                                    MediaQuery.sizeOf(overlayContext).height *
+                                    0.72,
+                              ),
+                              child: SingleChildScrollView(
+                                child: widget.panelBuilder(true),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+            child: CompositedTransformTarget(
+              link: _anchor,
+              child: widget.toolbar,
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: widget.expanded && !floating
+                ? widget.panelBuilder(false)
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 /// 工具栏下方的内联筛选面板：点击筛选按钮原地展开/收起（AnimatedSize 包裹由
 /// 使用方控制），替代弹窗。选项即点即筛选，由 [onOptionSelected] 通知使用方。
 class AppCatalogFilterInlinePanel extends StatelessWidget {
@@ -409,7 +508,6 @@ class _InlineFilterSectionRow extends StatelessWidget {
               _InlineFilterChip(
                 label: l10n.listFilterAll,
                 selected: selected.isEmpty,
-                selectedAsDefault: true,
                 onTap: () => onOptionSelected(section, null),
               ),
               for (final option in section.options)
@@ -430,15 +528,12 @@ class _InlineFilterChip extends StatefulWidget {
   const _InlineFilterChip({
     required this.label,
     required this.selected,
-    this.selectedAsDefault = false,
     required this.onTap,
   });
 
   final String label;
   final bool selected;
 
-  /// 「全部」的默认选中：只加粗提亮，不占用 accent，让真实筛选更醒目。
-  final bool selectedAsDefault;
   final VoidCallback onTap;
 
   @override
@@ -453,24 +548,19 @@ class _InlineFilterChipState extends State<_InlineFilterChip> {
     final colors = context.appColors;
     final radius = BorderRadius.circular(7);
     final Color textColor;
-    final FontWeight fontWeight;
     if (widget.selected) {
-      textColor = widget.selectedAsDefault
-          ? colors.textPrimary
-          : colors.selection;
-      fontWeight = FontWeight.w700;
+      textColor = colors.selection;
     } else {
       textColor = _hovering ? colors.textPrimary : colors.textSecondary;
-      fontWeight = FontWeight.w500;
     }
     return Material(
-      color: widget.selected && !widget.selectedAsDefault
+      color: widget.selected
           ? colors.selection.withValues(alpha: 0.12)
           : Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: radius,
         side: BorderSide(
-          color: widget.selected && !widget.selectedAsDefault
+          color: widget.selected
               ? colors.selection.withValues(alpha: 0.26)
               : Colors.transparent,
         ),
@@ -487,7 +577,8 @@ class _InlineFilterChipState extends State<_InlineFilterChip> {
             style: TextStyle(
               color: textColor,
               fontSize: 13,
-              fontWeight: fontWeight,
+              // 固定字重，避免选中后文字变宽，导致 Wrap 中的相邻选项位移。
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
