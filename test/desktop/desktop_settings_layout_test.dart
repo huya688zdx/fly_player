@@ -14,6 +14,7 @@ import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/providers/parallel_window_settings_provider.dart';
 import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/screens/app_settings_screen.dart';
+import 'package:fly_player/screens/language_settings_screen.dart';
 import 'package:fly_player/screens/theme_settings_screen.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
@@ -171,6 +172,45 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsNothing);
     expect(find.byType(ThemeSettingsScreen), findsOneWidget);
+  });
+
+  testWidgets('语言从列表和搜索进入同一子页，选择保存后保留页面', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await pumpSettings(tester);
+    await tester.tap(find.text('应用语言'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LanguageSettingsScreen), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('通用'), findsNothing);
+
+    await tester.tap(find.text('简体中文'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LanguageSettingsScreen), findsOneWidget);
+    final selected = tester.widget<ListTile>(
+      find.widgetWithText(ListTile, '简体中文'),
+    );
+    expect(selected.selected, isTrue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('app_locale_mode'), 'zh-CN');
+
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('通用'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings_open_full_search')),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '语言');
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.text('应用语言'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    expect(find.byType(LanguageSettingsScreen), findsOneWidget);
   });
 
   testWidgets('并行开启时点击条目在右侧子页列打开三级页，网格保持可见', (tester) async {
