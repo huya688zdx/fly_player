@@ -16,6 +16,8 @@ dependencies:
   dio: ^5.4.0
   intl: ^0.20.2
   path: ^1.9.0
+  # 使用系统下载目录及应用数据目录，支持 Windows 重定向的用户文件夹。
+  path_provider: ^2.1.5
   shared_preferences: ^2.2.2
   sqflite: ^2.3.3+2
   provider: ^6.1.1
