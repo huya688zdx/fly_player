@@ -22,6 +22,7 @@ import '../theme/app_theme_l10n.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/main_navigation_metrics.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
@@ -704,7 +705,10 @@ class AppSettingsScreen extends StatelessWidget {
             bottomInset: MainNavigationMetrics.contentBottomInset(
               media.viewPadding.bottom,
             ),
-            twoPane: parallelSettings.enabled,
+            // 桌面壳已有副屏时不再嵌套第二套双栏。
+            twoPane:
+                parallelSettings.enabled &&
+                PlayerPaneHostScope.maybeOf(context) == null,
             buildSections: (context) => _buildDesktopSettingsSections(
               context,
               l10n: AppLocalizations.of(context),
@@ -857,8 +861,10 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
 
   bool get _subOpen => _topRoute != null && _topRoute != '/';
 
-  void openDestination(String routeName) {
-    if (_topRoute == routeName) return;
+  Future<void> openDestination(String routeName) async {
+    final paneHost = PlayerPaneHostScope.maybeOf(context);
+    if (paneHost != null && await paneHost.openRoute(routeName)) return;
+    if (!mounted || _topRoute == routeName) return;
     (_twoPaneActive ? _subNavKey : _singlePaneNavKey).currentState?.pushNamed(
       routeName,
     );
@@ -1023,7 +1029,19 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
         },
       ),
     );
-    return AppAmbientPage(shareBackground: true, child: content);
+    return AppAmbientPage(
+      shareBackground: true,
+      child: CallbackShortcuts(
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            final navigator =
+                (_twoPaneActive ? _subNavKey : _singlePaneNavKey).currentState;
+            unawaited(navigator?.maybePop());
+          },
+        },
+        child: content,
+      ),
+    );
   }
 }
 
@@ -1390,13 +1408,20 @@ class _DesktopReveal extends StatefulWidget {
 
 class _DesktopRevealState extends State<_DesktopReveal> {
   bool _visible = false;
+  Timer? _revealTimer;
 
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(widget.delay, () {
+    _revealTimer = Timer(widget.delay, () {
       if (mounted) setState(() => _visible = true);
     });
+  }
+
+  @override
+  void dispose() {
+    _revealTimer?.cancel();
+    super.dispose();
   }
 
   @override

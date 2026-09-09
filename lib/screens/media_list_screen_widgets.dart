@@ -769,8 +769,8 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context)) +
           (desktopRow ? 16.0 : 0.0),
       child: HoverScrollRow(
-        enabled: desktopRow,
-        // 按钮延伸过页面水平留白、贴住内容区边缘（渐变从窗口边起）。
+        enabled: desktopRow || DesktopEnvironment.isDesktopPlatform,
+        // 窄窗口仍保留桌面鼠标翻页，按钮位于列表内侧。
         edgePadding: layout.pageHorizontalPadding,
         builder: (controller) => ListView.separated(
           controller: controller,

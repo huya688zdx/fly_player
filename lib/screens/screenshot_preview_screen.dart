@@ -12,6 +12,7 @@ import 'package:photo_view/photo_view_gallery.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/storage_access_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/player_pane_host_scope.dart';
@@ -667,69 +668,58 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     final visibleItems = _visibleItems;
     final visibleSections = _sectionsForVisibleItems(visibleItems);
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          _selectionMode
-              ? l10n.screenshotSelectedCount(_selectedIds.length)
-              : l10n.screenshotGalleryTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w800,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            _selectionMode
+                ? l10n.screenshotSelectedCount(_selectedIds.length)
+                : l10n.screenshotGalleryTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w800,
+            ),
           ),
-        ),
-        actions: <Widget>[
-          if (_selectionMode)
-            IconButton(
-              onPressed: _deleting ? null : _deleteSelected,
-              icon: const Icon(Icons.delete_outline_rounded),
-            ),
-          if (_selectionMode)
-            IconButton(
-              onPressed: () => setState(() => _selectedIds = <String>{}),
-              icon: const Icon(Icons.close_rounded),
-            ),
-          if (!_selectionMode)
-            IconButton(
-              onPressed: _openSearchSheet,
-              icon: Icon(
-                _searchQuery.trim().isEmpty
-                    ? Icons.search_rounded
-                    : Icons.manage_search_rounded,
+          actions: <Widget>[
+            if (_selectionMode)
+              IconButton(
+                onPressed: _deleting ? null : _deleteSelected,
+                icon: const Icon(Icons.delete_outline_rounded),
               ),
-            ),
-          if (!_selectionMode)
-            IconButton(
-              onPressed: _openFilterSheet,
-              icon: Icon(
-                _filter == 'all'
-                    ? Icons.tune_rounded
-                    : Icons.filter_alt_rounded,
+            if (_selectionMode)
+              IconButton(
+                onPressed: () => setState(() => _selectedIds = <String>{}),
+                icon: const Icon(Icons.close_rounded),
               ),
-            ),
-          if (!_selectionMode)
-            IconButton(
-              onPressed: _load,
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[
-              colors.backgroundElevated,
-              colors.backgroundBase,
-              colors.backgroundBase,
-            ],
-          ),
+            if (!_selectionMode)
+              IconButton(
+                onPressed: _openSearchSheet,
+                icon: Icon(
+                  _searchQuery.trim().isEmpty
+                      ? Icons.search_rounded
+                      : Icons.manage_search_rounded,
+                ),
+              ),
+            if (!_selectionMode)
+              IconButton(
+                onPressed: _openFilterSheet,
+                icon: Icon(
+                  _filter == 'all'
+                      ? Icons.tune_rounded
+                      : Icons.filter_alt_rounded,
+                ),
+              ),
+            if (!_selectionMode)
+              IconButton(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+          ],
         ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))

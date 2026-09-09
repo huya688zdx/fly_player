@@ -84,8 +84,8 @@ void main() {
       expect(handled, isTrue);
       await tester.pumpAndSettle();
       expect(find.text('SEARCH_PAGE'), findsOneWidget);
-      // 工具条标题显示路由尾段。
-      expect(find.text('search'), findsOneWidget);
+      // 宿主不再重复显示工具条和路由名。
+      expect(find.text('search'), findsNothing);
 
       final scope = tester.widget<PlayerPaneHostScope>(
         find.byType(PlayerPaneHostScope),
@@ -156,7 +156,7 @@ void main() {
       expect(controller.enabled, isTrue);
     });
 
-    testWidgets('closePane 清空路由栈并置共享 controller.enabled=false', (tester) async {
+    testWidgets('closePane 清空路由栈并收起副屏，保留全局开关', (tester) async {
       final controller = DesktopSplitController(enabled: true);
       final state = await _pumpHost(tester, controller: controller);
 
@@ -164,40 +164,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(await state.closePane(), isTrue);
       await tester.pumpAndSettle();
-      expect(controller.enabled, isFalse);
+      expect(controller.enabled, isTrue);
+      expect(controller.paneVisible, isFalse);
       expect(find.text('SEARCH_PAGE'), findsNothing);
       expect(await state.backInPane(), isFalse);
       await _flushTimers(tester);
-    });
-
-    testWidgets('宽度低于 paneMinWidth 显示过窄提示且不崩溃', (tester) async {
-      final controller = DesktopSplitController(enabled: true);
-      final state = await _pumpHost(tester, controller: controller, width: 360);
-
-      expect(find.text('窗口过窄，无法展示详情栏'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      // 过窄时宿主功能不崩：openRoute 仍可正常处理。
-      expect(await state.openRoute('/screen/search'), isTrue);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      await _flushTimers(tester);
-    });
-
-    testWidgets('比例 chip 点击写回 splitController.setPaneFraction', (tester) async {
-      final controller = DesktopSplitController(enabled: true);
-      await _pumpHost(tester, controller: controller);
-      expect(
-        controller.paneFraction,
-        DesktopSplitController.defaultPaneFraction,
-      );
-
-      await tester.tap(find.text('42%'));
-      await tester.pumpAndSettle();
-      expect(controller.paneFraction, 0.42);
-
-      await tester.tap(find.text('65%'));
-      await tester.pumpAndSettle();
-      expect(controller.paneFraction, 0.65);
     });
 
     testWidgets('replacePlayerSource 桌面未承载播放恒返回 false', (tester) async {
@@ -271,7 +242,8 @@ void main() {
       expect(find.text('选择内容查看详情'), findsOneWidget);
       expect(await state.backInPane(), isFalse);
       expect(await state.closePane(), isTrue);
-      expect(controller.enabled, isFalse);
+      expect(controller.enabled, isTrue);
+      expect(controller.paneVisible, isFalse);
     });
   });
 }

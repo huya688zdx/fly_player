@@ -8,6 +8,7 @@ import '../media_backend/media_backend_registry.dart';
 import '../providers/nas_provider.dart';
 import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
@@ -304,7 +305,6 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final formatters = PlayStatsReportFormatters(
       l10n: l10n,
@@ -312,47 +312,42 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
       countryMap: _countryMap,
     );
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(l10n.playStatsTitle),
-        actions: <Widget>[
-          TextButton.icon(
-            onPressed: _openDetailPage,
-            icon: const Icon(Icons.data_object_rounded, size: 18),
-            label: Text(l10n.playStatsReportDetailData),
-          ),
-          IconButton(
-            tooltip: l10n.commonRefresh,
-            onPressed: () => _refresh(withBackfill: true),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(l10n.playStatsTitle),
+          actions: <Widget>[
+            TextButton.icon(
+              onPressed: _openDetailPage,
+              icon: const Icon(Icons.data_object_rounded, size: 18),
+              label: Text(l10n.playStatsReportDetailData),
+            ),
+            IconButton(
+              tooltip: l10n.commonRefresh,
+              onPressed: () => _refresh(withBackfill: true),
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final collapsedPosition = _resolveCollapsedToolbarPosition(
-              constraints.biggest,
-            );
-            return Stack(
-              children: <Widget>[
-                Positioned.fill(child: _buildBody(formatters)),
-                _buildRangeToolbarOverlay(
-                  constraints.biggest,
-                  collapsedPosition,
-                ),
-              ],
-            );
-          },
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final collapsedPosition = _resolveCollapsedToolbarPosition(
+                constraints.biggest,
+              );
+              return Stack(
+                children: <Widget>[
+                  Positioned.fill(child: _buildBody(formatters)),
+                  _buildRangeToolbarOverlay(
+                    constraints.biggest,
+                    collapsedPosition,
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

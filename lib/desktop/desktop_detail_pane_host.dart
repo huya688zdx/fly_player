@@ -10,9 +10,7 @@ import '../ui/app_transitions.dart';
 import '../ui/detail_route_builder.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/async_action_guard.dart';
-import 'desktop_breakpoints.dart';
 import 'desktop_split_controller.dart';
-import 'desktop_tokens.dart';
 
 /// 桌面「浏览 | 详情」分屏的详情宿主。
 ///
@@ -20,31 +18,8 @@ import 'desktop_tokens.dart';
 /// 让 `EmbeddedDetailLauncher` 在 pane 存在时完全走 Flutter 侧 pane 通道
 /// （openRoute/backInPane/closePane），不再触碰 Android 平台通道。
 ///
-/// ## 主干 Shell 接线（合并时执行，一行）
-/// ```dart
-/// controller.paneHostBuilder =
-///     (context) => DesktopDetailPaneHost(splitController: controller);
-/// ```
-/// Shell 侧最小改动：在 `DesktopBreakpoints.splitMinWidth` 且
-/// `controller.enabled` 时读取 `controller.paneHostBuilder` 渲染右栏
-/// （未接线时保持现有占位逻辑）；宿主随 `enabled` 挂载/卸载即可，
-/// 无需其他生命周期管理。
-///
-/// ## 语义约定
-/// - **openRoute**：向内嵌 Navigator push 命名路由；映射与
-///   `detail_host_screen` / `main.dart` 一致（提取自
-///   `lib/ui/detail_route_builder.dart`），详情类路由固定以
-///   `DetailPresentation.pane` 构建。栈顶同目标（详情按 guid 判定）直接
-///   视为成功不重复压栈；同路径不同目标替换栈顶（与 Android 副栏一致，
-///   如 `/detail/item?itemGuid=A` → `/detail/item?itemGuid=B`）；其余压栈。
-///   `AsyncActionGuard` 以目标键防抖（320ms settle），连点同一海报只开一次。
-/// - **backInPane**：内嵌 Navigator maybePop；已在栈底（base 占位）返回
-///   false，由外层决定收起分屏。
-/// - **closePane**：清空 pane 路由栈并置 `splitController.enabled = false`
-///   （收起分屏右栏）。开关由 `DesktopSplitController.enabled` 单一表达，
-///   Shell 监听后卸载本宿主；再次打开时宿主以空栈重建。
-/// - **replacePlayerSource**：桌面播放内核未选型（见
-///   design/desktop/IMPLEMENTATION_PLAN.md），恒返回 false，不承载播放。
+/// 设置允许分屏时，打开路由展开副屏；退到栈底或关闭只收起副屏。
+/// 页面使用自身的返回按钮，宿主不再叠加工具条。
 class DesktopDetailPaneHost extends StatefulWidget {
   const DesktopDetailPaneHost({
     super.key,
@@ -135,6 +110,7 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
   Future<bool> openRoute(String routeName) async {
     final normalized = routeName.trim();
     if (normalized.isEmpty) return false;
+    _splitController.paneVisible = true;
     final targetKey = routeTargetKeyFor(normalized);
     // 同目标防抖：栈顶已是同一目标（详情按 guid 判定）→ 视为成功，不重复压栈。
     if (routeTargetKeyFor(_routeStack.last) == targetKey) return true;
@@ -183,9 +159,7 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
     if (navigator != null && _routeStack.length > 1) {
       navigator.popUntil((route) => route.isFirst);
     }
-    // 关闭语义：收起分屏右栏（单一开关 DesktopSplitController.enabled）。
-    // Shell 监听该开关卸载本宿主；重新打开时以空栈重建。
-    _splitController.enabled = false;
+    _splitController.paneVisible = false;
     return true;
   }
 
@@ -208,6 +182,14 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
     setState(() {
       _routeStack.removeAt(index);
     });
+    if (_routeStack.length == 1) {
+      // 路由观察者也接住页面自身的 Navigator.pop。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _routeStack.length == 1) {
+          _splitController.paneVisible = false;
+        }
+      });
+    }
   }
 
   /// 初始路由只压栈底 base 占位一条（绕开 Navigator 对 '/' 开头
@@ -245,164 +227,25 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
   Widget build(BuildContext context) {
     return PlayerPaneHostScope(
       controller: this,
-      child: ListenableBuilder(
-        listenable: _splitController,
-        builder: (context, _) {
-          final colors = context.appColors;
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final tooNarrow =
-                  constraints.maxWidth < DesktopBreakpoints.paneMinWidth;
-              return Column(
-                children: [
-                  _buildToolbar(colors),
-                  Expanded(
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Navigator 常驻（过窄时仅被提示层遮盖），
-                        // 保证镜像栈与导航栈状态始终一致。
-                        ColoredBox(
-                          color: colors.surface,
-                          child: Navigator(
-                            key: _navigatorKey,
-                            initialRoute: baseRouteName,
-                            // initialRoute 以 '/' 开头会被 Navigator 按
-                            // deep-link 拆段展开，这里显式只压栈底一条。
-                            onGenerateInitialRoutes: _buildInitialRoutes,
-                            onGenerateRoute: _generateRoute,
-                            onUnknownRoute: _generateRoute,
-                            observers: <NavigatorObserver>[_routeObserver],
-                          ),
-                        ),
-                        if (tooNarrow) _PaneTooNarrowHint(colors: colors),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildToolbar(AppThemeColors colors) {
-    final current = currentRouteName;
-    final canGoBack = current != null;
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.surfaceStrong,
-        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: canGoBack ? '返回' : '关闭',
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            padding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(
-              canGoBack ? Icons.arrow_back_rounded : Icons.close_rounded,
-              size: 20,
-              color: colors.textSecondary,
-            ),
-            onPressed: () async {
-              if (await backInPane()) return;
-              // 栈底时返回按钮变为关闭语义。
-              await closePane();
-            },
-          ),
-          const SizedBox(width: 2),
-          Expanded(
-            child: Text(
-              current == null ? '详情' : _routeTitle(current),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _buildFractionChips(colors),
-          IconButton(
-            tooltip: '关闭',
-            key: const ValueKey<String>('desktop_pane_close'),
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            padding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(
-              Icons.close_rounded,
-              size: 20,
-              color: colors.textSecondary,
-            ),
-            onPressed: () => closePane(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 比例预设 chip 组：选中项 accent 描边，点击写回
-  /// [DesktopSplitController.setPaneFraction]。
-  Widget _buildFractionChips(AppThemeColors colors) {
-    final currentFraction = _splitController.paneFraction;
-    final children = <Widget>[];
-    for (final preset in DesktopSplitController.paneFractionPresets) {
-      final selected = (currentFraction - preset).abs() < 0.001;
-      if (children.isNotEmpty) {
-        children.add(const SizedBox(width: 6));
-      }
-      children.add(
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () => _splitController.setPaneFraction(preset),
-            child: AnimatedContainer(
-              duration: DesktopTokens.hoverDuration,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(999),
-                color: selected ? colors.accentSoft : Colors.transparent,
-                border: Border.all(
-                  color: selected ? colors.accent : colors.borderSubtle,
-                  width: selected ? 1.4 : 1,
-                ),
-              ),
-              child: Text(
-                '${(preset * 100).round()}%',
-                style: TextStyle(
-                  fontSize: 11,
-                  height: 1.25,
-                  color: selected ? colors.accentStrong : colors.textSecondary,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                ),
-              ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(size: Size(constraints.maxWidth, constraints.maxHeight)),
+          child: ColoredBox(
+            color: context.appColors.surface,
+            child: Navigator(
+              key: _navigatorKey,
+              initialRoute: baseRouteName,
+              onGenerateInitialRoutes: _buildInitialRoutes,
+              onGenerateRoute: _generateRoute,
+              onUnknownRoute: _generateRoute,
+              observers: <NavigatorObserver>[_routeObserver],
             ),
           ),
         ),
-      );
-    }
-    return Row(mainAxisSize: MainAxisSize.min, children: children);
-  }
-
-  /// 标题显示当前栈顶路由的尾段（拿不到页面标题时按路由名兜底）。
-  String _routeTitle(String routeName) {
-    final uri = Uri.tryParse(routeName.trim());
-    final path = uri?.path ?? routeName;
-    final segments = path
-        .split('/')
-        .where((segment) => segment.trim().isNotEmpty)
-        .toList(growable: false);
-    if (segments.isEmpty) {
-      return path.trim().isEmpty ? routeName : path;
-    }
-    return segments.last;
+      ),
+    );
   }
 }
 
@@ -433,52 +276,6 @@ class _PaneBasePlaceholder extends StatelessWidget {
             style: TextStyle(color: colors.textMuted, fontSize: 12),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 宽度低于 [DesktopBreakpoints.paneMinWidth] 时的过窄提示层。
-class _PaneTooNarrowHint extends StatelessWidget {
-  const _PaneTooNarrowHint({required this.colors});
-
-  final AppThemeColors colors;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: colors.surface,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.width_normal_rounded,
-                size: 40,
-                color: colors.textMuted,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '窗口过窄，无法展示详情栏',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '请加宽窗口，详情栏至少需要 '
-                '${DesktopBreakpoints.paneMinWidth.round()} 逻辑像素宽度',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: colors.textMuted, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

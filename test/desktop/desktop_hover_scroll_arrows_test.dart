@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/desktop.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/screens/home/widgets/home_horizontal_shelf.dart';
 
 double _opacityOf(WidgetTester tester, IconData icon) => tester
     .widget<AnimatedOpacity>(
@@ -82,7 +83,53 @@ void main() {
     expect(_opacityOf(tester, Icons.chevron_left), 1);
   });
 
-  testWidgets('浅色主题悬浮箭头为居中磨砂白胶囊（无整高色带与描边层）', (tester) async {
+  testWidgets('桌面媒体架缩成分屏宽度后仍可双向翻页，放大后刷新边界', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+    tester.view.physicalSize = const Size(1200, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppThemeBuilder.build(AppThemePreset.midnight),
+        home: Scaffold(
+          body: HomeHorizontalShelf<int>(
+            storageKey: 'narrow-shelf',
+            items: List.generate(8, (index) => index),
+            idealItemWidth: 100,
+            minItemWidth: 100,
+            maxItemWidth: 100,
+            itemAspectRatio: 1,
+            itemBuilder: (_, item, width) => Text('番剧 $item'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(250, 50));
+    addTearDown(mouse.removePointer);
+    await tester.pumpAndSettle();
+    expect(_opacityOf(tester, Icons.chevron_right), 0);
+    tester.view.physicalSize = const Size(500, 300);
+    await tester.pumpAndSettle();
+    expect(find.byType(HoverScrollArrows), findsOneWidget);
+    expect(_opacityOf(tester, Icons.chevron_right), 1);
+    final controller = tester
+        .widget<ListView>(find.byType(ListView))
+        .controller!;
+    await tester.tap(find.byIcon(Icons.chevron_right));
+    await tester.pumpAndSettle();
+    expect(controller.offset, greaterThan(0));
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+    expect(controller.offset, 0);
+    tester.view.physicalSize = const Size(1200, 300);
+    await tester.pumpAndSettle();
+    expect(_opacityOf(tester, Icons.chevron_right), 0);
+  });
+
+  testWidgets('浅色主题翻页按钮使用主题底色、描边和紧凑圆角', (tester) async {
     tester.view.physicalSize = const Size(800, 200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -119,13 +166,15 @@ void main() {
         matching: find.byType(AnimatedContainer),
       ),
     );
-    // 胶囊：磨砂白填充 + 全圆角 + 轻投影；不再有整高命中区色带与描边层。
+    // 圆角按钮使用主题色，命中区与可见尺寸一致。
     final decoration = arrowContainer.decoration! as BoxDecoration;
-    expect(decoration.color, Colors.white.withValues(alpha: 0.85));
-    expect(decoration.borderRadius, BorderRadius.circular(999));
-    expect(decoration.boxShadow, isNotEmpty);
+    final colors = tester.element(find.byIcon(Icons.chevron_right)).appColors;
+    expect(decoration.color, colors.surfaceStrong);
+    expect(decoration.border, Border.all(color: colors.borderSubtle));
+    expect(decoration.borderRadius, BorderRadius.circular(12));
+    expect(decoration.boxShadow, isNull);
     expect(arrowContainer.foregroundDecoration, isNull);
-    expect(tester.getSize(find.byIcon(Icons.chevron_right)).height, 22);
+    expect(tester.widget<Icon>(find.byIcon(Icons.chevron_right)).size, 24);
     expect(
       tester
           .getSize(
@@ -135,7 +184,7 @@ void main() {
             ),
           )
           .height,
-      64,
+      48,
     );
   });
 }
