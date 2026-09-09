@@ -212,16 +212,32 @@ class AppSettingsScreen extends StatelessWidget {
     String parallelSummary,
     bool parallelWindowSupported,
   ) {
-    return Navigator.of(context).push(
-      AppTransitions.leftToRightPageTurnRoute<void>(
-        SettingsSearchScreen(
-          entries: _buildSearchEntries(
-            context,
-            themeProvider,
-            parallelSummary,
-            parallelWindowSupported,
+    final entries = _buildSearchEntries(
+      context,
+      themeProvider,
+      parallelSummary,
+      parallelWindowSupported,
+    );
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return showDialog<void>(
+        context: context,
+        useRootNavigator: false,
+        barrierColor: Colors.transparent,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.all(24),
+          child: SizedBox(
+            width: 640,
+            height: 620,
+            child: SettingsSearchScreen(entries: entries, asPanel: true),
           ),
         ),
+      );
+    }
+    return Navigator.of(context).push(
+      AppTransitions.leftToRightPageTurnRoute<void>(
+        SettingsSearchScreen(entries: entries),
       ),
     );
   }
@@ -891,13 +907,6 @@ class _DesktopRowData {
     this.onSwitch,
     this.switchKey,
   });
-
-  bool matches(String query) {
-    final normalized = query.trim().toLowerCase();
-    if (normalized.isEmpty) return true;
-    return title.toLowerCase().contains(normalized) ||
-        subtitle.toLowerCase().contains(normalized);
-  }
 }
 
 /// 桌面端设置分组：标题 + 图标 + 一组紧凑行。
@@ -913,13 +922,6 @@ class _SettingsSection {
     required this.title,
     required this.rows,
   });
-
-  /// 按关键字过滤行；无匹配行时返回 null（整组隐藏）。
-  _SettingsSection? filtered(String query) {
-    final visible = rows.where((row) => row.matches(query)).toList();
-    if (visible.isEmpty) return null;
-    return _SettingsSection(id: id, icon: icon, title: title, rows: visible);
-  }
 }
 
 /// 桌面端设置区：分组卡片网格首页 + 内部导航承载设置子页（三级），
@@ -1091,6 +1093,7 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
                 child: _DesktopSettingsGrid(
                   sections: widget.buildSections(context),
                   bottomInset: widget.bottomInset,
+                  onOpenFullSearch: openSearch,
                 ),
               ),
               // 右栏：设置子页列（三级），开启时以 1px 竖线与网格分隔。
@@ -1182,10 +1185,10 @@ class _DesktopSettingsAreaScope extends InheritedWidget {
   bool updateShouldNotify(_DesktopSettingsAreaScope oldWidget) => false;
 }
 
-/// 设置区首页（设计稿「放映控制台」）：页头标题 + 即时过滤搜索框，
+/// 设置区首页（设计稿「放映控制台」）：页头标题 + 统一搜索入口，
 /// 分组卡片网格（宽视口双列，窄视口单列），行尾当前值预览。
 /// 桌面双栏与手机/平板/窄窗单列形态共用此首页。
-class _DesktopSettingsGrid extends StatefulWidget {
+class _DesktopSettingsGrid extends StatelessWidget {
   final List<_SettingsSection> sections;
   final double bottomInset;
 
@@ -1206,32 +1209,9 @@ class _DesktopSettingsGrid extends StatefulWidget {
   });
 
   @override
-  State<_DesktopSettingsGrid> createState() => _DesktopSettingsGridState();
-}
-
-class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocus = FocusNode();
-  String _query = '';
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _searchFocus.dispose();
-    super.dispose();
-  }
-
-  int get _totalRows =>
-      widget.sections.fold<int>(0, (sum, section) => sum + section.rows.length);
-
-  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final compact = MediaQuery.sizeOf(context).width < 720;
-    final visibleSections = widget.sections
-        .map((section) => section.filtered(_query))
-        .whereType<_SettingsSection>()
-        .toList();
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -1242,14 +1222,14 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
                 LogicalKeyboardKey.keyK,
                 control: true,
               ): () =>
-                  _searchFocus.requestFocus(),
+                  onOpenFullSearch?.call(),
             },
             child: SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
                 compact ? 16 : 40,
                 26,
                 compact ? 16 : 40,
-                widget.bottomInset + 28,
+                bottomInset + 28,
               ),
               child: Align(
                 alignment: Alignment.topCenter,
@@ -1262,47 +1242,41 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
                     children: <Widget>[
                       _buildHeader(context, l10n),
                       const SizedBox(height: 26),
-                      if (visibleSections.isEmpty)
-                        _DesktopSearchEmptyHint(
-                          text: l10n.settingsDesktopSearchEmpty,
-                        )
-                      else
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final twoColumns =
-                                constraints.maxWidth >=
-                                _DesktopSettingsGrid._twoColumnMinWidth;
-                            final leftSections = <_SettingsSection>[];
-                            final rightSections = <_SettingsSection>[];
-                            for (var i = 0; i < visibleSections.length; i++) {
-                              (i.isEven ? leftSections : rightSections).add(
-                                visibleSections[i],
-                              );
-                            }
-                            final Widget content = twoColumns
-                                ? Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: <Widget>[
-                                      Expanded(
-                                        child: _buildSectionColumn(
-                                          context,
-                                          leftSections,
-                                        ),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final twoColumns =
+                              constraints.maxWidth >=
+                              _DesktopSettingsGrid._twoColumnMinWidth;
+                          final leftSections = <_SettingsSection>[];
+                          final rightSections = <_SettingsSection>[];
+                          for (var i = 0; i < sections.length; i++) {
+                            (i.isEven ? leftSections : rightSections).add(
+                              sections[i],
+                            );
+                          }
+                          final Widget content = twoColumns
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Expanded(
+                                      child: _buildSectionColumn(
+                                        context,
+                                        leftSections,
                                       ),
-                                      const SizedBox(width: 28),
-                                      Expanded(
-                                        child: _buildSectionColumn(
-                                          context,
-                                          rightSections,
-                                        ),
+                                    ),
+                                    const SizedBox(width: 28),
+                                    Expanded(
+                                      child: _buildSectionColumn(
+                                        context,
+                                        rightSections,
                                       ),
-                                    ],
-                                  )
-                                : _buildSectionColumn(context, visibleSections);
-                            return content;
-                          },
-                        ),
+                                    ),
+                                  ],
+                                )
+                              : _buildSectionColumn(context, sections);
+                          return content;
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -1322,8 +1296,8 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
       children: <Widget>[
         Row(
           children: <Widget>[
-            if (widget.leading != null) ...<Widget>[
-              widget.leading!,
+            if (leading != null) ...<Widget>[
+              leading!,
               const SizedBox(width: 10),
             ],
             Text(
@@ -1355,131 +1329,75 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        Text(
-          '${l10n.settingsDesktopSummary(widget.sections.length, _totalRows)}　'
-          '${l10n.settingsDesktopSummaryHint}',
-          maxLines: compact ? 2 : 1,
-          style: TextStyle(
-            color: colors.textMuted,
-            fontSize: AdaptiveText.roleSize(12.5),
-          ),
-        ),
       ],
     );
     final searchField = _buildSearchField(context, l10n);
-    final fullSearchButton = widget.onOpenFullSearch == null
-        ? null
-        : IconButton(
-            key: const ValueKey<String>('settings_open_full_search'),
-            tooltip: l10n.settingsSearchTooltip,
-            onPressed: widget.onOpenFullSearch,
-            icon: Icon(
-              Icons.manage_search_rounded,
-              size: 22,
-              color: colors.textSecondary,
-            ),
-          );
-
     if (compact) {
       // 窄视口：标题行与搜索框分两行排布，搜索框占满行宽。
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          titleBlock,
-          const SizedBox(height: 14),
-          Row(
-            children: <Widget>[
-              Expanded(child: searchField),
-              if (fullSearchButton != null) fullSearchButton,
-            ],
-          ),
-        ],
+        children: <Widget>[titleBlock, const SizedBox(height: 14), searchField],
       );
     }
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         Expanded(child: titleBlock),
         const SizedBox(width: 24),
         searchField,
-        if (fullSearchButton != null) ...<Widget>[
-          const SizedBox(width: 6),
-          fullSearchButton,
-        ],
       ],
     );
   }
 
   Widget _buildSearchField(BuildContext context, AppLocalizations l10n) {
     final colors = context.appColors;
-    final hasQuery = _query.trim().isNotEmpty;
     final compact = MediaQuery.sizeOf(context).width < 720;
-    return Container(
-      width: compact ? double.infinity : 292,
-      height: 38,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.search_rounded, size: 15, color: colors.textMuted),
-          const SizedBox(width: 9),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              focusNode: _searchFocus,
-              onChanged: (value) => setState(() => _query = value),
-              style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: AdaptiveText.roleSize(13),
-              ),
-              cursorColor: colors.selection,
-              decoration: InputDecoration(
-                isCollapsed: true,
-                border: InputBorder.none,
-                hintText: l10n.settingsSearchHint,
-                hintStyle: TextStyle(
+    return InkWell(
+      key: const ValueKey<String>('settings_open_full_search'),
+      autofocus: true,
+      onTap: onOpenFullSearch,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: compact ? double.infinity : 292,
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: colors.borderSubtle),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(Icons.search_rounded, size: 15, color: colors.textMuted),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                l10n.settingsSearchHint,
+                style: TextStyle(
                   color: colors.textMuted,
                   fontSize: AdaptiveText.roleSize(13),
                 ),
               ),
             ),
-          ),
-          if (hasQuery)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                _searchController.clear();
-                setState(() => _query = '');
-              },
-              child: Icon(
-                Icons.close_rounded,
-                size: 15,
-                color: colors.textMuted,
-              ),
-            )
-          else if (!compact)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: colors.surfaceSubtle,
-                borderRadius: BorderRadius.circular(5),
-                border: Border.all(color: colors.borderSubtle),
-              ),
-              child: Text(
-                'Ctrl K',
-                style: TextStyle(
-                  color: colors.textMuted,
-                  fontSize: AdaptiveText.roleSize(10),
-                  fontFamily: 'monospace',
+            if (!compact)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: colors.surfaceSubtle,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: colors.borderSubtle),
+                ),
+                child: Text(
+                  'Ctrl K',
+                  style: TextStyle(
+                    color: colors.textMuted,
+                    fontSize: AdaptiveText.roleSize(10),
+                    fontFamily: 'monospace',
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1745,36 +1663,6 @@ class _DesktopGroupDivider extends StatelessWidget {
       margin: const EdgeInsets.only(left: 64, right: 16),
       height: 1,
       color: colors.borderSubtle,
-    );
-  }
-}
-
-/// 搜索无结果提示。
-class _DesktopSearchEmptyHint extends StatelessWidget {
-  final String text;
-
-  const _DesktopSearchEmptyHint({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 72),
-      child: Center(
-        child: Column(
-          children: <Widget>[
-            Icon(Icons.search_off_rounded, size: 34, color: colors.textMuted),
-            const SizedBox(height: 12),
-            Text(
-              text,
-              style: TextStyle(
-                color: colors.textMuted,
-                fontSize: AdaptiveText.roleSize(13),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

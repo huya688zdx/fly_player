@@ -81,6 +81,9 @@ class _DesktopShellState extends State<DesktopShell> {
   late final FocusNode _shellFocusNode = FocusNode(
     debugLabel: 'desktop-shell-shortcuts',
   );
+  final FocusScopeNode _settingsFocusScope = FocusScopeNode(
+    debugLabel: 'desktop-settings-shortcuts',
+  );
 
   /// 侧栏「媒体库 / 分类」分组数据（经 MediaBackend 公共接口拉取，失败静默降级）。
   List<MediaCatalog> _sidebarCatalogs = const <MediaCatalog>[];
@@ -123,6 +126,7 @@ class _DesktopShellState extends State<DesktopShell> {
   @override
   void dispose() {
     _shellFocusNode.dispose();
+    _settingsFocusScope.dispose();
     _parallelSettings?.removeListener(_onParallelSettingsChanged);
     _splitController.removeListener(_onSplitControllerChanged);
     _splitController.dispose();
@@ -267,9 +271,14 @@ class _DesktopShellState extends State<DesktopShell> {
     if (index < 0 || index > 1 || index == _selectedTab) return;
     setState(() => _selectedTab = index);
     // IndexedStack 切页后焦点可能落在被隐藏的内容导航子树中失效，
-    // 主动把焦点拉回 Shell 快捷键域，保证数字键 / Esc 连续可用。
+    // 设置页恢复自己的快捷键焦点，影视页回到 Shell，避免 Ctrl+K 搜错区域。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _shellFocusNode.requestFocus();
+      if (!mounted) return;
+      if (_selectedTab == 1) {
+        _settingsFocusScope.nextFocus();
+      } else {
+        _shellFocusNode.requestFocus();
+      }
     });
   }
 
@@ -469,7 +478,10 @@ class _DesktopShellState extends State<DesktopShell> {
                 onGenerateRoute: widget.contentRouteFactory,
                 onUnknownRoute: widget.contentRouteFactory,
               ),
-              if (pages.length > 1) pages[1] else const SizedBox.shrink(),
+              FocusScope(
+                node: _settingsFocusScope,
+                child: pages.length > 1 ? pages[1] : const SizedBox.shrink(),
+              ),
             ],
           ),
         );
