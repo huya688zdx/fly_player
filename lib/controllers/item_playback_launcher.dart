@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/media_backend.dart';
@@ -18,7 +19,7 @@ import '../services/native_reentry_support.dart';
 import '../services/native_player_bridge.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
-import '../playback/native_playback_host.dart';
+import '../playback/platform_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
@@ -32,6 +33,9 @@ import '../services/download_task_service.dart';
 /// 负责从条目详情上下文构建并拉起播放器。
 class ItemPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
+
+  /// 非 Windows 桌面端的播放入口提示文案，暂以常量承载。
+  static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
 
   /// 创建一个条目播放拉起器实例。
   const ItemPlaybackLauncher();
@@ -48,6 +52,15 @@ class ItemPlaybackLauncher {
     String? audioTrackId,
     String? subtitleTrackId,
   }) async {
+    // Linux/macOS 本轮仍未接入，避免落入 Android MethodChannel。
+    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+      _topTip.show(
+        context,
+        message: desktopPlaybackBlockedMessage,
+        color: context.appColors.warning,
+      );
+      return null;
+    }
     return AsyncActionGuard.run<PlayDetailPlayerReturnData?>(
       'item_playback:${itemGuid.trim()}:${startFromBeginning ? 'restart' : 'default'}',
       settleDuration: const Duration(milliseconds: 500),
@@ -58,26 +71,78 @@ class ItemPlaybackLauncher {
         // 返回的就是 FeiniuMediaBackend(FeiniuApi(nasProvider))，与旧直接构造等价、零回归。
         final backend = context.read<MediaBackendProvider>().backend;
         final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
-        final resolved = await _resolve(
-          backend,
-          itemGuid: itemGuid,
-          l10n: l10n,
-          fallbackTitle: fallbackTitle,
-          startFromBeginning: startFromBeginning,
-          resumePosition: resumePosition,
-          qualityMediaGuid: qualityMediaGuid,
-          overrideAudioGuid: audioTrackId,
-          overrideSubtitleGuid: subtitleTrackId,
-        );
+        ({MpvMediaSource source, PlayInfoData? playInfo, String title})?
+        localPlayback;
+        if (isFeiniu) {
+          await DownloadTaskService.instance.initialize();
+          final record = DownloadTaskService.instance.downloadedRecordForItem(
+            itemGuid.trim(),
+            mediaGuid: qualityMediaGuid ?? '',
+          );
+          if (record != null) {
+            localPlayback = await resolveLocalDownloadSource(
+              record,
+              nas.isConfigured ? FeiniuDetailDataGateway.forNas(nas) : null,
+              l10n: l10n,
+              startPositionMs: startFromBeginning
+                  ? 0
+                  : resumePosition?.inMilliseconds,
+            );
+          }
+        }
+        final resolved =
+            localPlayback ??
+            await _resolve(
+              backend,
+              itemGuid: itemGuid,
+              l10n: l10n,
+              fallbackTitle: fallbackTitle,
+              startFromBeginning: startFromBeginning,
+              resumePosition: resumePosition,
+              qualityMediaGuid: qualityMediaGuid,
+              overrideAudioGuid: audioTrackId,
+              overrideSubtitleGuid: subtitleTrackId,
+            );
         if (resolved == null) return null;
         final source = resolved.source;
 
         if (!context.mounted) return null;
-        // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
-        // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
-        // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
-        // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
-        if (NativePlayerBridge.preferNativePlayerShell) {
+        // 服务器族单集起播需带上本季 episodes，桌面与 Android 宿主共用。
+        final serverEpisodes = isFeiniu
+            ? null
+            : await _serverNativeEpisodes(backend, source);
+        if (!context.mounted) return null;
+
+        // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
+        if (DesktopEnvironment.isWindows) {
+          final danmakuSettings = await const DanmakuSettingsStore().load();
+          final danmakuFile = source.isDownloadedFile
+              ? null
+              : await NativeDanmakuPrefetch.resolveToFile(
+                  seriesTitle: source.seriesTitle,
+                  itemTitle: source.title,
+                  seasonNumber: source.seasonNumber,
+                  episodeNumber: source.episodeNumber,
+                  tmdbId: source.tmdbId,
+                  settings: danmakuSettings,
+                  itemGuid: source.itemGuid,
+                  mediaGuid: source.mediaGuid,
+                  seasonGuid: source.seasonGuid,
+                );
+          if (!context.mounted) return null;
+          if (await playbackHostFor(context).launch(
+            source: source,
+            episodes: serverEpisodes,
+            danmakuFilePath: danmakuFile,
+            nas: isFeiniu ? nas : null,
+          )) {
+            return null;
+          }
+        } else if (NativePlayerBridge.preferNativePlayerShell) {
+          // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
+          // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
+          // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
+          // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
           NativePlaybackReentry.bind(
             backend: backend,
             nas: nas,
@@ -117,14 +182,8 @@ class ItemPlaybackLauncher {
                     l10n: l10n,
                   ),
           );
-          // 服务器族单集起播：带上本季 episodes，否则原生壳「选集 / 下一集」不亮（壳侧靠
-          // loadArgs.episodes 渲染选集面板 + 算下一集；空则预取被跳过、回调不触发）。
-          // 飞牛单集走 _launchPlayer 自带 episodes，故此处只为服务器族加载。
-          final serverEpisodes = isFeiniu
-              ? null
-              : await _serverNativeEpisodes(backend, source);
           // 服务器族封面由后端给出可直接消费的 URL，不走 NAS 鉴权预取，故只飞牛传 nas。
-          if (await const NativePlaybackHost().launch(
+          if (await playbackHostFor(context).launch(
             source: source,
             episodes: serverEpisodes,
             nas: isFeiniu ? nas : null,
@@ -231,6 +290,7 @@ class ItemPlaybackLauncher {
     String? audioGuid,
     List<Map<String, dynamic>>? episodes,
     required AppLocalizations l10n,
+    bool allowNetwork = true,
   }) async {
     return AsyncActionGuard.run<Map<String, dynamic>?>(
       'item_resolve:${itemGuid.trim()}',
@@ -245,7 +305,9 @@ class ItemPlaybackLauncher {
           if (localRecord != null) {
             final local = await resolveLocalDownloadSource(
               localRecord,
-              FeiniuDetailDataGateway.forNas(nas),
+              allowNetwork && nas.isConfigured
+                  ? FeiniuDetailDataGateway.forNas(nas)
+                  : null,
               l10n: l10n,
               startPositionMs: startPositionMs,
             );
@@ -257,6 +319,10 @@ class ItemPlaybackLauncher {
                 if (episodes != null && episodes.isNotEmpty)
                   'episodes': episodes,
               };
+              // 桌面播放页会在起播后加载弹幕，本地切集无需在入口重复等待。
+              if (DesktopEnvironment.isWindows) {
+                return <String, dynamic>{'loadArgs': jsonEncode(loadArgs)};
+              }
               final settings = await const DanmakuSettingsStore().load();
               final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
                 seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
@@ -278,6 +344,7 @@ class ItemPlaybackLauncher {
             }
           }
         }
+        if (!allowNetwork) return null;
         // 原生壳画质切换反向通道目前仅飞牛走（服务器族用最小反向通道 _resolveServerForNative）。
         final resolved = await _resolve(
           backend ?? MediaBackendRegistry.createLegacyFeiniu(nas),

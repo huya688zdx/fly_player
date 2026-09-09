@@ -2,6 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_environment.dart';
+import '../../desktop/desktop_breakpoints.dart';
+import '../../desktop/desktop_floating_panel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
@@ -56,6 +59,23 @@ class AppCatalogFilterSheet extends StatefulWidget {
   }) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return AppSheetTransitions.showAdaptiveSheet<Map<String, Set<Object>>>(
+        context,
+        barrierLabel: l10n.listFilterButton,
+        barrierColor: colors.overlayScrim.withValues(alpha: 0.18),
+        builder: (_) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: AppRuntimeColorScope(
+              colors: colors,
+              hasRuntimeColors: true,
+              child: AppCatalogFilterSheet(sections: sections),
+            ),
+          ),
+        ),
+      );
+    }
     return AppSheetTransitions.showBottomSurface<Map<String, Set<Object>>>(
       context,
       enableDrag: true,
@@ -120,6 +140,78 @@ class _AppCatalogFilterSheetState extends State<AppCatalogFilterSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final media = MediaQuery.of(context);
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return SizedBox(
+        width: 880,
+        child: DesktopFloatingPanel(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: media.size.height * 0.8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.listFilterButton,
+                          style: TextStyle(
+                            color: context.appColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: l10n.commonClose,
+                        onPressed: () => AppSheetTransitions.close(context),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: AppCatalogFilterInlinePanel(
+                      framed: false,
+                      sections: [
+                        for (final section in widget.sections)
+                          AppCatalogFilterSection(
+                            key: section.key,
+                            title: section.title,
+                            options: section.options,
+                            multiSelect: section.multiSelect,
+                            selectedValues: _selection[section.key]!,
+                          ),
+                      ],
+                      onOptionSelected: _select,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: _reset,
+                        child: Text(l10n.listFilterResetButton),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton.tonal(
+                        onPressed: _confirm,
+                        child: Text(l10n.commonConfirm),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final maximum = media.size.height * 0.82;
     final preferred = widget.sections.length <= 2 ? 460.0 : maximum;
     final height = math.min(maximum, preferred);
@@ -187,6 +279,309 @@ class _AppCatalogFilterSheetState extends State<AppCatalogFilterSheet> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// 筛选工具栏与面板共用的自适应容器，窗口缩放时由实际内容宽度决定呈现位置。
+class AppCatalogFilterRegion extends StatefulWidget {
+  const AppCatalogFilterRegion({
+    super.key,
+    required this.expanded,
+    required this.toolbar,
+    required this.panelBuilder,
+    required this.onDismiss,
+  });
+
+  final bool expanded;
+  final Widget toolbar;
+  final Widget Function(bool floating) panelBuilder;
+  final VoidCallback onDismiss;
+
+  @override
+  State<AppCatalogFilterRegion> createState() => _AppCatalogFilterRegionState();
+}
+
+class _AppCatalogFilterRegionState extends State<AppCatalogFilterRegion> {
+  final LayerLink _anchor = LayerLink();
+  // 保持门户挂载，内容随 expanded 和当前宽度构建，避免跨断点后遗留旧弹窗。
+  final OverlayPortalController _portal = OverlayPortalController()..show();
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final floating =
+          DesktopEnvironment.isDesktopPlatform &&
+          constraints.maxWidth < DesktopBreakpoints.sidebarMinWidth;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OverlayPortal(
+            controller: _portal,
+            overlayChildBuilder: (overlayContext) {
+              if (!widget.expanded || !floating) return const SizedBox.shrink();
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: widget.onDismiss,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                  Positioned.fill(
+                    child: CompositedTransformFollower(
+                      link: _anchor,
+                      showWhenUnlinked: false,
+                      targetAnchor: Alignment.bottomRight,
+                      followerAnchor: Alignment.topRight,
+                      offset: const Offset(-12, 0),
+                      child: UnconstrainedBox(
+                        alignment: Alignment.topRight,
+                        child: DesktopFloatingPanel(
+                          child: SizedBox(
+                            width: math.min(
+                              560,
+                              math.max(0, constraints.maxWidth - 24),
+                            ),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight:
+                                    MediaQuery.sizeOf(overlayContext).height *
+                                    0.72,
+                              ),
+                              child: SingleChildScrollView(
+                                child: widget.panelBuilder(true),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+            child: CompositedTransformTarget(
+              link: _anchor,
+              child: widget.toolbar,
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: widget.expanded && !floating
+                ? widget.panelBuilder(false)
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+/// 工具栏下方的内联筛选面板：点击筛选按钮原地展开/收起（AnimatedSize 包裹由
+/// 使用方控制），替代弹窗。选项即点即筛选，由 [onOptionSelected] 通知使用方。
+class AppCatalogFilterInlinePanel extends StatelessWidget {
+  const AppCatalogFilterInlinePanel({
+    super.key,
+    required this.sections,
+    required this.onOptionSelected,
+    this.onCollapse,
+    this.framed = true,
+  });
+
+  final List<AppCatalogFilterSection> sections;
+  final void Function(AppCatalogFilterSection section, Object? value)
+  onOptionSelected;
+  final VoidCallback? onCollapse;
+  final bool framed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = context.appColors;
+    final content = Padding(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          for (var i = 0; i < sections.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(height: 3),
+            _InlineFilterSectionRow(
+              section: sections[i],
+              onOptionSelected: onOptionSelected,
+            ),
+          ],
+          if (onCollapse != null)
+            Center(
+              child: InkWell(
+                onTap: onCollapse,
+                borderRadius: BorderRadius.circular(8),
+                hoverColor: colors.selection.withValues(alpha: 0.08),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        l10n.listFilterCollapse,
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Icon(
+                        Icons.keyboard_arrow_up_rounded,
+                        size: 17,
+                        color: colors.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (!framed) return content;
+    // 使用透明薄底，让页面自身的氛围色连续透出，不再叠加独立顶光和厚阴影。
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surface.withValues(alpha: isLight ? 0.42 : 0.22),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: colors.selection.withValues(alpha: 0.14)),
+        ),
+        child: content,
+      ),
+    );
+  }
+}
+
+class _InlineFilterSectionRow extends StatelessWidget {
+  const _InlineFilterSectionRow({
+    required this.section,
+    required this.onOptionSelected,
+  });
+
+  final AppCatalogFilterSection section;
+  final void Function(AppCatalogFilterSection section, Object? value)
+  onOptionSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final selected = section.selectedValues;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SizedBox(
+          width: 104,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 5),
+            child: Text(
+              section.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: context.appColors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Wrap(
+            spacing: 3,
+            runSpacing: 2,
+            children: <Widget>[
+              _InlineFilterChip(
+                label: l10n.listFilterAll,
+                selected: selected.isEmpty,
+                onTap: () => onOptionSelected(section, null),
+              ),
+              for (final option in section.options)
+                _InlineFilterChip(
+                  label: option.label,
+                  selected: selected.contains(option.value),
+                  onTap: () => onOptionSelected(section, option.value),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InlineFilterChip extends StatefulWidget {
+  const _InlineFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+
+  final VoidCallback onTap;
+
+  @override
+  State<_InlineFilterChip> createState() => _InlineFilterChipState();
+}
+
+class _InlineFilterChipState extends State<_InlineFilterChip> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final radius = BorderRadius.circular(7);
+    final Color textColor;
+    if (widget.selected) {
+      textColor = colors.selection;
+    } else {
+      textColor = _hovering ? colors.textPrimary : colors.textSecondary;
+    }
+    return Material(
+      color: widget.selected
+          ? colors.selection.withValues(alpha: 0.12)
+          : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(
+          color: widget.selected
+              ? colors.selection.withValues(alpha: 0.26)
+              : Colors.transparent,
+        ),
+      ),
+      child: InkWell(
+        onTap: widget.onTap,
+        borderRadius: radius,
+        hoverColor: colors.selection.withValues(alpha: 0.08),
+        onHover: (value) => setState(() => _hovering = value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 13,
+              // 固定字重，避免选中后文字变宽，导致 Wrap 中的相邻选项位移。
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ),
     );
   }

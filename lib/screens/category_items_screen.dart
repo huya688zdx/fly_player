@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
 import '../media_backend/media_backend_kind.dart';
@@ -19,6 +20,7 @@ import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_detail_navigator.dart';
+import '../widgets/common/track_option_sheet.dart';
 import '../ui/catalog_filter_localizer.dart';
 import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
@@ -124,6 +126,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   @override
   void dispose() {
+    _filterFetchDebounce?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -184,9 +187,10 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     });
   }
 
-  Future<void> _fetch() async {
+  Future<void> _fetch({bool showLoader = true}) async {
+    final seq = ++_fetchSeq;
     setState(() {
-      _isLoading = true;
+      if (showLoader) _isLoading = true;
       _isLoadingMore = false;
       _error = null;
       _loadMoreError = null;
@@ -198,7 +202,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       final backend = context.read<MediaBackendProvider>().backend;
       final page = await backend.queryCatalogItems(_buildQuery(page: 1));
 
-      if (!mounted) return;
+      if (!mounted || seq != _fetchSeq) return;
       setState(() {
         _items = page.items;
         _total = page.total;
@@ -207,7 +211,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || seq != _fetchSeq) return;
       setState(() {
         _error = AppException.from(
           e,
@@ -249,6 +253,78 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     );
   }
 
+  /// 右键菜单展示前预取已看/收藏态；列表内缓存可能过期，失败回退列表值。
+  Future<({bool watched, bool favorite})> _loadItemFlags(
+    MediaItemCard item,
+  ) async {
+    var watched = item.watched;
+    var favorite = false;
+    try {
+      final detail = await context
+          .read<MediaBackendProvider>()
+          .backend
+          .getItemDetail(item.id);
+      watched = detail.watched;
+      favorite = detail.favorite;
+    } catch (error) {
+      debugPrint('[UI][CATEGORY] item flags load failed ${item.id}: $error');
+    }
+    return (watched: watched, favorite: favorite);
+  }
+
+  /// 桌面档媒体卡右键菜单：动作与长按动作表（_showPosterItemActions）同源；
+  /// 人物条目无「已看」语义，与长按 favoriteOnly 一致只保留详情 + 收藏。
+  Future<void> _showItemContextMenu(MediaItemCard item, Offset position) async {
+    final favoriteOnly = _isPersonItem(item);
+    final flags = await _loadItemFlags(item);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    const controller = MediaItemActionSheetController();
+    await showDesktopContextMenu(
+      context,
+      position: position,
+      entries: <DesktopContextMenuEntry>[
+        DesktopContextMenuEntry(
+          label: l10n.homeActionViewDetail,
+          icon: Icons.info_outline,
+          onSelected: () => unawaited(_openItemDetail(item)),
+        ),
+        if (!favoriteOnly)
+          DesktopContextMenuEntry(
+            label: flags.watched
+                ? l10n.actionMarkAsUnwatched
+                : l10n.actionMarkAsWatched,
+            icon: flags.watched
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            onSelected: () async {
+              final state = await controller.setItemWatched(
+                context,
+                itemId: item.id,
+                watched: !flags.watched,
+              );
+              if (state == null) return;
+              _replaceItemLocally(
+                item.id,
+                (current) => current.copyWith(watched: state),
+              );
+            },
+          ),
+        DesktopContextMenuEntry(
+          label: flags.favorite
+              ? l10n.actionFavoriteRemove
+              : l10n.actionFavoriteAdd,
+          icon: flags.favorite ? Icons.favorite : Icons.favorite_border,
+          onSelected: () => controller.setItemFavorite(
+            context,
+            itemId: item.id,
+            favorite: !flags.favorite,
+          ),
+        ),
+      ],
+    );
+  }
+
   /// 把当前选择回填为公共分类查询；type 锁定时用锁定类型，否则用用户选择
   /// （空选择交由适配层回退到全类型）。
   MediaCatalogQuery _buildQuery({required int page}) {
@@ -278,7 +354,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
-    if (_isLoading || _isLoadingMore || !_hasMore || _error != null) return;
+    if (_isLoading ||
+        _isLoadingMore ||
+        !_hasMore ||
+        _error != null ||
+        _silentRefreshInFlight) {
+      return;
+    }
     final position = _scrollController.position;
     final remain = position.maxScrollExtent - position.pixels;
     if (remain <= _loadMoreTriggerOffset) {
@@ -517,7 +599,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   Future<void> _openSortSheet() async {
     final localizer = _filterLocalizer;
-    final nasProvider = context.read<NasProvider>();
     final result = await AppCatalogSortSheet.show(
       context,
       options: <AppCatalogSortOption>[
@@ -531,10 +612,99 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       sortType: _sortType,
     );
     if (!mounted || result == null) return;
+    await _applySortSelection(field: result.field, type: result.sortType);
+  }
 
+  final GlobalKey<DesktopHoverDropdownState> _sortDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+  final GlobalKey<DesktopHoverDropdownState> _layoutDropdownKey =
+      GlobalKey<DesktopHoverDropdownState>();
+
+  /// 桌面端排序/布局走点击式下拉（触屏保留原 sheet）。
+  Future<void> _onSortTriggerTap() async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _sortDropdownKey.currentState?.toggle();
+      return;
+    }
+    await _openSortSheet();
+  }
+
+  Future<void> _onLayoutTriggerTap() async {
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _layoutDropdownKey.currentState?.toggle();
+      return;
+    }
+    await _openLayoutSheet();
+  }
+
+  DesktopHoverDropdownSpec get _sortDropdownSpec {
+    final l10n = AppLocalizations.of(context);
+    return DesktopHoverDropdownSpec(
+      groups: <DesktopDropdownOptionGroup>[
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            for (final column in _sortColumns)
+              TrackOptionSheetItem(
+                id: column,
+                title: _filterLocalizer.sortLabel(column),
+              ),
+          ],
+          selectedId: _sortColumn,
+          onSelected: (field) =>
+              _applySortSelection(field: field, type: _sortType),
+        ),
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            TrackOptionSheetItem(id: 'ASC', title: l10n.listSortAsc),
+            TrackOptionSheetItem(id: 'DESC', title: l10n.listSortDesc),
+          ],
+          selectedId: _sortType,
+          onSelected: (type) =>
+              _applySortSelection(field: _sortColumn, type: type),
+        ),
+      ],
+    );
+  }
+
+  DesktopHoverDropdownSpec get _layoutDropdownSpec {
+    final l10n = AppLocalizations.of(context);
+    String label(MediaCollectionViewType type) {
+      switch (type) {
+        case MediaCollectionViewType.list:
+          return l10n.collectionLayoutList;
+        case MediaCollectionViewType.horizontalPoster:
+          return l10n.collectionLayoutHorizontalPoster;
+        case MediaCollectionViewType.verticalPoster:
+          return l10n.collectionLayoutVerticalPoster;
+      }
+    }
+
+    return DesktopHoverDropdownSpec(
+      groups: <DesktopDropdownOptionGroup>[
+        DesktopDropdownOptionGroup(
+          items: <TrackOptionSheetItem>[
+            for (final type in MediaCollectionViewType.values)
+              TrackOptionSheetItem(id: type.storageValue, title: label(type)),
+          ],
+          selectedId: _viewType.storageValue,
+          onSelected: (id) =>
+              _applyLayoutSelection(MediaCollectionViewTypeX.fromStorage(id)),
+        ),
+      ],
+    );
+  }
+
+  /// 桌面点击下拉直接落地排序（字段/方向各组独立选择）。
+  Future<void> _applySortSelection({
+    required String field,
+    required String type,
+  }) async {
+    if (field == _sortColumn && type == _sortType) return;
+    final nasProvider = context.read<NasProvider>();
+    if (!mounted) return;
     setState(() {
-      _sortColumn = result.field;
-      _sortType = result.sortType;
+      _sortColumn = field;
+      _sortType = type;
     });
     if (widget.category.id.trim().isNotEmpty && _isFeiniuBackend) {
       await FeiniuApi(nasProvider).setUserListSetting(
@@ -548,58 +718,106 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     _fetch();
   }
 
-  bool _filterSheetOpen = false;
-
-  /// 重入守卫：快速连点（或 await _loadMeta 期间再次点击）会各自打开筛选弹层，
-  /// 叠出多个筛选弹窗。整个打开流程串行化，开着时忽略后续点击。
-  Future<void> _openFilterSheet() async {
-    if (_filterSheetOpen) return;
-    _filterSheetOpen = true;
-    try {
-      await _openFilterSheetInner();
-    } finally {
-      _filterSheetOpen = false;
+  /// 桌面点击下拉直接落地视图切换。
+  Future<void> _applyLayoutSelection(MediaCollectionViewType next) async {
+    if (!mounted || next == _viewType) return;
+    setState(() => _viewType = next);
+    if (widget.category.id.trim().isNotEmpty && _isFeiniuBackend) {
+      await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
+        widget.category.id,
+        sortField: _sortColumn,
+        sortType: _sortType,
+        viewType: next.storageValue,
+      );
     }
   }
 
-  Future<void> _openFilterSheetInner() async {
+  bool _filterPanelOpen = false;
+  Timer? _filterFetchDebounce;
+
+  /// 静默刷新进行中：列表原地更新（不显示全屏 loading），期间禁止触底加载。
+  bool _silentRefreshInFlight = false;
+
+  /// 递增请求序号：内联筛选即点即刷可能连续触发 _fetch，
+  /// 丢弃慢返回的旧响应，避免旧结果覆盖新结果。
+  int _fetchSeq = 0;
+
+  /// 筛选维度 → 内联面板 sections（type 锁定时隐藏该维度，空维度不展示）。
+  List<AppCatalogFilterSection> _buildFilterSections() {
+    final localizer = _filterLocalizer;
+    return <AppCatalogFilterSection>[
+      for (final dimension in _schema.dimensions)
+        if (!(dimension.key == 'type' && _typeLocked) &&
+            dimension.options.isNotEmpty)
+          AppCatalogFilterSection(
+            key: dimension.key,
+            title: localizer.dimensionTitle(dimension),
+            options: <AppCatalogFilterOption>[
+              for (final option in dimension.options)
+                AppCatalogFilterOption(
+                  value: option.value,
+                  label: localizer.optionLabel(dimension, option),
+                ),
+            ],
+            selectedValues: Set<Object>.from(
+              _selection[dimension.key] ?? const <String>{},
+            ),
+            multiSelect: dimension.multiSelect,
+          ),
+    ];
+  }
+
+  Future<void> _toggleFilterPanel() async {
+    if (_filterPanelOpen) {
+      _closeFilterPanel();
+      return;
+    }
     if (!_metaLoaded) await _loadMeta();
     if (!mounted) return;
-    final localizer = _filterLocalizer;
-    final result = await AppCatalogFilterSheet.show(
-      context,
-      sections: <AppCatalogFilterSection>[
-        for (final dimension in _schema.dimensions)
-          if (!(dimension.key == 'type' && _typeLocked) &&
-              dimension.options.isNotEmpty)
-            AppCatalogFilterSection(
-              key: dimension.key,
-              title: localizer.dimensionTitle(dimension),
-              options: <AppCatalogFilterOption>[
-                for (final option in dimension.options)
-                  AppCatalogFilterOption(
-                    value: option.value,
-                    label: localizer.optionLabel(dimension, option),
-                  ),
-              ],
-              selectedValues: Set<Object>.from(
-                _selection[dimension.key] ?? const <String>{},
-              ),
-              multiSelect: dimension.multiSelect,
-            ),
-      ],
-    );
-    if (!mounted || result == null) return;
+    setState(() => _filterPanelOpen = true);
+  }
 
-    setState(() {
-      _selection
+  void _closeFilterPanel() {
+    if (!_filterPanelOpen) return;
+    setState(() => _filterPanelOpen = false);
+  }
+
+  /// 内联面板点选：立即更新选择，防抖后刷新列表。
+  void _handleFilterOptionSelected(
+    AppCatalogFilterSection section,
+    Object? value,
+  ) {
+    final current = Set<Object>.from(
+      _selection[section.key] ?? const <String>{},
+    );
+    if (value == null) {
+      current.clear();
+    } else if (section.multiSelect) {
+      if (!current.add(value)) current.remove(value);
+    } else if (current.contains(value)) {
+      current.clear();
+    } else {
+      current
         ..clear()
-        ..addAll(<String, Set<String>>{
-          for (final entry in result.entries)
-            entry.key: entry.value.map((value) => '$value').toSet(),
-        });
+        ..add(value);
+    }
+    setState(() {
+      _selection[section.key] = current.map((v) => '$v').toSet();
     });
-    _fetch();
+    _filterFetchDebounce?.cancel();
+    _filterFetchDebounce = Timer(const Duration(milliseconds: 260), () {
+      if (mounted) _refreshForFilterChange();
+    });
+  }
+
+  /// 筛选变更后的静默刷新：不展示全屏 loading，工具栏和面板保持原地。
+  Future<void> _refreshForFilterChange() async {
+    _silentRefreshInFlight = true;
+    try {
+      await _fetch(showLoader: false);
+    } finally {
+      _silentRefreshInFlight = false;
+    }
   }
 
   @override
@@ -650,6 +868,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   Widget _buildBody(String baseUrl, String token, String accessCode) {
     final layout = MediaLayoutProfile.of(context);
+    final desktopTier = layout.isDesktopTier;
     final colors = context.appColors;
     if (_isLoading) return const Center(child: BirdLoader(size: 132));
     if (_error != null) {
@@ -665,72 +884,90 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    InkWell(
-                      onTap: _openSortSheet,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Row(
-                        children: [
-                          Text(
-                            _sortLabel,
-                            style: TextStyle(
-                              color: colors.textSecondary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
+        AppCatalogFilterRegion(
+          expanded: _filterPanelOpen,
+          onDismiss: _closeFilterPanel,
+          panelBuilder: (floating) => AppCatalogFilterInlinePanel(
+            sections: _buildFilterSections(),
+            onOptionSelected: _handleFilterOptionSelected,
+            onCollapse: _closeFilterPanel,
+            framed: !floating,
+          ),
+          toolbar: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      desktopTapDropdownWrapper(
+                        dropdownKey: _sortDropdownKey,
+                        spec: _sortDropdownSpec,
+                        child: InkWell(
+                          onTap: _onSortTriggerTap,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Row(
+                            children: [
+                              Text(
+                                _sortLabel,
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                _sortArrow,
+                                size: 16,
+                                color: colors.textSecondary,
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            _sortArrow,
-                            size: 16,
-                            color: colors.textSecondary,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceSubtle,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${max(_total, _items.length)}',
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceSubtle,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${max(_total, _items.length)}',
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              _CategoryToolButton(
-                icon: Icons.grid_view_rounded,
-                active: _viewType != MediaCollectionViewType.list,
-                onTap: _openLayoutSheet,
-              ),
-              const SizedBox(width: 10),
-              Tooltip(
-                message: _filterSummaryLabel,
-                child: _CategoryToolButton(
-                  icon: Icons.filter_alt_outlined,
-                  active: _hasActiveFilters,
-                  onTap: _openFilterSheet,
+                const SizedBox(width: 10),
+                desktopTapDropdownWrapper(
+                  dropdownKey: _layoutDropdownKey,
+                  spec: _layoutDropdownSpec,
+                  child: _CategoryToolButton(
+                    icon: Icons.grid_view_rounded,
+                    active: _viewType != MediaCollectionViewType.list,
+                    onTap: _onLayoutTriggerTap,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Tooltip(
+                  message: _filterSummaryLabel,
+                  child: _CategoryToolButton(
+                    icon: Icons.filter_alt_outlined,
+                    active: _hasActiveFilters || _filterPanelOpen,
+                    onTap: _toggleFilterPanel,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         Expanded(
@@ -750,26 +987,39 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final item = _items[index];
-                    return MediaLibraryListTile(
-                      images: mediaImageRequestForUrls(
-                        _posterCandidates(baseUrl, item, width: 280),
-                        token: token,
-                        accessCode: accessCode,
-                        baseUrl: baseUrl,
+                    // 桌面档右键接管条目动作，长按只在触屏档保留。
+                    return GestureDetector(
+                      onSecondaryTapUp: desktopTier
+                          ? (details) => unawaited(
+                              _showItemContextMenu(
+                                item,
+                                details.globalPosition,
+                              ),
+                            )
+                          : null,
+                      child: MediaLibraryListTile(
+                        images: mediaImageRequestForUrls(
+                          _posterCandidates(baseUrl, item, width: 280),
+                          token: token,
+                          accessCode: accessCode,
+                          baseUrl: baseUrl,
+                        ),
+                        title: item.displayTitle,
+                        subtitle: _cardSubtitle(item),
+                        resolutions: item.resolutions
+                            .map(_resolutionLabel)
+                            .where((e) => e.isNotEmpty)
+                            .toList(),
+                        onTap: () => _openItemDetail(
+                          item,
+                          heroTag:
+                              'category_${widget.category.id}_${item.id}_$index',
+                        ),
+                        onLongPress: desktopTier
+                            ? null
+                            : () => _showPosterItemActions(item),
+                        onMoreTap: () => _showPosterItemActions(item),
                       ),
-                      title: item.displayTitle,
-                      subtitle: _cardSubtitle(item),
-                      resolutions: item.resolutions
-                          .map(_resolutionLabel)
-                          .where((e) => e.isNotEmpty)
-                          .toList(),
-                      onTap: () => _openItemDetail(
-                        item,
-                        heroTag:
-                            'category_${widget.category.id}_${item.id}_$index',
-                      ),
-                      onLongPress: () => _showPosterItemActions(item),
-                      onMoreTap: () => _showPosterItemActions(item),
                     );
                   },
                 )
@@ -815,35 +1065,47 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             .where((e) => e.isNotEmpty)
                             .toList();
 
-                        return MediaPosterCard(
-                          images: mediaImageRequestForUrls(
-                            urls,
-                            token: token,
-                            accessCode: accessCode,
-                            baseUrl: baseUrl,
-                          ),
-                          title: item.displayTitle,
-                          subtitle: _cardSubtitle(item),
-                          imageAspectRatioHint: item.hasPosterSize
-                              ? item.posterWidth / item.posterHeight
+                        return GestureDetector(
+                          onSecondaryTapUp: desktopTier
+                              ? (details) => unawaited(
+                                  _showItemContextMenu(
+                                    item,
+                                    details.globalPosition,
+                                  ),
+                                )
                               : null,
-                          rating: rating,
-                          resolutions: resolutions,
-                          watched: item.watched,
-                          imageHeight: imageHeight,
-                          titleFontSize: layout.homePosterTitleFontSize,
-                          subtitleFontSize: layout.homePosterSubtitleFontSize,
-                          expandImageToFit: false,
-                          imageFit: BoxFit.contain,
-                          autoFitByImageAspect: false,
-                          heroTag:
-                              'category_${widget.category.id}_${item.id}_$index',
-                          onTap: () => _openItemDetail(
-                            item,
+                          child: MediaPosterCard(
+                            images: mediaImageRequestForUrls(
+                              urls,
+                              token: token,
+                              accessCode: accessCode,
+                              baseUrl: baseUrl,
+                            ),
+                            title: item.displayTitle,
+                            subtitle: _cardSubtitle(item),
+                            imageAspectRatioHint: item.hasPosterSize
+                                ? item.posterWidth / item.posterHeight
+                                : null,
+                            rating: rating,
+                            resolutions: resolutions,
+                            watched: item.watched,
+                            imageHeight: imageHeight,
+                            titleFontSize: layout.homePosterTitleFontSize,
+                            subtitleFontSize: layout.homePosterSubtitleFontSize,
+                            expandImageToFit: false,
+                            imageFit: BoxFit.contain,
+                            autoFitByImageAspect: false,
                             heroTag:
                                 'category_${widget.category.id}_${item.id}_$index',
+                            onTap: () => _openItemDetail(
+                              item,
+                              heroTag:
+                                  'category_${widget.category.id}_${item.id}_$index',
+                            ),
+                            onLongPress: desktopTier
+                                ? null
+                                : () => _showPosterItemActions(item),
                           ),
-                          onLongPress: () => _showPosterItemActions(item),
                         );
                       },
                     );
@@ -879,33 +1141,45 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         .where((e) => e.isNotEmpty)
                         .toList();
 
-                    return MediaPosterCard(
-                      images: mediaImageRequestForUrls(
-                        urls,
-                        token: token,
-                        accessCode: accessCode,
-                        baseUrl: baseUrl,
-                      ),
-                      title: item.displayTitle,
-                      subtitle: _cardSubtitle(item),
-                      rating: rating,
-                      resolutions: resolutions,
-                      watched: item.watched,
-                      imageHeight: layout.categoryGridImageHeight,
-                      titleFontSize: layout.homePosterTitleFontSize,
-                      subtitleFontSize: layout.homePosterSubtitleFontSize,
-                      expandImageToFit: false,
-                      imageFit: _isEpisodeItem(item)
-                          ? BoxFit.contain
-                          : BoxFit.cover,
-                      heroTag:
-                          'category_${widget.category.id}_${item.id}_$index',
-                      onTap: () => _openItemDetail(
-                        item,
+                    return GestureDetector(
+                      onSecondaryTapUp: desktopTier
+                          ? (details) => unawaited(
+                              _showItemContextMenu(
+                                item,
+                                details.globalPosition,
+                              ),
+                            )
+                          : null,
+                      child: MediaPosterCard(
+                        images: mediaImageRequestForUrls(
+                          urls,
+                          token: token,
+                          accessCode: accessCode,
+                          baseUrl: baseUrl,
+                        ),
+                        title: item.displayTitle,
+                        subtitle: _cardSubtitle(item),
+                        rating: rating,
+                        resolutions: resolutions,
+                        watched: item.watched,
+                        imageHeight: layout.categoryGridImageHeight,
+                        titleFontSize: layout.homePosterTitleFontSize,
+                        subtitleFontSize: layout.homePosterSubtitleFontSize,
+                        expandImageToFit: false,
+                        imageFit: _isEpisodeItem(item)
+                            ? BoxFit.contain
+                            : BoxFit.cover,
                         heroTag:
                             'category_${widget.category.id}_${item.id}_$index',
+                        onTap: () => _openItemDetail(
+                          item,
+                          heroTag:
+                              'category_${widget.category.id}_${item.id}_$index',
+                        ),
+                        onLongPress: desktopTier
+                            ? null
+                            : () => _showPosterItemActions(item),
                       ),
-                      onLongPress: () => _showPosterItemActions(item),
                     );
                   },
                 ),

@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../danmaku/cache/dandanplay_comment_cache_store.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
+import '../desktop/desktop_environment.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../playback/bookmarks/bookmark_store.dart';
 import '../providers/app_theme_provider.dart';
@@ -19,6 +20,7 @@ import '../services/login_history_store.dart';
 import '../models/download_task_record.dart';
 import 'play_stats/play_stats_database.dart';
 import 'download_task_service.dart';
+import 'storage_management_host.dart';
 import '../theme/app_theme.dart';
 import '../theme/dynamic_theme_runtime_controller.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
@@ -290,7 +292,38 @@ class StorageManagementService {
 
   static final StorageManagementService instance = StorageManagementService._();
 
-  static const MethodChannel _channel = MethodChannel('fly_player/storage');
+  /// 平台储存宿主：Android 走 `fly_player/storage` 原生通道；桌面端无该通道实现，
+  /// 改用 Dart 等价宿主（此前 loadOverview 首个调用即抛 MissingPluginException，
+  /// 储存管理页显示「加载失败」）。测试环境保持通道语义，兼容既有 mock。
+  static StorageManagementHost? _debugHostOverride;
+
+  static StorageManagementHost get _host {
+    final override = _debugHostOverride;
+    if (override != null) return override;
+    if (_isTestMessenger()) return const MethodChannelStorageManagementHost();
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return const DesktopStorageManagementHost();
+    }
+    return const MethodChannelStorageManagementHost();
+  }
+
+  static bool _isTestMessenger() {
+    try {
+      return ServicesBinding.instance.defaultBinaryMessenger.runtimeType
+          .toString()
+          .contains('Test');
+    } catch (_) {
+      return true;
+    }
+  }
+
+  @visibleForTesting
+  static StorageManagementHost get debugHost => _host;
+
+  @visibleForTesting
+  static void setHostForTesting(StorageManagementHost? host) {
+    _debugHostOverride = host;
+  }
 
   static const String _logPrefsKey = 'app_error_logs_v1';
   static const String _bookmarkPrefsKey = 'player_bookmarks_v1';
@@ -369,12 +402,7 @@ class StorageManagementService {
 
   /// 加载当前应用可展示的存储概览统计。
   Future<StorageOverview> loadOverview(AppLocalizations l10n) async {
-    final nativeRaw =
-        await _channel.invokeMapMethod<Object?, Object?>(
-          'getStorageOverview',
-        ) ??
-        <Object?, Object?>{};
-    final native = _normalizeMap(nativeRaw);
+    final native = _normalizeMap(await _host.getStorageOverview());
     final prefs = await SharedPreferences.getInstance();
     final downloadService = DownloadTaskService.instance;
     await downloadService.initialize();
@@ -552,19 +580,12 @@ class StorageManagementService {
       return const StorageActionResult(success: false, code: 'invalid_action');
     }
     if (action == StorageClearAction.clearScreenshots) {
-      final hasAccess =
-          await _channel.invokeMethod<bool>('hasFileAccess') ?? false;
+      final hasAccess = await _host.hasFileAccess() ?? false;
       if (!hasAccess) {
-        await _channel.invokeMethod<bool>('requestFileAccess');
+        await _host.requestFileAccess();
       }
     }
-    final raw =
-        await _channel.invokeMapMethod<Object?, Object?>(
-          'clearStorageAction',
-          <String, Object?>{'action': actionName},
-        ) ??
-        <Object?, Object?>{};
-    final result = _normalizeMap(raw);
+    final result = _normalizeMap(await _host.clearStorageAction(actionName));
     return StorageActionResult(
       success: result['success'] == true,
       code: (result['code'] ?? '').toString(),
@@ -630,14 +651,8 @@ class StorageManagementService {
     }
     await DynamicThemeRuntimeController.instance.clearCachedSeeds(prefs: prefs);
     await DynamicThemeSeedExtractor.clearCache(prefs: prefs);
-    await _channel.invokeMethod<Object?>(
-      'clearStorageAction',
-      const <String, Object?>{'action': 'clearParallelWindowSettings'},
-    );
-    await _channel.invokeMethod<Object?>(
-      'clearStorageAction',
-      const <String, Object?>{'action': 'clearScopedTreeAccess'},
-    );
+    await _host.clearStorageAction('clearParallelWindowSettings');
+    await _host.clearStorageAction('clearScopedTreeAccess');
     await themeProvider.load();
     await parallelWindowSettingsProvider.load();
     await startupPreferencesProvider.load();
@@ -648,9 +663,7 @@ class StorageManagementService {
 
   /// 列出当前可管理的播放缓存记录。
   Future<List<PlaybackCacheEntry>> loadPlaybackCacheEntries() async {
-    final raw =
-        await _channel.invokeListMethod<Object?>('listPlaybackCacheEntries') ??
-        const <Object?>[];
+    final raw = await _host.listPlaybackCacheEntries() ?? const <Object?>[];
     return raw
         .map((item) => PlaybackCacheEntry.fromMap(_normalizeMap(item)))
         .toList(growable: false);
@@ -667,13 +680,9 @@ class StorageManagementService {
     if (normalized.isEmpty) {
       return const StorageActionResult(success: false, code: 'empty_selection');
     }
-    final raw =
-        await _channel.invokeMapMethod<Object?, Object?>(
-          'clearPlaybackCacheEntries',
-          <String, Object?>{'resourceKeys': normalized},
-        ) ??
-        <Object?, Object?>{};
-    final result = _normalizeMap(raw);
+    final result = _normalizeMap(
+      await _host.clearPlaybackCacheEntries(normalized),
+    );
     return StorageActionResult(
       success: result['success'] == true,
       code: (result['code'] ?? '').toString(),
@@ -712,13 +721,11 @@ class StorageManagementService {
   Future<CachedMediaDownloadability> canPromoteCachedMedia(
     CachedMediaSourceIdentity identity,
   ) async {
-    final raw =
-        await _channel.invokeMapMethod<Object?, Object?>(
-          'queryCachedDownloadable',
-          identity.toMap(),
-        ) ??
-        <Object?, Object?>{};
-    return CachedMediaDownloadability.fromMap(_normalizeMap(raw));
+    final result = _normalizeMap(
+      await _host.queryCachedDownloadable(identity.toMap()) ??
+          const <Object?, Object?>{},
+    );
+    return CachedMediaDownloadability.fromMap(result);
   }
 
   /// 将缓存媒体提升到目标存储位置。
@@ -727,19 +734,18 @@ class StorageManagementService {
     String targetMode = 'appExternalMovies',
   }) async {
     if (targetMode == 'publicDownloads') {
-      final hasAccess =
-          await _channel.invokeMethod<bool>('hasFileAccess') ?? false;
+      final hasAccess = await _host.hasFileAccess() ?? false;
       if (!hasAccess) {
-        await _channel.invokeMethod<bool>('requestFileAccess');
+        await _host.requestFileAccess();
       }
     }
-    final raw =
-        await _channel.invokeMapMethod<Object?, Object?>(
-          'promoteCachedMedia',
-          <String, Object?>{...identity.toMap(), 'targetMode': targetMode},
-        ) ??
-        <Object?, Object?>{};
-    return CachedMediaPromoteResult.fromMap(_normalizeMap(raw));
+    final result = _normalizeMap(
+      await _host.promoteCachedMedia(<String, Object?>{
+        ...identity.toMap(),
+        'targetMode': targetMode,
+      }),
+    );
+    return CachedMediaPromoteResult.fromMap(result);
   }
 
   /// 将字节数格式化为适合界面展示的字符串。

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../danmaku/models/danmaku_settings.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../playback/bookmarks/bookmark_display.dart';
 import '../playback/bookmarks/bookmark_store.dart';
 import '../playback/screenshots/screenshot_settings_store.dart';
 import '../services/storage_access_service.dart';
@@ -15,6 +16,7 @@ import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
 import '../utils/swallowed_error_logger.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
 import 'screenshot_preview_screen.dart';
@@ -42,6 +44,30 @@ String _screenshotSavePathDescription(AppLocalizations l10n, String value) {
   };
 }
 
+/// 单项加载容错：任一依赖失败只把该项降级为兜底值并记录日志，
+/// 不让单个异常把子页永久卡在加载态（此前桌面端 `fly_player/storage`
+/// 通道抛 MissingPluginException 即触发该问题）。日志异步落盘，
+/// 降级路径不等日志 IO。
+Future<T> _tolerantLoad<T>(
+  String action,
+  Future<T> Function() load,
+  T fallback,
+) async {
+  try {
+    return await load();
+  } catch (error, stackTrace) {
+    unawaited(
+      logSwallowedError(
+        action: action,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'screenshot_settings_screen',
+      ),
+    );
+    return fallback;
+  }
+}
+
 class OtherSettingsScreen extends StatefulWidget {
   const OtherSettingsScreen({super.key});
 
@@ -61,7 +87,7 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
   );
   ScreenshotCustomDirectoryInfo? _customScreenshotDirectory;
   DanmakuSettings _danmakuSettings = DanmakuSettings.defaults;
-  int _bookmarkCount = 0;
+  List<PlayerBookmarkEntry> _bookmarks = const <PlayerBookmarkEntry>[];
   bool _loading = true;
 
   @override
@@ -83,16 +109,35 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
 
   Future<void> _loadSettings() async {
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      _screenshotStore.load(),
-      _danmakuStore.load(),
-      _bookmarkStore.loadAll(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        _screenshotStore.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad(
+        'load danmaku settings',
+        _danmakuStore.load,
+        DanmakuSettings.defaults,
+      ),
+      _tolerantLoad(
+        'load bookmarks',
+        _bookmarkStore.loadAll,
+        const <PlayerBookmarkEntry>[],
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
       _screenshotSettings = results[0] as ScreenshotSettingsData;
       _danmakuSettings = results[1] as DanmakuSettings;
-      _bookmarkCount = (results[2] as List<PlayerBookmarkEntry>).length;
+      _bookmarks = results[2] as List<PlayerBookmarkEntry>;
       _customScreenshotDirectory = results[3] as ScreenshotCustomDirectoryInfo?;
       _loading = false;
     });
@@ -125,10 +170,14 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
     await _loadSettings();
   }
 
+  // 摘要走作品口径：剧集按剧名、影片按标题去重，比单一总条数更有信息量。
   String _bookmarkSummary() {
     final l10n = AppLocalizations.of(context);
-    if (_bookmarkCount <= 0) return l10n.settingsBookmarkEmptySummary;
-    return l10n.settingsBookmarkCountSummary(_bookmarkCount);
+    if (_bookmarks.isEmpty) return l10n.settingsBookmarkEmptySummary;
+    return l10n.settingsBookmarkWorksCountSummary(
+      bookmarkWorkCount(_bookmarks),
+      _bookmarks.length,
+    );
   }
 
   String _danmakuSummary() {
@@ -161,67 +210,84 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          l10n.settingsOtherTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            l10n.settingsOtherTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                  children: <Widget>[
-                    _CardBlock(
-                      child: Column(
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final entries = <_OtherEntryCard>[
+                      _OtherEntryCard(
+                        icon: Icons.bookmarks_outlined,
+                        title: l10n.settingsBookmarkManagerTitle,
+                        summary: _bookmarkSummary(),
+                        summaryHot: _bookmarks.isNotEmpty,
+                        onTap: _openBookmarkManager,
+                      ),
+                      _OtherEntryCard(
+                        icon: Icons.comment_bank_outlined,
+                        title: l10n.settingsDanmakuTitle,
+                        summary: _danmakuSummary(),
+                        onTap: _openDanmakuSettings,
+                      ),
+                      _OtherEntryCard(
+                        icon: Icons.photo_camera_back_outlined,
+                        title: l10n.settingsScreenshotTitle,
+                        summary: _screenshotSummary(),
+                        onTap: _openScreenshotSettings,
+                      ),
+                    ];
+                    // 宽窗三列入口卡撑起构图；窄窗纵向堆叠。
+                    if (constraints.maxWidth >= 720) {
+                      return ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                         children: <Widget>[
-                          _MenuTile(
-                            icon: Icons.bookmarks_outlined,
-                            title: AppLocalizations.of(
-                              context,
-                            ).settingsBookmarkManagerTitle,
-                            subtitle: _bookmarkSummary(),
-                            onTap: _openBookmarkManager,
-                          ),
-                          const _DividerLine(),
-                          _MenuTile(
-                            icon: Icons.comment_bank_outlined,
-                            title: AppLocalizations.of(
-                              context,
-                            ).settingsDanmakuTitle,
-                            subtitle: _danmakuSummary(),
-                            onTap: _openDanmakuSettings,
-                          ),
-                          const _DividerLine(),
-                          _MenuTile(
-                            icon: Icons.photo_camera_back_outlined,
-                            title: AppLocalizations.of(
-                              context,
-                            ).settingsScreenshotTitle,
-                            subtitle: _screenshotSummary(),
-                            onTap: _openScreenshotSettings,
+                          IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                for (
+                                  var index = 0;
+                                  index < entries.length;
+                                  index++
+                                ) ...<Widget>[
+                                  if (index > 0) const SizedBox(width: 12),
+                                  Expanded(child: entries[index]),
+                                ],
+                              ],
+                            ),
                           ),
                         ],
-                      ),
-                    ),
-                  ],
+                      );
+                    }
+                    return ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                      children: <Widget>[
+                        for (
+                          var index = 0;
+                          index < entries.length;
+                          index++
+                        ) ...<Widget>[
+                          if (index > 0) const SizedBox(height: 12),
+                          entries[index],
+                        ],
+                      ],
+                    );
+                  },
                 ),
         ),
       ),
@@ -275,10 +341,11 @@ class _ScreenshotSettingsDestinationScreenState
   Widget build(BuildContext context) {
     final settings = _settings;
     if (settings == null) {
-      final colors = context.appColors;
-      return Scaffold(
-        backgroundColor: colors.backgroundBase,
-        body: const Center(child: BirdLoader(size: 120)),
+      return const AppAmbientPage(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Center(child: BirdLoader(size: 120)),
+        ),
       );
     }
     return switch (widget.target) {
@@ -317,8 +384,19 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
 
   Future<void> _loadSettings() async {
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      _store.load(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        _store.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
@@ -488,28 +566,21 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          l10n.settingsScreenshotTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            l10n.settingsScreenshotTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))
@@ -608,28 +679,21 @@ class _ScreenshotSubtitleModeScreenState
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          l10n.settingsScreenshotIncludeSubtitlesTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            l10n.settingsScreenshotIncludeSubtitlesTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
@@ -690,7 +754,11 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
   }
 
   Future<void> _loadCustomDirectoryInfo() async {
-    final info = await StorageAccessService.getScreenshotCustomDirectory();
+    final info = await _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+      'load screenshot custom directory',
+      StorageAccessService.getScreenshotCustomDirectory,
+      null,
+    );
     if (!mounted) return;
     setState(() {
       _customDirectoryInfo = info;
@@ -705,8 +773,19 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
       ),
     );
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      widget.store.load(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        widget.store.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
@@ -763,28 +842,21 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
     final customDirectoryReady = _customDirectoryInfo?.available == true;
     final customSelected =
         _currentValue == ScreenshotSettingsStore.customSavePathMode;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          l10n.settingsScreenshotSavePathTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            l10n.settingsScreenshotSavePathTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
@@ -961,8 +1033,19 @@ class _ScreenshotCustomDirectoryScreenState
 
   Future<void> _load() async {
     final results = await Future.wait<Object?>(<Future<Object?>>[
-      widget.store.load(),
-      StorageAccessService.getScreenshotCustomDirectory(),
+      _tolerantLoad(
+        'load screenshot settings',
+        widget.store.load,
+        const ScreenshotSettingsData(
+          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+        ),
+      ),
+      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+        'load screenshot custom directory',
+        StorageAccessService.getScreenshotCustomDirectory,
+        null,
+      ),
     ]);
     if (!mounted) return;
     setState(() {
@@ -1102,28 +1185,21 @@ class _ScreenshotCustomDirectoryScreenState
     final l10n = AppLocalizations.of(context);
     final usingCustomDirectory =
         _settings.savePathMode == ScreenshotSettingsStore.customSavePathMode;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          l10n.settingsScreenshotCustomDirectoryTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            l10n.settingsScreenshotCustomDirectoryTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))
@@ -1255,13 +1331,95 @@ class _CardBlock extends StatelessWidget {
     final colors = context.appColors;
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        color: colors.surfaceSubtle,
+        borderRadius: BorderRadius.circular(14),
+        color: colors.surface,
         border: Border.all(color: colors.borderSubtle),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: child,
+      ),
+    );
+  }
+}
+
+/// 「其他」页入口卡：图标 + 标题 + 当前取值摘要，宽窗三列并排。
+class _OtherEntryCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String summary;
+  final bool summaryHot;
+  final VoidCallback onTap;
+
+  const _OtherEntryCard({
+    required this.icon,
+    required this.title,
+    required this.summary,
+    this.summaryHot = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: colors.borderSubtle),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: colors.accentSoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(icon, color: colors.accentStrong, size: 19),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: AdaptiveText.roleSize(15),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: colors.textMuted,
+                  size: 18,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              summary,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: summaryHot ? colors.accentStrong : colors.textSecondary,
+                fontSize: AdaptiveText.roleSize(12.2),
+                height: 1.5,
+                fontWeight: summaryHot ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1284,20 +1442,21 @@ class _MenuTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
           children: <Widget>[
             Container(
-              width: 48,
-              height: 48,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                color: colors.backgroundElevated,
-                borderRadius: BorderRadius.circular(16),
+                color: colors.surfaceStrong,
+                borderRadius: BorderRadius.circular(14),
               ),
-              child: Icon(icon, color: colors.textPrimary, size: 24),
+              alignment: Alignment.center,
+              child: Icon(icon, color: colors.textPrimary, size: 20),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -1308,23 +1467,16 @@ class _MenuTile extends StatelessWidget {
                     title,
                     style: TextStyle(
                       color: colors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(
-                        17,
-                        role: AdaptiveFontRole.title,
-                      ),
-                      fontWeight: FontWeight.w700,
+                      fontSize: AdaptiveText.roleSize(15.5),
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
                     subtitle,
                     style: TextStyle(
                       color: colors.textSecondary,
-                      fontSize: AdaptiveText.roleSize(
-                        13,
-                        role: AdaptiveFontRole.body,
-                      ),
-                      height: 1.35,
+                      fontSize: AdaptiveText.roleSize(13.2),
                     ),
                   ),
                 ],
@@ -1333,7 +1485,7 @@ class _MenuTile extends StatelessWidget {
             const SizedBox(width: 12),
             Icon(
               Icons.chevron_right_rounded,
-              color: colors.textSecondary,
+              color: colors.textMuted,
               size: 22,
             ),
           ],
@@ -1362,16 +1514,14 @@ class _ChoiceTile extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            color: selected
-                ? colors.accent.withValues(alpha: 0.18)
-                : colors.surfaceSubtle,
+            borderRadius: BorderRadius.circular(18),
+            color: selected ? colors.accentSoft : colors.surface,
             border: Border.all(
               color: selected ? colors.accent : colors.borderSubtle,
             ),
@@ -1379,6 +1529,14 @@ class _ChoiceTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
+              Icon(
+                selected
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                color: selected ? colors.accentStrong : colors.textMuted,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1386,36 +1544,22 @@ class _ChoiceTile extends StatelessWidget {
                     Text(
                       title,
                       style: TextStyle(
-                        color: selected ? colors.accent : colors.textPrimary,
-                        fontSize: AdaptiveText.roleSize(
-                          18,
-                          role: AdaptiveFontRole.title,
-                        ),
-                        fontWeight: FontWeight.w800,
+                        color: colors.textPrimary,
+                        fontSize: AdaptiveText.roleSize(15.5),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: TextStyle(
                         color: colors.textSecondary,
-                        fontSize: AdaptiveText.roleSize(
-                          14,
-                          role: AdaptiveFontRole.body,
-                        ),
+                        fontSize: AdaptiveText.roleSize(12.8),
                         height: 1.45,
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 16),
-              Icon(
-                selected
-                    ? Icons.check_circle_rounded
-                    : Icons.radio_button_unchecked_rounded,
-                color: selected ? colors.accent : colors.textSecondary,
-                size: 30,
               ),
             ],
           ),

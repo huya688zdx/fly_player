@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../desktop/desktop.dart';
+import '../desktop/desktop_search_overlay.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
@@ -188,6 +190,9 @@ class _MediaListScreenState extends State<MediaListScreen>
   // 都拉取(用户要求:考虑性能、不要实时刷新)。打开条目时置位,刷新后清零。
   bool _pendingContinueWatchingRefresh = false;
   int _posterBrowsePrewarmGeneration = 0;
+
+  /// 桌面搜索弹层的图标本体锚点：弹层搜索框右缘钉在该图标右缘向左衍生。
+  final LayerLink _searchAnchorLink = LayerLink();
 
   int get _continueLimit =>
       widget.secondaryHost ? _secondaryContinueLimit : _fallbackContinueLimit;

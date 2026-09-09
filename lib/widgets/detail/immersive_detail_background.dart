@@ -174,17 +174,24 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final screenWidth = mediaSize.width;
     final screenHeight = mediaSize.height;
 
-    final heroHeight = widget.posterHeight.clamp(
-      screenHeight * 0.32,
-      screenHeight * 0.78,
+    // 缝隙防护：hero 高度是窗口高的比例值，窗口高度非整偶数时会得出半像素
+    // （如 0.5*1119=559.5，在 DPR 1.5 下落在物理像素中间）。下方图片裁切层、
+    // 交接渐变层、接续带各自独立栅格化取整，边界行会漏出未压暗的原图，
+    // 呈现一条浅色横线（仅特定窗口尺寸可见）。把共享边界统一吸附到物理
+    // 像素网格后三者严格共边，与滚动位移的 snappedCollapseOffset 同一思路。
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    double snapToDevice(double value) =>
+        (value * devicePixelRatio).roundToDouble() / devicePixelRatio;
+
+    final heroHeight = snapToDevice(
+      widget.posterHeight.clamp(screenHeight * 0.32, screenHeight * 0.78),
     );
     final topOverscroll = (-widget.scrollOffset).clamp(0.0, 220.0);
-    final expandedHeroHeight = heroHeight + topOverscroll;
+    final expandedHeroHeight = snapToDevice(heroHeight + topOverscroll);
 
     final parallaxMax = (screenHeight * 0.85).clamp(180.0, 560.0);
 
     final collapseOffset = widget.scrollOffset.clamp(0.0, double.infinity);
-    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     final snappedCollapseOffset =
         (collapseOffset * devicePixelRatio).roundToDouble() / devicePixelRatio;
     final parallaxShift = (collapseOffset * widget.parallaxFactor).clamp(
@@ -214,9 +221,11 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     // （与裁切层共用同一滚动位移的兄弟层）缓释，见 Stack 尾部的
     // detail-hero-seam-fade。
     final minimumImageBlend = heroHeight < 200.0 ? heroHeight : 200.0;
-    final transitionImageBlend = (heroHeight * 0.64)
-        .clamp(minimumImageBlend, 400.0)
-        .toDouble();
+    // 交接层同样吸附：它的底边必须与裁切层底边逐物理像素对齐，否则渐变
+    // 尾行被裁掉一行，边界行就会露出原图形成浅色横线。
+    final transitionImageBlend = snapToDevice(
+      (heroHeight * 0.64).clamp(minimumImageBlend, 400.0).toDouble(),
+    );
     // 接续带高度：随海报高度比例缩放，限制在 96~160px，足够摊平色差
     // 又不至于把染色拖进正文太深。
     final seamFadeHeight = (heroHeight * 0.30).clamp(96.0, 160.0);
@@ -389,12 +398,14 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
           // 裁切线上存在色差——之前直接切断，形成肉眼可见的横向分界。
           // 接续带从承接色精确起笔、缓释到透明，把色差摊进渐变里消除分界。
           // 与海报裁切层共用同一个滚动位移，滚动时始终贴住海报底边。
+          // 顶部上探 1 物理像素与裁切层隐形重叠（承接色相同、肉眼不可见），
+          // 兜底栅格取整在共边上仍差一行时也不会露出底色缝。
           Positioned(
             key: const ValueKey<String>('detail-hero-seam-fade'),
             left: 0,
             right: 0,
-            top: expandedHeroHeight,
-            height: seamFadeHeight,
+            top: expandedHeroHeight - 1 / devicePixelRatio,
+            height: seamFadeHeight + 1 / devicePixelRatio,
             child: Transform.translate(
               offset: Offset(0, -snappedCollapseOffset),
               child: RepaintBoundary(

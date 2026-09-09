@@ -67,6 +67,9 @@ int _compareKnownEpisodeNumber(int lhs, int rhs) {
 class DownloadTaskRecord {
   final String id;
   final String remoteTaskId;
+
+  /// 服务端任务所属地址和账号；旧记录为空时不能推断归属。
+  final String remoteOwnerKey;
   final String itemGuid;
   final String mediaGuid;
   final String groupId;
@@ -97,6 +100,7 @@ class DownloadTaskRecord {
   const DownloadTaskRecord({
     required this.id,
     required this.remoteTaskId,
+    this.remoteOwnerKey = '',
     required this.itemGuid,
     required this.mediaGuid,
     required this.groupId,
@@ -129,6 +133,7 @@ class DownloadTaskRecord {
   DownloadTaskRecord copyWith({
     String? id,
     String? remoteTaskId,
+    String? remoteOwnerKey,
     String? itemGuid,
     String? mediaGuid,
     String? groupId,
@@ -155,6 +160,7 @@ class DownloadTaskRecord {
     return DownloadTaskRecord(
       id: id ?? this.id,
       remoteTaskId: remoteTaskId ?? this.remoteTaskId,
+      remoteOwnerKey: remoteOwnerKey ?? this.remoteOwnerKey,
       itemGuid: itemGuid ?? this.itemGuid,
       mediaGuid: mediaGuid ?? this.mediaGuid,
       groupId: groupId ?? this.groupId,
@@ -186,6 +192,7 @@ class DownloadTaskRecord {
     return DownloadTaskRecord(
       id: (json['id'] ?? '').toString(),
       remoteTaskId: (json['remoteTaskId'] ?? '').toString(),
+      remoteOwnerKey: (json['remoteOwnerKey'] ?? '').toString(),
       itemGuid: (json['itemGuid'] ?? '').toString(),
       mediaGuid: (json['mediaGuid'] ?? '').toString(),
       groupId: (json['groupId'] ?? '').toString(),
@@ -221,6 +228,7 @@ class DownloadTaskRecord {
     return <String, dynamic>{
       'id': id,
       'remoteTaskId': remoteTaskId,
+      'remoteOwnerKey': remoteOwnerKey,
       'itemGuid': itemGuid,
       'mediaGuid': mediaGuid,
       'groupId': groupId,

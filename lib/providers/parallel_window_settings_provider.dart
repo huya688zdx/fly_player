@@ -8,7 +8,9 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
   )?
   _saveSettings;
   bool _isReady = false;
-  bool _enabled = true;
+
+  /// 默认关闭：分屏由用户在设置中开启（安卓真宿主 load 会覆盖为存储值）。
+  bool _enabled = false;
   String _preferredPrimaryPaneSide = 'left';
   String _preferredPlaybackPrimaryPaneSide = 'right';
   String _splitRatioPreset = 'balanced';

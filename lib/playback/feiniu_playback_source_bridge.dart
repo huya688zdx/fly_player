@@ -1,3 +1,4 @@
+import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_playback_context.dart';
 import '../media_backend/playback/media_playback.dart';
@@ -18,6 +19,36 @@ import 'player_source_controller.dart';
 /// 的飞牛 raw facts 重新解析（不直接信任 `MediaPlaybackSource.url` 是最终可播 URL）。
 class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
   const FeiniuPlaybackSourceBridge();
+
+  /// 续签当前直链档位，保留其它版本和用户正在使用的播放设置。
+  Future<MpvMediaSource> refreshDirectLink({
+    required FeiniuApi api,
+    required MpvMediaSource source,
+  }) async {
+    if (!source.playbackMode.isDirectLink) return source;
+    final stream = await api.getPlaybackStream(source.mediaGuid);
+    final index = source.directLinkQualityIndex;
+    if (!stream.directLinkQualities.any((quality) => quality.index == index)) {
+      throw StateError('当前直链档位已不可用');
+    }
+    final target = stream.buildDirectLinkTarget(index);
+    if (target == null) throw StateError('未返回有效直链');
+    final playable = await PlayerSourceController.buildPlayableSource(
+      api,
+      target.url,
+      headersOverride: target.headers,
+      forceNativeProxy: target.forceNativeProxy,
+      seekProbeSummary: target.debugSummary,
+    );
+    return source.copyWith(
+      url: playable.url,
+      headers: playable.headers,
+      qualities: [
+        ...stream.qualities.where((quality) => quality.isDirectLink),
+        ...source.qualities.where((quality) => !quality.isDirectLink),
+      ],
+    );
+  }
 
   @override
   Future<MediaPlaybackSourceResult> assemblePlaybackSource({
@@ -95,6 +126,7 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
     final initialPlayback = await const PlayerSourceController()
         .buildInitialPlaybackResult(
           api: api,
+          itemGuid: request.itemId,
           directUrl: context.directUrl,
           mediaGuid: context.effectiveSourceId,
           videoGuid: context.videoTrackId,
@@ -147,8 +179,13 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
       tmdbId: item.trimId,
       episodeNumber: item.episodeNumber,
       startPosition: resolvedStartPosition,
-      audioTrackIndex: selectedAudio?.index,
-      subtitleTrackIndex: embeddedSubtitleTrackIndex,
+      // 转码流的轨号与原文件不同，交给 mpv 识别新流中的默认轨。
+      audioTrackIndex: initialPlayback.playbackMode.isServerManaged
+          ? null
+          : selectedAudio?.index,
+      subtitleTrackIndex: initialPlayback.playbackMode.isServerManaged
+          ? null
+          : embeddedSubtitleTrackIndex,
       audioTrackGuid: selectedAudio?.guid ?? playInfo.audioGuid,
       // 显式关闭字幕（subtitleTrackExplicitlyDisabled）时落空串，避免回退到服务端默认轨；
       // 复刻 launcher 的 `selectedSubtitle?.guid ?? (overrideSubtitleGuid ?? subtitleGuid)`。

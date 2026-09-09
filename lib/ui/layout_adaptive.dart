@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../desktop/desktop.dart';
+
 class MediaLayoutProfile {
   /// 首页目录图片请求的稳定宽度，供布局 fallback 与数据层 fresh 请求共用。
   static const int homeCatalogRequestWidthValue = 440;
@@ -62,8 +64,10 @@ class MediaLayoutProfile {
   // 传统海报行仍直接消费固定物理解码宽度。
   int get homePosterDecodeWidth => _homePosterDecodeWidth;
 
-  int get categoryGridRequestWidth =>
-      (categoryGridCardWidth * 2.5).round().clamp(240, 960);
+  // 桌面网格随分屏重排，但请求尺寸不变，复用已加载的海报。
+  int get categoryGridRequestWidth => DesktopEnvironment.isDesktopPlatform
+      ? 600
+      : (categoryGridCardWidth * 2.5).round().clamp(240, 960);
 
   /// 首页横向海报行高：图片高度固定，文字区随系统真实缩放扩展。
   double homePosterRowHeightFor(TextScaler textScaler) {
@@ -83,7 +87,12 @@ class MediaLayoutProfile {
         screenWidth -
         pageHorizontalPadding * 2 -
         itemGap * (categoryGridColumns - 1);
-    return (availableWidth / categoryGridColumns).clamp(110.0, 240.0);
+    // 桌面档封顶 200：超宽窗口靠加列保持密度，不再放大单卡
+    // （对齐飞牛式高密度海报墙）。非桌面档维持旧上界 240。
+    return (availableWidth / categoryGridColumns).clamp(
+      110.0,
+      isDesktopTier ? 200.0 : 240.0,
+    );
   }
 
   double get categoryGridImageHeight => categoryGridCardWidth * 1.48;
@@ -91,14 +100,29 @@ class MediaLayoutProfile {
   double get categoryGridRowHeight =>
       categoryGridImageHeight + (isTablet ? 62 : 60);
 
+  /// 是否命中桌面密度档（与 [of] 的桌面分支同口径：仅按窗口宽度判定）。
+  bool get isDesktopTier => screenWidth >= DesktopBreakpoints.sidebarMinWidth;
+
   static MediaLayoutProfile of(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final width = size.width;
     final shortest = size.shortestSide;
     final tablet = shortest >= 600;
 
+    // 密度档键：桌面平台一律走高密度海报墙，与窗口宽度解耦——列数按
+    // 目标卡距（≈165 逻辑像素）连续取整，卡片占视口的比例在所有窗口
+    // 尺寸下与全屏一致（窗口变小 = 列数变少、卡片同步变小），修
+    // 「小窗口卡片占比反而更大」。非桌面平台维持旧宽度分档（手机 /
+    // 平板零回归）；交互档（hover / 右键接线）仍按宽度判定。
+    final denseDesktop = DesktopEnvironment.isDesktopPlatform;
+    final desktop = width >= DesktopBreakpoints.sidebarMinWidth;
+
     int columns;
-    if (width >= 1400) {
+    if (denseDesktop) {
+      columns = ((width - 56) / 165).round().clamp(3, 13);
+    } else if (width >= DesktopBreakpoints.wideContentWidth) {
+      columns = 8;
+    } else if (width >= 1400) {
       columns = 7;
     } else if (width >= 1200) {
       columns = 6;
@@ -110,9 +134,13 @@ class MediaLayoutProfile {
       columns = 3;
     }
 
-    final hp = tablet ? 12.0 : 8.0;
-    final gap = tablet ? 10.0 : 8.0;
-    final posterW = tablet
+    final hp = denseDesktop || desktop ? 28.0 : (tablet ? 12.0 : 8.0);
+    final gap = denseDesktop || desktop ? 12.0 : (tablet ? 10.0 : 8.0);
+    final posterW = denseDesktop
+        ? (width / (columns + 0.8)).clamp(110.0, 176.0)
+        : desktop
+        ? (width / (columns + 0.8)).clamp(132.0, 190.0)
+        : tablet
         ? (width / (columns + 0.8)).clamp(122.0, 176.0)
         : 115.0;
     final posterImgH = posterW * 1.48;
@@ -121,7 +149,7 @@ class MediaLayoutProfile {
       screenWidth: width,
       isTablet: tablet,
       pageHorizontalPadding: hp,
-      sectionGap: tablet ? 14 : 12,
+      sectionGap: denseDesktop || desktop ? 18.0 : (tablet ? 14 : 12),
       itemGap: gap,
       homePosterCardWidth: posterW,
       homePosterImageHeight: posterImgH,
