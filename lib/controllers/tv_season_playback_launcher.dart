@@ -70,7 +70,9 @@ class TvSeasonPlaybackLauncher {
           if (record != null) {
             localPlayback = await resolveLocalDownloadSource(
               record,
-              FeiniuDetailDataGateway.forNas(provider),
+              provider.isConfigured
+                  ? FeiniuDetailDataGateway.forNas(provider)
+                  : null,
               l10n: l10n,
             );
           }
@@ -167,7 +169,9 @@ class TvSeasonPlaybackLauncher {
           if (localRecord != null) {
             final local = await resolveLocalDownloadSource(
               localRecord,
-              FeiniuDetailDataGateway.forNas(provider),
+              provider.isConfigured
+                  ? FeiniuDetailDataGateway.forNas(provider)
+                  : null,
               l10n: l10n,
               startPositionMs: startPositionMs,
             );
