@@ -101,11 +101,23 @@ void main() {
       expect(find.byType(DesktopDetailPaneHost), findsNothing);
       IndexedStack indexedStackOf() =>
           tester.widget<IndexedStack>(find.byType(IndexedStack));
+      void expectSelected(String label) {
+        for (final item in ['影视', '收藏', '下载列表', '设置']) {
+          expect(
+            tester.widget<Text>(find.text(item)).style?.fontWeight,
+            item == label ? FontWeight.w600 : FontWeight.w500,
+            reason: '$label 页面下 $item 的选中状态',
+          );
+        }
+      }
+
       expect(indexedStackOf().index, 0);
+      expectSelected('影视');
 
       await tester.tap(find.text('设置'));
       await tester.pump();
       expect(indexedStackOf().index, 1);
+      expectSelected('设置');
 
       await tester.tap(find.text('影视'));
       await tester.pump();
@@ -117,12 +129,36 @@ void main() {
       await tester.pumpAndSettle();
       expect(observer.pushedNames, isNot(contains('/screen/favorites')));
       expect(find.text('content:/screen/favorites'), findsOneWidget);
+      expectSelected('收藏');
+
+      await tester.tap(find.text('下载列表'));
+      await tester.pumpAndSettle();
+      expect(find.text('content:/screen/downloads'), findsOneWidget);
+      expectSelected('下载列表');
+
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expectSelected('设置');
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+      await tester.pumpAndSettle();
+      expectSelected('下载列表');
+
+      Navigator.of(
+        tester.element(find.text('content:/screen/downloads')),
+      ).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('影视内容页'), findsOneWidget);
+      expectSelected('影视');
+
+      await tester.tap(find.text('收藏'));
+      await tester.pumpAndSettle();
 
       // 即使影视页签已选中，再点一次仍应清空内容区栈、直达首页。
       await tester.tap(find.text('影视'));
       await tester.pumpAndSettle();
       expect(find.text('影视内容页'), findsOneWidget);
       expect(find.text('content:/screen/favorites'), findsNothing);
+      expectSelected('影视');
     });
 
     testWidgets('浅色主题侧栏快速掠过时仅当前项显示半透明强调色', (tester) async {

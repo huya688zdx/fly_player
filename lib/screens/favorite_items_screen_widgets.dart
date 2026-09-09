@@ -198,7 +198,9 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: colors.surface,
+                    color: DesktopEnvironment.isDesktopPlatform
+                        ? colors.selection.withValues(alpha: 0.08)
+                        : colors.surface,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -501,7 +503,9 @@ class _FavoriteToolButton extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: control.fill,
+          color: DesktopEnvironment.isDesktopPlatform
+              ? colors.selection.withValues(alpha: active ? 0.14 : 0.05)
+              : control.fill,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: control.border),
         ),
