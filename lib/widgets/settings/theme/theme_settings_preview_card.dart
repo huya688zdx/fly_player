@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../theme/app_theme.dart';
 import '../../../ui/adaptive_text.dart';
+import '../../common/app_ambient_page.dart';
 import 'theme_settings_helpers.dart';
 
 /// 紧凑英雄预览：色板簇 + 主题名摘要 + mini 应用示意（海报排 / 主按钮 /
@@ -184,7 +185,9 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: chrome.surface,
+        color: AppAmbientPage.sharesBackgroundOf(context)
+            ? chrome.surface.withValues(alpha: 0.16)
+            : chrome.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: chrome.borderSubtle),
       ),

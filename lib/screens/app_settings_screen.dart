@@ -1014,9 +1014,18 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
       // 单屏模式：'/' 即分组卡片首页（经作用域取最新分组数据）；
       // 双栏模式网格在导航器外，'/' 只占位。
       if (!_twoPaneActive) {
-        return MaterialPageRoute<void>(
+        return PageRouteBuilder<void>(
           settings: settings,
-          builder: (_) => const _DesktopSettingsHomeView(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, __, ___) => const _DesktopSettingsHomeView(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+              AppTransitions.leftToRightPageTurnTransition(
+                child,
+                animation,
+                secondaryAnimation,
+                context,
+              ),
         );
       }
       return _blankRoute(settings);
@@ -1025,16 +1034,28 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
     if (destination == null) {
       return _blankRoute(settings);
     }
-    return AppTransitions.leftToRightPageTurnRoute<void>(
-      _DesktopSettingsSubPage(alignToGrid: !_twoPaneActive, child: destination),
+    return PageRouteBuilder<void>(
       settings: settings,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (_, __, ___) => _DesktopSettingsSubPage(
+        alignToGrid: !_twoPaneActive,
+        child: destination,
+      ),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          AppTransitions.leftToRightPageTurnTransition(
+            child,
+            animation,
+            secondaryAnimation,
+            context,
+          ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return _DesktopSettingsAreaScope(
+    final content = _DesktopSettingsAreaScope(
       state: this,
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -1113,6 +1134,7 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
         },
       ),
     );
+    return AppAmbientPage(shareBackground: true, child: content);
   }
 }
 
@@ -1521,13 +1543,18 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
             ],
           ),
         ),
-        // 分组卡片：发丝边框 + 微弱顶亮渐变；行间分割线避开图标栏。
+        // 桌面分组透出共用背景；行间分割线避开图标栏。
         Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: <Color>[colors.surfaceSubtle, colors.surface],
+              colors: AppAmbientPage.sharesBackgroundOf(context)
+                  ? <Color>[
+                      colors.surfaceSubtle.withValues(alpha: 0.22),
+                      colors.surface.withValues(alpha: 0.12),
+                    ]
+                  : <Color>[colors.surfaceSubtle, colors.surface],
             ),
             border: Border.all(color: colors.borderSubtle),
             borderRadius: BorderRadius.circular(12),
@@ -1770,7 +1797,7 @@ class _DesktopSettingsHomeView extends StatelessWidget {
 }
 
 /// 设置子页容器：统一栅格对齐与页边距；子页仍是完整 Scaffold
-/// （自绘 AppAmbientPage 氛围底，头部由 buildSecondaryHostAppBar 统一）。
+/// （复用设置区背景，头部由 buildSecondaryHostAppBar 统一）。
 class _DesktopSettingsSubPage extends StatelessWidget {
   final Widget child;
 

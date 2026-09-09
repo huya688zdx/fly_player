@@ -3,26 +3,47 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../app_atmospheric_background.dart';
 
-/// 设置类页面的氛围底：自绘与首页同源的三层光晕（不透明底）。
-///
-/// 页面必须整面不透明：设置子页经 AppTransitions 路由互相叠加，
-/// 透明脚手架会把下层页面透出来（转场残影）。首页/收藏/分类等内容页
-/// 同样自带这层氛围并整面覆盖壳层光晕，视觉与壳层连续，故设置页照此办理。
-/// 动态取色切换时 palette 随 [context.appColors] 同步重建。
+/// 设置类页面的氛围底；桌面设置导航可统一持有背景，子页只绘制内容。
 class AppAmbientPage extends StatelessWidget {
-  const AppAmbientPage({super.key, required this.child});
+  const AppAmbientPage({
+    super.key,
+    required this.child,
+    this.shareBackground = false,
+  });
 
   final Widget child;
+  final bool shareBackground;
+
+  static bool sharesBackgroundOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_SharedAmbientBackground>() !=
+      null;
 
   @override
   Widget build(BuildContext context) {
+    if (sharesBackgroundOf(context)) return child;
+    final content = shareBackground
+        ? _SharedAmbientBackground(child: child)
+        : child;
+    // 宽窗复用壳层整窗背景；独立设置窗口在导航器外绘制一次。
+    if (shareBackground &&
+        context.findAncestorWidgetOfExactType<AppAtmosphericBackground>() !=
+            null) {
+      return content;
+    }
     return AppAtmosphericBackground(
       palette: AppAtmospherePalette.resolve(
         baseColors: context.baseAppColors,
         effectiveColors: context.appColors,
         hasDynamicTheme: context.hasRuntimeAppColors,
       ),
-      child: child,
+      child: content,
     );
   }
+}
+
+class _SharedAmbientBackground extends InheritedWidget {
+  const _SharedAmbientBackground({required super.child});
+
+  @override
+  bool updateShouldNotify(_SharedAmbientBackground oldWidget) => false;
 }
