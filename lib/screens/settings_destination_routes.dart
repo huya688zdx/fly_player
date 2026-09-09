@@ -4,6 +4,7 @@ import 'app_log_screen.dart';
 import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
 import 'download_list_screen.dart';
+import 'language_settings_screen.dart';
 import 'mpv_player_settings_screen.dart';
 import 'parallel_window_settings_screen.dart';
 import 'play_stats_report_screen.dart';
@@ -14,6 +15,7 @@ import 'theme_settings_screen.dart';
 
 class SettingsDestinationRoutes {
   static const String home = '/screen/settings';
+  static const String language = '/screen/settings/language';
   static const String theme = '/screen/settings/theme';
   static const String themeCustomRecipe =
       '/screen/settings/theme/custom-recipe';
@@ -55,6 +57,8 @@ class SettingsDestinationRoutes {
     switch (uri.path) {
       case home:
         return const <String>[home];
+      case language:
+        return const <String>[home, language];
       case theme:
         return const <String>[home, theme];
       case themeCustomRecipe:
@@ -106,6 +110,8 @@ class SettingsDestinationRoutes {
     if (uri == null) return null;
 
     switch (uri.path) {
+      case language:
+        return LanguageSettingsScreen(key: key);
       case theme:
         return ThemeSettingsScreen(key: key);
       case themeCustomRecipe:
