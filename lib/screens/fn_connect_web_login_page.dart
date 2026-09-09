@@ -469,6 +469,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         stackTrace: stackTrace,
         source: 'fn_connect_web_login_page',
       );
+    } finally {
       _isFetchingOauthConfig = false;
     }
   }
@@ -507,6 +508,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     required String baseUrl,
     required String appId,
   }) async {
+    if (_isClosing || _isExchangingCode) return;
     final finalBaseUrl = _originFromUrl(baseUrl);
     if (finalBaseUrl.isEmpty) return;
 
@@ -514,7 +516,18 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     final signinUrl =
         '$finalBaseUrl/signin?client_id=${Uri.encodeQueryComponent(appId)}'
         '&redirect_uri=${Uri.encodeQueryComponent(redirectUri)}';
-    if (_lastSigninUrl == signinUrl) return;
+    if (_lastSigninUrl == signinUrl) {
+      final currentUrl = _windowsController != null
+          ? _windowsCurrentUrl
+          : await _controller!.currentUrl();
+      final currentPath = Uri.tryParse(currentUrl ?? '')?.path ?? '';
+      // 首次系统登录可能落到 NAS 桌面，不能因曾打开过授权页而阻止重返。
+      if (_windowsPrimingCookies ||
+          currentPath == '/signin' ||
+          currentPath == '/login') {
+        return;
+      }
+    }
 
     _resolvedBaseUrl = finalBaseUrl;
     _lastSigninUrl = signinUrl;

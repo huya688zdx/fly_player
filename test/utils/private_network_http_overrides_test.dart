@@ -29,5 +29,9 @@ void main() {
 
     PrivateNetworkHttpOverrides.registerNasHost('Nas.Example.Test');
     expect(allowed('nas.example.test'), isTrue);
+
+    expect(allowed('2001:db8::10'), isFalse);
+    PrivateNetworkHttpOverrides.registerNasHost('2001:db8::10');
+    expect(allowed('2001:db8::10'), isTrue);
   });
 }
