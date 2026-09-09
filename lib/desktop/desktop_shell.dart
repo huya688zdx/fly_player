@@ -75,6 +75,15 @@ class _DesktopShellState extends State<DesktopShell> {
 
   /// 影视页签内容区内嵌导航：侧栏二级页在此打开，侧栏永远可见。
   final GlobalKey<NavigatorState> _contentNavKey = GlobalKey<NavigatorState>();
+  String? _contentRoutePath;
+  late final NavigatorObserver _contentRouteObserver =
+      _DesktopContentRouteObserver((route) {
+        final path = Uri.tryParse(route.settings.name ?? '')?.path;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _contentRoutePath == path) return;
+          setState(() => _contentRoutePath = path);
+        });
+      });
 
   ParallelWindowSettingsProvider? _parallelSettings;
 
@@ -368,6 +377,7 @@ class _DesktopShellState extends State<DesktopShell> {
                     children: <Widget>[
                       DesktopSideBar(
                         selectedTabIndex: _selectedTab,
+                        contentRoutePath: _contentRoutePath,
                         onTabSelected: (index) {
                           if (index == 0) {
                             _openContentHome();
@@ -466,6 +476,7 @@ class _DesktopShellState extends State<DesktopShell> {
             children: <Widget>[
               Navigator(
                 key: _contentNavKey,
+                observers: <NavigatorObserver>[_contentRouteObserver],
                 onGenerateInitialRoutes: (navigator, initialRoute) =>
                     <Route<dynamic>>[
                       PageRouteBuilder<void>(
@@ -493,6 +504,18 @@ class _DesktopShellState extends State<DesktopShell> {
     final hostBuilder = _splitController.paneHostBuilder;
     if (hostBuilder != null) return hostBuilder(context);
     return _DesktopPanePlaceholder(controller: _splitController);
+  }
+}
+
+/// 内容页切换或返回时同步侧栏；弹窗不改变所在页面的选中状态。
+class _DesktopContentRouteObserver extends NavigatorObserver {
+  _DesktopContentRouteObserver(this.onPageChanged);
+
+  final ValueChanged<Route<dynamic>> onPageChanged;
+
+  @override
+  void didChangeTop(Route<dynamic> topRoute, Route<dynamic>? previousTopRoute) {
+    if (topRoute is PageRoute) onPageChanged(topRoute);
   }
 }
 

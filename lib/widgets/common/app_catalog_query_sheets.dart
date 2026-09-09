@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_environment.dart';
+import '../../desktop/desktop_floating_panel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
@@ -56,6 +58,23 @@ class AppCatalogFilterSheet extends StatefulWidget {
   }) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return AppSheetTransitions.showAdaptiveSheet<Map<String, Set<Object>>>(
+        context,
+        barrierLabel: l10n.listFilterButton,
+        barrierColor: colors.overlayScrim.withValues(alpha: 0.18),
+        builder: (_) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: AppRuntimeColorScope(
+              colors: colors,
+              hasRuntimeColors: true,
+              child: AppCatalogFilterSheet(sections: sections),
+            ),
+          ),
+        ),
+      );
+    }
     return AppSheetTransitions.showBottomSurface<Map<String, Set<Object>>>(
       context,
       enableDrag: true,
@@ -120,6 +139,78 @@ class _AppCatalogFilterSheetState extends State<AppCatalogFilterSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final media = MediaQuery.of(context);
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return SizedBox(
+        width: 880,
+        child: DesktopFloatingPanel(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: media.size.height * 0.8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.listFilterButton,
+                          style: TextStyle(
+                            color: context.appColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: l10n.commonClose,
+                        onPressed: () => AppSheetTransitions.close(context),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: AppCatalogFilterInlinePanel(
+                      framed: false,
+                      sections: [
+                        for (final section in widget.sections)
+                          AppCatalogFilterSection(
+                            key: section.key,
+                            title: section.title,
+                            options: section.options,
+                            multiSelect: section.multiSelect,
+                            selectedValues: _selection[section.key]!,
+                          ),
+                      ],
+                      onOptionSelected: _select,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: _reset,
+                        child: Text(l10n.listFilterResetButton),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton.tonal(
+                        onPressed: _confirm,
+                        child: Text(l10n.commonConfirm),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     final maximum = media.size.height * 0.82;
     final preferred = widget.sections.length <= 2 ? 460.0 : maximum;
     final height = math.min(maximum, preferred);
@@ -199,14 +290,14 @@ class AppCatalogFilterInlinePanel extends StatelessWidget {
     super.key,
     required this.sections,
     required this.onOptionSelected,
-    required this.onCollapse,
+    this.onCollapse,
     this.framed = true,
   });
 
   final List<AppCatalogFilterSection> sections;
   final void Function(AppCatalogFilterSection section, Object? value)
   onOptionSelected;
-  final VoidCallback onCollapse;
+  final VoidCallback? onCollapse;
   final bool framed;
 
   @override
@@ -225,99 +316,53 @@ class AppCatalogFilterInlinePanel extends StatelessWidget {
               onOptionSelected: onOptionSelected,
             ),
           ],
-          Center(
-            child: InkWell(
-              onTap: onCollapse,
-              borderRadius: BorderRadius.circular(8),
-              hoverColor: colors.surfaceSubtle,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      l10n.listFilterCollapse,
-                      style: TextStyle(
-                        color: colors.textSecondary,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
+          if (onCollapse != null)
+            Center(
+              child: InkWell(
+                onTap: onCollapse,
+                borderRadius: BorderRadius.circular(8),
+                hoverColor: colors.selection.withValues(alpha: 0.08),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        l10n.listFilterCollapse,
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    Icon(
-                      Icons.keyboard_arrow_up_rounded,
-                      size: 17,
-                      color: colors.textSecondary,
-                    ),
-                  ],
+                      Icon(
+                        Icons.keyboard_arrow_up_rounded,
+                        size: 17,
+                        color: colors.textSecondary,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
     if (!framed) return content;
-    // 分层背景：顶光渐变 + accentSoft 顶部氛围 + 1px 内高光，只换观感不动几何。
-    final topLight = Color.lerp(colors.surface, colors.textPrimary, 0.05)!;
-    final glow = colors.accentSoft;
+    // 使用透明薄底，让页面自身的氛围色连续透出，不再叠加独立顶光和厚阴影。
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      child: Container(
+      child: DecoratedBox(
         decoration: BoxDecoration(
+          color: colors.surface.withValues(alpha: isLight ? 0.42 : 0.22),
           borderRadius: BorderRadius.circular(14),
-          boxShadow: const <BoxShadow>[
-            BoxShadow(
-              color: Color(0x80020812),
-              offset: Offset(0, 14),
-              blurRadius: 34,
-            ),
-          ],
+          border: Border.all(color: colors.selection.withValues(alpha: 0.14)),
         ),
-        foregroundDecoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: colors.borderSubtle),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: Stack(
-            children: <Widget>[
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: const <double>[0, 0.72],
-                      colors: <Color>[topLight, colors.surface],
-                    ),
-                  ),
-                ),
-              ),
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      center: const Alignment(0, -1),
-                      radius: 1.1,
-                      stops: const <double>[0, 0.55],
-                      colors: <Color>[glow, glow.withValues(alpha: 0)],
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 1,
-                child: ColoredBox(
-                  color: colors.textPrimary.withValues(alpha: 0.05),
-                ),
-              ),
-              content,
-            ],
-          ),
-        ),
+        child: content,
       ),
     );
   }
@@ -412,18 +457,28 @@ class _InlineFilterChipState extends State<_InlineFilterChip> {
     if (widget.selected) {
       textColor = widget.selectedAsDefault
           ? colors.textPrimary
-          : colors.accentStrong;
+          : colors.selection;
       fontWeight = FontWeight.w700;
     } else {
       textColor = _hovering ? colors.textPrimary : colors.textSecondary;
       fontWeight = FontWeight.w500;
     }
     return Material(
-      color: Colors.transparent,
+      color: widget.selected && !widget.selectedAsDefault
+          ? colors.selection.withValues(alpha: 0.12)
+          : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(
+          color: widget.selected && !widget.selectedAsDefault
+              ? colors.selection.withValues(alpha: 0.26)
+              : Colors.transparent,
+        ),
+      ),
       child: InkWell(
         onTap: widget.onTap,
         borderRadius: radius,
-        hoverColor: colors.surfaceSubtle,
+        hoverColor: colors.selection.withValues(alpha: 0.08),
         onHover: (value) => setState(() => _hovering = value),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),

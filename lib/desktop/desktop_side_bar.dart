@@ -20,6 +20,7 @@ class DesktopSideBar extends StatelessWidget {
     super.key,
     required this.selectedTabIndex,
     required this.onTabSelected,
+    this.contentRoutePath,
     this.catalogs = const <MediaCatalog>[],
     this.favoriteCount = 0,
     this.totalItems = 0,
@@ -35,6 +36,9 @@ class DesktopSideBar extends StatelessWidget {
 
   /// 当前主导航页签序号（0=影视、1=设置，与 MainPrimaryTab.tabIndex 对齐）。
   final int selectedTabIndex;
+
+  /// 影视内容区当前路由，用于区分收藏、下载与影视入口。
+  final String? contentRoutePath;
 
   /// 点击主导航项回调，参数为目标页签序号。
   final ValueChanged<int> onTabSelected;
@@ -67,6 +71,10 @@ class DesktopSideBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final favoritesSelected =
+        selectedTabIndex == 0 && contentRoutePath == '/screen/favorites';
+    final downloadsSelected =
+        selectedTabIndex == 0 && contentRoutePath == '/screen/downloads';
 
     return SizedBox(
       width: DesktopTokens.sidebarWidth,
@@ -85,18 +93,23 @@ class DesktopSideBar extends StatelessWidget {
                     _DesktopSideBarRow(
                       icon: Icons.video_library_outlined,
                       label: l10n.navMovies,
-                      selected: selectedTabIndex == 0,
+                      selected:
+                          selectedTabIndex == 0 &&
+                          !favoritesSelected &&
+                          !downloadsSelected,
                       onTap: () => onTabSelected(0),
                     ),
                     _DesktopSideBarRow(
                       icon: Icons.favorite_border_rounded,
                       label: l10n.listFilterFavorite,
+                      selected: favoritesSelected,
                       count: favoriteCount > 0 ? favoriteCount : null,
                       onTap: () => onOpenFavorites?.call(context),
                     ),
                     _DesktopSideBarRow(
                       icon: Icons.download_outlined,
                       label: l10n.downloadListTitle,
+                      selected: downloadsSelected,
                       onTap: () => onOpenDownloads?.call(context),
                     ),
                     _DesktopSideBarRow(
