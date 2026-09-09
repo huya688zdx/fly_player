@@ -24,14 +24,15 @@ class PrivateNetworkHttpOverrides extends HttpOverrides {
 
   static bool allowsBadCertificateForHost(String host) {
     final normalized = host.trim().toLowerCase();
+    // 已登记 NAS 也可能是公网 IP，必须先匹配，再判断私网地址。
+    if (_knownNasHosts.contains(normalized)) {
+      return true;
+    }
     final address = InternetAddress.tryParse(normalized);
     if (address != null) {
       return _isPrivateAddress(address);
     }
     if (normalized == 'localhost') {
-      return true;
-    }
-    if (_knownNasHosts.contains(normalized)) {
       return true;
     }
     return false;
