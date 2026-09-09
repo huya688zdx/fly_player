@@ -4,6 +4,7 @@ import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/layout_adaptive.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
+import 'package:fly_player/desktop/desktop_environment.dart';
 
 void main() {
   MediaLayoutProfile profile({
@@ -30,7 +31,9 @@ void main() {
     );
   }
 
-  test('首页海报请求和解码宽度不随分屏 profile 改变', () {
+  test('首页和桌面网格海报请求宽度不随分屏 profile 改变', () {
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
     final fullWidth = profile(
       screenWidth: 1400,
       isTablet: true,
@@ -47,6 +50,11 @@ void main() {
       fullWidth.homeContinueRequestWidth,
     );
     expect(splitPane.homePosterRequestWidth, fullWidth.homePosterRequestWidth);
+    expect(
+      splitPane.categoryGridRequestWidth,
+      fullWidth.categoryGridRequestWidth,
+    );
+    expect(splitPane.categoryGridRequestWidth, 600);
     expect(
       splitPane.homeCatalogRequestWidth,
       fullWidth.homeCatalogRequestWidth,

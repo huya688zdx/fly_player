@@ -94,8 +94,10 @@ class AppAtmosphericBackground extends StatelessWidget {
                     _AtmosphereGlow(
                       glowKey: const ValueKey<String>('app-atmosphere-accent'),
                       color: palette.accentGlow,
+                      // 半径略大于视口：顶部主晕染铺得更开，接入侧栏后
+                      // 左上整块读作同一条缓变渐变，而不是角落一团亮斑。
                       center: const Alignment(-1.02, -.92),
-                      radius: .92,
+                      radius: 1.05,
                     ),
                     _AtmosphereGlow(
                       glowKey: const ValueKey<String>(

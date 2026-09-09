@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/media_backend.dart';
@@ -16,7 +17,7 @@ import '../services/download_task_service.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
-import '../playback/native_playback_host.dart';
+import '../playback/platform_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
@@ -26,6 +27,9 @@ import '../utils/detail_top_tip.dart';
 /// 负责从季度列表上下文拉起播放器。
 class TvSeasonPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
+
+  /// 非 Windows 桌面端的播放入口提示文案，暂以常量承载。
+  static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
 
   /// 创建一个季度播放拉起器实例。
   const TvSeasonPlaybackLauncher();
@@ -38,6 +42,15 @@ class TvSeasonPlaybackLauncher {
     String seriesGuid = '',
     List<Map<String, dynamic>>? episodes,
   }) async {
+    // Linux/macOS 本轮仍未接入，避免落入 Android MethodChannel。
+    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+      _topTip.show(
+        context,
+        message: desktopPlaybackBlockedMessage,
+        color: context.appColors.warning,
+      );
+      return null;
+    }
     return AsyncActionGuard.run<PlayDetailPlayerReturnData?>(
       'tv_season_playback:${itemGuid.trim()}',
       settleDuration: const Duration(milliseconds: 500),
@@ -47,13 +60,32 @@ class TvSeasonPlaybackLauncher {
         // 后端中立：取活动后端，由后端自己的桥接器装配最终播放 source。
         final backend = context.read<MediaBackendProvider>().backend;
         final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
-        final resolved = await _resolveWithProvider(
-          backend,
-          itemGuid: itemGuid,
-          seriesTitle: seriesTitle,
-          seriesGuid: seriesGuid,
-          l10n: l10n,
-        );
+        ({MpvMediaSource source, PlayInfoData? playInfo, String title})?
+        localPlayback;
+        if (isFeiniu) {
+          await DownloadTaskService.instance.initialize();
+          final record = DownloadTaskService.instance.downloadedRecordForItem(
+            itemGuid.trim(),
+          );
+          if (record != null) {
+            localPlayback = await resolveLocalDownloadSource(
+              record,
+              provider.isConfigured
+                  ? FeiniuDetailDataGateway.forNas(provider)
+                  : null,
+              l10n: l10n,
+            );
+          }
+        }
+        final resolved =
+            localPlayback ??
+            await _resolveWithProvider(
+              backend,
+              itemGuid: itemGuid,
+              seriesTitle: seriesTitle,
+              seriesGuid: seriesGuid,
+              l10n: l10n,
+            );
         if (resolved == null) return null;
         final source = resolved.source;
         // 剧详情入口未传 episodes：服务器族起播单集时按 source 的 seasonGuid 加载本季选集，
@@ -66,7 +98,7 @@ class TvSeasonPlaybackLauncher {
         // 界面不卡）。maybeLaunch 内部判断开关 + 预取弹幕；episodes 透传供原生壳「选集」。
         // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。服务器族封面由后端给出可直接
         // 消费的 URL，不走 NAS 鉴权预取，故不传 nas。
-        if (await const NativePlaybackHost().launch(
+        if (await playbackHostFor(context).launch(
           source: source,
           episodes: effectiveEpisodes,
           nas: isFeiniu ? provider : null,
@@ -137,7 +169,9 @@ class TvSeasonPlaybackLauncher {
           if (localRecord != null) {
             final local = await resolveLocalDownloadSource(
               localRecord,
-              FeiniuDetailDataGateway.forNas(provider),
+              provider.isConfigured
+                  ? FeiniuDetailDataGateway.forNas(provider)
+                  : null,
               l10n: l10n,
               startPositionMs: startPositionMs,
             );

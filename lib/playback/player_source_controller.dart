@@ -231,6 +231,7 @@ class PlayerSourceController {
   /// 根据当前播放配置构造首播所需的播放源与会话数据。
   Future<PlayerInitialPlaybackResult> buildInitialPlaybackResult({
     required FeiniuApi api,
+    String itemGuid = '',
     required String directUrl,
     required String mediaGuid,
     required String videoGuid,
@@ -297,6 +298,7 @@ class PlayerSourceController {
         ? ''
         : (selectedSubtitle?.guid.trim() ?? '');
     final session = await api.createServerPlaySession(
+      itemGuid: itemGuid,
       mediaGuid: targetMediaGuid,
       videoGuid: targetVideoGuid,
       audioGuid: selectedAudio?.guid.trim() ?? '',
@@ -505,6 +507,7 @@ class PlayerSourceController {
         : selectedSubtitleGuid;
 
     final session = await api.createServerPlaySession(
+      itemGuid: snapshot.itemGuid,
       mediaGuid: targetMediaGuid,
       videoGuid: targetVideoGuid,
       audioGuid: selectedAudioGuid,
@@ -539,7 +542,10 @@ class PlayerSourceController {
       seekProbeSummary: playableSource.seekProbeSummary,
       currentMediaGuid: targetMediaGuid,
       currentVideoGuid: targetVideoGuid,
-      currentAudioGuid: session.audioGuid.trim(),
+      // 部分服务端只返回 audio_index，未返回 GUID 时保留本次请求的音轨。
+      currentAudioGuid: session.audioGuid.trim().isNotEmpty
+          ? session.audioGuid.trim()
+          : selectedAudioGuid,
       currentSubtitleGuid: selectedSubtitleGuid,
       audioTracks: targetAudioTracks,
       subtitleTracks: targetSubtitleTracks,

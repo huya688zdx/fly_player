@@ -2,6 +2,7 @@ part of 'media_list_screen.dart';
 
 extension _MediaListScreenWidgets on _MediaListScreenState {
   Widget _buildScreen(BuildContext context) {
+    final isDesktopTier = MediaLayoutProfile.of(context).isDesktopTier;
     final provider = context.read<NasProvider>();
     final imageCredentials = mediaImageCredentialsForBackend(
       backendKind: context
@@ -54,6 +55,32 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           ),
           title: Text(AppLocalizations.of(context).homeTitle),
           actions: <Widget>[
+            if (isDesktopTier)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: CompositedTransformTarget(
+                  link: _searchAnchorLink,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colors.surface.withValues(alpha: 0.78),
+                      shape: BoxShape.circle,
+                    ),
+                    child: SizedBox.square(
+                      dimension: 44,
+                      child: IconButton(
+                        tooltip: AppLocalizations.of(context).searchPlaceholder,
+                        icon: const Icon(Icons.search_rounded, size: 25),
+                        onPressed: () => unawaited(_openDesktopSearchOverlay()),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.search),
+                onPressed: () => unawaited(_openSearchAsync()),
+              ),
             if (!widget.secondaryHost)
               IconButton(
                 icon: const Icon(Icons.connected_tv_outlined),
@@ -62,17 +89,18 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                   Navigator.of(context).pushNamed('/screen/poster-browse');
                 },
               ),
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () {
-                unawaited(_openSearchAsync());
-              },
-            ),
           ],
         ),
         body: body,
       ),
     );
+  }
+
+  /// 桌面档右上角搜索：弹出 PC 专属搜索弹窗；结果详情由弹窗面板在
+  /// 内容区导航器内打开（分屏优先，见 showDesktopSearch）。
+  /// 弹层以图标本体为锚（[_searchAnchorLink]），搜索框从图标处向左衍生。
+  Future<void> _openDesktopSearchOverlay() {
+    return showDesktopSearch(context, anchor: _searchAnchorLink);
   }
 
   Widget _buildBody(
@@ -403,28 +431,30 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           stableImageCacheWidth: layout.continueDecodeWidth,
           onOpenDetail: (card) {
             final item = itemsById[card.id];
-            if (item != null) {
-              _openItemDetail(
-                continueDetailTarget(
-                  item,
-                  context
-                      .read<MediaBackendProvider>()
-                      .backend
-                      .capabilities
-                      .kind,
-                ),
-              );
-            }
+            if (item != null) unawaited(_openContinueWatchingDetail(item));
           },
           onPlay: (card) {
             final item = itemsById[card.id];
             if (item != null) unawaited(_playContinueItem(item));
           },
-          onLongPress: (card) {
+          // 桌面档右键已接管同一组动作，长按只在触屏档保留。
+          onLongPress: layout.isDesktopTier
+              ? null
+              : (card) {
+                  final item = itemsById[card.id];
+                  if (item != null) {
+                    unawaited(_showContinueWatchingActionsV2(item));
+                  }
+                },
+          onSecondaryTap: (card, position) {
             final item = itemsById[card.id];
-            if (item != null) {
-              unawaited(_showContinueWatchingActionsV2(item));
-            }
+            if (item == null) return;
+            unawaited(
+              _showContinueItemContextMenu(
+                item: item,
+                globalPosition: position,
+              ),
+            );
           },
         );
       },
@@ -467,9 +497,16 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         final item = itemsById[card.id];
         if (item != null) _openItemDetail(item);
       },
-      onLongPress: (card) {
+      onLongPress: layout.isDesktopTier
+          ? null
+          : (card) {
+              final item = itemsById[card.id];
+              if (item != null) _showPosterItemActions(item);
+            },
+      onSecondaryTap: (card, position) {
         final item = itemsById[card.id];
-        if (item != null) _showPosterItemActions(item);
+        if (item == null) return;
+        unawaited(_showItemContextMenu(item: item, globalPosition: position));
       },
     );
   }
@@ -725,59 +762,246 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     }
 
     final maxCount = min(items.length, 12);
+    // 桌面档：悬浮左右箭头 + HoverLift 放大头部（视口留头 + 关闭裁剪）。
+    final desktopRow = layout.isDesktopTier;
     return SizedBox(
-      height: layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context)),
-      child: ListView.separated(
-        padding: EdgeInsets.zero,
-        scrollDirection: Axis.horizontal,
-        cacheExtent: _rowCacheExtent(layout.homePosterCardWidth),
-        itemCount: maxCount,
-        separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          final urls = _posterCandidates(
-            baseUrl,
-            item.poster,
-            width: layout.homePosterRequestWidth,
-          );
-          final rating = double.tryParse(item.voteAverage);
-          final resolutions = item.resolutions
-              .map(_resolutionLabel)
-              .where((value) => value.isNotEmpty)
-              .toList();
+      height:
+          layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context)) +
+          (desktopRow ? 16.0 : 0.0),
+      child: HoverScrollRow(
+        enabled: desktopRow || DesktopEnvironment.isDesktopPlatform,
+        // 窄窗口仍保留桌面鼠标翻页，按钮位于列表内侧。
+        edgePadding: layout.pageHorizontalPadding,
+        builder: (controller) => ListView.separated(
+          controller: controller,
+          padding: desktopRow
+              ? const EdgeInsets.symmetric(vertical: 8)
+              : EdgeInsets.zero,
+          clipBehavior: desktopRow ? Clip.none : Clip.hardEdge,
+          scrollDirection: Axis.horizontal,
+          cacheExtent: _rowCacheExtent(layout.homePosterCardWidth),
+          itemCount: maxCount,
+          separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            final urls = _posterCandidates(
+              baseUrl,
+              item.poster,
+              width: layout.homePosterRequestWidth,
+            );
+            final rating = double.tryParse(item.voteAverage);
+            final resolutions = item.resolutions
+                .map(_resolutionLabel)
+                .where((value) => value.isNotEmpty)
+                .toList();
 
-          return SizedBox(
-            width: layout.homePosterCardWidth,
-            child: MediaPosterCard(
-              images: preferPreservedImageRequest(
-                preserved: _itemImageRequests[item.guid],
-                fallbackUrls: urls,
-                fallbackToken: token,
-                fallbackAccessCode: accessCode,
-                fallbackBaseUrl: baseUrl,
+            return SizedBox(
+              width: layout.homePosterCardWidth,
+              child: _withDesktopCardInteractions(
+                layout: layout,
+                onSecondaryTapUp: (position) => unawaited(
+                  _showItemContextMenu(item: item, globalPosition: position),
+                ),
+                child: MediaPosterCard(
+                  images: preferPreservedImageRequest(
+                    preserved: _itemImageRequests[item.guid],
+                    fallbackUrls: urls,
+                    fallbackToken: token,
+                    fallbackAccessCode: accessCode,
+                    fallbackBaseUrl: baseUrl,
+                  ),
+                  title: item.displayTitle,
+                  subtitle: _cardSubtitle(item),
+                  rating: rating,
+                  resolutions: resolutions,
+                  watched: item.watched == 1,
+                  imageHeight: layout.homePosterImageHeight,
+                  decodeWidth: layout.homePosterDecodeWidth,
+                  titleFontSize: layout.homePosterTitleFontSize,
+                  subtitleFontSize: layout.homePosterSubtitleFontSize,
+                  titleFontWeight: FontWeight.w500,
+                  subtitleFontWeight: FontWeight.w400,
+                  imageFit: _isEpisodeItem(item)
+                      ? BoxFit.contain
+                      : BoxFit.cover,
+                  heroTag: '${heroTagPrefix}_${item.guid}_$index',
+                  onTap: () => _openItemDetail(
+                    item,
+                    heroTag: '${heroTagPrefix}_${item.guid}_$index',
+                  ),
+                  onLongPress: desktopRow
+                      ? null
+                      : () => _showPosterItemActions(item),
+                ),
               ),
-              title: item.displayTitle,
-              subtitle: _cardSubtitle(item),
-              rating: rating,
-              resolutions: resolutions,
-              watched: item.watched == 1,
-              imageHeight: layout.homePosterImageHeight,
-              decodeWidth: layout.homePosterDecodeWidth,
-              titleFontSize: layout.homePosterTitleFontSize,
-              subtitleFontSize: layout.homePosterSubtitleFontSize,
-              titleFontWeight: FontWeight.w500,
-              subtitleFontWeight: FontWeight.w400,
-              imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
-              heroTag: '${heroTagPrefix}_${item.guid}_$index',
-              onTap: () => _openItemDetail(
-                item,
-                heroTag: '${heroTagPrefix}_${item.guid}_$index',
-              ),
-              onLongPress: () => _showPosterItemActions(item),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
+  }
+
+  /// 桌面档卡片外壳：悬停浮起（HoverLift）+ 右键回调；非桌面档原样透出。
+  Widget _withDesktopCardInteractions({
+    required MediaLayoutProfile layout,
+    required ValueChanged<Offset> onSecondaryTapUp,
+    required Widget child,
+  }) {
+    if (!layout.isDesktopTier) return child;
+    return GestureDetector(
+      onSecondaryTapUp: (details) => onSecondaryTapUp(details.globalPosition),
+      child: HoverLift(child: child),
+    );
+  }
+
+  /// 桌面档媒体卡右键菜单（海报行 / 最近添加 / 下一集共用）：
+  /// 查看详情直达 + 经 [MediaItemActionSheetController] 切换已看 / 收藏，
+  /// 动作与长按动作表（_showPosterItemActions）同源；人物条目无已看语义，
+  /// 与长按 favoriteOnly 一致只保留详情 + 收藏。
+  Future<void> _showItemContextMenu({
+    required MediaLibraryItem item,
+    required Offset globalPosition,
+  }) async {
+    final favoriteOnly = _isPersonItem(item);
+    final flags = await _loadContinueItemFlags(item);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    const controller = MediaItemActionSheetController();
+    await showDesktopContextMenu(
+      context,
+      position: globalPosition,
+      entries: <DesktopContextMenuEntry>[
+        DesktopContextMenuEntry(
+          label: l10n.homeActionViewDetail,
+          icon: Icons.info_outline,
+          onSelected: () => unawaited(_openItemDetail(item)),
+        ),
+        if (!favoriteOnly)
+          DesktopContextMenuEntry(
+            label: flags.watched
+                ? l10n.actionMarkAsUnwatched
+                : l10n.actionMarkAsWatched,
+            icon: flags.watched
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            onSelected: () async {
+              final state = await controller.setItemWatched(
+                context,
+                itemId: item.guid,
+                watched: !flags.watched,
+              );
+              if (state == null) return;
+              _replaceItemLocally(
+                item.guid,
+                (current) => current.copyWith(watched: state ? 1 : 0),
+              );
+            },
+          ),
+        DesktopContextMenuEntry(
+          label: flags.favorite
+              ? l10n.actionFavoriteRemove
+              : l10n.actionFavoriteAdd,
+          icon: flags.favorite ? Icons.favorite : Icons.favorite_border,
+          onSelected: () => controller.setItemFavorite(
+            context,
+            itemId: item.guid,
+            favorite: !flags.favorite,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 桌面档「继续观看」卡右键菜单：播放 / 详情 / 已看 / 收藏 / 移除，
+  /// 与长按动作表（_showContinueWatchingActionsV2）的动作集合一致。
+  Future<void> _showContinueItemContextMenu({
+    required MediaLibraryItem item,
+    required Offset globalPosition,
+  }) async {
+    final flags = await _loadContinueItemFlags(item);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    const controller = MediaItemActionSheetController();
+    await showDesktopContextMenu(
+      context,
+      position: globalPosition,
+      entries: <DesktopContextMenuEntry>[
+        DesktopContextMenuEntry(
+          label: l10n.detailContinuePlay,
+          icon: Icons.play_arrow_rounded,
+          onSelected: () => unawaited(_playContinueItem(item)),
+        ),
+        DesktopContextMenuEntry(
+          label: l10n.homeActionViewDetail,
+          icon: Icons.info_outline,
+          onSelected: () => unawaited(_openContinueWatchingDetail(item)),
+        ),
+        DesktopContextMenuEntry(
+          label: flags.watched
+              ? l10n.actionMarkAsUnwatched
+              : l10n.actionMarkAsWatched,
+          icon: flags.watched
+              ? Icons.visibility_off_outlined
+              : Icons.visibility_outlined,
+          onSelected: () async {
+            final state = await controller.setItemWatched(
+              context,
+              itemId: item.guid,
+              watched: !flags.watched,
+            );
+            if (state == null) return;
+            _replaceItemLocally(
+              item.guid,
+              (current) => current.copyWith(
+                watched: state ? 1 : 0,
+                watchedTs: state ? current.duration : 0,
+              ),
+            );
+            unawaited(_refreshContinueWatching());
+          },
+        ),
+        DesktopContextMenuEntry(
+          label: flags.favorite
+              ? l10n.actionFavoriteRemove
+              : l10n.actionFavoriteAdd,
+          icon: flags.favorite ? Icons.favorite : Icons.favorite_border,
+          onSelected: () => controller.setItemFavorite(
+            context,
+            itemId: item.guid,
+            favorite: !flags.favorite,
+          ),
+        ),
+        DesktopContextMenuEntry(
+          label: l10n.homeActionRemoveFromContinue,
+          icon: Icons.delete_outline,
+          destructive: true,
+          onSelected: () => unawaited(_removeFromContinueWatching(item)),
+        ),
+      ],
+    );
+  }
+
+  /// 从「继续观看」移除（与长按动作表 remove 分支同语义）。
+  Future<void> _removeFromContinueWatching(MediaLibraryItem item) async {
+    final l10n = AppLocalizations.of(context);
+    try {
+      final api = FeiniuApi(context.read<NasProvider>());
+      await api.deletePlaybackRecord(itemGuid: item.guid);
+      if (!mounted) return;
+      _applyState(() {
+        _continueWatching = _continueWatching
+            .where((entry) => entry.guid != item.guid)
+            .toList(growable: false);
+      });
+      unawaited(_refreshContinueWatching());
+      _showHomeSnackBar(l10n.homeRemovedFromContinue);
+    } catch (error) {
+      debugPrint('[UI][HOME] remove continue failed ${item.guid}: $error');
+      if (!mounted) return;
+      _showHomeSnackBar(
+        l10n.commonOperationFailedRetryLater,
+        backgroundColor: context.appColors.danger,
+      );
+    }
   }
 }

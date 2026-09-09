@@ -1935,6 +1935,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 ? '$title $seasonLabel'
                 : title;
             return DetailFloatingTopBar(
+              ambientTint: ambientTint,
               onBack: () =>
                   unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
               onMore: () => unawaited(
@@ -3354,6 +3355,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       final centerTitleOpacity = ((collapseT - 0.82) / 0.16)
                           .clamp(0.0, 1.0);
                       return DetailFloatingTopBar(
+                        ambientTint: ambientTint,
                         onBack: () => unawaited(
                           EmbeddedDetailLauncher.closeHostOrPop(context),
                         ),

@@ -300,6 +300,15 @@ class DanmakuSavedSourceStore {
       return File('$injectedDirectory/$_fileName');
     }
     final path = await (_pathFuture ??= () async {
+      if (Platform.isWindows) {
+        final root =
+            (Platform.environment['LOCALAPPDATA'] ?? '').trim().isNotEmpty
+            ? Platform.environment['LOCALAPPDATA']!.trim()
+            : Directory.systemTemp.path;
+        final directory = Directory('$root${Platform.pathSeparator}FlyPlayer');
+        await directory.create(recursive: true);
+        return '${directory.path}${Platform.pathSeparator}$_fileName';
+      }
       final dir = await getDatabasesPath();
       return '$dir/$_fileName';
     }());
