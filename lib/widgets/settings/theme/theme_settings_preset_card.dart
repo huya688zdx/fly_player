@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
 import '../../../ui/adaptive_text.dart';
+import '../../common/app_ambient_page.dart';
 
 class ThemeSettingsPresetCard extends StatelessWidget {
   final String title;
@@ -30,7 +31,12 @@ class ThemeSettingsPresetCard extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selected ? currentColors.selectionSoft : currentColors.surface,
+          color: AppAmbientPage.sharesBackgroundOf(context)
+              ? (selected ? currentColors.selection : currentColors.surface)
+                    .withValues(alpha: selected ? 0.12 : 0.16)
+              : (selected
+                    ? currentColors.selectionSoft
+                    : currentColors.surface),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected
