@@ -15,6 +15,9 @@ class _ThrowingStorageAccessHost implements StorageAccessHost {
   const _ThrowingStorageAccessHost();
 
   @override
+  Future<String> downloadDirectory() async => _unavailable();
+
+  @override
   Future<bool?> hasFileAccess() async => _unavailable();
 
   @override

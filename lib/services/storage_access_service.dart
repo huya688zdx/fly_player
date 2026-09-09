@@ -252,7 +252,10 @@ class StorageAccessService {
     return result == true;
   }
 
-  /// 读取主存储根目录路径。
+  /// 读取当前平台的下载目录。
+  static Future<String> downloadDirectory() => _host.downloadDirectory();
+
+  /// 读取安卓主存储根目录路径。
   static Future<String> primaryStorageRoot() async {
     final path = await _channel.invokeMethod<String>('getPrimaryStorageRoot');
     return (path ?? '/storage/emulated/0').trim();

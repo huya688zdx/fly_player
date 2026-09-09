@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,6 +43,42 @@ DownloadTaskRecord _downloadedEpisode({
 }
 
 void main() {
+  test('下载进度使用产物总大小，整份响应从零写入', () {
+    expect(
+      resolveDownloadResponse(
+        206,
+        Headers.fromMap({
+          'content-range': ['bytes 1024-4095/4096'],
+          'content-length': ['3072'],
+        }),
+        1024,
+      ),
+      (offset: 1024, total: 4096),
+    );
+    expect(
+      resolveDownloadResponse(
+        200,
+        Headers.fromMap({
+          'content-length': ['4096'],
+        }),
+        1024,
+      ),
+      (offset: 0, total: 4096),
+    );
+  });
+
+  test('错误的续传范围不能追加到断点文件', () {
+    expect(
+      () => resolveDownloadResponse(
+        206,
+        Headers.fromMap({
+          'content-range': ['bytes 0-4095/4096'],
+        }),
+        1024,
+      ),
+      throwsFormatException,
+    );
+  });
   test('已下载剧集按季号和集数升序排列，与完成时间无关', () {
     final records =
         <DownloadTaskRecord>[
