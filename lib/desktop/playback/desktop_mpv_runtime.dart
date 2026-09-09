@@ -30,6 +30,19 @@ class DesktopQualityMenu {
 }
 
 abstract final class DesktopMpvRuntime {
+  static bool directLinkNeedsRefresh(MpvMediaSource source, DateTime now) {
+    if (!source.playbackMode.isDirectLink) return false;
+    final quality = source.qualities
+        .where(
+          (quality) =>
+              quality.isDirectLink &&
+              quality.directLinkQualityIndex == source.directLinkQualityIndex,
+        )
+        .firstOrNull;
+    final expiresAt = quality?.directLinkExpiresAtMs ?? 0;
+    return expiresAt > 0 && now.millisecondsSinceEpoch + 30000 >= expiresAt;
+  }
+
   static Media mediaFor(MpvMediaSource source, {Duration? startPosition}) {
     return Media(
       source.url,
@@ -70,6 +83,29 @@ abstract final class DesktopMpvRuntime {
       return mapped.isNotEmpty ? mapped : language;
     }
     return fallback;
+  }
+
+  /// mpv 的 ff-index 对应原文件流索引，不能用音轨菜单序号代替。
+  static MpvMediaSource sourceWithAudioStream(
+    MpvMediaSource source,
+    int? streamIndex,
+  ) {
+    final guid = source.playbackMode.isOriginalQuality && streamIndex != null
+        ? source.audioTracks
+              .where(
+                (track) =>
+                    track.index == streamIndex &&
+                    track.mediaGuid == source.mediaGuid,
+              )
+              .firstOrNull
+              ?.guid
+        : null;
+    return source.copyWith(
+      audioTrackIndex: streamIndex,
+      clearAudioTrackIndex: streamIndex == null,
+      audioTrackGuid: guid,
+      clearAudioTrackGuid: guid == null,
+    );
   }
 
   static List<SubtitleTrack> selectableSubtitleTracks(
