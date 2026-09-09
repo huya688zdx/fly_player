@@ -1,8 +1,56 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/screens/fn_connect_web_login_page.dart';
 import 'package:fly_player/screens/fn_web_login_bridge_script.dart';
 
 void main() {
+  testWidgets(
+    '关闭登录页后不再创建等待环境初始化的 Windows WebView',
+    (tester) async {
+      const channel = MethodChannel('io.jns.webview.win');
+      final environmentReady = Completer<void>();
+      final calls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        calls.add(call.method);
+        if (call.method == 'initializeEnvironment') {
+          await environmentReady.future;
+        }
+        return null;
+      });
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        );
+      });
+      await tester.pumpWidget(
+        const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: FnConnectWebLoginPage(
+            fnConnectId: 'test',
+            userName: 'user',
+            password: 'password',
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(calls, <String>['initializeEnvironment']);
+      await tester.pumpWidget(const SizedBox.shrink());
+      environmentReady.complete();
+      await tester.pump();
+      expect(calls, <String>['initializeEnvironment']);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
   group('FnConnectWebLoginEntry', () {
     test('有 relay host 时仍从官方页兜底，relay 只作为 OAuth 配置候选', () {
       final entry = FnConnectWebLoginEntry.resolve(

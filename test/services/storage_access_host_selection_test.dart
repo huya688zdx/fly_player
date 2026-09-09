@@ -1,11 +1,35 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fly_player/services/download_task_service.dart';
 import 'package:fly_player/services/storage_access_host.dart';
 import 'package:fly_player/services/storage_access_service.dart';
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('自定义下载位置持久化后，新任务与页面读取同一 FlyPlayer 目录', () async {
+    SharedPreferences.setMockInitialValues({});
+    final directory = await Directory.systemTemp.createTemp('fly-download-');
+    StorageAccessService.setHostForTesting(const DesktopStorageAccessHost());
+    addTearDown(() async {
+      StorageAccessService.setHostForTesting(null);
+      SharedPreferences.setMockInitialValues({});
+      await directory.delete(recursive: true);
+    });
+    await const DesktopStorageAccessHost().setDownloadDirectory(directory.path);
+    expect(
+      await const DesktopStorageAccessHost().downloadDirectory(),
+      directory.path,
+    );
+    final root = await DownloadTaskService.instance.downloadRootDirectory();
+    expect(Directory(root).parent.path, directory.path);
+    expect(await Directory(root).exists(), isTrue);
+    expect(await Directory(root).list().isEmpty, isTrue);
+  });
 
   test('默认宿主：测试环境选择通道宿主，兼容既有 mock', () {
     expect(

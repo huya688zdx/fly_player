@@ -19,6 +19,7 @@ import '../theme/app_theme.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../widgets/app_atmospheric_background.dart';
 import 'desktop_detail_pane_host.dart';
+import 'desktop_breakpoints.dart';
 import 'desktop_hover_region.dart';
 import 'desktop_search_overlay.dart';
 import 'desktop_side_bar.dart';
@@ -62,7 +63,7 @@ class DesktopShell extends StatefulWidget {
 class _DesktopShellState extends State<DesktopShell> {
   // 接线分屏详情宿主（feat/desktop-detail-pane）：开启分屏后右栏由
   // DesktopDetailPaneHost 承载。开关在「设置 → 分屏窗口」（与安卓一致），
-  // 壳层监听 ParallelWindowSettingsProvider 同步 enabled。
+  // 壳层监听设置中的开关、方向和比例。
   late final DesktopSplitController _splitController = DesktopSplitController()
     ..paneHostBuilder = _buildPaneHost;
 
@@ -71,6 +72,7 @@ class _DesktopShellState extends State<DesktopShell> {
   /// late 初始化以便引用实例方法 [_openPaneRouteFallback]。
   late final _DesktopPaneHostProxy _paneHostProxy = _DesktopPaneHostProxy(
     openFallback: _openPaneRouteFallback,
+    canOpenPane: () => _splitController.enabled && _paneHasRoom,
   );
 
   /// 影视页签内容区内嵌导航：侧栏二级页在此打开，侧栏永远可见。
@@ -86,6 +88,7 @@ class _DesktopShellState extends State<DesktopShell> {
       });
 
   ParallelWindowSettingsProvider? _parallelSettings;
+  bool _paneHasRoom = false;
 
   late final FocusNode _shellFocusNode = FocusNode(
     debugLabel: 'desktop-shell-shortcuts',
@@ -119,14 +122,12 @@ class _DesktopShellState extends State<DesktopShell> {
     } catch (_) {
       // 测试环境可能未注入：分屏保持默认关闭。
     }
-    // 初始同步 + 监听设置变化（双向：设置页开关 ↔ 分屏控制器，
-    // 右栏关闭按钮经控制器回写设置）。
+    // 设置只控制能力和布局，关闭副屏不回写全局开关。
     final parallel = _parallelSettings;
     if (parallel != null) {
-      _splitController.enabled = parallel.enabled;
+      _applyParallelSettings(parallel);
       parallel.addListener(_onParallelSettingsChanged);
     }
-    _splitController.addListener(_onSplitControllerChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSidebarCatalogData();
     });
@@ -137,26 +138,25 @@ class _DesktopShellState extends State<DesktopShell> {
     _shellFocusNode.dispose();
     _settingsFocusScope.dispose();
     _parallelSettings?.removeListener(_onParallelSettingsChanged);
-    _splitController.removeListener(_onSplitControllerChanged);
     _splitController.dispose();
     super.dispose();
+  }
+
+  void _applyParallelSettings(ParallelWindowSettingsProvider settings) {
+    if (!settings.enabled) unawaited(_paneHostProxy.closePane());
+    _splitController.applySettings(
+      enabled: settings.enabled,
+      primaryOnLeft: settings.primaryOnLeft,
+      ratioPreset: settings.splitRatioPreset,
+    );
   }
 
   void _onParallelSettingsChanged() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final parallel = _parallelSettings;
-      if (parallel != null && _splitController.enabled != parallel.enabled) {
-        _splitController.enabled = parallel.enabled;
-      }
+      final settings = _parallelSettings;
+      if (settings != null) _applyParallelSettings(settings);
     });
-  }
-
-  void _onSplitControllerChanged() {
-    final parallel = _parallelSettings;
-    if (parallel != null && parallel.enabled != _splitController.enabled) {
-      unawaited(parallel.setEnabled(_splitController.enabled));
-    }
   }
 
   Future<void> _loadSidebarCatalogData() async {
@@ -278,6 +278,7 @@ class _DesktopShellState extends State<DesktopShell> {
 
   void _selectTab(int index) {
     if (index < 0 || index > 1 || index == _selectedTab) return;
+    unawaited(_paneHostProxy.closePane());
     setState(() => _selectedTab = index);
     // IndexedStack 切页后焦点可能落在被隐藏的内容导航子树中失效，
     // 设置页恢复自己的快捷键焦点，影视页回到 Shell，避免 Ctrl+K 搜错区域。
@@ -300,6 +301,10 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   Future<void> _escape() async {
+    if (_splitController.paneVisible && await _paneHostProxy.backInPane()) {
+      return;
+    }
+    if (!mounted) return;
     // 优先退出内容区二级页（侧栏常驻），栈底再回退 root（如全屏大屏浏览）。
     final content = _contentNavKey.currentState;
     if (content != null && content.canPop()) {
@@ -417,29 +422,111 @@ class _DesktopShellState extends State<DesktopShell> {
                         child: ListenableBuilder(
                           listenable: _splitController,
                           builder: (context, _) {
-                            if (!_splitController.enabled) {
-                              return _buildTabStack();
-                            }
-                            // paneFraction 为详情栏（右栏）宽度占比，按 flex 换算。
-                            final paneFlex =
-                                (_splitController.paneFraction * 100).round();
-                            return Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: <Widget>[
-                                Expanded(
-                                  flex: 100 - paneFlex,
-                                  child: _buildTabStack(),
-                                ),
-                                VerticalDivider(
-                                  width: 1,
-                                  thickness: 1,
-                                  color: dividerColor,
-                                ),
-                                Expanded(
-                                  flex: paneFlex,
-                                  child: _buildDetailPane(context),
-                                ),
-                              ],
+                            return LayoutBuilder(
+                              builder: (context, constraints) {
+                                _paneHasRoom =
+                                    MediaQuery.sizeOf(context).width >=
+                                        DesktopBreakpoints.splitMinWidth &&
+                                    constraints.maxWidth *
+                                            _splitController.paneFraction >=
+                                        DesktopBreakpoints.paneMinWidth;
+                                final visible = _splitController.paneVisible;
+                                final paneWidth = _paneHasRoom
+                                    ? (constraints.maxWidth - 1) *
+                                          _splitController.paneFraction
+                                    : constraints.maxWidth;
+                                final tabStack = _buildTabStack();
+                                return TweenAnimationBuilder<double>(
+                                  tween: Tween<double>(
+                                    begin: 0,
+                                    end: visible ? 1 : 0,
+                                  ),
+                                  duration:
+                                      _paneHasRoom &&
+                                          !MediaQuery.disableAnimationsOf(
+                                            context,
+                                          )
+                                      ? const Duration(milliseconds: 300)
+                                      : Duration.zero,
+                                  curve: Curves.easeOutCubic,
+                                  child: SizedBox(
+                                    width: paneWidth,
+                                    child: _buildDetailPane(context),
+                                  ),
+                                  builder: (context, progress, pane) {
+                                    final sideBySide =
+                                        progress > 0 && _paneHasRoom;
+                                    final browseWidth = sideBySide
+                                        ? constraints.maxWidth -
+                                              (paneWidth + 1) * progress
+                                        : constraints.maxWidth;
+                                    final layoutWidth = visible && _paneHasRoom
+                                        ? constraints.maxWidth - paneWidth - 1
+                                        : constraints.maxWidth;
+                                    // 主屏按目标宽度排版一次，中间帧只改变绘制尺寸。
+                                    return Row(
+                                      textDirection:
+                                          _splitController.primaryOnLeft
+                                          ? TextDirection.ltr
+                                          : TextDirection.rtl,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: <Widget>[
+                                        Offstage(
+                                          offstage: progress > 0 && !sideBySide,
+                                          child: SizedBox(
+                                            width: browseWidth,
+                                            child: ClipRect(
+                                              child: OverflowBox(
+                                                alignment:
+                                                    _splitController
+                                                        .primaryOnLeft
+                                                    ? Alignment.topLeft
+                                                    : Alignment.topRight,
+                                                minWidth: layoutWidth,
+                                                maxWidth: layoutWidth,
+                                                child: Transform.scale(
+                                                  scaleX:
+                                                      browseWidth / layoutWidth,
+                                                  alignment:
+                                                      _splitController
+                                                          .primaryOnLeft
+                                                      ? Alignment.topLeft
+                                                      : Alignment.topRight,
+                                                  child: RepaintBoundary(
+                                                    child: tabStack,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        SizedBox(
+                                          width: sideBySide ? progress : 0,
+                                          child: ColoredBox(
+                                            color: dividerColor,
+                                          ),
+                                        ),
+                                        Offstage(
+                                          offstage: progress == 0,
+                                          child: ClipRect(
+                                            child: Align(
+                                              alignment:
+                                                  _splitController.primaryOnLeft
+                                                  ? Alignment.centerLeft
+                                                  : Alignment.centerRight,
+                                              widthFactor: _paneHasRoom
+                                                  ? progress
+                                                  : 1,
+                                              child: pane,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+                              },
                             );
                           },
                         ),
@@ -524,7 +611,12 @@ class _DesktopContentRouteObserver extends NavigatorObserver {
 /// 让首页入口 / 媒体库条目在无分屏时也能打开（侧栏常驻，不整窗覆盖）。
 /// backInPane / closePane / replacePlayerSource 不回退——它们是右栏专属操作。
 class _DesktopPaneHostProxy implements PlayerPaneHostController {
-  _DesktopPaneHostProxy({required this.openFallback});
+  _DesktopPaneHostProxy({
+    required this.openFallback,
+    required this.canOpenPane,
+  });
+
+  final bool Function() canOpenPane;
 
   /// 分屏右栏不可用时的路由回退（由 Shell 注入，指向内容区导航器）。
   final Future<bool> Function(String routeName) openFallback;
@@ -538,8 +630,12 @@ class _DesktopPaneHostProxy implements PlayerPaneHostController {
   @override
   Future<bool> openRoute(String routeName) async {
     final inner = _inner;
-    if (inner != null && await inner.openRoute(routeName)) {
+    if (canOpenPane() && inner != null && await inner.openRoute(routeName)) {
       return true;
+    }
+    if (Uri.tryParse(routeName)?.path.startsWith('/screen/settings/') == true) {
+      await openFallback(routeName);
+      return false;
     }
     return openFallback(routeName);
   }

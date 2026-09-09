@@ -1126,8 +1126,8 @@ class _MpvPlayerSettingsDestinationScreenState
   Widget build(BuildContext context) {
     final settings = _settings;
     if (settings == null) {
-      return AppAmbientPage(
-        child: const Scaffold(
+      return const AppAmbientPage(
+        child: Scaffold(
           backgroundColor: Colors.transparent,
           body: Center(child: BirdLoader(size: 120)),
         ),
