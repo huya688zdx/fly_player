@@ -7,8 +7,7 @@ import '../../../ui/layout_adaptive.dart';
 
 /// 首页内容的连续横向媒体架。
 ///
-/// 非桌面档（窗口宽度 < 桌面侧栏断点）输出与旧版逐字节一致；桌面档额外提供
-/// 悬停出现的左右滚动箭头（内容溢出且可向该方向滚动时才可见）。
+/// 桌面设备在窄窗口和分屏下仍保留鼠标翻页；卡片密度按可用宽度调整。
 class HomeHorizontalShelf<T> extends StatefulWidget {
   const HomeHorizontalShelf({
     super.key,
@@ -128,16 +127,16 @@ class _HomeHorizontalShelfState<T> extends State<HomeHorizontalShelf<T>> {
               ),
             );
 
-        // 非桌面档保持旧输出（不挂 controller、无箭头）。
-        if (!desktopTier) {
+        // 鼠标翻页属于桌面设备能力，不随布局降到窄屏档而关闭。
+        if (!desktopTier && !DesktopEnvironment.isDesktopPlatform) {
           return SizedBox(height: height, child: buildListView());
         }
 
         return SizedBox(
-          height: height + 16,
+          height: height + (desktopTier ? 16 : 0),
           child: HoverScrollArrows(
             scrollController: _scrollController,
-            // 按钮延伸过页面水平留白、贴住内容区边缘（渐变从窗口边起）。
+            // 按钮保持在列表可命中范围内。
             edgePadding: MediaLayoutProfile.of(context).pageHorizontalPadding,
             child: buildListView(controller: _scrollController),
           ),

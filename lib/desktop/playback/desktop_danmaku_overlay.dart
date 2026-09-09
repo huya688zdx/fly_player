@@ -25,7 +25,11 @@ class DesktopDanmakuPayload {
   final String sourceLabel;
   final List<DanmakuComment> comments;
 
-  static Future<DesktopDanmakuPayload> load(String path) async {
+  // 文件读取、紧凑弹幕解码和排序统一放到工作 isolate，避免切集卡住界面。
+  static Future<DesktopDanmakuPayload> load(String path) =>
+      compute(_load, path);
+
+  static Future<DesktopDanmakuPayload> _load(String path) async {
     final file = File(path);
     final raw = await file.readAsString();
     final normalized = raw.trimLeft();
@@ -100,6 +104,7 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
 
   late final DesktopDanmakuClock _motionClock;
   Duration _clock = Duration.zero;
+  Duration _tickerOffset = Duration.zero;
   int _tickGapPeakUs = 0;
   bool _playing = false;
   bool _buffering = false;
@@ -122,7 +127,8 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
       advancing: _playing && !_buffering,
       rate: _rate,
     );
-    _ticker = createTicker(_onTick)..start();
+    _ticker = createTicker(_onTick);
+    _updateTicker();
     SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     _positionSubscription = widget.player.stream.position.listen((position) {
       final jumped = _motionClock.synchronize(position);
@@ -133,17 +139,40 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
     _bufferingSubscription = widget.player.stream.buffering.listen((buffering) {
       _buffering = buffering;
       _motionClock.advancing = _playing && !_buffering;
+      _updateTicker();
       _repaint.value += 1;
     });
     _playingSubscription = widget.player.stream.playing.listen((playing) {
       _playing = playing;
       _motionClock.advancing = _playing && !_buffering;
+      _updateTicker();
       _repaint.value += 1;
     });
     _rateSubscription = widget.player.stream.rate.listen((rate) {
       _rate = rate.isFinite && rate > 0 ? rate : 1;
       _motionClock.rate = _rate;
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopDanmakuOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _updateTicker();
+  }
+
+  void _updateTicker() {
+    final shouldTick =
+        _motionClock.advancing &&
+        widget.settings.enabled &&
+        widget.comments.isNotEmpty;
+    if (shouldTick == _ticker.isActive) return;
+    if (shouldTick) {
+      // Ticker 重新开始时从零计时，接上旧帧时间，保持时钟与绘制期限连续。
+      _tickerOffset = _clock;
+      _ticker.start();
+    } else {
+      _ticker.stop();
+    }
   }
 
   // Flutter 整个播放页面的耗时，不等同于弹幕耗时或视频解码帧率。
@@ -197,6 +226,7 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
   }
 
   void _onTick(Duration elapsed) {
+    elapsed += _tickerOffset;
     if (_motionClock.advancing &&
         widget.settings.enabled &&
         widget.comments.isNotEmpty) {

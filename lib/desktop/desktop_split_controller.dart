@@ -24,6 +24,35 @@ class DesktopSplitController extends ChangeNotifier {
 
   bool _enabled;
   double _paneFraction;
+  bool _paneVisible = false;
+  bool _primaryOnLeft = true;
+
+  bool get paneVisible => _enabled && _paneVisible;
+  bool get primaryOnLeft => _primaryOnLeft;
+
+  set paneVisible(bool value) {
+    if (_paneVisible == value) return;
+    _paneVisible = value;
+    notifyListeners();
+  }
+
+  /// 设置决定分屏能力和布局；打开、返回只改变副屏是否可见。
+  void applySettings({
+    required bool enabled,
+    required bool primaryOnLeft,
+    required String ratioPreset,
+  }) {
+    _enabled = enabled;
+    _primaryOnLeft = primaryOnLeft;
+    _paneFraction = switch (ratioPreset) {
+      'equal' => 0.50,
+      'focus_detail' => 0.65,
+      'focus_home' => 0.55,
+      _ => 0.58,
+    };
+    if (!enabled) _paneVisible = false;
+    notifyListeners();
+  }
 
   bool get enabled => _enabled;
 

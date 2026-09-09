@@ -6,12 +6,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'danmaku/settings/danmaku_saved_source_store.dart';
 import 'desktop/desktop_breakpoints.dart';
 import 'desktop/desktop_environment.dart';
 import 'desktop/desktop_scroll_behavior.dart';
 import 'desktop/desktop_shell.dart';
+import 'desktop/desktop_window_frame.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
 import 'models/media_library_item.dart';
@@ -40,6 +42,7 @@ import 'services/app_log_service.dart';
 import 'services/detail_route_payload_store.dart';
 import 'services/gpu_profile_bridge.dart';
 import 'services/main_host_bridge.dart';
+import 'services/sqlite_runtime.dart';
 import 'screens/settings_destination_routes.dart';
 import 'theme/app_theme.dart';
 import 'theme/dynamic_theme_runtime_controller.dart';
@@ -60,6 +63,12 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      if (Platform.isWindows) {
+        await windowManager.ensureInitialized();
+        await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+        await windowManager.setTitle('飞翔播放器');
+      }
+      await initializeSqliteRuntime();
       // Phase 4.3：默认 ImageCache 上限 100MB 偏小——详情页 hero 背景最高 1440px
       // (单张解码后 ~4-5MB) 叠加首页海报墙，进出详情/滚动时 hero 反复被驱逐再 decode。
       // 提到 256MB 给足缓存余量，减少重复解码尖峰。注意真机需核内存占用。
@@ -416,7 +425,9 @@ class FlyPlayerApp extends StatelessWidget {
                       data: media.copyWith(
                         textScaler: TextScaler.linear(scale),
                       ),
-                      child: child,
+                      child: defaultTargetPlatform == TargetPlatform.windows
+                          ? DesktopWindowFrame(child: child)
+                          : child,
                     ),
                   );
                 },
