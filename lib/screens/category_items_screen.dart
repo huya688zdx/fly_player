@@ -733,8 +733,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   }
 
   bool _filterPanelOpen = false;
-  final LayerLink _filterAnchor = LayerLink();
-  final OverlayPortalController _filterPortal = OverlayPortalController();
   Timer? _filterFetchDebounce;
 
   /// 静默刷新进行中：列表原地更新（不显示全屏 loading），期间禁止触底加载。
@@ -777,18 +775,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     if (!_metaLoaded) await _loadMeta();
     if (!mounted) return;
     setState(() => _filterPanelOpen = true);
-    _filterPortal.show();
   }
 
   void _closeFilterPanel() {
     if (!_filterPanelOpen) return;
-    _filterPortal.hide();
     setState(() => _filterPanelOpen = false);
-  }
-
-  bool _usesFloatingFilterPanel(BuildContext context) {
-    return DesktopEnvironment.isDesktopPlatform &&
-        MediaQuery.sizeOf(context).width < DesktopBreakpoints.sidebarMinWidth;
   }
 
   /// 内联面板点选：立即更新选择，防抖后刷新列表。
@@ -827,74 +818,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     } finally {
       _silentRefreshInFlight = false;
     }
-  }
-
-  Widget _buildInlineFilterPanel({required bool floating}) {
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.topCenter,
-      child: _filterPanelOpen && !floating
-          ? AppCatalogFilterInlinePanel(
-              sections: _buildFilterSections(),
-              onOptionSelected: _handleFilterOptionSelected,
-              onCollapse: _closeFilterPanel,
-            )
-          : const SizedBox(width: double.infinity),
-    );
-  }
-
-  Widget _buildFloatingFilterPanel(BuildContext overlayContext) {
-    if (!_filterPanelOpen || !_usesFloatingFilterPanel(overlayContext)) {
-      return const SizedBox.shrink();
-    }
-    final size = MediaQuery.sizeOf(overlayContext);
-    final panelWidth = min(560.0, max(320.0, size.width - 24));
-    return Stack(
-      children: <Widget>[
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _closeFilterPanel,
-            child: const SizedBox.expand(),
-          ),
-        ),
-        Positioned.fill(
-          child: CompositedTransformFollower(
-            link: _filterAnchor,
-            showWhenUnlinked: false,
-            targetAnchor: Alignment.bottomRight,
-            followerAnchor: Alignment.topRight,
-            offset: const Offset(0, 8),
-            child: UnconstrainedBox(
-              alignment: Alignment.topRight,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {},
-                child: DesktopFloatingPanel(
-                  child: SizedBox(
-                    width: panelWidth,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: size.height * 0.72,
-                      ),
-                      child: SingleChildScrollView(
-                        child: AppCatalogFilterInlinePanel(
-                          sections: _buildFilterSections(),
-                          onOptionSelected: _handleFilterOptionSelected,
-                          onCollapse: _closeFilterPanel,
-                          framed: false,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
   }
 
   @override
@@ -946,7 +869,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   Widget _buildBody(String baseUrl, String token, String accessCode) {
     final layout = MediaLayoutProfile.of(context);
     final desktopTier = layout.isDesktopTier;
-    final floatingFilter = _usesFloatingFilterPanel(context);
     final colors = context.appColors;
     if (_isLoading) return const Center(child: BirdLoader(size: 132));
     if (_error != null) {
@@ -962,90 +884,92 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    desktopTapDropdownWrapper(
-                      dropdownKey: _sortDropdownKey,
-                      spec: _sortDropdownSpec,
-                      child: InkWell(
-                        onTap: _onSortTriggerTap,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Row(
-                          children: [
-                            Text(
-                              _sortLabel,
-                              style: TextStyle(
-                                color: colors.textSecondary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+        AppCatalogFilterRegion(
+          expanded: _filterPanelOpen,
+          onDismiss: _closeFilterPanel,
+          panelBuilder: (floating) => AppCatalogFilterInlinePanel(
+            sections: _buildFilterSections(),
+            onOptionSelected: _handleFilterOptionSelected,
+            onCollapse: _closeFilterPanel,
+            framed: !floating,
+          ),
+          toolbar: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      desktopTapDropdownWrapper(
+                        dropdownKey: _sortDropdownKey,
+                        spec: _sortDropdownSpec,
+                        child: InkWell(
+                          onTap: _onSortTriggerTap,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Row(
+                            children: [
+                              Text(
+                                _sortLabel,
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                            Icon(
-                              _sortArrow,
-                              size: 16,
-                              color: colors.textSecondary,
-                            ),
-                          ],
+                              const SizedBox(width: 4),
+                              Icon(
+                                _sortArrow,
+                                size: 16,
+                                color: colors.textSecondary,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceSubtle,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${max(_total, _items.length)}',
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontWeight: FontWeight.w700,
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceSubtle,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${max(_total, _items.length)}',
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              desktopTapDropdownWrapper(
-                dropdownKey: _layoutDropdownKey,
-                spec: _layoutDropdownSpec,
-                child: _CategoryToolButton(
-                  icon: Icons.grid_view_rounded,
-                  active: _viewType != MediaCollectionViewType.list,
-                  onTap: _onLayoutTriggerTap,
-                ),
-              ),
-              const SizedBox(width: 10),
-              OverlayPortal(
-                controller: _filterPortal,
-                overlayChildBuilder: _buildFloatingFilterPanel,
-                child: CompositedTransformTarget(
-                  link: _filterAnchor,
-                  child: Tooltip(
-                    message: _filterSummaryLabel,
-                    child: _CategoryToolButton(
-                      icon: Icons.filter_alt_outlined,
-                      active: _hasActiveFilters || _filterPanelOpen,
-                      onTap: _toggleFilterPanel,
-                    ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                desktopTapDropdownWrapper(
+                  dropdownKey: _layoutDropdownKey,
+                  spec: _layoutDropdownSpec,
+                  child: _CategoryToolButton(
+                    icon: Icons.grid_view_rounded,
+                    active: _viewType != MediaCollectionViewType.list,
+                    onTap: _onLayoutTriggerTap,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Tooltip(
+                  message: _filterSummaryLabel,
+                  child: _CategoryToolButton(
+                    icon: Icons.filter_alt_outlined,
+                    active: _hasActiveFilters || _filterPanelOpen,
+                    onTap: _toggleFilterPanel,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        _buildInlineFilterPanel(floating: floatingFilter),
         Expanded(
           child: Stack(
             children: [
