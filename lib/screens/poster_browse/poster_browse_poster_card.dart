@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'poster_browse_display_item.dart';
+import '../../ui/media_placeholder.dart';
 
 class PosterBrowsePosterCard extends StatelessWidget {
   final PosterBrowseDisplayItem item;
@@ -147,11 +148,9 @@ class _PosterImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = DecoratedBox(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: borderRadius,
-      ),
+    final placeholder = ClipRRect(
+      borderRadius: borderRadius,
+      child: const MediaPlaceholder(),
     );
     final trimmedUrl = url.trim();
     if (trimmedUrl.isEmpty) {

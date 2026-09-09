@@ -128,7 +128,7 @@ void main() {
     expect(longPressed, 'episode-1');
   });
 
-  testWidgets('缺图显示统一媒体占位且空数据隐藏', (tester) async {
+  testWidgets('缺图显示统一胶片占位且空数据隐藏', (tester) async {
     await tester.pumpWidget(
       testApp(
         HomeLandscapeMediaSection(
@@ -149,6 +149,15 @@ void main() {
 
     expect(find.byType(MediaPlaceholder), findsOneWidget);
     expect(find.byType(Image), findsNothing);
+    final placeholderBox = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byType(MediaPlaceholder),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    expect((placeholderBox.decoration as BoxDecoration).gradient, isNotNull);
 
     await tester.pumpWidget(
       testApp(
