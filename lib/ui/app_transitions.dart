@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/common/app_ambient_page.dart';
 import 'app_motion.dart';
 
 class AppTransitions {
@@ -101,6 +102,10 @@ class AppTransitions {
     Animation<double> secondaryAnimation,
     BuildContext context,
   ) {
+    // 桌面设置共用固定背景，深层页面也直接替换内容，避免透明页叠画。
+    if (AppAmbientPage.sharesBackgroundOf(context)) {
+      return Offstage(offstage: !secondaryAnimation.isDismissed, child: child);
+    }
     return _lightweightPageTransition(
       child,
       animation,

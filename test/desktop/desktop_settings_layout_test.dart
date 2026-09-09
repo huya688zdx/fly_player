@@ -14,6 +14,7 @@ import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/screens/app_settings_screen.dart';
 import 'package:fly_player/screens/theme_settings_screen.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/widgets/app_atmospheric_background.dart';
 
 void main() {
   const embeddingChannel = MethodChannel('fly_player/embedding');
@@ -183,11 +184,31 @@ void main() {
     );
 
     await tester.tap(find.text('主题设置'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(find.text('通用'), findsNothing);
+    expect(
+      find.byType(AppAtmosphericBackground),
+      findsOneWidget,
+      reason: '进入子页过程中只绘制设置区共用背景',
+    );
     await tester.pumpAndSettle();
 
     // 单屏形态：子页铺满设置内容区，分组网格被覆盖。
     expect(find.byType(ThemeSettingsScreen), findsOneWidget);
     expect(find.text('通用'), findsNothing);
+
+    // 再进入调色盘，转场期间也不能透出下层主题选项。
+    await tester.ensureVisible(find.text('调色盘').first);
+    await tester.tap(find.text('调色盘').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(find.text('固定主题'), findsNothing);
+    expect(find.byType(AppAtmosphericBackground), findsOneWidget);
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator).last).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(ThemeSettingsScreen), findsOneWidget);
 
     // 返回后网格恢复。
     tester
