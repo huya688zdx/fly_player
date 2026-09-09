@@ -1660,8 +1660,12 @@ class _DownloadGroupCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: selected
-              ? colors.surfaceStrong.withValues(alpha: 0.96)
-              : colors.surface.withValues(alpha: 0.86),
+              ? (DesktopEnvironment.isDesktopPlatform
+                    ? colors.selection.withValues(alpha: 0.14)
+                    : colors.surfaceStrong.withValues(alpha: 0.96))
+              : colors.surface.withValues(
+                  alpha: DesktopEnvironment.isDesktopPlatform ? 0.28 : 0.86,
+                ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: selected ? colors.selectionStrong : colors.borderSubtle,
@@ -2475,9 +2479,15 @@ class _DownloadTabSwitcher extends StatelessWidget {
         height: 46,
         padding: const EdgeInsets.all(5),
         decoration: BoxDecoration(
-          color: colors.surfaceStrong.withValues(alpha: 0.92),
+          color: DesktopEnvironment.isDesktopPlatform
+              ? colors.selection.withValues(alpha: 0.05)
+              : colors.surfaceStrong.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: colors.borderStrong),
+          border: Border.all(
+            color: DesktopEnvironment.isDesktopPlatform
+                ? colors.selection.withValues(alpha: 0.18)
+                : colors.borderStrong,
+          ),
         ),
         child: Row(
           children: <Widget>[
@@ -2521,7 +2531,11 @@ class _DownloadTabChip extends StatelessWidget {
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
           decoration: BoxDecoration(
-            color: selected ? colors.backgroundBase : Colors.transparent,
+            color: selected
+                ? (DesktopEnvironment.isDesktopPlatform
+                      ? colors.selection.withValues(alpha: 0.16)
+                      : colors.backgroundBase)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
           ),
           alignment: Alignment.center,

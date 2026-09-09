@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../desktop/desktop_environment.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
@@ -39,7 +40,9 @@ class MediaLibraryListTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: DesktopEnvironment.isDesktopPlatform
+              ? colors.surface.withValues(alpha: 0.28)
+              : colors.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: colors.borderSubtle),
         ),

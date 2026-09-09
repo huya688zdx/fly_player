@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/app_catalog_query_sheets.dart';
@@ -15,6 +16,9 @@ Widget _app(WidgetBuilder builder) => MaterialApp(
 );
 
 void main() {
+  setUp(() => DesktopEnvironment.debugOverridePlatform = false);
+  tearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+
   test('分类、收藏和媒体库页面复用同一套筛选与排序弹层', () {
     final shared = File('lib/widgets/common/app_catalog_query_sheets.dart');
     expect(shared.existsSync(), isTrue, reason: '缺少共享筛选与排序弹层组件');
@@ -27,7 +31,11 @@ void main() {
       final source = File(path).readAsStringSync();
       expect(
         source,
-        contains('AppCatalogFilterSheet.show'),
+        contains(
+          path.contains('category_items_screen')
+              ? 'AppCatalogFilterInlinePanel('
+              : 'AppCatalogFilterSheet.show',
+        ),
         reason: '$path 仍未复用共享筛选弹层',
       );
       expect(
@@ -36,6 +44,69 @@ void main() {
         reason: '$path 仍未复用共享排序弹层',
       );
     }
+  });
+
+  testWidgets('桌面筛选复用横排面板，重置后确认返回最终选择', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    Map<String, Set<Object>>? result;
+    await tester.pumpWidget(
+      _app(
+        (context) => Scaffold(
+          body: TextButton(
+            onPressed: () async {
+              result = await AppCatalogFilterSheet.show(
+                context,
+                sections: const [
+                  AppCatalogFilterSection(
+                    key: 'type',
+                    title: '影视分类',
+                    options: [
+                      AppCatalogFilterOption(value: 'Movie', label: '电影'),
+                    ],
+                  ),
+                ],
+              );
+            },
+            child: const Text('打开筛选'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开筛选'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AppCatalogFilterInlinePanel), findsOneWidget);
+    await tester.tap(find.text('电影'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<AppCatalogFilterInlinePanel>(
+            find.byType(AppCatalogFilterInlinePanel),
+          )
+          .sections
+          .single
+          .selectedValues,
+      {'Movie'},
+    );
+    await tester.tap(find.text('重置'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<AppCatalogFilterInlinePanel>(
+            find.byType(AppCatalogFilterInlinePanel),
+          )
+          .sections
+          .single
+          .selectedValues,
+      isEmpty,
+    );
+    expect(result, isNull);
+    await tester.tap(find.text('电影'));
+    await tester.tap(find.text('确认'));
+    await tester.pumpAndSettle();
+    expect(result, <String, Set<Object>>{
+      'type': {'Movie'},
+    });
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('共享筛选弹层使用统一表面并返回确认后的选择', (tester) async {
