@@ -711,7 +711,7 @@ class DownloadTaskService extends ChangeNotifier {
     return targets.length;
   }
 
-  /// 暂停指定下载任务，保留已下载的部分文件并通知服务端取消。
+  /// 暂停指定下载任务，保留部分文件及服务端产物以便继续下载。
   Future<void> pauseDownload(NasProvider provider, String recordId) async {
     await initialize();
     final index = _records.indexWhere((record) => record.id == recordId);
@@ -767,6 +767,11 @@ class DownloadTaskService extends ChangeNotifier {
     final api = FeiniuApi(provider);
     try {
       var taskId = current.remoteTaskId.trim();
+      var remoteOwnerKey = current.remoteOwnerKey;
+      if (remoteOwnerKey.isNotEmpty &&
+          remoteOwnerKey != _downloadOwnerKey(provider)) {
+        throw StateError('请连接创建该下载任务的服务器和账号后继续');
+      }
       if (taskId.isNotEmpty) {
         try {
           await api.getDownloadTaskProgress(taskId);
@@ -776,6 +781,7 @@ class DownloadTaskService extends ChangeNotifier {
         }
       }
       if (taskId.isEmpty) {
+        remoteOwnerKey = _downloadOwnerKey(provider);
         taskId = await api.createDownloadTask(
           mediaGuid: current.mediaGuid,
           itemGuid: current.itemGuid,
@@ -790,6 +796,7 @@ class DownloadTaskService extends ChangeNotifier {
       final part = File('${current.filePath}.part');
       current = current.copyWith(
         remoteTaskId: taskId,
+        remoteOwnerKey: remoteOwnerKey,
         status: DownloadTaskStatus.downloading,
         downloadedBytes: await part.exists() ? await part.length() : 0,
         errorMessage: '',
@@ -818,7 +825,10 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   /// 删除下载中或已暂停的任务，同时取消下载并清理部分文件。
-  Future<int> clearActiveDownloadRecords({Iterable<String>? recordIds}) async {
+  Future<int> clearActiveDownloadRecords({
+    Iterable<String>? recordIds,
+    NasProvider? provider,
+  }) async {
     await initialize();
     final targetIds = recordIds
         ?.map((value) => value.trim())
@@ -845,10 +855,21 @@ class DownloadTaskService extends ChangeNotifier {
         .toSet();
     final affectedGroupDirectories = <String>{};
 
+    // 先移除记录，阻止正在等待转码的请求再次启动传输或写回记录。
+    _records.removeWhere(
+      (record) => targets.any((target) => target.id == record.id),
+    );
     for (final record in targets) {
       _cancelTokens.remove(record.id)?.cancel();
       _clearDownloadSpeed(record.id);
       _stopDownloadTaskProgressPolling(record.id);
+      await _downloadRuns[record.id];
+      if (provider != null &&
+          record.remoteTaskId.trim().isNotEmpty &&
+          record.remoteOwnerKey.isNotEmpty &&
+          record.remoteOwnerKey == _downloadOwnerKey(provider)) {
+        await FeiniuApi(provider).deleteDownloadTask(record.remoteTaskId);
+      }
       final path = record.filePath.trim();
       if (path.isEmpty) continue;
       affectedGroupDirectories.add(_recoveredGroupDirectoryForVideo(path).path);
@@ -858,9 +879,6 @@ class DownloadTaskService extends ChangeNotifier {
       await _deleteRecordArtifacts(record);
     }
 
-    _records.removeWhere(
-      (record) => targets.any((target) => target.id == record.id),
-    );
     for (final groupDirectory in affectedGroupDirectories) {
       if (remainingGroupDirectories.contains(groupDirectory)) continue;
       await _deleteSharedGroupArtwork(groupDirectory);
@@ -870,6 +888,15 @@ class DownloadTaskService extends ChangeNotifier {
     notifyListeners();
     await _persist();
     return targets.length;
+  }
+
+  String _downloadOwnerKey(NasProvider provider) {
+    final baseUrl = ApiUrlHelper.normalizeBaseUrl(provider.baseUrl);
+    final userName = provider.userName.trim().toLowerCase();
+    if (provider.token.trim().isEmpty || baseUrl.isEmpty || userName.isEmpty) {
+      return '';
+    }
+    return '${baseUrl.toLowerCase()}|$userName';
   }
 
   /// 重新拉取已下载分组的展示元数据。
@@ -1062,6 +1089,7 @@ class DownloadTaskService extends ChangeNotifier {
     // Always use the user-selected resolution for the download task.
     // stream/list resolutionType must NOT override it.
     final taskMediaGuid = metadataOption?.mediaGuid ?? normalizedItemGuid;
+    final remoteOwnerKey = _downloadOwnerKey(provider);
     final remoteTaskId = await api.createDownloadTask(
       mediaGuid: taskMediaGuid,
       itemGuid: normalizedItemGuid,
@@ -1107,6 +1135,7 @@ class DownloadTaskService extends ChangeNotifier {
     final record = DownloadTaskRecord(
       id: _buildId(),
       remoteTaskId: remoteTaskId,
+      remoteOwnerKey: remoteOwnerKey,
       itemGuid: normalizedItemGuid,
       mediaGuid: taskMediaGuid,
       groupId: groupId.trim().isEmpty ? normalizedItemGuid : groupId.trim(),
