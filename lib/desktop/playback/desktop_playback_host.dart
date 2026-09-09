@@ -13,6 +13,7 @@ import '../../media_backend/media_backend.dart';
 import '../../models/play_info.dart';
 import '../../providers/media_backend_provider.dart';
 import '../../playback/playback_host.dart';
+import '../../playback/feiniu_playback_source_bridge.dart';
 import '../../playback/playback_source.dart';
 import '../../providers/nas_provider.dart';
 import '../../services/native_reentry_support.dart';
@@ -62,6 +63,13 @@ final class DesktopPlaybackHost implements PlaybackHost {
           .push<void>(
             MaterialPageRoute<void>(
               builder: (_) => DesktopPlaybackScreen(
+                refreshDirectLink: backend.capabilities.usesLegacyFeiniuFlow
+                    ? (current) =>
+                          const FeiniuPlaybackSourceBridge().refreshDirectLink(
+                            api: FeiniuApi(effectiveNas),
+                            source: current,
+                          )
+                    : null,
                 resolveSegmentedSubtitle: subtitles?.resolve,
                 releaseServerSession: backend.capabilities.usesLegacyFeiniuFlow
                     ? (link) => NativeReentrySupport.releaseServerSession(

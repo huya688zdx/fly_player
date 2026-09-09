@@ -1970,10 +1970,13 @@ class _DownloadRecordRow extends StatelessWidget {
           );
         },
       ).then((confirmed) {
-        if (confirmed == true) {
+        if (confirmed == true && context.mounted) {
           unawaited(
             DownloadTaskService.instance
-                .clearActiveDownloadRecords(recordIds: <String>[record.id])
+                .clearActiveDownloadRecords(
+                  recordIds: <String>[record.id],
+                  provider: context.read<NasProvider>(),
+                )
                 .catchError((Object error, StackTrace stackTrace) {
                   unawaited(
                     logSwallowedError(
