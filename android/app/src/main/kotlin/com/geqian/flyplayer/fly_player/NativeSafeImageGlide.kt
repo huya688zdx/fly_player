@@ -20,6 +20,13 @@ class NativeSafeImageRequest(
 ) {
     val headers: Map<String, String> = NativeImageRequestHeaders.fromAny(headers)
     val cacheIdentity: String = NativeImageRequestHeaders.cacheIdentity(url, this.headers)
+
+    // Glide 内存缓存键包含 model 本身：面板每次重建都会 new 新实例，若不按值判等，
+    // 带头图片永远缓存未命中（异步回图 → 选集面板封面整列闪一帧）。
+    override fun equals(other: Any?): Boolean =
+        other is NativeSafeImageRequest && other.url == url && other.headers == headers
+
+    override fun hashCode(): Int = 31 * url.hashCode() + headers.hashCode()
 }
 
 /** 让带敏感头的 Glide 图片也使用同源手动重定向策略。 */
