@@ -1216,6 +1216,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // OnBackInvokedCallback（API 33+）；用 Any? 持有，避免旧设备类加载该 API 类型。
     private var backInvokedCallback: Any? = null
     private var inPipMode = false
+    // 离开 PiP 后是否还在等待前台恢复：X 关闭/划走会先退 PiP 再走 onStop（无 onResume），
+    // 用它区分「用户关掉小窗」和「点展开回全屏」，前者应在后台暂停播放。
+    private var pipExitAwaitingResume = false
     private var controlsVisibleBeforePip = true
 
     private var danmakuEnabled = true
@@ -2779,6 +2782,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onResume() {
         super.onResume()
+        // 从 PiP 展开回全屏：不算「关闭小窗」，继续播放。
+        pipExitAwaitingResume = false
         // 前台恢复（从设置页/Flutter 播放器等返回）时主动拉一次 Flutter 全局 MPV 设置，
         // 让「只在启动注入」之外的外部改动也即时生效。带 diff 守卫，无变化不重下发内核。
         pullGlobalMpvSettingsOnResume()
@@ -3003,6 +3008,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             controlsVisibleBeforePip = controlsVisible
         }
         inPipMode = isInPictureInPictureMode
+        pipExitAwaitingResume = wasInPipMode && !isInPictureInPictureMode
         // 进入小窗：收掉分屏副栏(系统 API31+ 自动进小窗也走这里) + 收起控制层/面板，只留画面。
         if (isInPictureInPictureMode) {
             collapseSplitForPip()
@@ -4853,6 +4859,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 Glide.with(this)
                     .load(model)
                     .transform(CenterCrop(), RoundedCorners(dp(8)))
+                    // 面板每次打开都重建列表并重新 load，两个闪动来源都要掐掉：
+                    // 1) 默认 300ms 交叉淡入（缓存命中也闪）→ dontAnimate 直接上屏；
+                    // 2) 新 ImageView 未测量时 into() 要等 onPreDraw 拿尺寸 → 第一帧先画深底
+                    //    第二帧才上图（整列齐闪一帧）→ override 显式尺寸让命中在首帧前同步完成。
+                    .override(thumbWidth, thumbHeight)
+                    .placeholder(thumbnail.drawable)
+                    .dontAnimate()
                     .into(thumbnail)
             }
 
@@ -10131,6 +10144,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     override fun onStop() {
         // 真正退到后台/不可见才停周期上报（PiP 仍可见，不在此停）；退出前补写一次进度。
         stopPeriodicReport()
+        // 用户关掉 PiP 窗口（X/划走/Home）：离开 PiP 后没有前台恢复直接不可见，
+        // 必须暂停，否则窗口没了声音还在后台播。展开回全屏走 onResume 清标记，不受影响。
+        if (pipExitAwaitingResume) {
+            pipExitAwaitingResume = false
+            if (this::playerSurface.isInitialized && !playerSurface.state.paused) {
+                playerSurface.pause()
+            }
+        }
         reportProgress()
         unregisterBatteryReceiver()
         super.onStop()

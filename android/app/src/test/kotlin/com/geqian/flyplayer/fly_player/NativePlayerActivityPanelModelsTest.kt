@@ -867,7 +867,7 @@ class NativePlayerActivityPanelModelsTest {
     fun playerExitRoutesThroughAutoPipDecision() {
         val source = File(
             "src/main/kotlin/com/geqian/flyplayer/fly_player/NativePlayerActivity.kt",
-        ).readText()
+        ).readText().replace("\r\n", "\n")
 
         assertFalse(source.contains("setOnClickListener { finish() }"))
         assertTrue(source.contains("if (!consumeBackEvent()) finishOrEnterPip()"))

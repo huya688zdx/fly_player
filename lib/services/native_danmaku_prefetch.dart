@@ -25,20 +25,42 @@ import '../danmaku/settings/danmaku_settings_store.dart';
 ///
 /// 阶段 2 在此基础上新增「在线搜索 + 选集导入」：原生壳弹幕源子页通过反向通道调
 /// [searchCandidates] 拿候选、调 [importEpisodeToFile] 按所选 episodeId 落文件再读回。
+///
+/// 加载策略：**本地优先 + 时效回源**——本地（激活源/本地导入/随片下载）有就用本地，
+/// 本地太久没更新先联网刷新，刷新失败仍落回本地（离线可播）；无本地才走在线自动匹配。
 class NativeDanmakuPrefetch {
   const NativeDanmakuPrefetch._();
 
   static const Duration _commentCacheTtl = DanDanPlayCommentCacheStore.cacheTtl;
   static const Duration _payloadFileTtl = Duration(hours: 24);
+
+  /// 评论缓存的磁盘保留期。缓存「过期」只代表不再新鲜（读取处按时效标记并触发回源），
+  /// 回源失败时过期数据是离线兜底的唯一来源，故清理扫描用比 TTL 更长的保留期。
+  static const Duration _commentCacheRetention = Duration(days: 7);
+
+  /// 随片下载源的新鲜期：下载后 48h 内起播直接用本地弹幕、不联网；超过后视为可能积压了
+  /// 新弹幕，起播先尝试在线刷新，刷新失败仍回落本地（离线可播）。
+  static const Duration _downloadedSourceFreshnessTtl = Duration(hours: 48);
+
+  /// 测试注入：评论缓存与 payload 临时文件的根目录（生产为系统临时目录）。
+  @visibleForTesting
+  static String? cacheRootOverrideForTest;
+
+  static String get _cacheRoot =>
+      cacheRootOverrideForTest ?? Directory.systemTemp.path;
+
   static DateTime? _lastTempCleanupAt;
   static Future<void>? _tempCleanupFuture;
 
-  /// 原生壳启动时解析弹幕，对齐 Flutter 播放器 `_tryLoadPreferredDanmakuSource`：
-  /// 1) 先用该媒体「激活的保存源」（用户离线/手动选择的源）——最高优先、跨启动持久；
-  /// 2) 否则查 autoMatchBlocked，被屏蔽则不再自动匹配；
-  /// 3) 否则在线 DanDanPlay 自动匹配，无结果则写入 blocked 标记（与 Flutter 一致）。
+  /// 原生壳启动时解析弹幕（**本地优先 + 时效回源**）：
+  /// 1) 「激活的保存源」（用户手动选定，跨启动持久）与本地导入源（用户主动从文件导入）
+  ///    最高优先；其评论缓存新鲜直接本地起播、不联网，过期则先回源刷新（太久没更新要用
+  ///    网络获取），刷新失败仍落回旧缓存保证离线可播。
+  /// 2) 随片下载缓存：下载后 [_downloadedSourceFreshnessTtl] 内直接本地起播不联网；过期
+  ///    先在线刷新，失败落回本地。
+  /// 3) 无本地可用时在线 DanDanPlay 自动匹配，无结果写 blocked 标记（6h 后才重试）。
   /// 传入 [itemGuid]/[mediaGuid]/[seasonGuid] 用于复刻 `_currentDanmakuMediaKey` 的 key，
-  /// 不传则退化为纯自动匹配（旧行为）。
+  /// 不传则退化为纯自动匹配（旧行为）。[store] 仅供测试注入独立存储目录。
   static Future<String?> resolveToFile({
     required String seriesTitle,
     String itemTitle = '',
@@ -49,7 +71,9 @@ class NativeDanmakuPrefetch {
     String itemGuid = '',
     String mediaGuid = '',
     String seasonGuid = '',
+    DanmakuSavedSourceStore? store,
   }) async {
+    final resolvedStore = store ?? const DanmakuSavedSourceStore();
     try {
       if (!settings.enabled) return null;
       // 诊断：对比「全新启动」与「壳内切集」两条路喂进来的参数是否一致。切集没弹幕但退出重进有，
@@ -58,7 +82,6 @@ class NativeDanmakuPrefetch {
         '[DANMAKU][NATIVE_PREFETCH] in series="$seriesTitle" title="$itemTitle" s=$seasonNumber '
         'e=$episodeNumber tmdb="$tmdbId" item="$itemGuid" media="$mediaGuid" season="$seasonGuid"',
       );
-      const store = DanmakuSavedSourceStore();
       final mediaKey = _buildMediaKey(
         itemGuid: itemGuid,
         mediaGuid: mediaGuid,
@@ -70,8 +93,8 @@ class NativeDanmakuPrefetch {
 
       if (mediaKey.isNotEmpty) {
         // 1) 激活的保存源优先（你的离线选择）。
-        final activeKey = await store.loadActiveSourceKey(mediaKey);
-        final savedAll = await store.loadForMedia(mediaKey);
+        final activeKey = await resolvedStore.loadActiveSourceKey(mediaKey);
+        final savedAll = await resolvedStore.loadForMedia(mediaKey);
         debugPrint(
           '[DANMAKU][NATIVE_PREFETCH] mediaKey=$mediaKey '
           'activeKey=$activeKey savedCount=${savedAll.length}',
@@ -103,43 +126,68 @@ class NativeDanmakuPrefetch {
           final path = await _loadSavedSourceToFile(localImport);
           if (path != null) return path;
         }
-        // 随片下载的缓存（**一键下载**，非手动导入）：优先级最低，仅在网络源拿不到时离线
-        // 兜底。先留到 3) 在线匹配之后再用。
+        // 3) 随片下载缓存（**一键下载**，非手动导入）：本地优先——下载后新鲜期内直接本地
+        //    起播、不联网；过期视为可能积压了新弹幕，先在线刷新（太久没更新要用网络获取），
+        //    刷新失败仍落回本地旧弹幕（断网/未配置都可离线播放）。
         final downloadedBundle = savedAll
             .where((s) => s.isDownloadedFile)
             .cast<DanmakuSavedSource?>()
             .firstWhere((s) => s != null, orElse: () => null);
-        // 3) 自动匹配被屏蔽 → 不再在线请求，但仍可落到随片下载兜底（离线可用）。
-        final autoBlocked = await store.isAutoMatchBlocked(mediaKey);
+        // 自动匹配被屏蔽 → 本轮不再在线请求（含过期随片源的回源刷新），但本地源照常可用。
+        final autoBlocked = await resolvedStore.isAutoMatchBlocked(mediaKey);
+        final canMatchOnline = !autoBlocked && seriesTitle.trim().isNotEmpty;
 
-        // 4) 在线自动匹配（网络源），拿到即覆盖旧的随片下载缓存优先使用。
+        Future<String?> matchOnline() => _resolveOnlineToFile(
+          seriesTitle: seriesTitle,
+          itemTitle: itemTitle,
+          seasonNumber: seasonNumber,
+          episodeNumber: episodeNumber,
+          tmdbId: tmdbId,
+          settings: settings,
+          mediaKey: mediaKey,
+          store: resolvedStore,
+          itemGuid: itemGuid,
+          mediaGuid: mediaGuid,
+          seasonGuid: seasonGuid,
+        );
+
+        var onlineAttempted = false;
+        if (downloadedBundle != null) {
+          final downloadedFresh =
+              DateTime.now().millisecondsSinceEpoch -
+                  downloadedBundle.updatedAtMs <=
+              _downloadedSourceFreshnessTtl.inMilliseconds;
+          debugPrint(
+            '[DANMAKU][NATIVE_PREFETCH] downloaded bundle: fresh=$downloadedFresh '
+            'updatedAtMs=${downloadedBundle.updatedAtMs} '
+            'commentCount=${downloadedBundle.commentCount}',
+          );
+          if (!downloadedFresh && canMatchOnline) {
+            onlineAttempted = true;
+            final refreshed = await matchOnline();
+            debugPrint(
+              '[DANMAKU][NATIVE_PREFETCH] downloaded refresh '
+              'result=${refreshed != null}',
+            );
+            if (refreshed != null) return refreshed;
+          }
+          final localPath = await _loadSavedSourceToFile(downloadedBundle);
+          if (localPath != null) return localPath;
+          // 本地文件读不出来（被清/损坏）且还没试过在线 → 落到下方在线匹配。
+        }
+
+        // 4) 在线自动匹配（无随片本地源、或本地读失败时）。
         debugPrint(
           '[DANMAKU][NATIVE_PREFETCH] online gate: autoBlocked=$autoBlocked '
-          'seriesTitleEmpty=${seriesTitle.trim().isEmpty}',
+          'seriesTitleEmpty=${seriesTitle.trim().isEmpty} '
+          'onlineAttempted=$onlineAttempted',
         );
-        if (!autoBlocked && seriesTitle.trim().isNotEmpty) {
-          final online = await _resolveOnlineToFile(
-            seriesTitle: seriesTitle,
-            itemTitle: itemTitle,
-            seasonNumber: seasonNumber,
-            episodeNumber: episodeNumber,
-            tmdbId: tmdbId,
-            settings: settings,
-            mediaKey: mediaKey,
-            store: store,
-            itemGuid: itemGuid,
-            mediaGuid: mediaGuid,
-            seasonGuid: seasonGuid,
-          );
+        if (!onlineAttempted && canMatchOnline) {
+          final online = await matchOnline();
           debugPrint(
             '[DANMAKU][NATIVE_PREFETCH] online result=${online != null}',
           );
           if (online != null) return online;
-        }
-        // 5) 网络拿不到 → 随片下载缓存兜底（离线）。
-        if (downloadedBundle != null) {
-          final path = await _loadSavedSourceToFile(downloadedBundle);
-          if (path != null) return path;
         }
         return null;
       }
@@ -153,7 +201,7 @@ class NativeDanmakuPrefetch {
         tmdbId: tmdbId,
         settings: settings,
         mediaKey: mediaKey,
-        store: store,
+        store: resolvedStore,
       );
     } catch (_) {
       // 旁路能力：匹配失败/未配置/网络错误都静默跳过，照常播放无弹幕。
@@ -162,6 +210,8 @@ class NativeDanmakuPrefetch {
   }
 
   /// 在线 DanDanPlay 自动匹配并落 payload 文件；无结果时写入 blocked 标记。
+  /// 网络异常就地吞掉返回 null：不能穿透到调用方的 catch 把「回源失败 → 落回本地」
+  /// 的兜底链一起跳掉（否则断网时随片下载/过期缓存全部失效）。
   static Future<String?> _resolveOnlineToFile({
     required String seriesTitle,
     String itemTitle = '',
@@ -175,58 +225,62 @@ class NativeDanmakuPrefetch {
     String mediaGuid = '',
     String seasonGuid = '',
   }) async {
-    if (seriesTitle.trim().isEmpty) return null;
-    if (!await DanDanPlayConfig.ensureConfigured()) return null;
-    final resolver = _buildResolver();
-    final resolved = await resolver.resolveForPlayback(
-      seriesTitle: seriesTitle,
-      itemTitle: itemTitle,
-      seasonNumber: seasonNumber,
-      episodeNumber: episodeNumber,
-      tmdbId: tmdbId,
-    );
-    final comments = resolved?.result.comments ?? const <DanmakuComment>[];
-    if (resolved == null || comments.isEmpty) {
-      if (mediaKey.isNotEmpty) {
-        await store.saveAutoMatchBlockedReason(
-          mediaKey: mediaKey,
-          reason: DanmakuSavedSourceStore.autoNoResultReason(),
+    try {
+      if (seriesTitle.trim().isEmpty) return null;
+      if (!await DanDanPlayConfig.ensureConfigured()) return null;
+      final resolver = _buildResolver();
+      final resolved = await resolver.resolveForPlayback(
+        seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        tmdbId: tmdbId,
+      );
+      final comments = resolved?.result.comments ?? const <DanmakuComment>[];
+      if (resolved == null || comments.isEmpty) {
+        if (mediaKey.isNotEmpty) {
+          await store.saveAutoMatchBlockedReason(
+            mediaKey: mediaKey,
+            reason: DanmakuSavedSourceStore.autoNoResultReason(),
+          );
+        }
+        return null;
+      }
+      // 自动匹配命中即登记进弹幕源库，使「弹幕源」面板（原生壳 + Flutter）能看到当前正在用的
+      // 弹幕、并可重选/切换。此前这条路径只写 payload 注入播放器、从不 saveSource，导致用户在
+      // 源面板里看不到自动匹配到的弹幕。统一使用 dandan:<episodeId>，并明确激活当前命中源。
+      final matchedItem = resolved.item;
+      final sourceKey = 'dandan:${matchedItem.episodeId}';
+      if (mediaKey.isNotEmpty && matchedItem.episodeId > 0) {
+        await store.saveSource(
+          DanmakuSavedSource(
+            type: DanmakuSavedSourceType.danDanPlay,
+            mediaKey: mediaKey,
+            sourceKey: sourceKey,
+            label: matchedItem.displayTitle,
+            detail: matchedItem.displaySubtitle,
+            seriesTitle: seriesTitle.trim(),
+            itemTitle: itemTitle.trim(),
+            itemGuid: itemGuid.trim(),
+            seasonGuid: seasonGuid.trim(),
+            mediaGuid: mediaGuid.trim(),
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
+            commentCount: comments.length,
+            updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+          ),
+          activate: true,
         );
       }
+      if (matchedItem.episodeId > 0) {
+        await _cacheComments('dandan:${matchedItem.episodeId}', comments);
+      }
+      return await _writePayloadFile(
+        buildPayload(settings, comments, sourceKey: sourceKey),
+      );
+    } catch (_) {
       return null;
     }
-    // 自动匹配命中即登记进弹幕源库，使「弹幕源」面板（原生壳 + Flutter）能看到当前正在用的
-    // 弹幕、并可重选/切换。此前这条路径只写 payload 注入播放器、从不 saveSource，导致用户在
-    // 源面板里看不到自动匹配到的弹幕。统一使用 dandan:<episodeId>，并明确激活当前命中源。
-    final matchedItem = resolved.item;
-    final sourceKey = 'dandan:${matchedItem.episodeId}';
-    if (mediaKey.isNotEmpty && matchedItem.episodeId > 0) {
-      await store.saveSource(
-        DanmakuSavedSource(
-          type: DanmakuSavedSourceType.danDanPlay,
-          mediaKey: mediaKey,
-          sourceKey: sourceKey,
-          label: matchedItem.displayTitle,
-          detail: matchedItem.displaySubtitle,
-          seriesTitle: seriesTitle.trim(),
-          itemTitle: itemTitle.trim(),
-          itemGuid: itemGuid.trim(),
-          seasonGuid: seasonGuid.trim(),
-          mediaGuid: mediaGuid.trim(),
-          seasonNumber: seasonNumber,
-          episodeNumber: episodeNumber,
-          commentCount: comments.length,
-          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
-        ),
-        activate: true,
-      );
-    }
-    if (matchedItem.episodeId > 0) {
-      await _cacheComments('dandan:${matchedItem.episodeId}', comments);
-    }
-    return await _writePayloadFile(
-      buildPayload(settings, comments, sourceKey: sourceKey),
-    );
   }
 
   /// 复刻 `_currentDanmakuMediaKey`（mpv_player_danmaku_mixin）的 key 规则，保证与旧
@@ -263,6 +317,10 @@ class NativeDanmakuPrefetch {
   }
 
   /// 把一个保存源加载成 payload 文件：danDanPlay 按 episodeId 重拉、localFile 解析文件。
+  ///
+  /// 本地优先 + 时效回源：评论缓存新鲜（≤[_commentCacheTtl]）直接用、不联网；过期视为
+  /// 可能积压了新弹幕，先回源拉新，回源失败（断网/未配置/原文件被清）落回过期缓存，
+  /// 保证离线可播。
   static Future<String?> _loadSavedSourceToFile(
     DanmakuSavedSource source,
   ) async {
@@ -272,24 +330,29 @@ class NativeDanmakuPrefetch {
           int.tryParse(raw.startsWith('dandan:') ? raw.substring(7) : raw) ?? 0;
       if (episodeId <= 0) return null;
       final sourceKey = 'dandan:$episodeId';
-      // 离线优先：命中持久评论缓存则不联网（DanDanPlay 源否则每次都按 episodeId 重拉）。
-      final cachedPath = await _payloadFromCachedComments(sourceKey);
-      if (cachedPath != null) return cachedPath;
+      final cached = await _payloadFromCachedComments(sourceKey);
+      if (cached != null && !cached.isStale) return cached.path;
+      // 缓存缺失/过期 → 按 episodeId 回源拉新（内部自带 try/catch，失败返回 null）。
       final result = await importEpisodeToFile(
         episodeId: episodeId,
         animeTitle: source.seriesTitle,
         episodeTitle: source.itemTitle,
         episodeNumber: source.episodeNumber,
       );
-      return result?['danmakuFile'] as String?;
+      final freshPath = result?['danmakuFile'] as String?;
+      if (freshPath != null) return freshPath;
+      return cached?.path;
     }
     final raw = source.sourceKey;
     final path = raw.startsWith('local:') ? raw.substring(6) : raw;
-    // 离线优先：本地导入文件可能被清，命中评论缓存直接用，不依赖原文件存在。
-    final cachedPath = await _payloadFromCachedComments('local:$path');
-    if (cachedPath != null) return cachedPath;
+    // 用户导入/随片的本地文件是唯一事实源：过期只重读原文件（不用网络弹幕顶掉用户选择），
+    // 原文件被清则落回过期评论缓存，离线可播。
+    final cached = await _payloadFromCachedComments('local:$path');
+    if (cached != null && !cached.isStale) return cached.path;
     final result = await importLocalFileToFile(path);
-    return result?['danmakuFile'] as String?;
+    final freshPath = result?['danmakuFile'] as String?;
+    if (freshPath != null) return freshPath;
+    return cached?.path;
   }
 
   /// 在线搜索弹幕候选（供原生壳弹幕源子页）。返回每项的精简 Map，便于跨 channel 传回。
@@ -604,9 +667,7 @@ class NativeDanmakuPrefetch {
   /// 重建 payload，故设置改动仍生效（缓存只存评论，不存设置）。
   static File _commentCacheFile(String sourceKey) {
     final safeKey = sourceKey.hashCode.toUnsigned(32).toRadixString(16);
-    return File(
-      '${Directory.systemTemp.path}/native_danmaku_cache_$safeKey.json',
-    );
+    return File('$_cacheRoot/native_danmaku_cache_$safeKey.json');
   }
 
   static Future<void> _cleanupExpiredTempFiles() async {
@@ -634,13 +695,15 @@ class NativeDanmakuPrefetch {
 
   static Future<void> _cleanupExpiredTempFilesImpl(DateTime now) async {
     try {
-      await for (final entry in Directory.systemTemp.list()) {
+      await for (final entry in Directory(_cacheRoot).list()) {
         if (entry is! File) continue;
         final name = entry.path.split(Platform.pathSeparator).last;
         if (!name.startsWith('native_danmaku_')) continue;
         final modifiedAt = (await entry.stat()).modified;
+        // 缓存文件按保留期清理（过期 ≠ 可删，回源失败还要靠它离线兜底）；
+        // payload 临时文件无复用价值，仍按短 TTL 清。
         final ttl = name.startsWith('native_danmaku_cache_')
-            ? _commentCacheTtl
+            ? _commentCacheRetention
             : _payloadFileTtl;
         if (now.difference(modifiedAt) > ttl) {
           await entry.delete();
@@ -674,16 +737,17 @@ class NativeDanmakuPrefetch {
   }
 
   /// 命中持久缓存 → 用当前设置重建 payload 并落临时文件返回路径；未命中返回 null。
-  static Future<String?> _payloadFromCachedComments(String sourceKey) async {
+  /// 过期缓存**不删除**、以 [isStale] 标记返回：回源失败时它仍是离线兜底的唯一来源，
+  /// 磁盘回收交给清理扫描按 [_commentCacheRetention] 处理。
+  static Future<_CachedDanmakuPayload?> _payloadFromCachedComments(
+    String sourceKey,
+  ) async {
     if (sourceKey.isEmpty) return null;
     try {
       final file = _commentCacheFile(sourceKey);
       if (!await file.exists()) return null;
       final modifiedAt = (await file.stat()).modified;
-      if (DateTime.now().difference(modifiedAt) > _commentCacheTtl) {
-        await file.delete();
-        return null;
-      }
+      final isStale = DateTime.now().difference(modifiedAt) > _commentCacheTtl;
       final raw = await file.readAsString();
       if (raw.trim().isEmpty) return null;
       final decoded = jsonDecode(raw);
@@ -705,11 +769,13 @@ class NativeDanmakuPrefetch {
       final settings = await const DanmakuSettingsStore().load();
       debugPrint(
         '[DANMAKU][NATIVE_PREFETCH] offline cache hit sourceKey=$sourceKey '
-        'count=${comments.length}',
+        'count=${comments.length} stale=$isStale',
       );
-      return await _writePayloadFile(
+      final path = await _writePayloadFile(
         buildPayload(settings, comments, sourceKey: sourceKey),
       );
+      if (path == null) return null;
+      return _CachedDanmakuPayload(path: path, isStale: isStale);
     } catch (_) {
       return null;
     }
@@ -718,7 +784,7 @@ class NativeDanmakuPrefetch {
   static Future<String?> _writePayloadFile(Map<String, Object?> payload) async {
     await _cleanupExpiredTempFiles();
     final file = File(
-      '${Directory.systemTemp.path}/native_danmaku_'
+      '$_cacheRoot/native_danmaku_'
       '${DateTime.now().millisecondsSinceEpoch}.json',
     );
     await file.writeAsString(jsonEncode(payload));
@@ -775,4 +841,13 @@ class NativeDanmakuPrefetch {
     2 => DanmakuCommentType.bottom,
     _ => DanmakuCommentType.scroll,
   };
+}
+
+/// 评论缓存的一次命中结果。[isStale] 表示缓存已超过时效 TTL——仍可用（回源失败时
+/// 离线兜底），但调用方应先尝试回源拉新。
+class _CachedDanmakuPayload {
+  final String path;
+  final bool isStale;
+
+  const _CachedDanmakuPayload({required this.path, required this.isStale});
 }

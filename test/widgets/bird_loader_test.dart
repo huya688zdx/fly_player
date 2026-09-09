@@ -9,7 +9,12 @@ void main() {
         home: Scaffold(body: Center(child: BirdLoader(size: 96))),
       ),
     );
-    // 跨越多个相位采样（盘旋 / 悬停 / 飞离 / 归来）
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(
+      (image.image as AssetImage).assetName,
+      'assets/refresh/shoujo_bird_loading.webp',
+    );
+    // 跨越多个相位采样（后退 / 成茧 / 扑翼 / 飞离）
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 900));
     }
@@ -26,11 +31,16 @@ void main() {
       ),
     );
     await tester.pump();
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(
+      (image.image as AssetImage).assetName,
+      'assets/refresh/shoujo_bird_loading_static.png',
+    );
     await tester.pump(const Duration(seconds: 2));
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('logo 品牌配色', (tester) async {
+  testWidgets('logo 样式保持兼容', (tester) async {
     await tester.pumpWidget(
       const MediaQuery(
         data: MediaQueryData(disableAnimations: true),
