@@ -1,4 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
+
+import '../api/feiniu_api.dart';
+import '../playback/playback_source.dart';
+import 'feiniu_segmented_subtitle.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_backend.dart';
@@ -56,7 +61,15 @@ class NativePlaybackReentry {
     Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleRemoved,
   }) {
     if (backend.capabilities.usesLegacyFeiniuFlow) {
+      final subtitles = FeiniuSegmentedSubtitle(FeiniuApi(nas));
       return NativePlayerBridge.bindReentry(
+        onUnbind: subtitles.dispose,
+        onResolveSegmentedSubtitle: (raw, positionMs) => subtitles.resolve(
+          MpvMediaSource.fromMap(jsonDecode(raw) as Map<String, dynamic>),
+          Duration(milliseconds: positionMs),
+        ),
+        onReleaseServerSession: (link) =>
+            NativeReentrySupport.releaseServerSession(nas, link),
         onResolvePlayback: onResolvePlayback,
         onRecordProgress: (progress) =>
             NativeReentrySupport.recordProgress(nas, progress),

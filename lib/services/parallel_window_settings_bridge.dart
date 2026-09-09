@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../desktop/desktop_environment.dart';
 
 /// 表示并行窗口的宿主侧设置快照。
 class ParallelWindowSettings {
@@ -61,6 +66,8 @@ class ParallelWindowSettings {
 class ParallelWindowSettingsBridge {
   static const MethodChannel _channel = MethodChannel('fly_player/embedding');
 
+  static const _desktopSettingsKey = 'desktop_parallel_window_settings';
+
   const ParallelWindowSettingsBridge._();
 
   /// 从宿主读取当前并行窗口设置。
@@ -83,6 +90,24 @@ class ParallelWindowSettingsBridge {
     } on PlatformException {
       return const ParallelWindowSettings(
         enabled: true,
+        preferredPrimaryPaneSide: 'left',
+        preferredPlaybackPrimaryPaneSide: 'right',
+        splitRatioPreset: 'balanced',
+        defaultPlaybackFullscreen: true,
+        immersiveStatusBar: true,
+      );
+    } on MissingPluginException {
+      if (DesktopEnvironment.isDesktopPlatform) {
+        final prefs = await SharedPreferences.getInstance();
+        final saved = prefs.getString(_desktopSettingsKey);
+        if (saved != null) {
+          return ParallelWindowSettings.fromMap(
+            jsonDecode(saved) as Map<String, dynamic>,
+          );
+        }
+      }
+      return const ParallelWindowSettings(
+        enabled: false,
         preferredPrimaryPaneSide: 'left',
         preferredPlaybackPrimaryPaneSide: 'right',
         splitRatioPreset: 'balanced',
@@ -125,6 +150,32 @@ class ParallelWindowSettingsBridge {
       }
       return ParallelWindowSettings.fromMap(_normalizeMap(result));
     } on PlatformException {
+      return ParallelWindowSettings(
+        enabled: enabled,
+        preferredPrimaryPaneSide: preferredPrimaryPaneSide,
+        preferredPlaybackPrimaryPaneSide: preferredPlaybackPrimaryPaneSide,
+        splitRatioPreset: splitRatioPreset,
+        defaultPlaybackFullscreen: defaultPlaybackFullscreen,
+        immersiveStatusBar: immersiveStatusBar,
+      );
+    } on MissingPluginException {
+      if (DesktopEnvironment.isDesktopPlatform) {
+        final prefs = await SharedPreferences.getInstance();
+        final saved = await prefs.setString(
+          _desktopSettingsKey,
+          jsonEncode(<String, Object?>{
+            'enabled': enabled,
+            'preferredPrimaryPaneSide': preferredPrimaryPaneSide,
+            'preferredPlaybackPrimaryPaneSide':
+                preferredPlaybackPrimaryPaneSide,
+            'splitRatioPreset': splitRatioPreset,
+            'defaultPlaybackFullscreen': defaultPlaybackFullscreen,
+            'immersiveStatusBar': immersiveStatusBar,
+          }),
+        );
+        if (!saved) throw StateError('无法保存平行窗口设置');
+      }
+
       return ParallelWindowSettings(
         enabled: enabled,
         preferredPrimaryPaneSide: preferredPrimaryPaneSide,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +16,7 @@ import '../providers/backend_session_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/media_backend_connection_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/app_transitions.dart';
 import '../utils/action_rate_limiter.dart';
 import '../utils/app_error_reporter.dart';
@@ -30,6 +32,7 @@ import 'download_list_screen.dart';
 import 'emby_fn_entry_login_page.dart';
 import 'fn_connect_web_login_page.dart';
 import 'login_history_screen.dart';
+import '../widgets/common/desktop_login_dialog.dart';
 import '../utils/app_confirm_dialog.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
 
@@ -600,11 +603,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     setState(() {
       _historyEntries = latest;
     });
-    final selected = await Navigator.of(context).push<LoginHistoryEntry>(
-      AppTransitions.leftToRightPageTurnRoute<LoginHistoryEntry>(
-        LoginHistoryScreen(entries: _historyEntries),
-        fullscreenDialog: true,
-      ),
+    final selected = await showDesktopLoginDialog<LoginHistoryEntry>(
+      context,
+      child: LoginHistoryScreen(entries: _historyEntries),
+      maxWidth: 760,
+      maxHeight: 600,
     );
     // 历史页内可能删除/清空，回来时同步最新列表。
     final refreshed = await LoginHistoryStore.load();
@@ -642,7 +645,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _selectBackend(MediaBackendKind.feiniu);
   }
 
-  /// 切换选中后端并记录滑动方向（新表单从目标方向滑入）。
+  /// 切换选中后端，表单在原位淡入淡出。
   void _selectBackend(MediaBackendKind next) {
     if (next == _selectedBackend) {
       if (_inlineError != null) {
@@ -708,7 +711,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Future<void> _openDownloadedData() async {
     await Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
-        const DownloadListScreen(),
+        const DownloadListScreen(offline: true),
         fullscreenDialog: true,
       ),
     );
@@ -731,17 +734,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (!mounted) {
       return null;
     }
-    return Navigator.of(context).push<FnConnectWebLoginPageResult>(
-      AppTransitions.leftToRightPageTurnRoute<FnConnectWebLoginPageResult>(
-        FnConnectWebLoginPage(
-          fnConnectId: fnConnectId,
-          userName: userName,
-          password: password,
-          accessCode: accessCode,
-          relayHosts:
-              error.diagnostic.discovery?.relayHosts ?? const <String>[],
-        ),
-        fullscreenDialog: true,
+    return showDesktopLoginDialog<FnConnectWebLoginPageResult>(
+      context,
+      child: FnConnectWebLoginPage(
+        fnConnectId: fnConnectId,
+        userName: userName,
+        password: password,
+        accessCode: accessCode,
+        relayHosts: error.diagnostic.discovery?.relayHosts ?? const <String>[],
       ),
     );
   }
@@ -837,18 +837,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
-    final colors = context.appColors;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      body: Listener(
-        onPointerDown: _handleSwipePointerDown,
-        onPointerMove: _handleSwipePointerMove,
-        onPointerUp: _handleSwipePointerUp,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => FocusScope.of(context).unfocus(),
-          child: SafeArea(
-            child: _buildResponsiveConnectionBody(context, theme, l10n),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Listener(
+          onPointerDown: _handleSwipePointerDown,
+          onPointerMove: _handleSwipePointerMove,
+          onPointerUp: _handleSwipePointerUp,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: SafeArea(
+              child: _buildResponsiveConnectionBody(context, theme, l10n),
+            ),
           ),
         ),
       ),
@@ -917,6 +918,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   void _handleSwipePointerDown(PointerDownEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
     _swipeStartX = event.position.dx;
     _swipeStartY = event.position.dy;
     _swipeLastX = event.position.dx;
@@ -924,11 +926,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   void _handleSwipePointerMove(PointerMoveEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
     _swipeLastX = event.position.dx;
     _swipeLastY = event.position.dy;
   }
 
   void _handleSwipePointerUp(PointerUpEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
     final dx = _swipeLastX - _swipeStartX;
     final dy = _swipeLastY - _swipeStartY;
     if (dx.abs() < 80 || dx.abs() < dy.abs() * 1.4) return;
@@ -943,7 +947,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final animationsDisabled = MediaQuery.disableAnimationsOf(context);
     final switchDuration = animationsDisabled
         ? Duration.zero
-        : const Duration(milliseconds: 220);
+        : const Duration(milliseconds: 180);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -967,9 +971,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 curve: Curves.easeOutCubic,
                 child: AnimatedSwitcher(
                   duration: switchDuration,
-                  reverseDuration: animationsDisabled
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
+                  switchInCurve: Curves.easeInOut,
+                  switchOutCurve: Curves.easeInOut,
                   layoutBuilder: (currentChild, previousChildren) => Stack(
                     alignment: Alignment.topCenter,
                     children: <Widget>[
@@ -977,20 +980,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       if (currentChild != null) currentChild,
                     ],
                   ),
-                  transitionBuilder: (child, animation) {
-                    final curved = CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutCubic,
-                    );
-                    final position = Tween<Offset>(
-                      begin: const Offset(0.025, 0),
-                      end: Offset.zero,
-                    ).animate(curved);
-                    return FadeTransition(
-                      opacity: curved,
-                      child: SlideTransition(position: position, child: child),
-                    );
-                  },
                   child: KeyedSubtree(
                     key: ValueKey<MediaBackendKind>(_selectedBackend),
                     child: _buildFormFields(

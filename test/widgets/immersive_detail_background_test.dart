@@ -135,10 +135,11 @@ void main() {
       find.byKey(const ValueKey<String>('detail-hero-seam-fade')),
     );
 
-    // 接续带紧贴海报裁切底边起笔，高度限制在 96~160px。
-    expect(seam.top, closeTo(bridge.top! + bridge.height!, 0.01));
+    // 接续带向上重叠一个物理像素，防止桌面缩放时共边栅格化露缝。
+    final overlap = 1 / tester.view.devicePixelRatio;
+    expect(seam.top, closeTo(bridge.top! + bridge.height! - overlap, 0.01));
     expect(seam.height, greaterThanOrEqualTo(96));
-    expect(seam.height, lessThanOrEqualTo(160));
+    expect(seam.height, lessThanOrEqualTo(160 + overlap));
 
     // 起笔色必须与交接层终点色完全一致（连续性契约），终点全透明。
     final transitionColor =

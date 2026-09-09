@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
@@ -7,6 +8,8 @@ import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_backend_registry.dart';
 import '../services/login_history_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
+import '../widgets/common/app_modal_surface.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
 import '../utils/swallowed_error_logger.dart';
@@ -101,56 +104,82 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      backgroundColor: const Color(0xFF08111A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0C1825),
-        elevation: 0,
-        foregroundColor: Colors.white,
-        title: Text(
-          l10n.connectionLoginHistory,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        actions: [
-          if (_entries.isNotEmpty)
-            TextButton(
-              onPressed: _clear,
-              child: Text(
-                l10n.connectionClear,
-                style: const TextStyle(color: Color(0xFF8FB7FF)),
-              ),
+    final colors = context.appColors;
+    final isDesktop = switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          automaticallyImplyLeading: !isDesktop,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          foregroundColor: colors.textPrimary,
+          title: Text(
+            l10n.connectionLoginHistory,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w700,
             ),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: _entries.isEmpty
-            ? Center(
+          ),
+          actions: [
+            if (_entries.isNotEmpty)
+              TextButton(
+                onPressed: _clear,
                 child: Text(
-                  l10n.connectionNoLoginHistory,
-                  style: const TextStyle(
-                    color: Color(0xFF9EADBE),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  l10n.connectionClear,
+                  style: TextStyle(color: colors.accent),
                 ),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-                itemCount: _entries.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final entry = _entries[index];
-                  return _LoginHistoryTile(
-                    entry: entry,
-                    onTap: () => Navigator.of(context).pop(entry),
-                    onDelete: () => _delete(entry),
-                  );
-                },
               ),
+            if (isDesktop)
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: IconButton(
+                  tooltip: l10n.commonClose,
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: IconButton.styleFrom(
+                    backgroundColor: colors.accent.withValues(alpha: 0.08),
+                    foregroundColor: colors.textPrimary,
+                    side: BorderSide(color: appModalTileBorderColor(colors)),
+                  ),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          child: _entries.isEmpty
+              ? Center(
+                  child: Text(
+                    l10n.connectionNoLoginHistory,
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                  itemCount: _entries.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final entry = _entries[index];
+                    return _LoginHistoryTile(
+                      entry: entry,
+                      onTap: () => Navigator.of(context).pop(entry),
+                      onDelete: () => _delete(entry),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }
@@ -177,11 +206,17 @@ class _LoginHistoryTile extends StatelessWidget {
         : (descriptor == null
               ? entry.userName
               : '${entry.userName} · $backendName');
+    final colors = context.appColors;
     return Material(
-      color: const Color(0xFF232D3A),
-      borderRadius: BorderRadius.circular(16),
+      color: appModalTileColor(colors).withValues(alpha: 0.72),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: appModalTileBorderColor(colors)),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
+        hoverColor: colors.accent.withValues(alpha: 0.08),
+        highlightColor: colors.accent.withValues(alpha: 0.10),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
@@ -197,8 +232,8 @@ class _LoginHistoryTile extends StatelessWidget {
                       entry.baseUrl,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -208,8 +243,8 @@ class _LoginHistoryTile extends StatelessWidget {
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF9EADBE),
+                      style: TextStyle(
+                        color: colors.textSecondary,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -219,9 +254,9 @@ class _LoginHistoryTile extends StatelessWidget {
               ),
               IconButton(
                 onPressed: onDelete,
-                icon: const Icon(
+                icon: Icon(
                   Icons.delete_outline_rounded,
-                  color: Color(0xFF7C8DA5),
+                  color: colors.textMuted,
                 ),
               ),
             ],

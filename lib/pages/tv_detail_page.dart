@@ -1076,6 +1076,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                 1.0,
               );
               return DetailFloatingTopBar(
+                ambientTint: ambientTint,
                 onBack: () =>
                     unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
                 onMore: () => unawaited(
@@ -1907,6 +1908,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                     1.0,
                   );
                   return DetailFloatingTopBar(
+                    ambientTint: ambientTint,
                     onBack: () => unawaited(
                       EmbeddedDetailLauncher.closeHostOrPop(context),
                     ),

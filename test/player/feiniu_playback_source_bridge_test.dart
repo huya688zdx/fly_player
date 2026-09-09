@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/feiniu_api.dart';
+import 'package:fly_player/desktop/playback/desktop_mpv_runtime.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/feiniu/feiniu_playback_context.dart';
 import 'package:fly_player/media_backend/playback/media_playback.dart';
@@ -168,6 +169,56 @@ void main() {
     return FeiniuApi(nas);
   }
 
+  test('续期更新当前直链及墙钟有效期，序列化后仍保留轨道与进度', () async {
+    final api = _RefreshingFeiniuApi((await makeApi()).nasProvider);
+    final before = DateTime.now().millisecondsSinceEpoch;
+    final quality = PlaybackQualityOption.fromJson({
+      'expired_at': 10,
+      'index': 2,
+    }, source: PlaybackQualitySource.directLink).withSourceFileName('影片.mkv');
+    final source = MpvMediaSource(
+      itemGuid: 'item-1',
+      mediaGuid: 'media-1',
+      videoGuid: 'video-1',
+      url: 'https://cloud.test/old',
+      headers: const {},
+      title: '影片',
+      playbackMode: PlayerPlaybackMode.directLinkQuality,
+      directLinkQualityIndex: 2,
+      qualities: [quality],
+      startPosition: const Duration(seconds: 600),
+      startPaused: true,
+      audioTrackGuid: 'audio-1',
+      subtitleTrackGuid: 'sub-1',
+    );
+    expect(
+      DesktopMpvRuntime.directLinkNeedsRefresh(source, DateTime.now()),
+      isTrue,
+    );
+    final refreshed = await const FeiniuPlaybackSourceBridge()
+        .refreshDirectLink(api: api, source: source);
+    final restored = MpvMediaSource.fromMap(refreshed.toMap());
+    expect(restored.url, 'https://cloud.test/renewed');
+    expect(restored.headers['User-Agent'], 'FlyPlayer');
+    expect(restored.startPosition, source.startPosition);
+    expect(restored.startPaused, isTrue);
+    expect(restored.audioTrackGuid, 'audio-1');
+    expect(restored.subtitleTrackGuid, 'sub-1');
+    final expiry = restored.qualities.last.directLinkExpiresAtMs;
+    expect(expiry, greaterThanOrEqualTo(before + 120000));
+    expect(
+      DesktopMpvRuntime.directLinkNeedsRefresh(restored, DateTime.now()),
+      isFalse,
+    );
+    expect(
+      DesktopMpvRuntime.directLinkNeedsRefresh(
+        restored,
+        DateTime.fromMillisecondsSinceEpoch(expiry - 30000),
+      ),
+      isTrue,
+    );
+  });
+
   group('FeiniuPlaybackSourceBridge.assemble', () {
     test('原画路径：MpvMediaSource 关键字段与 launcher 口径一致', () async {
       final api = await makeApi();
@@ -281,5 +332,24 @@ void main() {
 
       expect(source.seriesGuid, 'series-override');
     });
+  });
+}
+
+class _RefreshingFeiniuApi extends FeiniuApi {
+  _RefreshingFeiniuApi(super.nasProvider);
+
+  @override
+  Future<PlaybackStreamData> getPlaybackStream(
+    String mediaGuid, {
+    int level = 1,
+    String userAgent = 'FlyPlayer',
+  }) async => PlaybackStreamData.fromJson({
+    'direct_link_qualities': [
+      {'index': 0, 'url': 'https://cloud.test/other', 'expired_at': 120},
+      {'index': 2, 'url': 'https://cloud.test/renewed', 'expired_at': 120},
+    ],
+    'header': {
+      'User-Agent': ['FlyPlayer'],
+    },
   });
 }
