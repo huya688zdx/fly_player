@@ -82,7 +82,7 @@ class ItemPlaybackLauncher {
           if (record != null) {
             localPlayback = await resolveLocalDownloadSource(
               record,
-              FeiniuDetailDataGateway.forNas(nas),
+              nas.isConfigured ? FeiniuDetailDataGateway.forNas(nas) : null,
               l10n: l10n,
               startPositionMs: startFromBeginning
                   ? 0
@@ -116,17 +116,19 @@ class ItemPlaybackLauncher {
         // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
         if (DesktopEnvironment.isWindows) {
           final danmakuSettings = await const DanmakuSettingsStore().load();
-          final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-            seriesTitle: source.seriesTitle,
-            itemTitle: source.title,
-            seasonNumber: source.seasonNumber,
-            episodeNumber: source.episodeNumber,
-            tmdbId: source.tmdbId,
-            settings: danmakuSettings,
-            itemGuid: source.itemGuid,
-            mediaGuid: source.mediaGuid,
-            seasonGuid: source.seasonGuid,
-          );
+          final danmakuFile = source.isDownloadedFile
+              ? null
+              : await NativeDanmakuPrefetch.resolveToFile(
+                  seriesTitle: source.seriesTitle,
+                  itemTitle: source.title,
+                  seasonNumber: source.seasonNumber,
+                  episodeNumber: source.episodeNumber,
+                  tmdbId: source.tmdbId,
+                  settings: danmakuSettings,
+                  itemGuid: source.itemGuid,
+                  mediaGuid: source.mediaGuid,
+                  seasonGuid: source.seasonGuid,
+                );
           if (!context.mounted) return null;
           if (await playbackHostFor(context).launch(
             source: source,
@@ -288,6 +290,7 @@ class ItemPlaybackLauncher {
     String? audioGuid,
     List<Map<String, dynamic>>? episodes,
     required AppLocalizations l10n,
+    bool allowNetwork = true,
   }) async {
     return AsyncActionGuard.run<Map<String, dynamic>?>(
       'item_resolve:${itemGuid.trim()}',
@@ -302,7 +305,9 @@ class ItemPlaybackLauncher {
           if (localRecord != null) {
             final local = await resolveLocalDownloadSource(
               localRecord,
-              FeiniuDetailDataGateway.forNas(nas),
+              allowNetwork && nas.isConfigured
+                  ? FeiniuDetailDataGateway.forNas(nas)
+                  : null,
               l10n: l10n,
               startPositionMs: startPositionMs,
             );
@@ -314,6 +319,10 @@ class ItemPlaybackLauncher {
                 if (episodes != null && episodes.isNotEmpty)
                   'episodes': episodes,
               };
+              // 桌面播放页会在起播后加载弹幕，本地切集无需在入口重复等待。
+              if (DesktopEnvironment.isWindows) {
+                return <String, dynamic>{'loadArgs': jsonEncode(loadArgs)};
+              }
               final settings = await const DanmakuSettingsStore().load();
               final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
                 seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
@@ -335,6 +344,7 @@ class ItemPlaybackLauncher {
             }
           }
         }
+        if (!allowNetwork) return null;
         // 原生壳画质切换反向通道目前仅飞牛走（服务器族用最小反向通道 _resolveServerForNative）。
         final resolved = await _resolve(
           backend ?? MediaBackendRegistry.createLegacyFeiniu(nas),

@@ -1307,12 +1307,21 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       title = track.title.trim().isEmpty ? null : track.title.trim();
       language = track.language.trim().isEmpty ? null : track.language.trim();
       if (path.isEmpty && (track.isExternal == 1 || track.extraFile == 1)) {
-        path =
-            await widget.resolveSubtitleFile?.call(
-              selectedGuid,
-              format: track.format,
-            ) ??
-            '';
+        try {
+          final request = widget.resolveSubtitleFile?.call(
+            selectedGuid,
+            format: track.format,
+          );
+          path = request == null
+              ? ''
+              : (await (source.isDownloadedFile
+                        ? request.timeout(const Duration(seconds: 2))
+                        : request) ??
+                    '');
+        } catch (_) {
+          // 本地视频可以没有外挂字幕，不能因 NAS 不可达而起播失败。
+          if (!source.isDownloadedFile) rethrow;
+        }
       }
       break;
     }

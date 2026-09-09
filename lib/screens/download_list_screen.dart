@@ -86,10 +86,12 @@ extension DownloadListTabX on DownloadListTab {
 
 class DownloadListScreen extends StatefulWidget {
   final DownloadListTab initialTab;
+  final bool offline;
 
   const DownloadListScreen({
     super.key,
     this.initialTab = DownloadListTab.downloaded,
+    this.offline = false,
   });
 
   @override
@@ -126,7 +128,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final provider = context.read<NasProvider>();
-      if (!provider.isConfigured) return;
+      if (widget.offline || !provider.isConfigured) return;
       _service.refreshDownloadedGroupMetadata(provider);
     });
   }
@@ -558,7 +560,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   Future<void> _openDownloadedGroupDetail(DownloadTaskGroup group) async {
     final provider = context.read<NasProvider>();
     final navigator = Navigator.of(context);
-    if (provider.isConfigured) {
+    if (!widget.offline && provider.isConfigured) {
       final handled = await EmbeddedDetailLauncher.openDownloadDetail(
         context: context,
         groupId: group.id,
@@ -571,6 +573,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
         DownloadGroupDetailScreen(
           groupId: group.id,
           initialTab: DownloadListTab.downloaded,
+          offline: widget.offline,
         ),
       ),
     );
@@ -785,11 +788,13 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
 class DownloadGroupDetailScreen extends StatefulWidget {
   final String groupId;
   final DownloadListTab initialTab;
+  final bool offline;
 
   const DownloadGroupDetailScreen({
     super.key,
     required this.groupId,
     this.initialTab = DownloadListTab.downloaded,
+    this.offline = false,
   });
 
   @override
@@ -930,14 +935,19 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           }
           final source = resolved.source;
           final title = resolved.title;
-          final nativeEpisodes = await _nativeEpisodesPayload(provider, source);
+          final offline = widget.offline || resolved.playInfo == null;
+          final nativeEpisodes = resolved.playInfo == null
+              ? await _groupEpisodesPayload()
+              : await _nativeEpisodesPayload(provider, source);
 
           if (!mounted) return;
           // Windows 先进入桌面宿主，不注册 Android 反向 MethodChannel。
           if (DesktopEnvironment.isWindows) {
-            if (await playbackHostFor(
-              context,
-            ).launch(source: source, episodes: nativeEpisodes)) {
+            if (await playbackHostFor(context).launch(
+              source: source,
+              episodes: nativeEpisodes,
+              offline: offline,
+            )) {
               return;
             }
             if (!mounted) return;
@@ -981,11 +991,15 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   subtitleGuid: subtitleGuid,
                   audioGuid: audioGuid,
                   episodes: nativeEpisodes.isEmpty ? null : nativeEpisodes,
+                  allowNetwork: !offline,
                 ),
           );
-          if (await playbackHostFor(
-            context,
-          ).launch(source: source, episodes: nativeEpisodes, nas: provider)) {
+          if (await playbackHostFor(context).launch(
+            source: source,
+            episodes: nativeEpisodes,
+            nas: provider,
+            offline: offline,
+          )) {
             return;
           }
           if (!mounted) return;
@@ -1013,10 +1027,9 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   ) async {
     final seasonGuid = source.seasonGuid.trim();
     if (provider.isConfigured && seasonGuid.isNotEmpty) {
-      final episodes = await const ItemPlaybackLauncher().loadSeasonEpisodes(
-        provider,
-        seasonGuid,
-      );
+      final episodes = await const ItemPlaybackLauncher()
+          .loadSeasonEpisodes(provider, seasonGuid)
+          .timeout(localDownloadMetadataTimeout, onTimeout: () => const []);
       if (episodes.isNotEmpty) return episodes;
     }
     return _groupEpisodesPayload();
@@ -1116,7 +1129,9 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     int? startPositionMs,
   }) => resolveLocalDownloadSource(
     record,
-    FeiniuDetailDataGateway.forNas(nas),
+    widget.offline || !nas.isConfigured
+        ? null
+        : FeiniuDetailDataGateway.forNas(nas),
     l10n: AppLocalizations.of(context),
     startPositionMs: startPositionMs,
   );
