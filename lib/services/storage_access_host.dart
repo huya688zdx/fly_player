@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 截图与文件访问平台宿主接口：屏蔽 Android 原生通道与桌面端等价实现的差异。
 ///
@@ -111,11 +114,31 @@ class MethodChannelStorageAccessHost implements StorageAccessHost {
 class DesktopStorageAccessHost implements StorageAccessHost {
   const DesktopStorageAccessHost();
 
+  static const downloadDirectoryKey = 'desktop_download_directory_v1';
+
+  /// 选择的是存放 FlyPlayer 文件夹的位置；已有任务保留原文件路径。
+  Future<void> setDownloadDirectory(String path) async {
+    final directory = Directory(path);
+    // 先验证实际下载目录可写，再保存配置；失败时继续使用原设置。
+    final target = Directory('${directory.path}/FlyPlayer');
+    await target.create(recursive: true);
+    final probe = await target.createTemp('.write-check-');
+    await probe.delete();
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(downloadDirectoryKey, directory.absolute.path)) {
+      throw const FileSystemException('保存下载目录失败');
+    }
+  }
+
   @override
-  Future<String> downloadDirectory() async =>
-      (await getDownloadsDirectory() ??
-              await getApplicationDocumentsDirectory())
-          .path;
+  Future<String> downloadDirectory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final custom = prefs.getString(downloadDirectoryKey);
+    if (custom != null && custom.isNotEmpty) return custom;
+    return (await getDownloadsDirectory() ??
+            await getApplicationDocumentsDirectory())
+        .path;
+  }
 
   @override
   Future<bool?> hasFileAccess() async => true;

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/app_log_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
@@ -99,21 +100,16 @@ class _AppLogScreenState extends State<AppLogScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(context, title: Text(l10n.logInfoTitle)),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(l10n.logInfoTitle),
         ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: FutureBuilder<void>(
             future: _initializeFuture,

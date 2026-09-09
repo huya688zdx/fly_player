@@ -228,42 +228,66 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                  children: <Widget>[
-                    _CardBlock(
-                      child: Column(
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final entries = <_OtherEntryCard>[
+                      _OtherEntryCard(
+                        icon: Icons.bookmarks_outlined,
+                        title: l10n.settingsBookmarkManagerTitle,
+                        summary: _bookmarkSummary(),
+                        summaryHot: _bookmarks.isNotEmpty,
+                        onTap: _openBookmarkManager,
+                      ),
+                      _OtherEntryCard(
+                        icon: Icons.comment_bank_outlined,
+                        title: l10n.settingsDanmakuTitle,
+                        summary: _danmakuSummary(),
+                        onTap: _openDanmakuSettings,
+                      ),
+                      _OtherEntryCard(
+                        icon: Icons.photo_camera_back_outlined,
+                        title: l10n.settingsScreenshotTitle,
+                        summary: _screenshotSummary(),
+                        onTap: _openScreenshotSettings,
+                      ),
+                    ];
+                    // 宽窗三列入口卡撑起构图；窄窗纵向堆叠。
+                    if (constraints.maxWidth >= 720) {
+                      return ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                         children: <Widget>[
-                          _MenuTile(
-                            icon: Icons.bookmarks_outlined,
-                            title: AppLocalizations.of(
-                              context,
-                            ).settingsBookmarkManagerTitle,
-                            subtitle: _bookmarkSummary(),
-                            onTap: _openBookmarkManager,
-                          ),
-                          const _DividerLine(),
-                          _MenuTile(
-                            icon: Icons.comment_bank_outlined,
-                            title: AppLocalizations.of(
-                              context,
-                            ).settingsDanmakuTitle,
-                            subtitle: _danmakuSummary(),
-                            onTap: _openDanmakuSettings,
-                          ),
-                          const _DividerLine(),
-                          _MenuTile(
-                            icon: Icons.photo_camera_back_outlined,
-                            title: AppLocalizations.of(
-                              context,
-                            ).settingsScreenshotTitle,
-                            subtitle: _screenshotSummary(),
-                            onTap: _openScreenshotSettings,
+                          IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                for (
+                                  var index = 0;
+                                  index < entries.length;
+                                  index++
+                                ) ...<Widget>[
+                                  if (index > 0) const SizedBox(width: 12),
+                                  Expanded(child: entries[index]),
+                                ],
+                              ],
+                            ),
                           ),
                         ],
-                      ),
-                    ),
-                  ],
+                      );
+                    }
+                    return ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                      children: <Widget>[
+                        for (
+                          var index = 0;
+                          index < entries.length;
+                          index++
+                        ) ...<Widget>[
+                          if (index > 0) const SizedBox(height: 12),
+                          entries[index],
+                        ],
+                      ],
+                    );
+                  },
                 ),
         ),
       ),
@@ -317,8 +341,8 @@ class _ScreenshotSettingsDestinationScreenState
   Widget build(BuildContext context) {
     final settings = _settings;
     if (settings == null) {
-      return AppAmbientPage(
-        child: const Scaffold(
+      return const AppAmbientPage(
+        child: Scaffold(
           backgroundColor: Colors.transparent,
           body: Center(child: BirdLoader(size: 120)),
         ),
@@ -1314,6 +1338,88 @@ class _CardBlock extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: child,
+      ),
+    );
+  }
+}
+
+/// 「其他」页入口卡：图标 + 标题 + 当前取值摘要，宽窗三列并排。
+class _OtherEntryCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String summary;
+  final bool summaryHot;
+  final VoidCallback onTap;
+
+  const _OtherEntryCard({
+    required this.icon,
+    required this.title,
+    required this.summary,
+    this.summaryHot = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: colors.borderSubtle),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: colors.accentSoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(icon, color: colors.accentStrong, size: 19),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: AdaptiveText.roleSize(15),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: colors.textMuted,
+                  size: 18,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              summary,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: summaryHot ? colors.accentStrong : colors.textSecondary,
+                fontSize: AdaptiveText.roleSize(12.2),
+                height: 1.5,
+                fontWeight: summaryHot ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
