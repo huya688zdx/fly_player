@@ -83,91 +83,6 @@ class AppSettingsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _openLanguageSheet(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final colors = sheetContext.appColors;
-        final l10n = AppLocalizations.of(sheetContext);
-        final selectedMode = sheetContext.watch<AppLocaleProvider>().mode;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: sheetContext.appModalBackgroundColor,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: colors.borderSubtle),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Container(
-                    width: 36,
-                    height: 4,
-                    margin: const EdgeInsets.only(top: 4, bottom: 10),
-                    decoration: BoxDecoration(
-                      color: colors.borderStrong,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        l10n.languageSheetTitle,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: AdaptiveText.roleSize(
-                            17,
-                            role: AdaptiveFontRole.title,
-                          ),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  _LanguageOptionTile(
-                    mode: AppLocaleMode.system,
-                    groupValue: selectedMode,
-                    title: l10n.languageSystem,
-                    subtitle: l10n.languageSystemSubtitle,
-                    onSelected: () {
-                      unawaited(
-                        sheetContext.read<AppLocaleProvider>().setMode(
-                          AppLocaleMode.system,
-                        ),
-                      );
-                      Navigator.of(sheetContext).pop();
-                    },
-                  ),
-                  _LanguageOptionTile(
-                    mode: AppLocaleMode.zhCN,
-                    groupValue: selectedMode,
-                    title: l10n.languageZhCN,
-                    subtitle: l10n.languageZhCNSubtitle,
-                    onSelected: () {
-                      unawaited(
-                        sheetContext.read<AppLocaleProvider>().setMode(
-                          AppLocaleMode.zhCN,
-                        ),
-                      );
-                      Navigator.of(sheetContext).pop();
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _resetFnConnectWebLoginState(BuildContext context) async {
     final l10n = AppLocalizations.of(context);
     final confirmed = await showAppConfirmDialog(
@@ -250,6 +165,19 @@ class AppSettingsScreen extends StatelessWidget {
   ) {
     final l10n = AppLocalizations.of(context);
     final entries = <SettingsSearchEntry>[
+      SettingsSearchEntry(
+        id: 'language_settings',
+        title: l10n.settingsLanguageTitle,
+        subtitle: context.read<AppLocaleProvider>().mode == AppLocaleMode.zhCN
+            ? l10n.settingsLanguageSubtitleZhCN
+            : l10n.settingsLanguageSubtitleSystem,
+        location: l10n.settingsLocationRoot,
+        keywords: <String>[l10n.languageSystem, l10n.languageZhCN, 'language'],
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.language,
+        ),
+      ),
       SettingsSearchEntry(
         id: 'startup_poster_home',
         title: l10n.settingsStartupPosterHomeTitle,
@@ -612,7 +540,12 @@ class AppSettingsScreen extends StatelessWidget {
             title: l10n.settingsLanguageTitle,
             subtitle: languageValue,
             value: languageValue,
-            onTap: () => unawaited(_openLanguageSheet(context)),
+            onTap: () => unawaited(
+              _openSettingsDestination(
+                context,
+                SettingsDestinationRoutes.language,
+              ),
+            ),
           ),
           _DesktopRowData(
             icon: Icons.slideshow_rounded,
@@ -824,53 +757,6 @@ class AppSettingsScreen extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _LanguageOptionTile extends StatelessWidget {
-  final AppLocaleMode mode;
-  final AppLocaleMode groupValue;
-  final String title;
-  final String subtitle;
-  final VoidCallback onSelected;
-
-  const _LanguageOptionTile({
-    required this.mode,
-    required this.groupValue,
-    required this.title,
-    required this.subtitle,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final selected = mode == groupValue;
-    return ListTile(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      onTap: onSelected,
-      leading: Icon(
-        selected
-            ? Icons.radio_button_checked_rounded
-            : Icons.radio_button_off_rounded,
-        color: selected ? colors.accent : colors.textMuted,
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: colors.textPrimary,
-          fontSize: AdaptiveText.roleSize(15.5),
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(
-          color: colors.textSecondary,
-          fontSize: AdaptiveText.roleSize(13),
-        ),
-      ),
     );
   }
 }
