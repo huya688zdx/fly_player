@@ -1131,6 +1131,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // （内置走 sid、外挂/本地走文件加载）。否则外挂初始字幕没人加载，mpv 退回默认内置轨。
     private var pendingInitialSubtitle = false
     private var lastRecordedTs = -1L
+    private var lastProgressPaused = true
+    private var lastProgressEnded = false
     private val progressReportRunnable = object : Runnable {
         override fun run() {
             if (!isPeriodicReportRunning) return
@@ -1138,6 +1140,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 playerSurface.state.nativeLibLoaded
             ) {
                 reportProgress(periodic = true)
+                refreshSegmentedSubtitle()
             }
             if (this@NativePlayerActivity::bottomBar.isInitialized) {
                 bottomBar.postDelayed(this, 3000L)
@@ -1213,6 +1216,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // OnBackInvokedCallback（API 33+）；用 Any? 持有，避免旧设备类加载该 API 类型。
     private var backInvokedCallback: Any? = null
     private var inPipMode = false
+    // 离开 PiP 后是否还在等待前台恢复：X 关闭/划走会先退 PiP 再走 onStop（无 onResume），
+    // 用它区分「用户关掉小窗」和「点展开回全屏」，前者应在后台暂停播放。
+    private var pipExitAwaitingResume = false
     private var controlsVisibleBeforePip = true
 
     private var danmakuEnabled = true
@@ -2457,6 +2463,34 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
+    private var segmentedSubtitlePending = false
+
+    private fun refreshSegmentedSubtitle() {
+        if (segmentedSubtitlePending || !isServerManagedPlayback() || selectedSubtitleGuid.isEmpty()) return
+        val guid = selectedSubtitleGuid
+        if (loadArgsMap["subtitleTrackGuid"]?.toString() != guid) return
+        val link = loadArgsMap["playLink"]?.toString().orEmpty()
+        if (link.isEmpty()) return
+        val position = playerSurface.state.positionMs
+        val nonce = loadArgsMap["loadNonce"]
+        segmentedSubtitlePending = true
+        NativePlayerReverseBridge.dispatch(
+            method = "resolveSegmentedSubtitle",
+            args = mapOf("loadArgs" to JSONObject(loadArgsMap).toString(), "positionMs" to position),
+            onResult = { result ->
+                runOnUiThread {
+                    segmentedSubtitlePending = false
+                    val path = result?.toString()?.takeIf { it.isNotEmpty() }
+                    if (!activityDestroying && selectedSubtitleGuid == guid &&
+                        loadArgsMap["playLink"]?.toString() == link && loadArgsMap["loadNonce"] == nonce && path != null &&
+                        kotlin.math.abs(playerSurface.state.positionMs - position) < 12000L
+                    ) playerSurface.setExternalSubtitleFile(path)
+                }
+            },
+            onError = { runOnUiThread { segmentedSubtitlePending = false } },
+        )
+    }
+
     private fun selectExternalSubtitle(track: Map<String, Any?>) {
         val guid = track["guid"]?.toString().orEmpty()
         val localPath = localSubtitleFilePath(guid)
@@ -2748,6 +2782,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onResume() {
         super.onResume()
+        // 从 PiP 展开回全屏：不算「关闭小窗」，继续播放。
+        pipExitAwaitingResume = false
         // 前台恢复（从设置页/Flutter 播放器等返回）时主动拉一次 Flutter 全局 MPV 设置，
         // 让「只在启动注入」之外的外部改动也即时生效。带 diff 守卫，无变化不重下发内核。
         pullGlobalMpvSettingsOnResume()
@@ -2830,6 +2866,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
         )
         reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
+        val previousPlayLink = loadArgsMap["playLink"]?.toString().orEmpty()
+        if (previousPlayLink.isNotEmpty() && previousPlayLink != effectiveLoadArgs["playLink"]?.toString()) {
+            NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to previousPlayLink))
+        }
         mediaTitle = resolveTitle(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
         refreshSeekThumbnails()
@@ -2846,6 +2886,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         episodePickerLoadedOnce = false // 换源：新内容需重新完整落地选集数据
         episodeViewModeUserDirty = false // 换源：新内容按服务端/本地偏好重新决定视图
         lastRecordedTs = -1L
+        lastProgressPaused = true
+        lastProgressEnded = false
         resetPlaybackProgressTracking() // 换源后重置「已开播」兜底，让 loading 重新从切换态开始
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
@@ -2966,6 +3008,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             controlsVisibleBeforePip = controlsVisible
         }
         inPipMode = isInPictureInPictureMode
+        pipExitAwaitingResume = wasInPipMode && !isInPictureInPictureMode
         // 进入小窗：收掉分屏副栏(系统 API31+ 自动进小窗也走这里) + 收起控制层/面板，只留画面。
         if (isInPictureInPictureMode) {
             collapseSplitForPip()
@@ -4816,6 +4859,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 Glide.with(this)
                     .load(model)
                     .transform(CenterCrop(), RoundedCorners(dp(8)))
+                    // 面板每次打开都重建列表并重新 load，两个闪动来源都要掐掉：
+                    // 1) 默认 300ms 交叉淡入（缓存命中也闪）→ dontAnimate 直接上屏；
+                    // 2) 新 ImageView 未测量时 into() 要等 onPreDraw 拿尺寸 → 第一帧先画深底
+                    //    第二帧才上图（整列齐闪一帧）→ override 显式尺寸让命中在首帧前同步完成。
+                    .override(thumbWidth, thumbHeight)
+                    .placeholder(thumbnail.drawable)
+                    .dontAnimate()
                     .into(thumbnail)
             }
 
@@ -9350,6 +9400,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyState(state: MpvPlayerState) {
         if (!nativePanelShouldApplyPlaybackState(activityDestroying)) return
+        val ended = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
+        if (state.loadNonce == (loadArgsMap["loadNonce"] as? Number)?.toInt()) {
+            if ((!lastProgressPaused && state.paused) || (!lastProgressEnded && ended)) {
+                reportProgress(force = true, snapshot = state)
+            }
+            lastProgressPaused = state.paused
+            lastProgressEnded = ended
+        }
         lastDurationMs = state.durationMs
         speedButton.text = nativePanelPlaybackSpeedLabel(state.speed)
 
@@ -9451,13 +9509,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val guid = selectedSubtitleGuid
         if (guid.isEmpty()) return // 关闭/未选：交给 controller（sid=no 或默认轨）
         if (isServerManagedPlayback()) {
-            // 服务端转码：内置/服务端字幕已由服务端烧录进流，不用动；但「外挂字幕」服务端不烧录
-            // （reloadServerPlaySession 里 subtitleShouldUseExternalFile→空 subtitleGuid），
-            // 必须在转码流上 sub-add 外挂文件，否则切到外挂字幕会「掉字幕」。
+            // 位图由服务端烧录；飞牛内嵌文本由分段字幕回调加载。
+            // 外挂字幕仍需主动 sub-add，Emby 等后端保持自己的字幕处理。
             val track = trackList("subtitleTracks")
                 .firstOrNull { it["guid"]?.toString() == guid }
             if (track != null && subtitleShouldUseExternalFile(track)) {
                 selectExternalSubtitle(track)
+            } else {
+                refreshSegmentedSubtitle()
             }
             return
         }
@@ -10085,6 +10144,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     override fun onStop() {
         // 真正退到后台/不可见才停周期上报（PiP 仍可见，不在此停）；退出前补写一次进度。
         stopPeriodicReport()
+        // 用户关掉 PiP 窗口（X/划走/Home）：离开 PiP 后没有前台恢复直接不可见，
+        // 必须暂停，否则窗口没了声音还在后台播。展开回全屏走 onResume 清标记，不受影响。
+        if (pipExitAwaitingResume) {
+            pipExitAwaitingResume = false
+            if (this::playerSurface.isInitialized && !playerSurface.state.paused) {
+                playerSurface.pause()
+            }
+        }
         reportProgress()
         unregisterBatteryReceiver()
         super.onStop()
@@ -10118,17 +10185,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 全在 loadArgsMap（source.toMap）里，连同 ts/duration 一起回传。本地源缺 mediaGuid，
      * Flutter 端会自动跳过。节流：ts 秒级未变则不重复上报。
      */
-    private fun reportProgress(periodic: Boolean = false) {
+    private fun reportProgress(
+        periodic: Boolean = false,
+        force: Boolean = false,
+        snapshot: MpvPlayerState? = null,
+    ) {
         if (!this::playerSurface.isInitialized) return
-        val state = playerSurface.state
+        val state = snapshot ?: playerSurface.state
         val durationSec = state.durationMs / 1000
         if (durationSec <= 0L) return
         val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
         val paused = state.paused
         // 同秒去重只对播放态生效；暂停时放行为心跳，供 Flutter 统计端区分「暂停」与
         // 「已退出」。pausedHeartbeat 标记重复帧，服务端回写（飞牛/Emby）按它跳过。
-        val pausedHeartbeat = paused && ts == lastRecordedTs
-        if (ts == lastRecordedTs && !paused) return
+        val pausedHeartbeat = !force && paused && ts == lastRecordedTs
+        if (!force && ts == lastRecordedTs && !paused) return
         lastRecordedTs = ts
         val args = HashMap<String, Any?>()
         args["isPaused"] = paused
@@ -10148,6 +10219,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
+        val playLink = loadArgsMap["playLink"]?.toString().orEmpty()
+        if (playLink.isNotEmpty()) {
+            NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to playLink))
+        }
         activityDestroying = true
         NativeMediaCommandCoordinator.detach(this)
         // 先停媒体服务，再释放 playerSurface。释放内核可能同步/异步回调最终状态，不能让

@@ -14,6 +14,7 @@ import '../providers/startup_preferences_provider.dart';
 import '../services/download_task_service.dart';
 import '../services/storage_management_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_exception.dart';
@@ -503,140 +504,146 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final overview = _overview;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(l10n.storageTitle),
-        actions: <Widget>[
-          IconButton(
-            onPressed: _working ? null : _loadOverview,
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: l10n.storageRefreshTooltip,
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: BirdLoader(size: 120))
-          : overview == null && _overviewError != null
-          ? AppErrorState(error: _overviewError!, onRetry: _loadOverview)
-          : overview == null
-          ? const Center(child: BirdLoader(size: 120))
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              children: <Widget>[
-                _StorageOverviewCard(
-                  totalLabel: _service.formatBytes(overview.totalBytes),
-                  updatedAt: overview.updatedAt,
-                ),
-                const SizedBox(height: 14),
-                _StorageChartCard(
-                  items: overview.items,
-                  colorFor: (kind) => _colorFor(kind, colors),
-                  formatBytes: _service.formatBytes,
-                ),
-                const SizedBox(height: 14),
-                _StorageCategoriesCard(
-                  playbackItem: _itemOfKind(
-                    overview,
-                    StorageItemKind.playbackCache,
-                  ),
-                  downloadsItem: _itemOfKind(
-                    overview,
-                    StorageItemKind.downloads,
-                  ),
-                  screenshotsItem: _itemOfKind(
-                    overview,
-                    StorageItemKind.screenshots,
-                  ),
-                  logsItem: _itemOfKind(overview, StorageItemKind.logs),
-                  danmakuAiCacheItem: _itemOfKind(
-                    overview,
-                    StorageItemKind.danmakuAiCache,
-                  ),
-                  appDataItem: _itemOfKind(overview, StorageItemKind.appData),
-                  otherCacheItem: _itemOfKind(
-                    overview,
-                    StorageItemKind.otherCache,
-                  ),
-                  colorFor: (kind) => _colorFor(kind, colors),
-                  formatBytes: _service.formatBytes,
-                  busy: _working,
-                  playbackExpanded: _playbackExpanded,
-                  playbackLoading: _playbackLoading,
-                  playbackEntries: _playbackEntries,
-                  selectedPlaybackKeys: _selectedPlaybackKeys,
-                  downloadsExpanded: _downloadsExpanded,
-                  downloadsLoading: _downloadsLoading,
-                  downloadEntries: _downloadEntries,
-                  selectedDownloadIds: _selectedDownloadIds,
-                  onTogglePlaybackExpanded: _togglePlaybackExpanded,
-                  onToggleDownloadsExpanded: _toggleDownloadsExpanded,
-                  onTogglePlaybackSelected: (resourceKey, selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedPlaybackKeys.add(resourceKey);
-                      } else {
-                        _selectedPlaybackKeys.remove(resourceKey);
-                      }
-                    });
-                  },
-                  onToggleDownloadSelected: (recordId, selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedDownloadIds.add(recordId);
-                      } else {
-                        _selectedDownloadIds.remove(recordId);
-                      }
-                    });
-                  },
-                  onToggleSelectAllPlayback: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedPlaybackKeys
-                          ..clear()
-                          ..addAll(
-                            _playbackEntries.map((entry) => entry.resourceKey),
-                          );
-                      } else {
-                        _selectedPlaybackKeys.clear();
-                      }
-                    });
-                  },
-                  onToggleSelectAllDownloads: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedDownloadIds
-                          ..clear()
-                          ..addAll(_downloadEntries.map((entry) => entry.id));
-                      } else {
-                        _selectedDownloadIds.clear();
-                      }
-                    });
-                  },
-                  onClearSelectedPlayback: _clearSelectedPlaybackCache,
-                  onPromoteSelectedPlayback: _promoteSelectedPlaybackCache,
-                  onClearSelectedDownloads: _clearSelectedDownloads,
-                  onClearSystemItem: (item) async {
-                    final action = item.clearAction;
-                    if (action == null) return;
-                    final confirmed = await _confirmDialog(
-                      title: l10n.storageClearItemTitle(item.title),
-                      message: l10n.storageClearItemMessage(item.title),
-                    );
-                    if (confirmed != true || !mounted) return;
-                    await _runSystemAction(
-                      action,
-                      successMessage: l10n.storageClearItemSuccess(item.title),
-                      restrictedMessage: l10n.storageClearItemRestricted(
-                        item.title,
-                      ),
-                    );
-                  },
-                  onOpenAppData: () => _openAppDataDetails(overview),
-                ),
-              ],
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(l10n.storageTitle),
+          actions: <Widget>[
+            IconButton(
+              onPressed: _working ? null : _loadOverview,
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: l10n.storageRefreshTooltip,
             ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: BirdLoader(size: 120))
+            : overview == null && _overviewError != null
+            ? AppErrorState(error: _overviewError!, onRetry: _loadOverview)
+            : overview == null
+            ? const Center(child: BirdLoader(size: 120))
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                children: <Widget>[
+                  _StorageOverviewCard(
+                    totalLabel: _service.formatBytes(overview.totalBytes),
+                    updatedAt: overview.updatedAt,
+                  ),
+                  const SizedBox(height: 14),
+                  _StorageChartCard(
+                    items: overview.items,
+                    colorFor: (kind) => _colorFor(kind, colors),
+                    formatBytes: _service.formatBytes,
+                  ),
+                  const SizedBox(height: 14),
+                  _StorageCategoriesCard(
+                    playbackItem: _itemOfKind(
+                      overview,
+                      StorageItemKind.playbackCache,
+                    ),
+                    downloadsItem: _itemOfKind(
+                      overview,
+                      StorageItemKind.downloads,
+                    ),
+                    screenshotsItem: _itemOfKind(
+                      overview,
+                      StorageItemKind.screenshots,
+                    ),
+                    logsItem: _itemOfKind(overview, StorageItemKind.logs),
+                    danmakuAiCacheItem: _itemOfKind(
+                      overview,
+                      StorageItemKind.danmakuAiCache,
+                    ),
+                    appDataItem: _itemOfKind(overview, StorageItemKind.appData),
+                    otherCacheItem: _itemOfKind(
+                      overview,
+                      StorageItemKind.otherCache,
+                    ),
+                    colorFor: (kind) => _colorFor(kind, colors),
+                    formatBytes: _service.formatBytes,
+                    busy: _working,
+                    playbackExpanded: _playbackExpanded,
+                    playbackLoading: _playbackLoading,
+                    playbackEntries: _playbackEntries,
+                    selectedPlaybackKeys: _selectedPlaybackKeys,
+                    downloadsExpanded: _downloadsExpanded,
+                    downloadsLoading: _downloadsLoading,
+                    downloadEntries: _downloadEntries,
+                    selectedDownloadIds: _selectedDownloadIds,
+                    onTogglePlaybackExpanded: _togglePlaybackExpanded,
+                    onToggleDownloadsExpanded: _toggleDownloadsExpanded,
+                    onTogglePlaybackSelected: (resourceKey, selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedPlaybackKeys.add(resourceKey);
+                        } else {
+                          _selectedPlaybackKeys.remove(resourceKey);
+                        }
+                      });
+                    },
+                    onToggleDownloadSelected: (recordId, selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedDownloadIds.add(recordId);
+                        } else {
+                          _selectedDownloadIds.remove(recordId);
+                        }
+                      });
+                    },
+                    onToggleSelectAllPlayback: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedPlaybackKeys
+                            ..clear()
+                            ..addAll(
+                              _playbackEntries.map(
+                                (entry) => entry.resourceKey,
+                              ),
+                            );
+                        } else {
+                          _selectedPlaybackKeys.clear();
+                        }
+                      });
+                    },
+                    onToggleSelectAllDownloads: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedDownloadIds
+                            ..clear()
+                            ..addAll(_downloadEntries.map((entry) => entry.id));
+                        } else {
+                          _selectedDownloadIds.clear();
+                        }
+                      });
+                    },
+                    onClearSelectedPlayback: _clearSelectedPlaybackCache,
+                    onPromoteSelectedPlayback: _promoteSelectedPlaybackCache,
+                    onClearSelectedDownloads: _clearSelectedDownloads,
+                    onClearSystemItem: (item) async {
+                      final action = item.clearAction;
+                      if (action == null) return;
+                      final confirmed = await _confirmDialog(
+                        title: l10n.storageClearItemTitle(item.title),
+                        message: l10n.storageClearItemMessage(item.title),
+                      );
+                      if (confirmed != true || !mounted) return;
+                      await _runSystemAction(
+                        action,
+                        successMessage: l10n.storageClearItemSuccess(
+                          item.title,
+                        ),
+                        restrictedMessage: l10n.storageClearItemRestricted(
+                          item.title,
+                        ),
+                      );
+                    },
+                    onOpenAppData: () => _openAppDataDetails(overview),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }
@@ -724,118 +731,122 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final overview = widget.overview;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(l10n.storageAppDataDangerTitle),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-        children: <Widget>[
-          _SectionCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  l10n.storageAppDataTitle,
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(l10n.storageAppDataDangerTitle),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+          children: <Widget>[
+            _SectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    l10n.storageAppDataTitle,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  l10n.storageAppDataDescription,
-                  style: TextStyle(color: colors.textMuted, fontSize: 13),
-                ),
-                const SizedBox(height: 14),
-                _DangerActionRow(
-                  title: l10n.storageClearBookmarksTitle,
-                  subtitle: l10n.storageClearBookmarksSubtitle,
-                  trailing: widget.formatBytes(overview.bookmarksBytes),
-                  busy: _working,
-                  onTap: () => _runDangerAction(
+                  const SizedBox(height: 6),
+                  Text(
+                    l10n.storageAppDataDescription,
+                    style: TextStyle(color: colors.textMuted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  _DangerActionRow(
                     title: l10n.storageClearBookmarksTitle,
-                    message: l10n.storageClearBookmarksMessage,
-                    onConfirmed: _service.clearBookmarks,
+                    subtitle: l10n.storageClearBookmarksSubtitle,
+                    trailing: widget.formatBytes(overview.bookmarksBytes),
+                    busy: _working,
+                    onTap: () => _runDangerAction(
+                      title: l10n.storageClearBookmarksTitle,
+                      message: l10n.storageClearBookmarksMessage,
+                      onConfirmed: _service.clearBookmarks,
+                    ),
                   ),
-                ),
-                const Divider(height: 24),
-                _DangerActionRow(
-                  title: l10n.storageClearSavedThemesTitle,
-                  subtitle: l10n.storageClearSavedThemesSubtitle,
-                  trailing: widget.formatBytes(overview.savedThemesBytes),
-                  busy: _working,
-                  onTap: () => _runDangerAction(
+                  const Divider(height: 24),
+                  _DangerActionRow(
                     title: l10n.storageClearSavedThemesTitle,
-                    message: l10n.storageClearSavedThemesMessage,
-                    onConfirmed: () => _service.clearSavedThemes(
-                      context.read<AppThemeProvider>(),
+                    subtitle: l10n.storageClearSavedThemesSubtitle,
+                    trailing: widget.formatBytes(overview.savedThemesBytes),
+                    busy: _working,
+                    onTap: () => _runDangerAction(
+                      title: l10n.storageClearSavedThemesTitle,
+                      message: l10n.storageClearSavedThemesMessage,
+                      onConfirmed: () => _service.clearSavedThemes(
+                        context.read<AppThemeProvider>(),
+                      ),
                     ),
                   ),
-                ),
-                const Divider(height: 24),
-                _DangerActionRow(
-                  title: l10n.storageClearDynamicThemeTitle,
-                  subtitle: l10n.storageClearDynamicThemeSubtitle,
-                  trailing: widget.formatBytes(overview.dynamicThemeCacheBytes),
-                  busy: _working,
-                  onTap: () => _runDangerAction(
+                  const Divider(height: 24),
+                  _DangerActionRow(
                     title: l10n.storageClearDynamicThemeTitle,
-                    message: l10n.storageClearDynamicThemeMessage,
-                    onConfirmed: _service.clearDynamicThemeSeedCache,
-                  ),
-                ),
-                const Divider(height: 24),
-                _DangerActionRow(
-                  title: l10n.storageClearDanmakuSourcesTitle,
-                  subtitle: l10n.storageClearDanmakuSourcesSubtitle,
-                  trailing: widget.formatBytes(
-                    overview.danmakuSourcesBytes + overview.danmakuCacheBytes,
-                  ),
-                  busy: _working,
-                  onTap: () => _runDangerAction(
-                    title: l10n.storageClearDanmakuSourcesTitle,
-                    message: l10n.storageClearDanmakuSourcesMessage,
-                    onConfirmed: _service.clearDanmakuSources,
-                  ),
-                ),
-                const Divider(height: 24),
-                _DangerActionRow(
-                  title: l10n.storageClearLoginHistoryTitle,
-                  subtitle: l10n.storageClearLoginHistorySubtitle,
-                  trailing: widget.formatBytes(overview.loginHistoryBytes),
-                  busy: _working,
-                  onTap: () => _runDangerAction(
-                    title: l10n.storageClearLoginHistoryTitle,
-                    message: l10n.storageClearLoginHistoryMessage,
-                    onConfirmed: _service.clearLoginHistory,
-                  ),
-                ),
-                const Divider(height: 24),
-                _DangerActionRow(
-                  title: l10n.storageResetSettingsTitle,
-                  subtitle: l10n.storageResetSettingsSubtitle,
-                  trailing: widget.formatBytes(overview.otherSettingsBytes),
-                  busy: _working,
-                  onTap: () => _runDangerAction(
-                    title: l10n.storageResetSettingsTitle,
-                    message: l10n.storageResetSettingsMessage,
-                    onConfirmed: () => _service.resetSettings(
-                      themeProvider: context.read<AppThemeProvider>(),
-                      parallelWindowSettingsProvider: context
-                          .read<ParallelWindowSettingsProvider>(),
-                      startupPreferencesProvider: context
-                          .read<StartupPreferencesProvider>(),
+                    subtitle: l10n.storageClearDynamicThemeSubtitle,
+                    trailing: widget.formatBytes(
+                      overview.dynamicThemeCacheBytes,
+                    ),
+                    busy: _working,
+                    onTap: () => _runDangerAction(
+                      title: l10n.storageClearDynamicThemeTitle,
+                      message: l10n.storageClearDynamicThemeMessage,
+                      onConfirmed: _service.clearDynamicThemeSeedCache,
                     ),
                   ),
-                ),
-              ],
+                  const Divider(height: 24),
+                  _DangerActionRow(
+                    title: l10n.storageClearDanmakuSourcesTitle,
+                    subtitle: l10n.storageClearDanmakuSourcesSubtitle,
+                    trailing: widget.formatBytes(
+                      overview.danmakuSourcesBytes + overview.danmakuCacheBytes,
+                    ),
+                    busy: _working,
+                    onTap: () => _runDangerAction(
+                      title: l10n.storageClearDanmakuSourcesTitle,
+                      message: l10n.storageClearDanmakuSourcesMessage,
+                      onConfirmed: _service.clearDanmakuSources,
+                    ),
+                  ),
+                  const Divider(height: 24),
+                  _DangerActionRow(
+                    title: l10n.storageClearLoginHistoryTitle,
+                    subtitle: l10n.storageClearLoginHistorySubtitle,
+                    trailing: widget.formatBytes(overview.loginHistoryBytes),
+                    busy: _working,
+                    onTap: () => _runDangerAction(
+                      title: l10n.storageClearLoginHistoryTitle,
+                      message: l10n.storageClearLoginHistoryMessage,
+                      onConfirmed: _service.clearLoginHistory,
+                    ),
+                  ),
+                  const Divider(height: 24),
+                  _DangerActionRow(
+                    title: l10n.storageResetSettingsTitle,
+                    subtitle: l10n.storageResetSettingsSubtitle,
+                    trailing: widget.formatBytes(overview.otherSettingsBytes),
+                    busy: _working,
+                    onTap: () => _runDangerAction(
+                      title: l10n.storageResetSettingsTitle,
+                      message: l10n.storageResetSettingsMessage,
+                      onConfirmed: () => _service.resetSettings(
+                        themeProvider: context.read<AppThemeProvider>(),
+                        parallelWindowSettingsProvider: context
+                            .read<ParallelWindowSettingsProvider>(),
+                        startupPreferencesProvider: context
+                            .read<StartupPreferencesProvider>(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -161,7 +161,13 @@ class DanDanPlayResolver {
   Future<DanmakuImportResult?> _loadCachedResult(
     DanDanPlayEpisodeSearchItem item,
   ) async {
-    final content = await _cacheStore.loadComments(item.episodeId);
+    String? content;
+    try {
+      content = await _cacheStore.loadComments(item.episodeId);
+    } catch (_) {
+      // 评论缓存只是加速项。Windows 未启用 sqflite 时直接回源，不能阻断弹幕加载。
+      content = null;
+    }
     if (content == null || content.isEmpty) return null;
     try {
       return DanmakuImportParser.parseContentString(
@@ -184,7 +190,14 @@ class DanDanPlayResolver {
       content,
       sourceLabel: 'DanDanPlay · ${item.displaySubtitle}',
     );
-    await _cacheStore.saveComments(episodeId: item.episodeId, content: content);
+    try {
+      await _cacheStore.saveComments(
+        episodeId: item.episodeId,
+        content: content,
+      );
+    } catch (_) {
+      // 回源结果已可播放，缓存写入失败不应把本次加载改成失败。
+    }
     return result;
   }
 
