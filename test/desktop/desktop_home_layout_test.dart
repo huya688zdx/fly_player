@@ -302,7 +302,9 @@ void main() {
       expect(find.byType(HoverLift), findsNWidgets(6));
     });
 
-    testWidgets('非桌面档不出现 HoverLift 与滚动箭头', (tester) async {
+    testWidgets('非桌面平台不出现 HoverLift 与滚动箭头', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = false;
+      addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
       await tester.pumpWidget(
         desktopApp(
           width: 800,

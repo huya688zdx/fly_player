@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/desktop/desktop_hover_dropdown.dart';
+import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/track_option_sheet.dart';
 
 void main() {
@@ -24,6 +25,7 @@ void main() {
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppThemeBuilder.build(AppThemePreset.latte),
         home: Scaffold(
           body: Align(
             alignment: Alignment.topLeft,
@@ -68,6 +70,10 @@ void main() {
     expect(find.text('选择字幕'), findsOneWidget);
     expect(find.text('法语-默认'), findsOneWidget);
     expect(find.text('日语'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.text('日语')).style!.color,
+      tester.element(find.text('日语')).appColors.textPrimary,
+    );
 
     // 回归锁定：弹层子树承载 tight 全屏约束，面板必须收缩到 spec 宽度，
     // 否则命中测试区铺满全屏、移出收起失效。

@@ -41,12 +41,14 @@ Future<void> showDesktopContextMenu(
 }) {
   if (entries.isEmpty) return Future<void>.value();
   _activeSession?.dismiss();
+  final overlay = Overlay.of(context, rootOverlay: true);
+  final overlayBox = overlay.context.findRenderObject()! as RenderBox;
   final session = _DesktopContextMenuSession(
-    anchor: position,
+    anchor: overlayBox.globalToLocal(position),
     entries: List<DesktopContextMenuEntry>.unmodifiable(entries),
   );
   _activeSession = session;
-  session._attach(Overlay.of(context, rootOverlay: true));
+  session._attach(overlay);
   return session._done.future;
 }
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../media_backend/media_image_request.dart';
+import '../desktop/desktop_environment.dart';
 import '../services/app_log_service.dart';
 import '../theme/app_theme.dart';
 import 'capability_badge_mapper.dart';
@@ -355,7 +356,9 @@ class _PosterImageState extends State<_PosterImage> {
         final dpr = MediaQuery.devicePixelRatioOf(context);
         // 稳定解码宽度优先：用与窗口无关的 decodeWidth(仅设宽、高按源图比例由 fit 策略推导)，
         // 避免进/退分屏因 cacheWidth 变化使图片缓存 key 失配、海报重解码闪烁。
-        final stableW = widget.decodeWidth;
+        final stableW =
+            widget.decodeWidth ??
+            (DesktopEnvironment.isDesktopPlatform ? 600 : null);
         final cacheW =
             stableW ??
             (constraints.maxWidth.isFinite

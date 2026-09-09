@@ -10,6 +10,9 @@ import '../../playback/playback_source.dart';
 import '../../playback/settings/mpv_settings_l10n.dart';
 import '../../playback/settings/mpv_settings_store.dart';
 import 'desktop_semantics_safe_slider.dart';
+import 'desktop_playback_chapters.dart';
+
+export 'desktop_playback_chapters.dart' show DesktopPlayerChapter;
 
 class DesktopPlayerPanelOption {
   const DesktopPlayerPanelOption({
@@ -825,14 +828,6 @@ class _DanmakuSourceTile extends StatelessWidget {
       ],
     ),
   );
-}
-
-/// 播放器章节条目（来自 mpv chapter-list）。
-class DesktopPlayerChapter {
-  const DesktopPlayerChapter({required this.title, required this.position});
-
-  final String title;
-  final Duration position;
 }
 
 /// 播放设置面板的页面（层级对齐安卓原生播放页的分组结构）。

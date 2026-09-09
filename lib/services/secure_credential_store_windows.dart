@@ -60,7 +60,9 @@ class WindowsSecureCredentialBackend implements SecureCredentialBackend {
       throw SecureCredentialOperationException('write', normalized);
     }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsPrefix + normalized, base64Encode(blob));
+    if (!await prefs.setString(_prefsPrefix + normalized, base64Encode(blob))) {
+      throw SecureCredentialOperationException('write', normalized);
+    }
   }
 
   @override
@@ -68,7 +70,9 @@ class WindowsSecureCredentialBackend implements SecureCredentialBackend {
     final normalized = _normalizeKey(key);
     if (normalized.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefsPrefix + normalized);
+    if (!await prefs.remove(_prefsPrefix + normalized)) {
+      throw SecureCredentialOperationException('delete', normalized);
+    }
   }
 }
 

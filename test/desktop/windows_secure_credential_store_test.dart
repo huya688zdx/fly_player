@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/services/secure_credential_store_windows.dart';
@@ -61,5 +63,5 @@ void main() {
         SecureCredentialReadStatus.missing,
       );
     });
-  });
+  }, skip: !Platform.isWindows);
 }

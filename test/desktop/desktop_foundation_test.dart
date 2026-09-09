@@ -138,6 +138,8 @@ void main() {
       var selected = '';
       await tester.pumpWidget(
         MaterialApp(
+          builder: (context, child) =>
+              Padding(padding: const EdgeInsets.only(top: 36), child: child),
           home: Scaffold(
             body: Builder(
               builder: (context) => Center(
@@ -169,6 +171,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('播放'), findsOneWidget);
       expect(find.text('下载'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byType(DesktopFloatingPanel)),
+        const Offset(120, 120),
+      );
 
       await tester.tap(find.text('播放'));
       await tester.pumpAndSettle();

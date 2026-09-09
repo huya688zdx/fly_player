@@ -25,18 +25,19 @@ void main() {
     expect(source, contains('if (failedIndex != _index) return;'));
   });
 
-  test(
-    'favorite sort sheet does not read provider from popped sheet context',
-    () {
-      final source = File(
-        'lib/screens/favorite_items_screen_sheets.dart',
-      ).readAsStringSync();
+  test('收藏排序弹窗返回后先检查页面存活再应用选择', () {
+    final source = File(
+      'lib/screens/favorite_items_screen_sheets.dart',
+    ).readAsStringSync();
 
-      expect(
-        source,
-        contains('final nasProvider = context.read<NasProvider>();'),
-      );
-      expect(source, isNot(contains('context.read<NasProvider>(),')));
-    },
-  );
+    final openSheet = source.substring(
+      source.indexOf('Future<void> _openSortSheet()'),
+      source.indexOf('List<AppCatalogFilterSection> _buildFilterSections()'),
+    );
+    expect(openSheet, contains('if (!mounted || result == null) return;'));
+    expect(
+      openSheet.indexOf('if (!mounted || result == null) return;'),
+      lessThan(openSheet.indexOf('await _applySortSelection(')),
+    );
+  });
 }

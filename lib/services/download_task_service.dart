@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 
 import '../api/feiniu_api.dart';
@@ -224,6 +225,12 @@ class DownloadTaskService extends ChangeNotifier {
 
   static const String _prefsKey = 'download_task_records_v1';
   static const String _downloadFolderName = 'FlyPlayer';
+
+  /// 下载页与新任务共用实际保存目录，避免展示路径与落盘路径不一致。
+  Future<String> downloadRootDirectory() async => p.join(
+    await StorageAccessService.downloadDirectory(),
+    _downloadFolderName,
+  );
   static const String _recoveryMetadataFileName = '.flyplayer-download.json';
   static const String _pathRecoveryMetadataSuffix = '.flyplayer-download.json';
   static const MethodChannel _storageChannel = MethodChannel(
@@ -252,6 +259,7 @@ class DownloadTaskService extends ChangeNotifier {
   /// 两个下载目录（文件夹「拉屎」）以及多余的暂停任务。
   final Map<String, Future<DownloadStartResult>> _inFlightStarts =
       <String, Future<DownloadStartResult>>{};
+  final Map<String, Future<void>> _inFlightResumes = <String, Future<void>>{};
   final Map<String, int> _downloadSpeedBytesPerSecond = <String, int>{};
   final Map<String, _DownloadProgressSample> _downloadProgressSamples =
       <String, _DownloadProgressSample>{};
@@ -741,7 +749,17 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   /// 恢复已暂停的下载任务，从断点继续。
-  Future<void> resumeDownload(NasProvider provider, String recordId) async {
+  Future<void> resumeDownload(NasProvider provider, String recordId) {
+    // 准备阶段也属于同一次恢复，重复点击不能同时创建任务或写同一断点文件。
+    return _inFlightResumes.putIfAbsent(
+      recordId,
+      () => _resumeDownload(provider, recordId).whenComplete(() {
+        _inFlightResumes.remove(recordId);
+      }),
+    );
+  }
+
+  Future<void> _resumeDownload(NasProvider provider, String recordId) async {
     await initialize();
     final index = _records.indexWhere((record) => record.id == recordId);
     if (index < 0) {
@@ -767,6 +785,7 @@ class DownloadTaskService extends ChangeNotifier {
     final api = FeiniuApi(provider);
     try {
       var taskId = current.remoteTaskId.trim();
+      var createdTask = false;
       var remoteOwnerKey = current.remoteOwnerKey;
       if (remoteOwnerKey.isNotEmpty &&
           remoteOwnerKey != _downloadOwnerKey(provider)) {
@@ -787,18 +806,23 @@ class DownloadTaskService extends ChangeNotifier {
           itemGuid: current.itemGuid,
           resolution: current.resolution,
         );
+        createdTask = true;
         // 重新转码的产物不保证字节一致，不能继续拼接旧产物。
         if (current.resolution.toLowerCase() != 'others') {
           await _deleteIfExists(File('${current.filePath}.part'));
         }
       }
-      if (_recordById(recordId)?.status != DownloadTaskStatus.paused) return;
       final part = File('${current.filePath}.part');
+      final downloadedBytes = await part.exists() ? await part.length() : 0;
+      if (_recordById(recordId)?.status != DownloadTaskStatus.paused) {
+        if (createdTask) await api.deleteDownloadTask(taskId);
+        return;
+      }
       current = current.copyWith(
         remoteTaskId: taskId,
         remoteOwnerKey: remoteOwnerKey,
         status: DownloadTaskStatus.downloading,
-        downloadedBytes: await part.exists() ? await part.length() : 0,
+        downloadedBytes: downloadedBytes,
         errorMessage: '',
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
@@ -863,6 +887,7 @@ class DownloadTaskService extends ChangeNotifier {
       _cancelTokens.remove(record.id)?.cancel();
       _clearDownloadSpeed(record.id);
       _stopDownloadTaskProgressPolling(record.id);
+      await _inFlightResumes[record.id];
       await _downloadRuns[record.id];
       if (provider != null &&
           record.remoteTaskId.trim().isNotEmpty &&
@@ -1647,6 +1672,7 @@ class DownloadTaskService extends ChangeNotifier {
         ),
         persistImmediately: true,
       );
+      var absoluteReceived = range.offset;
       final stream = response.data!.stream;
       await for (final chunk in stream) {
         if (!identical(_cancelTokens[record.id], cancelToken) ||
@@ -1657,12 +1683,10 @@ class DownloadTaskService extends ChangeNotifier {
           );
         }
         await raf.writeFrom(chunk);
+        absoluteReceived += chunk.length;
         final now = DateTime.now().millisecondsSinceEpoch;
         final activeRecord = _recordById(record.id);
         if (activeRecord == null || cancelToken.isCancelled) return;
-        // raf is opened in append mode so positionSync() already includes
-        // any pre-existing .part data.
-        final absoluteReceived = raf.positionSync();
         final normalizedTotal = range.total;
         _updateDownloadSpeed(record.id, absoluteReceived, now);
         if (absoluteReceived > 0) {
@@ -3754,8 +3778,7 @@ class DownloadTaskService extends ChangeNotifier {
         hasAccess = await StorageAccessService.requestFileAccess();
       }
       if (hasAccess) {
-        final root = await StorageAccessService.downloadDirectory();
-        paths.add('$root/$_downloadFolderName');
+        paths.add(await downloadRootDirectory());
       }
     } catch (_) {}
 
@@ -4229,10 +4252,10 @@ class DownloadTaskService extends ChangeNotifier {
     final normalized = path.trim().replaceAll('\\', '/');
     if (normalized.isEmpty) return null;
     final lower = normalized.toLowerCase();
-    const marker = '/download/flyplayer';
-    final markerIndex = lower.indexOf(marker);
+    const marker = '/flyplayer/';
+    final markerIndex = lower.lastIndexOf(marker);
     if (markerIndex < 0) return null;
-    return normalized.substring(0, markerIndex + marker.length);
+    return normalized.substring(0, markerIndex + marker.length - 1);
   }
 
   bool _pathLooksInsideFlyPlayerDownloadRoot(String path) {
@@ -4469,12 +4492,10 @@ class DownloadTaskService extends ChangeNotifier {
     if (!hasAccess) {
       throw const FileSystemException('missing external storage permission');
     }
-    final root = await StorageAccessService.downloadDirectory();
+    final root = await downloadRootDirectory();
     final safeGroupTitle = _sanitizePathSegment(groupTitle);
     final safeFileName = _sanitizeFileName(fileName);
-    final groupDirectory = Directory(
-      '$root/$_downloadFolderName/$safeGroupTitle',
-    );
+    final groupDirectory = Directory('$root/$safeGroupTitle');
     await groupDirectory.create(recursive: true);
     final recordDirectoryPath = _resolveUniqueDirectoryPath(
       groupDirectory.path,
