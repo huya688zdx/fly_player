@@ -153,16 +153,19 @@ class NativePlayStatsRecorder {
 
   /// 看门狗触发:超过 [idleTimeout] 无事件(暂停有心跳,不会触发)视为播放器已退出。
   @visibleForTesting
-  Future<void> handleIdleTimeout() async {
+  Future<void> handleIdleTimeout() => finishPlayback(reason: 'idle_timeout');
+
+  /// 桌面播放器有明确的退出事件，直接收口，避免退出后等待看门狗才落盘。
+  Future<void> finishPlayback({String reason = 'player_exit'}) async {
     _idleTimer?.cancel();
     _idleTimer = null;
     if (_activeItemGuid.isEmpty) return;
     _activeItemGuid = '';
     _samplesSinceFlush = 0;
     try {
-      await _sessionController.finishPlayback(reason: 'idle_timeout');
+      await _sessionController.finishPlayback(reason: reason);
     } catch (error, stackTrace) {
-      _logSwallowed('handleIdleTimeout', error, stackTrace);
+      _logSwallowed('finishPlayback', error, stackTrace);
     }
   }
 

@@ -42,6 +42,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // 主页快速预设与深入调节占满首屏，管理入口需滚动到可见（懒加载）。
+    await tester.scrollUntilVisible(
+      find.text(l10n.mpvCustomManagementTitle),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text(l10n.mpvCustomManagementTitle));
     await tester.pumpAndSettle();
 

@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../desktop/desktop.dart';
 import '../../../media_backend/media_image_request.dart';
 import '../../../theme/app_theme.dart';
+import '../../../ui/layout_adaptive.dart';
 import '../../../ui/media_placeholder.dart';
 import 'home_horizontal_shelf.dart';
 import 'home_section_header.dart';
@@ -29,7 +31,8 @@ class HomeLandscapeMediaSection extends StatelessWidget {
     required this.items,
     required this.title,
     required this.onOpenDetail,
-    required this.onLongPress,
+    this.onLongPress,
+    this.onSecondaryTap,
     this.storageKey = 'landscape-media',
     this.stableImageCacheWidth,
   });
@@ -37,7 +40,14 @@ class HomeLandscapeMediaSection extends StatelessWidget {
   final List<HomeLandscapeCardData> items;
   final String title;
   final ValueChanged<HomeLandscapeCardData> onOpenDetail;
-  final ValueChanged<HomeLandscapeCardData> onLongPress;
+
+  /// 长按动作表回调；桌面档右键已接管同一组动作，调用方传 null 关闭长按。
+  final ValueChanged<HomeLandscapeCardData>? onLongPress;
+
+  /// 桌面档右键回调（非桌面档不触发，可为空）。
+  final void Function(HomeLandscapeCardData item, Offset globalPosition)?
+  onSecondaryTap;
+
   final String storageKey;
 
   /// 稳定的物理像素解码宽度；只影响图片缓存键。
@@ -46,6 +56,8 @@ class HomeLandscapeMediaSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
+    final secondaryTap = onSecondaryTap;
+    final longPress = onLongPress;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -60,11 +72,14 @@ class HomeLandscapeMediaSection extends StatelessWidget {
             width: width,
             stableImageCacheWidth: stableImageCacheWidth,
             onOpenDetail: () => onOpenDetail(item),
-            onLongPress: () => onLongPress(item),
+            onLongPress: longPress == null ? null : () => longPress(item),
+            onSecondaryTapUp: secondaryTap == null
+                ? null
+                : (position) => secondaryTap(item, position),
           ),
           minItemWidth: 176,
-          maxItemWidth: 210,
-          idealItemWidth: 210,
+          maxItemWidth: 188,
+          idealItemWidth: 188,
           itemAspectRatio: 16 / 10,
           textLinesHeight: 44,
           gap: 12,
@@ -81,19 +96,21 @@ class _LandscapeCard extends StatelessWidget {
     required this.stableImageCacheWidth,
     required this.onOpenDetail,
     required this.onLongPress,
+    required this.onSecondaryTapUp,
   });
 
   final HomeLandscapeCardData item;
   final double width;
   final int? stableImageCacheWidth;
   final VoidCallback onOpenDetail;
-  final VoidCallback onLongPress;
+  final VoidCallback? onLongPress;
+  final void Function(Offset globalPosition)? onSecondaryTapUp;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final radius = BorderRadius.circular(14);
-    return Material(
+    final card = Material(
       key: ValueKey<String>('landscape-card-${item.id}'),
       color: Colors.transparent,
       child: InkWell(
@@ -142,6 +159,18 @@ class _LandscapeCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+
+    // 桌面档外包悬停浮起并接入右键菜单；非桌面档输出与旧版一致。
+    if (!MediaLayoutProfile.of(context).isDesktopTier) {
+      return card;
+    }
+    final secondaryHandler = onSecondaryTapUp;
+    return GestureDetector(
+      onSecondaryTapUp: secondaryHandler == null
+          ? null
+          : (details) => secondaryHandler(details.globalPosition),
+      child: HoverLift(child: card),
     );
   }
 }

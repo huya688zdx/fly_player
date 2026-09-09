@@ -52,7 +52,12 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
   ) {
     return Column(
       children: <Widget>[
-        _buildSortFilterRow(layout, tab),
+        AppCatalogFilterRegion(
+          expanded: _filterDraft != null && tab == _selectedTab,
+          toolbar: _buildSortFilterRow(layout, tab),
+          onDismiss: _closeDesktopFilter,
+          panelBuilder: _buildDesktopFilterPanel,
+        ),
         Expanded(
           child: _buildGrid(tab: tab, layout: layout),
         ),
@@ -163,28 +168,32 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           Expanded(
             child: Row(
               children: <Widget>[
-                InkWell(
-                  onTap: _openSortSheet,
-                  borderRadius: BorderRadius.circular(8),
-                  child: Row(
-                    children: <Widget>[
-                      Text(
-                        _sortLabelFor(_sortColumn),
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                desktopTapDropdownWrapper(
+                  dropdownKey: _sortDropdownKey,
+                  spec: _sortDropdownSpec,
+                  child: InkWell(
+                    onTap: _onSortTriggerTap,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Row(
+                      children: <Widget>[
+                        Text(
+                          _sortLabelFor(_sortColumn),
+                          style: TextStyle(
+                            color: colors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        _sortType == 'ASC'
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                        size: 16,
-                        color: colors.textSecondary,
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Icon(
+                          _sortType == 'ASC'
+                              ? Icons.arrow_upward
+                              : Icons.arrow_downward,
+                          size: 16,
+                          color: colors.textSecondary,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -194,7 +203,9 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: colors.surface,
+                    color: DesktopEnvironment.isDesktopPlatform
+                        ? colors.selection.withValues(alpha: 0.08)
+                        : colors.surface,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -209,10 +220,14 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
             ),
           ),
           const SizedBox(width: 10),
-          _FavoriteToolButton(
-            icon: Icons.grid_view_rounded,
-            active: _viewType != MediaCollectionViewType.list,
-            onTap: _openLayoutSheet,
+          desktopTapDropdownWrapper(
+            dropdownKey: _layoutDropdownKey,
+            spec: _layoutDropdownSpec,
+            child: _FavoriteToolButton(
+              icon: Icons.grid_view_rounded,
+              active: _viewType != MediaCollectionViewType.list,
+              onTap: _onLayoutTriggerTap,
+            ),
           ),
           if (showFilter) ...<Widget>[
             const SizedBox(width: 10),
@@ -220,7 +235,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               message: _filterSummaryLabel,
               child: _FavoriteToolButton(
                 icon: Icons.filter_alt_outlined,
-                active: _hasActiveFilters,
+                active: _hasActiveFilters || _filterDraft != null,
                 onTap: _openFilterSheet,
               ),
             ),
@@ -274,17 +289,30 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final item = data.items[index];
-            return MediaLibraryListTile(
-              images: _posterImages(item, width: 280),
-              title: item.displayTitle,
-              subtitle: _cardSubtitle(item),
-              resolutions: item.resolutions
-                  .map(_resolutionLabel)
-                  .where((value) => value.isNotEmpty)
-                  .toList(),
-              onTap: () => _openItemDetail(item),
-              onLongPress: () => _showFavoriteItemActions(item),
-              onMoreTap: () => _showFavoriteItemActions(item),
+            // 桌面档右键接管条目动作，长按只在触屏档保留。
+            return GestureDetector(
+              onSecondaryTapUp: layout.isDesktopTier
+                  ? (details) => unawaited(
+                      _showFavoriteItemContextMenu(
+                        item,
+                        details.globalPosition,
+                      ),
+                    )
+                  : null,
+              child: MediaLibraryListTile(
+                images: _posterImages(item, width: 280),
+                title: item.displayTitle,
+                subtitle: _cardSubtitle(item),
+                resolutions: item.resolutions
+                    .map(_resolutionLabel)
+                    .where((value) => value.isNotEmpty)
+                    .toList(),
+                onTap: () => _openItemDetail(item),
+                onLongPress: layout.isDesktopTier
+                    ? null
+                    : () => _showFavoriteItemActions(item),
+                onMoreTap: () => _showFavoriteItemActions(item),
+              ),
             );
           },
         );
@@ -325,25 +353,37 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                     .map(_resolutionLabel)
                     .where((value) => value.isNotEmpty)
                     .toList();
-                return MediaPosterCard(
-                  images: images,
-                  title: item.displayTitle,
-                  subtitle: _cardSubtitle(item),
-                  imageAspectRatioHint: posterItem.hasPosterSize
-                      ? posterItem.posterWidth / posterItem.posterHeight
+                return GestureDetector(
+                  onSecondaryTapUp: layout.isDesktopTier
+                      ? (details) => unawaited(
+                          _showFavoriteItemContextMenu(
+                            item,
+                            details.globalPosition,
+                          ),
+                        )
                       : null,
-                  rating: rating,
-                  resolutions: resolutions,
-                  watched: item.watched == 1,
-                  imageHeight: imageHeight,
-                  titleFontSize: layout.homePosterTitleFontSize,
-                  subtitleFontSize: layout.homePosterSubtitleFontSize,
-                  expandImageToFit: false,
-                  imageFit: BoxFit.contain,
-                  autoFitByImageAspect: false,
-                  heroTag: 'favorite_${tab.index}_${item.guid}_$index',
-                  onTap: () => _openItemDetail(item),
-                  onLongPress: () => _showFavoriteItemActions(item),
+                  child: MediaPosterCard(
+                    images: images,
+                    title: item.displayTitle,
+                    subtitle: _cardSubtitle(item),
+                    imageAspectRatioHint: posterItem.hasPosterSize
+                        ? posterItem.posterWidth / posterItem.posterHeight
+                        : null,
+                    rating: rating,
+                    resolutions: resolutions,
+                    watched: item.watched == 1,
+                    imageHeight: imageHeight,
+                    titleFontSize: layout.homePosterTitleFontSize,
+                    subtitleFontSize: layout.homePosterSubtitleFontSize,
+                    expandImageToFit: false,
+                    imageFit: BoxFit.contain,
+                    autoFitByImageAspect: false,
+                    heroTag: 'favorite_${tab.index}_${item.guid}_$index',
+                    onTap: () => _openItemDetail(item),
+                    onLongPress: layout.isDesktopTier
+                        ? null
+                        : () => _showFavoriteItemActions(item),
+                  ),
                 );
               },
             );
@@ -377,21 +417,33 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                 .map(_resolutionLabel)
                 .where((value) => value.isNotEmpty)
                 .toList();
-            return MediaPosterCard(
-              images: images,
-              title: item.displayTitle,
-              subtitle: _cardSubtitle(item),
-              rating: rating,
-              resolutions: resolutions,
-              watched: item.watched == 1,
-              imageHeight: layout.categoryGridImageHeight,
-              titleFontSize: layout.homePosterTitleFontSize,
-              subtitleFontSize: layout.homePosterSubtitleFontSize,
-              expandImageToFit: false,
-              imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
-              heroTag: 'favorite_${tab.index}_${item.guid}_$index',
-              onTap: () => _openItemDetail(item),
-              onLongPress: () => _showFavoriteItemActions(item),
+            return GestureDetector(
+              onSecondaryTapUp: layout.isDesktopTier
+                  ? (details) => unawaited(
+                      _showFavoriteItemContextMenu(
+                        item,
+                        details.globalPosition,
+                      ),
+                    )
+                  : null,
+              child: MediaPosterCard(
+                images: images,
+                title: item.displayTitle,
+                subtitle: _cardSubtitle(item),
+                rating: rating,
+                resolutions: resolutions,
+                watched: item.watched == 1,
+                imageHeight: layout.categoryGridImageHeight,
+                titleFontSize: layout.homePosterTitleFontSize,
+                subtitleFontSize: layout.homePosterSubtitleFontSize,
+                expandImageToFit: false,
+                imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
+                heroTag: 'favorite_${tab.index}_${item.guid}_$index',
+                onTap: () => _openItemDetail(item),
+                onLongPress: layout.isDesktopTier
+                    ? null
+                    : () => _showFavoriteItemActions(item),
+              ),
             );
           },
         );
@@ -456,7 +508,9 @@ class _FavoriteToolButton extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: control.fill,
+          color: DesktopEnvironment.isDesktopPlatform
+              ? colors.selection.withValues(alpha: active ? 0.14 : 0.05)
+              : control.fill,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: control.border),
         ),

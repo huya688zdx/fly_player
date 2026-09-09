@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../desktop/desktop_environment.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'app_motion.dart';
 
 class AppTransitions {
@@ -101,6 +103,24 @@ class AppTransitions {
     Animation<double> secondaryAnimation,
     BuildContext context,
   ) {
+    // 桌面设置共用固定背景，深层页面也直接替换内容，避免透明页叠画。
+    if (AppAmbientPage.sharesBackgroundOf(context)) {
+      return Offstage(offstage: !secondaryAnimation.isDismissed, child: child);
+    }
+    // 桌面详情保持页面不透明，避免深色背景叠在首页上形成移动的整块蒙层。
+    if (DesktopEnvironment.isDesktopPlatform) {
+      return SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0.018, 0), end: Offset.zero)
+            .animate(
+              CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              ),
+            ),
+        child: child,
+      );
+    }
     return _lightweightPageTransition(
       child,
       animation,

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../desktop/desktop.dart';
 import '../../models/tv_episode_browser_models.dart';
 import '../../models/tv_episode_picker_mode.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/app_transitions.dart';
 import '../../ui/detail_artwork_resolver.dart';
+import '../../ui/layout_adaptive.dart';
 import '../../ui/media_detail_components.dart';
 import '../common/liquid_glass.dart';
 import 'capability_badge.dart';
@@ -345,7 +347,7 @@ class _PreviewGridState extends State<_PreviewGrid> {
           viewportWidth: width,
           cardWidth: cardWidth,
         );
-        return SizedBox(
+        final list = SizedBox(
           height: itemHeight,
           child: ListView.separated(
             controller: _scrollController,
@@ -374,6 +376,13 @@ class _PreviewGridState extends State<_PreviewGrid> {
               );
             },
           ),
+        );
+        // 桌面档接入悬停翻页箭头（与首页海报行同款）；非桌面档原样透出。
+        if (!MediaLayoutProfile.of(context).isDesktopTier) return list;
+        return HoverScrollArrows(
+          scrollController: _scrollController,
+          edgePadding: DetailTokens.screenHorizontalPadding,
+          child: list,
         );
       },
     );
@@ -420,23 +429,29 @@ class _EpisodeButtonStrip extends StatelessWidget {
     const tileSize = 68.0;
     return SizedBox(
       height: tileSize,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.only(right: 4),
-        itemCount: entries.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final entry = entries[index];
-          return SizedBox(
-            width: tileSize,
-            child: _EpisodeButtonTile(
-              entry: entry,
-              selected: entry.selected,
-              onTap: () => onEpisodeSelected(entry.guid),
-            ),
-          );
-        },
+      // 桌面档接入悬停翻页箭头；非桌面档 HoverScrollRow 原样透出 builder 产物。
+      child: HoverScrollRow(
+        enabled: MediaLayoutProfile.of(context).isDesktopTier,
+        edgePadding: DetailTokens.screenHorizontalPadding,
+        builder: (controller) => ListView.separated(
+          controller: controller,
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(right: 4),
+          itemCount: entries.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            return SizedBox(
+              width: tileSize,
+              child: _EpisodeButtonTile(
+                entry: entry,
+                selected: entry.selected,
+                onTap: () => onEpisodeSelected(entry.guid),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

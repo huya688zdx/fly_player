@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../desktop/desktop_environment.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
@@ -12,7 +13,9 @@ class MediaLibraryListTile extends StatelessWidget {
   final String subtitle;
   final List<String> resolutions;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
+
+  /// 长按动作回调；桌面档右键接管后调用方传 null 关闭长按。
+  final VoidCallback? onLongPress;
   final VoidCallback onMoreTap;
 
   const MediaLibraryListTile({
@@ -22,7 +25,7 @@ class MediaLibraryListTile extends StatelessWidget {
     required this.subtitle,
     required this.resolutions,
     required this.onTap,
-    required this.onLongPress,
+    this.onLongPress,
     required this.onMoreTap,
   });
 
@@ -37,7 +40,9 @@ class MediaLibraryListTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: DesktopEnvironment.isDesktopPlatform
+              ? colors.surface.withValues(alpha: 0.28)
+              : colors.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: colors.borderSubtle),
         ),

@@ -10,5 +10,6 @@ abstract interface class PlaybackHost {
     String? danmakuFilePath,
     String? startSource,
     NasProvider? nas,
+    bool offline = false,
   });
 }

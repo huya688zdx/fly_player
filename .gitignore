@@ -38,6 +38,12 @@ lib/l10n/generated/
 # Local logs / temp probes
 error.log
 flutter
+# Windows Runner 需要版本化这些 Flutter 工程入口；仅其 ephemeral 子目录继续忽略。
+!windows/flutter/
+!windows/flutter/CMakeLists.txt
+!windows/flutter/generated_plugin_registrant.cc
+!windows/flutter/generated_plugin_registrant.h
+!windows/flutter/generated_plugins.cmake
 *.rar
 probe_*
 tmp_*

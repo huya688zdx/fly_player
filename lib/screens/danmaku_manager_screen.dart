@@ -6,6 +6,7 @@ import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
@@ -135,28 +136,21 @@ class _DanmakuManagerScreenState extends State<DanmakuManagerScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final groups = _ancestorGroups();
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(
-          l10n.danmakuManagementTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
-            fontWeight: FontWeight.w700,
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(
+            l10n.danmakuManagementTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
+        body: SafeArea(
           top: false,
           child: _loading
               ? const Center(child: BirdLoader(size: 120))
@@ -289,30 +283,32 @@ class _DanmakuSeriesListScreenState extends State<_DanmakuSeriesListScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final groups = _seriesGroups();
-    return Scaffold(
-      backgroundColor: context.appColors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.ancestorLabel),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.ancestorLabel),
+        ),
+        body: groups.isEmpty
+            ? const SizedBox.shrink()
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: groups.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return _DanmakuFolderTile(
+                    icon: Icons.tv_outlined,
+                    title: group.label,
+                    subtitle: l10n.danmakuManagerSourceCount(
+                      group.sources.length,
+                    ),
+                    onTap: () => _openSeries(group),
+                  );
+                },
+              ),
       ),
-      body: groups.isEmpty
-          ? const SizedBox.shrink()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              itemCount: groups.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final group = groups[index];
-                return _DanmakuFolderTile(
-                  icon: Icons.tv_outlined,
-                  title: group.label,
-                  subtitle: l10n.danmakuManagerSourceCount(
-                    group.sources.length,
-                  ),
-                  onTap: () => _openSeries(group),
-                );
-              },
-            ),
     );
   }
 }
@@ -415,30 +411,32 @@ class _DanmakuSeasonListScreenState extends State<_DanmakuSeasonListScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final groups = _seasonGroups();
-    return Scaffold(
-      backgroundColor: context.appColors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.seriesLabel),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.seriesLabel),
+        ),
+        body: groups.isEmpty
+            ? const SizedBox.shrink()
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                itemCount: groups.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return _DanmakuFolderTile(
+                    icon: Icons.video_library_outlined,
+                    title: group.label,
+                    subtitle: l10n.danmakuManagerSourceCount(
+                      group.sources.length,
+                    ),
+                    onTap: () => _openSeason(group),
+                  );
+                },
+              ),
       ),
-      body: groups.isEmpty
-          ? const SizedBox.shrink()
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-              itemCount: groups.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final group = groups[index];
-                return _DanmakuFolderTile(
-                  icon: Icons.video_library_outlined,
-                  title: group.label,
-                  subtitle: l10n.danmakuManagerSourceCount(
-                    group.sources.length,
-                  ),
-                  onTap: () => _openSeason(group),
-                );
-              },
-            ),
     );
   }
 }
@@ -529,33 +527,35 @@ class _DanmakuSeasonDetailScreenState
     final networkSources = _sources
         .where((source) => source.isDanDanPlay)
         .toList(growable: false);
-    return Scaffold(
-      backgroundColor: context.appColors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.seasonLabel),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-        children: <Widget>[
-          if (networkSources.isNotEmpty) ...<Widget>[
-            _DanmakuSectionHeader(title: l10n.danmakuManagerNetworkDanmaku),
-            const SizedBox(height: 10),
-            _DanmakuSourceGroupCard(
-              sources: networkSources,
-              onDelete: _deleteSource,
-            ),
-            const SizedBox(height: 16),
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.seasonLabel),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+          children: <Widget>[
+            if (networkSources.isNotEmpty) ...<Widget>[
+              _DanmakuSectionHeader(title: l10n.danmakuManagerNetworkDanmaku),
+              const SizedBox(height: 10),
+              _DanmakuSourceGroupCard(
+                sources: networkSources,
+                onDelete: _deleteSource,
+              ),
+              const SizedBox(height: 16),
+            ],
+            if (localSources.isNotEmpty) ...<Widget>[
+              _DanmakuSectionHeader(title: l10n.danmakuManagerLocalImport),
+              const SizedBox(height: 10),
+              _DanmakuSourceGroupCard(
+                sources: localSources,
+                onDelete: _deleteSource,
+              ),
+            ],
           ],
-          if (localSources.isNotEmpty) ...<Widget>[
-            _DanmakuSectionHeader(title: l10n.danmakuManagerLocalImport),
-            const SizedBox(height: 10),
-            _DanmakuSourceGroupCard(
-              sources: localSources,
-              onDelete: _deleteSource,
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -660,73 +660,75 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final groups = _groups();
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(
-        context,
-        title: Text(widget.ancestorLabel),
-      ),
-      body: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-        itemCount: groups.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final group = groups[index];
-          final networkSources = group.sources
-              .where((source) => source.isDanDanPlay)
-              .toList(growable: false);
-          final localSources = group.sources
-              .where((source) => !source.isDanDanPlay)
-              .toList(growable: false);
-          return Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              color: colors.surfaceSubtle,
-              border: Border.all(color: colors.borderSubtle),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    group.label,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(
-                        16,
-                        role: AdaptiveFontRole.title,
-                      ),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (networkSources.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 12),
-                    _DanmakuSectionHeader(
-                      title: l10n.danmakuManagerNetworkDanmaku,
-                    ),
-                    const SizedBox(height: 8),
-                    _DanmakuSourceGroupCard(
-                      sources: networkSources,
-                      onDelete: _deleteSource,
-                    ),
-                  ],
-                  if (localSources.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: 12),
-                    _DanmakuSectionHeader(
-                      title: l10n.danmakuManagerLocalImport,
-                    ),
-                    const SizedBox(height: 8),
-                    _DanmakuSourceGroupCard(
-                      sources: localSources,
-                      onDelete: _deleteSource,
-                    ),
-                  ],
-                ],
+    return AppAmbientPage(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(widget.ancestorLabel),
+        ),
+        body: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+          itemCount: groups.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final group = groups[index];
+            final networkSources = group.sources
+                .where((source) => source.isDanDanPlay)
+                .toList(growable: false);
+            final localSources = group.sources
+                .where((source) => !source.isDanDanPlay)
+                .toList(growable: false);
+            return Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                color: colors.surfaceSubtle,
+                border: Border.all(color: colors.borderSubtle),
               ),
-            ),
-          );
-        },
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      group.label,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: AdaptiveText.roleSize(
+                          16,
+                          role: AdaptiveFontRole.title,
+                        ),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (networkSources.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 12),
+                      _DanmakuSectionHeader(
+                        title: l10n.danmakuManagerNetworkDanmaku,
+                      ),
+                      const SizedBox(height: 8),
+                      _DanmakuSourceGroupCard(
+                        sources: networkSources,
+                        onDelete: _deleteSource,
+                      ),
+                    ],
+                    if (localSources.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 12),
+                      _DanmakuSectionHeader(
+                        title: l10n.danmakuManagerLocalImport,
+                      ),
+                      const SizedBox(height: 8),
+                      _DanmakuSourceGroupCard(
+                        sources: localSources,
+                        onDelete: _deleteSource,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

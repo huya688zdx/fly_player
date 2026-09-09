@@ -14,72 +14,30 @@ GENERATED_ROOT = Path(
 )
 OUTPUT_ANIMATION = GENERATED_ROOT / "refresh_story_single_character_288poses_preview.png"
 OUTPUT_CONTACT = GENERATED_ROOT / "refresh_story_single_character_288poses_contact.png"
+ASSET_ANIMATION = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading.webp"
+ASSET_STATIC = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_static.png"
+HUMAN_TO_BALL_ATLAS = (
+    PROJECT_ROOT
+    / "assets"
+    / "refresh"
+    / "shoujo_bird_human_to_ball_01_16.png"
+)
+HUMAN_TO_BALL_INBETWEEN_ATLAS = (
+    PROJECT_ROOT
+    / "assets"
+    / "refresh"
+    / "shoujo_bird_human_to_ball_inbetweens_01_16.png"
+)
+SOURCE_VIDEO = Path(r"F:\mp\bili_video_d_1787919698203.mp4")
+SOURCE_VIDEO_2 = Path(r"F:\mp\bili_video_d_1787920057392.mp4")
+SOURCE_VIDEO_FIRST_FRAME = 360
+SOURCE_VIDEO_2_FIRST_FRAME = 247
+SOURCE_VIDEO_FRAME_COUNT = 300
+SOURCE_CROP = (510, 0, 1410, 900)
 
 BASE_ATLASES = [
     PROJECT_ROOT / "assets" / "refresh" / f"shoujo_bird_frames_{start:02d}_{start + 7:02d}.png"
     for start in range(1, 73, 8)
-]
-
-HUMAN_DIR = Path(
-    r"C:\Users\25131.GUOJUN.000\.codex\generated_images"
-    r"\01a048cd-6793-7223-820f-70b53f7ea979"
-)
-COCOON_DIR = Path(
-    r"C:\Users\25131.GUOJUN.000\.codex\generated_images"
-    r"\01a048d2-8695-7310-9131-6e3f6b36f16a"
-)
-BIRD_DIR = Path(
-    r"C:\Users\25131.GUOJUN.000\.codex\generated_images"
-    r"\01a048d4-8886-7de2-ad30-058e3fb5c9c1"
-)
-
-# 每个阶段依次为 1/4、1/2、3/4 姿势页。
-INBETWEEN_PAGES = [
-    [
-        HUMAN_DIR / "exec-678e6432-39e0-4c39-aaf2-8c67c28f073b.png",
-        HUMAN_DIR / "exec-834b2322-266d-459e-bbac-ecc632a62673.png",
-        HUMAN_DIR / "exec-1d263d3c-aab2-4d8f-9ac4-fd8510b08f23.png",
-    ],
-    [
-        HUMAN_DIR / "exec-a75448e2-27a8-40ad-a869-f4f1e1fcc0c1.png",
-        HUMAN_DIR / "exec-26e3ff5a-2e32-4e0c-9fb9-7097c1aec056.png",
-        HUMAN_DIR / "exec-84af17ad-21dd-4f9a-a2d8-b33c59024cb1.png",
-    ],
-    [
-        HUMAN_DIR / "exec-81d8b7be-7779-4bc2-9d74-ada5787c4134.png",
-        HUMAN_DIR / "exec-ef41a7c1-5716-4058-a760-05a2723c1b83.png",
-        HUMAN_DIR / "exec-5011be26-2e78-4ed4-831b-a1061bf3dcca.png",
-    ],
-    [
-        COCOON_DIR / "exec-0e505d14-740a-40af-b5ea-72b72ec1d95e.png",
-        COCOON_DIR / "exec-6fc67bc2-9847-4809-9518-45e656a3accd.png",
-        COCOON_DIR / "exec-85e129ad-5830-42f0-a4c6-aca67409bad8.png",
-    ],
-    [
-        COCOON_DIR / "exec-c4b920c8-8c54-4fff-a893-4fd305aa9d80.png",
-        COCOON_DIR / "exec-1a98645c-7a43-4c24-9954-bf53a64767f2.png",
-        COCOON_DIR / "exec-0e443879-3595-4791-8664-1244c8dc8a07.png",
-    ],
-    [
-        COCOON_DIR / "exec-336a0da4-2ac9-4611-b199-f4a55989eea8.png",
-        COCOON_DIR / "exec-046e42cf-3698-438f-b5ec-4b50812d503c.png",
-        COCOON_DIR / "exec-60c882e0-c42c-42f6-a133-6a5b7723ced5.png",
-    ],
-    [
-        BIRD_DIR / "exec-5b010462-48ea-4768-904f-3f966ef2eb9e.png",
-        BIRD_DIR / "exec-be0b3c7b-b244-4d18-a352-38f8bfeca858.png",
-        BIRD_DIR / "exec-b77bfaae-d915-4e62-882d-f1810aac9650.png",
-    ],
-    [
-        BIRD_DIR / "exec-4a07fd1d-510e-4121-bea0-e3f3f35e2ac8.png",
-        BIRD_DIR / "exec-5991408a-9ef5-447d-a5f9-59998de99261.png",
-        BIRD_DIR / "exec-619cb7d5-baf7-46c7-959c-8aa993e5358b.png",
-    ],
-    [
-        BIRD_DIR / "exec-1ccead77-4961-48ea-a482-168cdf838fd3.png",
-        BIRD_DIR / "exec-03e6c789-3116-4e5d-89cc-d33f753acd8c.png",
-        BIRD_DIR / "exec-1967d081-10b1-4086-b724-c371452cf42a.png",
-    ],
 ]
 
 FRAME_SIZE = 512
@@ -135,7 +93,12 @@ def external_foreground_mask(rgb: np.ndarray) -> np.ndarray:
     return cleaned
 
 
-def extract_page_subjects(path: Path) -> list[Image.Image]:
+def extract_grid_subjects(
+    path: Path,
+    columns: int,
+    rows: int,
+    minimum_component_area: int = 20,
+) -> list[Image.Image]:
     source = Image.open(path).convert("RGB")
     rgb = np.asarray(source)
     mask = external_foreground_mask(rgb)
@@ -143,15 +106,15 @@ def extract_page_subjects(path: Path) -> list[Image.Image]:
 
     width, height = source.size
     centers = [
-        ((column + 0.5) * width / GRID_COLUMNS, (row + 0.5) * height / GRID_ROWS)
-        for row in range(GRID_ROWS)
-        for column in range(GRID_COLUMNS)
+        ((column + 0.5) * width / columns, (row + 0.5) * height / rows)
+        for row in range(rows)
+        for column in range(columns)
     ]
     grouped_masks = [np.zeros((height, width), dtype=np.uint8) for _ in centers]
 
     for label in range(1, count):
         area = stats[label, cv2.CC_STAT_AREA]
-        if area < 20:
+        if area < minimum_component_area:
             continue
         component_center = centroids[label]
         target_index = min(
@@ -181,159 +144,16 @@ def bbox_center(frame: Image.Image) -> tuple[float, float]:
     return ((left + right) / 2, (top + bottom) / 2)
 
 
-def render_intermediate(
-    subject: Image.Image,
-    current: Image.Image,
-    following: Image.Image,
-    progress: float,
-) -> Image.Image:
-    current_area = alpha_area(current)
-    following_area = alpha_area(following)
-    target_area = current_area + (following_area - current_area) * progress
-    source_area = max(alpha_area(subject), 1)
-    scale = float(np.sqrt(target_area / source_area))
-    scale = min(max(scale, 0.72), 1.35)
-
-    maximum_extent = max(subject.size)
-    scale = min(scale, 472 / maximum_extent)
-    resized = subject.resize(
-        (max(1, round(subject.width * scale)), max(1, round(subject.height * scale))),
-        Image.Resampling.LANCZOS,
-    )
-
-    current_center = bbox_center(current)
-    following_center = bbox_center(following)
-    target_x = current_center[0] + (following_center[0] - current_center[0]) * progress
-    target_y = current_center[1] + (following_center[1] - current_center[1]) * progress
-
-    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-    left = round(target_x - resized.width / 2)
-    top = round(target_y - resized.height / 2)
-    canvas.alpha_composite(resized, (left, top))
-    return canvas
+def smootherstep(value: float) -> float:
+    return value**3 * (value * (value * 6 - 15) + 10)
 
 
-def render_to_reference(subject: Image.Image, reference: Image.Image) -> Image.Image:
-    reference_area = alpha_area(reference)
-    source_area = max(alpha_area(subject), 1)
-    scale = float(np.sqrt(reference_area / source_area))
-    scale = min(max(scale, 0.72), 1.35)
-    scale = min(scale, 472 / max(subject.size))
-    resized = subject.resize(
-        (max(1, round(subject.width * scale)), max(1, round(subject.height * scale))),
-        Image.Resampling.LANCZOS,
-    )
-    target_x, target_y = bbox_center(reference)
-    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-    canvas.alpha_composite(
-        resized,
-        (round(target_x - resized.width / 2), round(target_y - resized.height / 2)),
-    )
-    return canvas
-
-
-def pose_feature(frame: Image.Image) -> np.ndarray:
-    cropped = frame.crop(alpha_bbox(frame))
-    alpha = np.asarray(cropped.getchannel("A"), dtype=np.float32) / 255.0
-    scale = min(44 / alpha.shape[1], 44 / alpha.shape[0])
-    resized = cv2.resize(
-        alpha,
-        (max(1, round(alpha.shape[1] * scale)), max(1, round(alpha.shape[0] * scale))),
-        interpolation=cv2.INTER_AREA,
-    )
-    normalized = np.zeros((48, 48), dtype=np.float32)
-    top = (48 - resized.shape[0]) // 2
-    left = (48 - resized.shape[1]) // 2
-    normalized[top : top + resized.shape[0], left : left + resized.shape[1]] = resized
-    return normalized.reshape(-1)
-
-
-def merge_ordered_pose_sequences(sequences: list[list[Image.Image]]) -> list[Image.Image]:
-    """在保留每套序列内部顺序的前提下，按轮廓平滑度合并四套姿势。"""
-    sequence_count = len(sequences)
-    sequence_length = len(sequences[0])
-    features = [[pose_feature(frame) for frame in sequence] for sequence in sequences]
-
-    def transition_cost(previous: np.ndarray, current: np.ndarray) -> float:
-        return float(np.mean(np.abs(previous - current)))
-
-    costs: dict[tuple[tuple[int, ...], int], float] = {}
-    parents: dict[
-        tuple[tuple[int, ...], int], tuple[tuple[int, ...], int] | None
-    ] = {}
-    for sequence_index in range(sequence_count):
-        counts = tuple(1 if index == sequence_index else 0 for index in range(sequence_count))
-        state = (counts, sequence_index)
-        costs[state] = 0.0
-        parents[state] = None
-
-    total_frames = sequence_count * sequence_length
-    for consumed in range(1, total_frames):
-        states = [state for state in list(costs) if sum(state[0]) == consumed]
-        for counts, last_sequence in states:
-            state = (counts, last_sequence)
-            previous_feature = features[last_sequence][counts[last_sequence] - 1]
-            for next_sequence in range(sequence_count):
-                next_local_index = counts[next_sequence]
-                if next_local_index >= sequence_length:
-                    continue
-                next_counts = list(counts)
-                next_counts[next_sequence] += 1
-                next_counts_tuple = tuple(next_counts)
-                current_feature = features[next_sequence][next_local_index]
-                expected_progress = consumed / max(total_frames - 1, 1)
-                local_progress = next_local_index / max(sequence_length - 1, 1)
-                progress_penalty = abs(expected_progress - local_progress) * 0.20
-                candidate_cost = (
-                    costs[state]
-                    + transition_cost(previous_feature, current_feature)
-                    + progress_penalty
-                )
-                next_state = (next_counts_tuple, next_sequence)
-                if candidate_cost < costs.get(next_state, float("inf")):
-                    costs[next_state] = candidate_cost
-                    parents[next_state] = state
-
-    final_counts = tuple(sequence_length for _ in range(sequence_count))
-    final_state = min(
-        ((final_counts, sequence_index) for sequence_index in range(sequence_count)),
-        key=lambda state: costs[state],
-    )
-    ordered_positions: list[tuple[int, int]] = []
-    state: tuple[tuple[int, ...], int] | None = final_state
-    while state is not None:
-        counts, sequence_index = state
-        ordered_positions.append((sequence_index, counts[sequence_index] - 1))
-        state = parents[state]
-    ordered_positions.reverse()
-    return [sequences[sequence_index][local_index] for sequence_index, local_index in ordered_positions]
-
-
-def render_on_stage_curve(
-    subject: Image.Image,
-    stage_base_frames: list[Image.Image],
-    progress: float,
-) -> Image.Image:
-    position = progress * (len(stage_base_frames) - 1)
-    lower_index = min(int(position), len(stage_base_frames) - 1)
-    upper_index = min(lower_index + 1, len(stage_base_frames) - 1)
-    fraction = position - lower_index
-    lower = stage_base_frames[lower_index]
-    upper = stage_base_frames[upper_index]
-
-    target_area = alpha_area(lower) + (alpha_area(upper) - alpha_area(lower)) * fraction
-    lower_center = bbox_center(lower)
-    upper_center = bbox_center(upper)
-    target_center = (
-        lower_center[0] + (upper_center[0] - lower_center[0]) * fraction,
-        lower_center[1] + (upper_center[1] - lower_center[1]) * fraction,
-    )
-
-    source_area = max(alpha_area(subject), 1)
-    scale = float(np.sqrt(target_area / source_area))
-    scale = min(max(scale, 0.68), 1.42)
+def render_transition_pose(subject: Image.Image, progress: float) -> Image.Image:
+    target_area = 28600 + (19700 - 28600) * smootherstep(progress)
+    target_center = (256.0, 300.0 + (243.5 - 300.0) * smootherstep(progress))
     cropped = subject.crop(alpha_bbox(subject))
-    scale = min(scale, 472 / max(cropped.size))
+    scale = float(np.sqrt(target_area / max(alpha_area(cropped), 1)))
+    scale = min(scale, 448 / max(cropped.size))
     resized = cropped.resize(
         (max(1, round(cropped.width * scale)), max(1, round(cropped.height * scale))),
         Image.Resampling.LANCZOS,
@@ -349,36 +169,167 @@ def render_on_stage_curve(
     return canvas
 
 
+def original_video_subject(
+    frame_bgr: np.ndarray,
+) -> Image.Image:
+    left, top, right, bottom = SOURCE_CROP
+    crop = frame_bgr[top:bottom, left:right]
+    blue, green, red = cv2.split(crop)
+    blue_delta = blue.astype(np.int16) - red.astype(np.int16)
+    green_delta = green.astype(np.int16) - red.astype(np.int16)
+
+    # 只保留原画中的蓝青色角色/翅膀，以及成鸟后偏暖的身体；
+    # 白色背景与上方白色人形不会进入种子蒙版。
+    blue_seed = (blue_delta > 7) & (green_delta > 1) & (blue > 120)
+    warm_body_seed = (
+        (red.astype(np.int16) - blue.astype(np.int16) > 10)
+        & (green.astype(np.int16) - blue.astype(np.int16) > 5)
+        & (red > 150)
+    )
+    seed = (blue_seed | warm_body_seed).astype(np.uint8)
+
+    component_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        seed,
+        8,
+    )
+    crop_center = np.array([crop.shape[1] / 2, crop.shape[0] / 2])
+    selected = np.zeros(seed.shape, dtype=np.uint8)
+    for label in range(1, component_count):
+        x, y, width, height, area = stats[label]
+        if area < 2:
+            continue
+        # 变形初段的人形轮廓会落到裁切底边，不能因此整帧丢弃；
+        # 左右/顶边仍视为远处背景色块。
+        if x == 0 or y == 0 or x + width == crop.shape[1]:
+            continue
+        if np.linalg.norm(centroids[label] - crop_center) > 500:
+            continue
+        if area / max(width * height, 1) < 0.025:
+            continue
+        selected[labels == label] = 255
+
+    if np.count_nonzero(selected) < 20:
+        # 第二段结尾的远景鸟只有几十个浅色像素，蓝色饱和度不足；
+        # 此处改用与纯白背景的亮度差，并限制在画面上半部排除字幕噪点。
+        rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB).astype(np.int16)
+        distant_seed = (np.max(255 - rgb, axis=2) > 6).astype(np.uint8)
+        count, distant_labels, distant_stats, distant_centroids = (
+            cv2.connectedComponentsWithStats(distant_seed, 8)
+        )
+        for label in range(1, count):
+            x, y, width, height, area = distant_stats[label]
+            center_x, center_y = distant_centroids[label]
+            if area < 2 or center_y >= crop.shape[0] / 2:
+                continue
+            if x == 0 or x + width == crop.shape[1]:
+                continue
+            if area / max(width * height, 1) < 0.015:
+                continue
+            selected[distant_labels == label] = 255
+
+    if np.count_nonzero(selected) < 2:
+        raise ValueError("原视频主体蒙版为空")
+
+    # 将紧邻色块的深色线稿一并收进蒙版，不扩张到远处背景。
+    near_subject = cv2.dilate(selected, np.ones((3, 3), np.uint8), iterations=2)
+    not_white = np.min(crop, axis=2) < 244
+    alpha = np.where((selected > 0) | ((near_subject > 0) & not_white), 255, 0)
+
+    alpha = cv2.GaussianBlur(alpha.astype(np.uint8), (3, 3), 0)
+
+    rgba = cv2.cvtColor(crop, cv2.COLOR_BGR2RGBA)
+    rgba[:, :, 3] = alpha
+    subject = Image.fromarray(rgba, "RGBA")
+    return subject.resize((FRAME_SIZE, FRAME_SIZE), Image.Resampling.LANCZOS)
+
+
+def load_video_range(
+    path: Path,
+    first_frame: int,
+    last_frame_exclusive: int | None = None,
+) -> list[Image.Image]:
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise ValueError(f"无法打开原视频：{path}")
+
+    decoded_frames: list[Image.Image] = []
+    source_index = 0
+    try:
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            if last_frame_exclusive is not None and source_index >= last_frame_exclusive:
+                break
+            if source_index >= first_frame:
+                decoded_frames.append(
+                    original_video_subject(frame)
+                )
+            source_index += 1
+    finally:
+        capture.release()
+
+    return decoded_frames
+
+
+def load_original_video_frames() -> list[Image.Image]:
+    first_video = load_video_range(
+        SOURCE_VIDEO,
+        SOURCE_VIDEO_FIRST_FRAME,
+    )
+    second_video = load_video_range(
+        SOURCE_VIDEO_2,
+        SOURCE_VIDEO_2_FIRST_FRAME,
+        last_frame_exclusive=360,
+    )
+    frames = [*first_video, *second_video]
+    if len(frames) != SOURCE_VIDEO_FRAME_COUNT:
+        raise ValueError(
+            f"两段原视频连续帧应为 {SOURCE_VIDEO_FRAME_COUNT}，实际为 {len(frames)}"
+        )
+    return frames
+
+
 def build_frames() -> list[Image.Image]:
     base_frames = load_base_frames()
-    generated_pages = [
-        [extract_page_subjects(path) for path in stage_pages]
-        for stage_pages in INBETWEEN_PAGES
-    ]
+    human_to_ball = extract_grid_subjects(
+        HUMAN_TO_BALL_ATLAS,
+        columns=4,
+        rows=4,
+        minimum_component_area=80,
+    )
+    human_inbetweens = extract_grid_subjects(
+        HUMAN_TO_BALL_INBETWEEN_ATLAS,
+        columns=4,
+        rows=4,
+        minimum_component_area=80,
+    )
 
-    frames: list[Image.Image] = []
-    for stage_index in range(9):
-        first_base_index = stage_index * 8
-        stage_base_frames = base_frames[first_base_index : first_base_index + 8]
-        stage_sequences = [stage_base_frames, *generated_pages[stage_index]]
-        ordered_stage_frames = merge_ordered_pose_sequences(stage_sequences)
-        frames.extend(
-            render_on_stage_curve(
-                frame,
-                stage_base_frames,
-                index / max(len(ordered_stage_frames) - 1, 1),
-            )
-            for index, frame in enumerate(ordered_stage_frames)
+    # 前段只使用真实绘制姿势；前 12 个中割姿势与主姿势交错，
+    # 后四格按主姿势单向压成圆球，不再经过光流或液体溶解效果。
+    human_sources = [*base_frames[:10]]
+    for index, pose in enumerate(human_to_ball):
+        human_sources.append(pose)
+        if index < 12:
+            human_sources.append(human_inbetweens[index])
+
+    human_frames = [
+        render_transition_pose(
+            frame,
+            index / max(len(human_sources) - 1, 1),
         )
+        for index, frame in enumerate(human_sources)
+    ]
+    frames = [*human_frames, *load_original_video_frames()]
 
-    if len(frames) != 288:
-        raise ValueError(f"输出姿势数量应为 288，实际为 {len(frames)}")
+    if not 320 <= len(frames) <= 360:
+        raise ValueError(f"输出姿势数量应约为 340，实际为 {len(frames)}")
     return frames
 
 
 def save_contact_sheet(frames: list[Image.Image]) -> None:
     columns = 24
-    rows = 12
+    rows = (len(frames) + columns - 1) // columns
     cell_size = 64
     contact = Image.new("RGB", (columns * cell_size, rows * cell_size), (22, 24, 30))
     draw = ImageDraw.Draw(contact)
@@ -392,10 +343,18 @@ def save_contact_sheet(frames: list[Image.Image]) -> None:
     contact.save(OUTPUT_CONTACT)
 
 
+def frame_durations(frames: list[Image.Image]) -> list[int]:
+    human_frame_count = len(frames) - SOURCE_VIDEO_FRAME_COUNT
+    # 手绘人物段按 12.5 张有效画/秒展示；原视频连续帧按 25 FPS 展示，
+    # 整体比 60 FPS 原片更慢，但不制造任何补间帧。
+    durations = [80] * human_frame_count + [40] * SOURCE_VIDEO_FRAME_COUNT
+    durations[0] = 160
+    durations[-1] = 320
+    return durations
+
+
 def save_animation(frames: list[Image.Image]) -> None:
-    durations = [50] * len(frames)
-    durations[0] = 400
-    durations[-1] = 800
+    durations = frame_durations(frames)
     frames[0].save(
         OUTPUT_ANIMATION,
         save_all=True,
@@ -406,6 +365,16 @@ def save_animation(frames: list[Image.Image]) -> None:
         blend=0,
         optimize=False,
     )
+    frames[0].save(
+        ASSET_ANIMATION,
+        save_all=True,
+        append_images=frames[1:],
+        duration=durations,
+        loop=0,
+        lossless=True,
+        method=6,
+    )
+    frames[-40].save(ASSET_STATIC, optimize=True)
 
 
 def main() -> None:
@@ -413,9 +382,11 @@ def main() -> None:
     save_contact_sheet(frames)
     save_animation(frames)
     print(f"frames={len(frames)}")
-    print(f"duration_ms={400 + 800 + (len(frames) - 2) * 50}")
+    print(f"duration_ms={sum(frame_durations(frames))}")
     print(OUTPUT_ANIMATION)
     print(OUTPUT_CONTACT)
+    print(ASSET_ANIMATION)
+    print(ASSET_STATIC)
 
 
 if __name__ == "__main__":

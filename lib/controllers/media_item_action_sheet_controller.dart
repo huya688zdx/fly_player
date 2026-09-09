@@ -171,6 +171,83 @@ class MediaItemActionSheetController {
     );
   }
 
+  /// 以后端中立通道直接切换条目已看状态（桌面右键菜单等场景复用，与 [show] 的
+  /// 「标记已看」动作同源）。成功返回后端确认的最新状态；失败时已上报并提示，
+  /// 返回 null。
+  Future<bool?> setItemWatched(
+    BuildContext context, {
+    required String itemId,
+    required bool watched,
+  }) async {
+    final l10n = AppLocalizations.of(context);
+    try {
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemWatched(itemId, watched: watched);
+      if (!context.mounted) return state;
+      _showTopTip(
+        context,
+        state ? l10n.actionMarkedAsWatched : l10n.actionMarkAsUnwatched,
+        state ? context.appColors.success : context.appColors.textMuted,
+      );
+      return state;
+    } catch (error, stackTrace) {
+      if (!context.mounted) return null;
+      unawaited(
+        AppErrorReporter.report(
+          error,
+          action: 'toggle media item watched',
+          source: 'media_item_action_sheet',
+          stackTrace: stackTrace,
+          fallbackKind: AppExceptionKind.transient,
+        ),
+      );
+      _showTopTip(
+        context,
+        l10n.commonOperationFailedRetryLater,
+        context.appColors.danger,
+      );
+      return null;
+    }
+  }
+
+  /// 以后端中立通道直接切换条目收藏状态（桌面右键菜单等场景复用，与 [show] 的
+  /// 「收藏」动作同源）。语义与 [setItemWatched] 一致。
+  Future<bool?> setItemFavorite(
+    BuildContext context, {
+    required String itemId,
+    required bool favorite,
+  }) async {
+    final l10n = AppLocalizations.of(context);
+    try {
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemFavorite(itemId, favorite: favorite);
+      if (!context.mounted) return state;
+      _showTopTip(
+        context,
+        state ? l10n.actionFavoriteAdded : l10n.actionFavoriteRemoved,
+        state ? context.appColors.success : context.appColors.textMuted,
+      );
+      return state;
+    } catch (error, stackTrace) {
+      if (!context.mounted) return null;
+      unawaited(
+        AppErrorReporter.report(
+          error,
+          action: 'toggle media item favorite',
+          source: 'media_item_action_sheet',
+          stackTrace: stackTrace,
+          fallbackKind: AppExceptionKind.transient,
+        ),
+      );
+      _showTopTip(
+        context,
+        l10n.commonOperationFailedRetryLater,
+        context.appColors.danger,
+      );
+      return null;
+    }
+  }
+
   /// 生成条目操作菜单的默认标题。
   static String defaultTitle(
     AppLocalizations l10n,
