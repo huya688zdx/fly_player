@@ -16,6 +16,9 @@ import '../utils/player_title_formatter.dart';
 import '../utils/local_subtitle_bundle.dart';
 import '../utils/swallowed_error_logger.dart';
 
+/// 已下载视频查询在线元数据的总等待上限，超时后直接使用本地记录。
+const localDownloadMetadataTimeout = Duration(seconds: 2);
+
 /// 已下载记录的显示标题（groupTitle + recordTitle 拼合）。
 String localDownloadRecordTitle(DownloadTaskRecord record) {
   final groupTitle = record.groupTitle.trim();
@@ -35,66 +38,63 @@ String localDownloadRecordTitle(DownloadTaskRecord record) {
 /// getPlayInfo/StreamTrack/PlaybackStream 元数据，未连接用 record 的
 /// audioTracks/subtitleTracks/poster fallback。
 /// [startPositionMs] 覆盖续播位（切集保持当前进度时使用）。
-/// 文件不存在返回 null；任何 NAS 请求失败都降级 fallback（留痕不吞），不阻塞播放。
+/// gateway 为空时不访问 NAS；在线查询共用短时限，失败后不再继续请求其他元数据。
+/// 文件不存在返回 null；NAS 请求失败时使用已取得的数据和本地记录。
 Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
 resolveLocalDownloadSource(
   DownloadTaskRecord record,
-  FeiniuDetailDataGateway gateway, {
+  FeiniuDetailDataGateway? gateway, {
   required AppLocalizations l10n,
   int? startPositionMs,
 }) async {
   final path = record.filePath.trim();
-  if (path.isEmpty || !File(path).existsSync()) return null;
+  if (path.isEmpty || !await File(path).exists()) return null;
   final fallbackTitle = localDownloadRecordTitle(record);
   final normalizedItemGuid = record.itemGuid.trim();
   PlayInfoData? initialPlayInfo;
   StreamTrackData? trackData;
   PlaybackStreamData? playbackStream;
-  try {
-    initialPlayInfo = await gateway.getPlayInfo(normalizedItemGuid);
-  } catch (error, stackTrace) {
-    unawaited(
-      logSwallowedError(
-        action: 'resolve local download play info',
-        id: normalizedItemGuid,
-        error: error,
-        stackTrace: stackTrace,
-        source: 'local_download_source_resolver',
-      ),
-    );
-  }
-  final resolvedMediaGuid = record.mediaGuid.trim().isNotEmpty
+  var resolvedMediaGuid = record.mediaGuid.trim().isNotEmpty
       ? record.mediaGuid.trim()
-      : (initialPlayInfo?.mediaGuid.trim().isNotEmpty == true
-            ? initialPlayInfo!.mediaGuid.trim()
-            : normalizedItemGuid);
-  try {
-    trackData = await gateway.getStreamTrackData(normalizedItemGuid);
-  } catch (error, stackTrace) {
-    unawaited(
-      logSwallowedError(
-        action: 'resolve local download stream tracks',
-        id: normalizedItemGuid,
-        error: error,
-        stackTrace: stackTrace,
-        source: 'local_download_source_resolver',
-      ),
-    );
-  }
-  try {
-    if (resolvedMediaGuid.isNotEmpty) {
-      playbackStream = await gateway.getPlaybackStream(resolvedMediaGuid);
+      : normalizedItemGuid;
+  if (gateway != null) {
+    final deadline = Stopwatch()..start();
+    Future<T> readMetadata<T>(Future<T> Function() read) {
+      final remaining = localDownloadMetadataTimeout - deadline.elapsed;
+      if (remaining <= Duration.zero) {
+        throw TimeoutException('本地播放的在线元数据查询超时');
+      }
+      return read().timeout(remaining);
     }
-  } catch (error, stackTrace) {
-    unawaited(
-      logSwallowedError(
-        action: 'resolve local download playback stream',
-        id: resolvedMediaGuid,
-        error: error,
-        stackTrace: stackTrace,
-        source: 'local_download_source_resolver',
-      ),
-    );
+
+    try {
+      final playInfo = await readMetadata(
+        () => gateway.getPlayInfo(normalizedItemGuid),
+      );
+      initialPlayInfo = playInfo;
+      if (record.mediaGuid.trim().isEmpty &&
+          playInfo.mediaGuid.trim().isNotEmpty) {
+        resolvedMediaGuid = playInfo.mediaGuid.trim();
+      }
+      trackData = await readMetadata(
+        () => gateway.getStreamTrackData(normalizedItemGuid),
+      );
+      if (resolvedMediaGuid.isNotEmpty) {
+        playbackStream = await readMetadata(
+          () => gateway.getPlaybackStream(resolvedMediaGuid),
+        );
+      }
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'resolve local download metadata',
+          id: normalizedItemGuid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'local_download_source_resolver',
+        ),
+      );
+    }
   }
   final playItem = initialPlayInfo?.item;
   final title = playItem == null
@@ -124,7 +124,7 @@ resolveLocalDownloadSource(
     audioTracks: audioTracks,
   );
   final fallbackSubtitleTracks = record.subtitleTracks;
-  final subtitleTracks = playbackStream?.subtitleStreams.isNotEmpty == true
+  var subtitleTracks = playbackStream?.subtitleStreams.isNotEmpty == true
       ? PlayDetailTrackSelector.mergeSubtitleTracks(
           primaryTracks: playbackStream!.subtitleStreams,
           extraTracks: resolvedMediaGuid.isEmpty
@@ -136,13 +136,19 @@ resolveLocalDownloadSource(
             ? fallbackSubtitleTracks
             : trackData?.subtitlesForMedia(resolvedMediaGuid) ??
                   fallbackSubtitleTracks);
-  final selectedSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
-    selectedSubtitleGuid: initialPlayInfo?.subtitleGuid ?? '',
-    subtitleTracks: subtitleTracks,
-  );
   final localSubtitleBundle = await discoverLocalSubtitleBundleAsync(
     mediaGuid: resolvedMediaGuid,
     videoFilePath: path,
+  );
+  // 离线时未落盘的外挂字幕不可用，避免播放器为它再次等待 NAS。
+  if (initialPlayInfo == null && localSubtitleBundle.tracks.isEmpty) {
+    subtitleTracks = subtitleTracks
+        .where((track) => track.isExternal != 1 && track.extraFile != 1)
+        .toList(growable: false);
+  }
+  final selectedSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
+    selectedSubtitleGuid: initialPlayInfo?.subtitleGuid ?? '',
+    subtitleTracks: subtitleTracks,
   );
   final embeddedSubtitleTrackIndex =
       PlayDetailTrackSelector.embeddedSubtitleTrackIndex(
@@ -173,6 +179,8 @@ resolveLocalDownloadSource(
     networkCompleted: networkCompleted,
   );
   final durationSeconds = resume.effectiveDurationSeconds;
+  final localArtwork = await DownloadTaskService.instance
+      .resolveExistingLocalCover(record);
   final source = MpvMediaSource.localFile(
     filePath: path,
     itemGuid: playItem?.guid.trim().isNotEmpty == true
@@ -182,12 +190,10 @@ resolveLocalDownloadSource(
     seasonGuid: initialPlayInfo?.parentGuid.trim().isNotEmpty == true
         ? initialPlayInfo!.parentGuid.trim()
         : record.groupId.trim(),
-    posterPath: playItem == null
-        ? (record.posterUrls.isNotEmpty
-              ? record.posterUrls.first
-              : (record.groupPosterUrls.isNotEmpty
-                    ? record.groupPosterUrls.first
-                    : ''))
+    posterPath: localArtwork.isNotEmpty
+        ? localArtwork
+        : playItem == null
+        ? ''
         : resolvePlayerArtworkPathForPlayItem(playItem),
     mediaGuid: resolvedMediaGuid,
     mediaType: playItem?.type ?? '',

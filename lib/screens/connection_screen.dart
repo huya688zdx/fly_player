@@ -711,7 +711,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Future<void> _openDownloadedData() async {
     await Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
-        const DownloadListScreen(),
+        const DownloadListScreen(offline: true),
         fullscreenDialog: true,
       ),
     );

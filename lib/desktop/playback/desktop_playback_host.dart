@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../api/feiniu_api.dart';
 import '../../services/feiniu_segmented_subtitle.dart';
 import '../../controllers/item_playback_launcher.dart';
+import '../../controllers/local_download_source_resolver.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_backend.dart';
 import '../../models/play_info.dart';
@@ -36,6 +37,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
     String? danmakuFilePath,
     String? startSource,
     NasProvider? nas,
+    bool offline = false,
   }) async {
     if (!context.mounted) {
       return false;
@@ -49,6 +51,8 @@ final class DesktopPlaybackHost implements PlaybackHost {
     final l10n = AppLocalizations.of(context);
     final effectiveEpisodes = episodes?.isNotEmpty == true
         ? episodes
+        : offline
+        ? null
         : await _loadSeasonEpisodes(
             source: source,
             nas: effectiveNas,
@@ -112,6 +116,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
                               fallbackTitle:
                                   '${episode['title'] ?? episode['shortLabel'] ?? ''}',
                               episodes: effectiveEpisodes,
+                              allowNetwork: !offline,
                               l10n: l10n,
                             );
                         final raw = resolved?['loadArgs'];
@@ -166,10 +171,16 @@ final class DesktopPlaybackHost implements PlaybackHost {
     if (seasonGuid.isEmpty) return null;
     try {
       if (backend.capabilities.usesLegacyFeiniuFlow) {
-        final result = await const ItemPlaybackLauncher().loadSeasonEpisodes(
+        final request = const ItemPlaybackLauncher().loadSeasonEpisodes(
           nas,
           seasonGuid,
         );
+        final result = source.isDownloadedFile
+            ? await request.timeout(
+                localDownloadMetadataTimeout,
+                onTimeout: () => const [],
+              )
+            : await request;
         return result.isEmpty ? null : result;
       }
       final result = await backend.getSeasonEpisodes(seasonGuid);
