@@ -71,17 +71,38 @@ class ItemPlaybackLauncher {
         // 返回的就是 FeiniuMediaBackend(FeiniuApi(nasProvider))，与旧直接构造等价、零回归。
         final backend = context.read<MediaBackendProvider>().backend;
         final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
-        final resolved = await _resolve(
-          backend,
-          itemGuid: itemGuid,
-          l10n: l10n,
-          fallbackTitle: fallbackTitle,
-          startFromBeginning: startFromBeginning,
-          resumePosition: resumePosition,
-          qualityMediaGuid: qualityMediaGuid,
-          overrideAudioGuid: audioTrackId,
-          overrideSubtitleGuid: subtitleTrackId,
-        );
+        ({MpvMediaSource source, PlayInfoData? playInfo, String title})?
+        localPlayback;
+        if (isFeiniu) {
+          await DownloadTaskService.instance.initialize();
+          final record = DownloadTaskService.instance.downloadedRecordForItem(
+            itemGuid.trim(),
+            mediaGuid: qualityMediaGuid ?? '',
+          );
+          if (record != null) {
+            localPlayback = await resolveLocalDownloadSource(
+              record,
+              FeiniuDetailDataGateway.forNas(nas),
+              l10n: l10n,
+              startPositionMs: startFromBeginning
+                  ? 0
+                  : resumePosition?.inMilliseconds,
+            );
+          }
+        }
+        final resolved =
+            localPlayback ??
+            await _resolve(
+              backend,
+              itemGuid: itemGuid,
+              l10n: l10n,
+              fallbackTitle: fallbackTitle,
+              startFromBeginning: startFromBeginning,
+              resumePosition: resumePosition,
+              qualityMediaGuid: qualityMediaGuid,
+              overrideAudioGuid: audioTrackId,
+              overrideSubtitleGuid: subtitleTrackId,
+            );
         if (resolved == null) return null;
         final source = resolved.source;
 
