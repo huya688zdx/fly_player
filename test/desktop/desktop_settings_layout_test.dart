@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/desktop/desktop_environment.dart';
+import 'package:fly_player/desktop/desktop_floating_panel.dart';
+import 'package:fly_player/desktop/desktop_shell.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/providers/app_locale_provider.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
@@ -59,6 +61,7 @@ void main() {
   Future<void> pumpSettings(
     WidgetTester tester, {
     Size size = const Size(800, 600),
+    bool inShell = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -86,11 +89,16 @@ void main() {
             value: startupPreferences,
           ),
         ],
-        child: const MaterialApp(
-          locale: Locale('zh', 'CN'),
+        child: MaterialApp(
+          locale: const Locale('zh', 'CN'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: AppSettingsScreen(),
+          home: inShell
+              ? DesktopShell(
+                  pages: const <Widget>[SizedBox(), AppSettingsScreen()],
+                  contentRouteFactory: (_) => null,
+                )
+              : const AppSettingsScreen(),
         ),
       ),
     );
@@ -127,6 +135,42 @@ void main() {
     // 旧双栏左栏 / 单栏混排的痕迹不再出现。
     expect(find.text('常用入口'), findsNothing);
     expect(find.byIcon(Icons.search_rounded), findsOneWidget);
+  });
+
+  testWidgets('设置搜索框与快捷键共用公共弹层，结果关闭弹层后进入子页', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await pumpSettings(tester, size: const Size(1400, 900), inShell: true);
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('行尾实时显示'), findsNothing);
+    expect(find.byIcon(Icons.manage_search_rounded), findsNothing);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    expect(find.text('常用入口'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings_open_full_search')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '主题');
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.text('主题设置'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    expect(find.byType(ThemeSettingsScreen), findsOneWidget);
   });
 
   testWidgets('并行开启时点击条目在右侧子页列打开三级页，网格保持可见', (tester) async {
