@@ -60,13 +60,30 @@ class TvSeasonPlaybackLauncher {
         // 后端中立：取活动后端，由后端自己的桥接器装配最终播放 source。
         final backend = context.read<MediaBackendProvider>().backend;
         final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
-        final resolved = await _resolveWithProvider(
-          backend,
-          itemGuid: itemGuid,
-          seriesTitle: seriesTitle,
-          seriesGuid: seriesGuid,
-          l10n: l10n,
-        );
+        ({MpvMediaSource source, PlayInfoData? playInfo, String title})?
+        localPlayback;
+        if (isFeiniu) {
+          await DownloadTaskService.instance.initialize();
+          final record = DownloadTaskService.instance.downloadedRecordForItem(
+            itemGuid.trim(),
+          );
+          if (record != null) {
+            localPlayback = await resolveLocalDownloadSource(
+              record,
+              FeiniuDetailDataGateway.forNas(provider),
+              l10n: l10n,
+            );
+          }
+        }
+        final resolved =
+            localPlayback ??
+            await _resolveWithProvider(
+              backend,
+              itemGuid: itemGuid,
+              seriesTitle: seriesTitle,
+              seriesGuid: seriesGuid,
+              l10n: l10n,
+            );
         if (resolved == null) return null;
         final source = resolved.source;
         // 剧详情入口未传 episodes：服务器族起播单集时按 source 的 seasonGuid 加载本季选集，

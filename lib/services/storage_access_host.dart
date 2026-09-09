@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// 截图与文件访问平台宿主接口：屏蔽 Android 原生通道与桌面端等价实现的差异。
 ///
@@ -10,6 +11,9 @@ import 'package:flutter/services.dart';
 /// 方法返回的载荷结构与 Android 端通道应答字段保持一致，领域映射
 /// （`ScreenshotCustomDirectoryInfo.fromMap` 等）由 `StorageAccessService` 承担。
 abstract interface class StorageAccessHost {
+  /// 平台实际的下载目录，业务层不拼接安卓存储路径。
+  Future<String> downloadDirectory();
+
   /// 是否具备常规文件访问权限。
   Future<bool?> hasFileAccess();
 
@@ -43,6 +47,12 @@ abstract interface class StorageAccessHost {
 /// Android 通道宿主：透传 `fly_player/storage`，方法名与载荷字段
 /// 与原先 `StorageAccessService` 直连通道完全一致。
 class MethodChannelStorageAccessHost implements StorageAccessHost {
+  @override
+  Future<String> downloadDirectory() async {
+    final root = await _channel.invokeMethod<String>('getPrimaryStorageRoot');
+    return '${(root ?? '/storage/emulated/0').trim()}/Download';
+  }
+
   const MethodChannelStorageAccessHost();
 
   static const MethodChannel _channel = MethodChannel('fly_player/storage');
@@ -100,6 +110,12 @@ class MethodChannelStorageAccessHost implements StorageAccessHost {
 ///   真实目录选择。
 class DesktopStorageAccessHost implements StorageAccessHost {
   const DesktopStorageAccessHost();
+
+  @override
+  Future<String> downloadDirectory() async =>
+      (await getDownloadsDirectory() ??
+              await getApplicationDocumentsDirectory())
+          .path;
 
   @override
   Future<bool?> hasFileAccess() async => true;

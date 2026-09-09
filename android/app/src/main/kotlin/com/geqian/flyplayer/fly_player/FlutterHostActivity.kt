@@ -188,6 +188,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         // 按能力分组注册 channel，避免单个方法持续膨胀。
         registerSystemChannel(flutterEngine)
         registerStorageChannel(flutterEngine)
+        registerDownloadChannel(flutterEngine)
         registerSecretStoreChannel(flutterEngine)
         registerThemeSamplerChannel(flutterEngine)
         registerRuntimeThemeSyncChannel(flutterEngine)
@@ -200,6 +201,8 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
 
     private fun clearMethodChannelReferences() {
+        downloadChannel?.let { DownloadTransferService.update(applicationContext, it, 0) }
+        downloadChannel = null
         methodChannelsWithHandlers.forEach { channel ->
             channel.setMethodCallHandler(null)
         }
@@ -366,6 +369,37 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     }
                 }
             }
+    }
+
+    private var downloadChannel: MethodChannel? = null
+    private var downloadNotificationRequested = false
+
+    private fun registerDownloadChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/downloads").also { channel ->
+            downloadChannel = channel
+            trackMethodChannelHandler(channel)
+            channel.setMethodCallHandler { call, result ->
+                if (call.method != "updateActiveCount") {
+                    result.notImplemented()
+                } else {
+                    try {
+                        val count = (call.arguments as? Number)?.toInt() ?: 0
+                        if (count > 0 && Build.VERSION.SDK_INT >= 33 && !downloadNotificationRequested &&
+                            window.decorView.hasWindowFocus() &&
+                            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            downloadNotificationRequested = true
+                            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4208)
+                        }
+                        DownloadTransferService.update(applicationContext, channel,
+                            count)
+                        result.success(null)
+                    } catch (error: Exception) {
+                        result.error("download_service", error.message, null)
+                    }
+                }
+            }
+        }
     }
 
     private fun registerStorageChannel(flutterEngine: FlutterEngine) {
