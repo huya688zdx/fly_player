@@ -10,6 +10,7 @@ import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/models/playback_stream.dart';
+import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/playback/bookmarks/bookmark_store.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/playback/settings/mpv_settings_store.dart';
@@ -182,6 +183,26 @@ void main() {
     final title = DesktopMpvRuntime.audioTrackTitle(track, '轨道 1');
 
     expect(title, '日语');
+  });
+
+  test('本地切音轨按原文件流索引更新上报 GUID，未知索引不沿用旧选择', () {
+    final source = _qualitySource().copyWith(
+      audioTrackGuid: '旧音轨',
+      audioTracks: [
+        AudioTrackOption.fromJson({
+          'media_guid': 'media',
+          'guid': '新音轨',
+          'index': 4,
+        }),
+      ],
+    );
+    final selected = DesktopMpvRuntime.sourceWithAudioStream(source, 4);
+    expect(selected.toMap()['audioTrackGuid'], '新音轨');
+    expect(selected.audioTrackIndex, 4);
+    expect(
+      DesktopMpvRuntime.sourceWithAudioStream(selected, null).audioTrackGuid,
+      isNull,
+    );
   });
 
   test('Windows 自动字幕状态选中实际默认字幕', () {

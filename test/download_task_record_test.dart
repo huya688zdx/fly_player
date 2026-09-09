@@ -4,12 +4,29 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/models/download_task_record.dart';
 import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
+import 'package:fly_player/providers/nas_provider.dart';
+import 'package:fly_player/services/app_log_service.dart';
 import 'package:fly_player/services/download_task_service.dart';
+
+class _DownloadNas implements NasProvider {
+  _DownloadNas(this.baseUrl);
+  @override
+  final String baseUrl;
+  @override
+  String get userName => 'user';
+  @override
+  String get token => 'test-token';
+  @override
+  String get accessCode => '';
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 DownloadTaskRecord _downloadedEpisode({
   required String id,
@@ -43,6 +60,68 @@ DownloadTaskRecord _downloadedEpisode({
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('删除下载只清理所属账号的远端任务，业务失败记录日志并完成本地删除', () async {
+    SharedPreferences.setMockInitialValues({});
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = null;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final temp = await Directory.systemTemp.createTemp('fly-download-delete-');
+    final service = DownloadTaskService.instance;
+    final requests = <String>[];
+    server.listen((request) async {
+      requests.add('${request.method} ${request.uri.path}');
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        '{"code":68157464,"msg":"download-delete-test-error"}',
+      );
+      await request.response.close();
+    });
+    try {
+      final nas = _DownloadNas('http://127.0.0.1:${server.port}/');
+      final owned =
+          _downloadedEpisode(
+            id: 'owned',
+            seasonNumber: 1,
+            episodeNumber: 1,
+            updatedAtMs: 1,
+          ).copyWith(
+            status: DownloadTaskStatus.paused,
+            remoteTaskId: 'remote-owned',
+            remoteOwnerKey: 'http://127.0.0.1:${server.port}|user',
+            filePath: '',
+          );
+      service.debugSetRecordsFilePathForTesting('${temp.path}/records.json');
+      service.debugReplaceRecordsForTesting([
+        DownloadTaskRecord.fromJson(owned.toJson()),
+        owned.copyWith(id: 'foreign', remoteOwnerKey: 'http://other-nas|user'),
+        owned.copyWith(id: 'legacy', remoteOwnerKey: ''),
+      ]);
+      expect(await service.clearActiveDownloadRecords(provider: nas), 3);
+      expect(requests, ['DELETE /v/api/v1/download/task/remote-owned']);
+      expect(service.records, isEmpty);
+      expect(
+        jsonDecode(await File('${temp.path}/records.json').readAsString()),
+        isEmpty,
+      );
+      expect(
+        AppLogService.instance.entries.any(
+          (entry) =>
+              entry.source == 'feiniu_api' &&
+              entry.message.contains('download-delete-test-error'),
+        ),
+        isTrue,
+      );
+    } finally {
+      service.debugReplaceRecordsForTesting([]);
+      service.debugSetRecordsFilePathForTesting(null);
+      await server.close(force: true);
+      await temp.delete(recursive: true);
+      HttpOverrides.global = previous;
+    }
+  });
+
   test('下载进度使用产物总大小，整份响应从零写入', () {
     expect(
       resolveDownloadResponse(

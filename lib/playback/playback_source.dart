@@ -710,6 +710,7 @@ class MpvMediaSource {
                   ? null
                   : intOf(entry['directLinkQualityIndex']),
               sourceFileName: (entry['fileName'] ?? '').toString(),
+              directLinkExpiresAtMs: intOf(entry['directLinkExpiresAtMs']),
             ),
           )
           .toList(growable: false);
@@ -840,6 +841,7 @@ class MpvMediaSource {
       'isDefault': quality.isDefault,
       'source': quality.source.name,
       'directLinkQualityIndex': quality.directLinkQualityIndex,
+      'directLinkExpiresAtMs': quality.directLinkExpiresAtMs,
       'fileName': quality.sourceFileName,
     };
   }

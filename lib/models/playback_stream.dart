@@ -245,6 +245,7 @@ class PlaybackStreamData {
                   source: directLinkOption.source,
                   directLinkQualityIndex:
                       directLinkOption.directLinkQualityIndex,
+                  directLinkExpiresAtMs: directLinkOption.directLinkExpiresAtMs,
                 )
               : directLinkOption;
           hasDirectLinkDefault =
@@ -352,6 +353,9 @@ class PlaybackQualityOption {
   final PlaybackQualitySource source;
   final int? directLinkQualityIndex;
 
+  /// /stream 的 expired_at 是有效期秒数，收包时换算为墙钟到期时间。
+  final int directLinkExpiresAtMs;
+
   /// 源文件名（来自 StreamTrackData 的 file_name），用于「多版本」卡片展示。
   final String sourceFileName;
 
@@ -363,6 +367,7 @@ class PlaybackQualityOption {
     required this.isDefault,
     required this.source,
     required this.directLinkQualityIndex,
+    this.directLinkExpiresAtMs = 0,
     this.sourceFileName = '',
   });
 
@@ -376,6 +381,7 @@ class PlaybackQualityOption {
         isDefault: isDefault,
         source: source,
         directLinkQualityIndex: directLinkQualityIndex,
+        directLinkExpiresAtMs: directLinkExpiresAtMs,
         sourceFileName: name,
       );
 
@@ -384,6 +390,7 @@ class PlaybackQualityOption {
     required PlaybackQualitySource source,
     int? fallbackDirectLinkQualityIndex,
   }) {
+    final lifetimeSeconds = _asInt(json['expired_at']);
     return PlaybackQualityOption(
       mediaGuid: (json['media_guid'] ?? '').toString(),
       videoGuid: (json['video_guid'] ?? json['guid'] ?? '').toString(),
@@ -393,6 +400,10 @@ class PlaybackQualityOption {
       bitrate: _asInt(json['bitrate'] ?? json['bps']),
       isDefault: _asInt(json['is_default']),
       source: source,
+      directLinkExpiresAtMs:
+          source == PlaybackQualitySource.directLink && lifetimeSeconds > 0
+          ? DateTime.now().millisecondsSinceEpoch + lifetimeSeconds * 1000
+          : 0,
       directLinkQualityIndex:
           _asNullableInt(
             json['direct_link_quality_index'] ??
