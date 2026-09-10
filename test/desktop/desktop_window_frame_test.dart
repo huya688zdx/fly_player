@@ -12,16 +12,18 @@ void main() {
     final messenger = tester.binding.defaultBinaryMessenger;
     var fullscreen = false;
     var maximized = false;
-    messenger.setMockMethodCallHandler(
-      channel,
-      (call) async => switch (call.method) {
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return switch (call.method) {
         'isFullScreen' => fullscreen,
         'isMaximized' => maximized,
         _ => false,
-      },
-    );
+      };
+    });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final pageKey = GlobalKey();
+    final captionFinder = find.byKey(const ValueKey('desktop-window-caption'));
 
     Widget host(AppThemePreset preset) => MaterialApp(
       theme: AppThemeBuilder.build(preset),
@@ -36,19 +38,15 @@ void main() {
 
     await tester.pumpWidget(host(AppThemePreset.midnight));
     await tester.pumpAndSettle();
-    final caption = tester.widget<WindowCaption>(find.byType(WindowCaption));
-    expect(caption.brightness, Brightness.dark);
-    expect(caption.backgroundColor, Colors.transparent);
-    final backdrop = tester.widget<DecoratedBox>(
-      find.byKey(const ValueKey('desktop-window-controls-backdrop')),
+    expect(
+      tester.widget<Material>(captionFinder).type,
+      MaterialType.transparency,
     );
-    final backdropColor = (backdrop.decoration as BoxDecoration).color!;
-    final luminance = Color.alphaBlend(
-      backdropColor,
-      Colors.white,
-    ).computeLuminance();
-    expect(1.05 / (luminance + 0.05), greaterThanOrEqualTo(3));
-    expect(caption.title, isNull);
+    expect(
+      find.byKey(const ValueKey('desktop-window-controls-backdrop')),
+      findsNothing,
+    );
+    expect(tester.widget<Icon>(find.byIcon(Icons.close)).shadows, hasLength(4));
     expect(find.byType(Image), findsNothing);
     expect(tester.getTopLeft(find.byType(Scaffold)).dy, 0);
     expect(tester.getTopLeft(find.byType(TextField)).dy, 32);
@@ -57,9 +55,12 @@ void main() {
     await tester.pumpWidget(host(AppThemePreset.latte));
     await tester.pumpAndSettle();
     expect(
-      tester.widget<WindowCaption>(find.byType(WindowCaption)).brightness,
-      Brightness.light,
+      tester.widget<Material>(captionFinder).type,
+      MaterialType.transparency,
     );
+    await tester.tap(find.byIcon(Icons.remove));
+    await tester.tap(find.byIcon(Icons.crop_square));
+    expect(calls, containsAllInOrder(['minimize', 'maximize']));
 
     Future<void> event(String name) async {
       await messenger.handlePlatformMessage(
@@ -75,7 +76,7 @@ void main() {
     final pageElement = pageKey.currentContext;
     fullscreen = true;
     await event(kWindowEventEnterFullScreen);
-    expect(find.byType(WindowCaption), findsNothing);
+    expect(captionFinder, findsNothing);
     expect(tester.getTopLeft(find.byType(Scaffold)).dy, 0);
     expect(tester.getTopLeft(find.byType(TextField)).dy, 0);
     expect(pageKey.currentContext, same(pageElement));
@@ -85,7 +86,9 @@ void main() {
     maximized = true;
     tester.binding.handleMetricsChanged();
     await tester.pumpAndSettle();
-    expect(find.byType(WindowCaption), findsOneWidget);
+    expect(captionFinder, findsOneWidget);
+    await tester.tap(find.byIcon(Icons.filter_none));
+    expect(calls.last, 'unmaximize');
     expect(tester.getTopLeft(find.byType(TextField)).dy, 32);
     expect(pageKey.currentContext, same(pageElement));
     expect(
@@ -98,7 +101,7 @@ void main() {
     tester.binding.handleMetricsChanged();
     await tester.pumpAndSettle();
     await event(kWindowEventLeaveFullScreen);
-    expect(find.byType(WindowCaption), findsOneWidget);
+    expect(captionFinder, findsOneWidget);
     expect(tester.getTopLeft(find.byType(TextField)).dy, 32);
     expect(pageKey.currentContext, same(pageElement));
     expect(find.text('保留页面'), findsOneWidget);
