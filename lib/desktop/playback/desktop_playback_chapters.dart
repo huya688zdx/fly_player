@@ -11,6 +11,44 @@ class DesktopPlayerChapter {
   final Duration position;
 }
 
+final _introChapterTitle = RegExp(
+  r'(^|[^a-z])(op|opening|intro)(?=$|[^a-z])|片头|片頭',
+  caseSensitive: false,
+);
+final _outroChapterTitle = RegExp(
+  r'(^|[^a-z])(ed|ending|outro|credits)(?=$|[^a-z])|片尾',
+  caseSensitive: false,
+);
+
+/// 只根据明确的片头/片尾名称识别；普通编号章节不猜测跳过范围。
+({Duration? introStart, Duration? introEnd, Duration? outroStart})
+desktopChapterSkipBounds(
+  List<DesktopPlayerChapter> chapters,
+  Duration duration,
+) {
+  Duration? introStart;
+  Duration? introEnd;
+  Duration? outroStart;
+  for (var index = 0; index < chapters.length; index++) {
+    final chapter = chapters[index];
+    final start = chapter.position;
+    if (start < Duration.zero || start >= duration) continue;
+    if (introEnd == null &&
+        _introChapterTitle.hasMatch(chapter.title) &&
+        index + 1 < chapters.length) {
+      final end = chapters[index + 1].position;
+      if (end > start && end < duration) {
+        introStart = start;
+        introEnd = end;
+      }
+    }
+    if (outroStart == null && _outroChapterTitle.hasMatch(chapter.title)) {
+      outroStart = start;
+    }
+  }
+  return (introStart: introStart, introEnd: introEnd, outroStart: outroStart);
+}
+
 /// 每个媒体只读一次章节，文件头尚未就绪时最多补读一次。
 /// 换源和退出均使旧读取失效，并取消尚未开始的补读。
 class DesktopPlaybackChapters
@@ -46,16 +84,19 @@ class DesktopPlaybackChapters
           );
         }
       }
-      if (chapters.isNotEmpty) value = List.unmodifiable(chapters);
-      if (chapters.isEmpty && retry) {
-        _retryTimer = Timer(const Duration(milliseconds: 2500), () {
-          if (generation == _generation) {
-            unawaited(_load(generation, retry: false));
-          }
-        });
+      if (chapters.isNotEmpty) {
+        value = List.unmodifiable(chapters);
+        return;
       }
     } catch (_) {
       // 章节不可用不影响媒体播放，也不在后台无限轮询。
+    }
+    if (generation == _generation && retry) {
+      _retryTimer = Timer(const Duration(milliseconds: 2500), () {
+        if (generation == _generation) {
+          unawaited(_load(generation, retry: false));
+        }
+      });
     }
   }
 

@@ -44,6 +44,42 @@ void main() {
     expect(chapters.value.single.position, Duration.zero);
   });
 
+  testWidgets('章节首次未就绪时仍补读，并用 OP 和 ED 的实际边界跳过', (tester) async {
+    var reads = 0;
+    final chapters = DesktopPlaybackChapters(
+      () async => ++reads == 1
+          ? ''
+          : '[{"title":"序幕","time":0},{"title":"OP","time":30},'
+                '{"title":"正片","time":125},{"title":"ED","time":1290}]',
+    );
+    addTearDown(chapters.dispose);
+    chapters.load(const Duration(minutes: 24));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    expect(chapters.value.length, 4);
+    expect(
+      desktopChapterSkipBounds(chapters.value, const Duration(minutes: 24)),
+      (
+        introStart: const Duration(seconds: 30),
+        introEnd: const Duration(seconds: 125),
+        outroStart: const Duration(seconds: 1290),
+      ),
+    );
+  });
+
+  test('普通编号章节不猜测片头片尾范围', () {
+    expect(
+      desktopChapterSkipBounds(const [
+        DesktopPlayerChapter(title: 'Chapter 01', position: Duration.zero),
+        DesktopPlayerChapter(
+          title: 'Chapter 02',
+          position: Duration(seconds: 90),
+        ),
+      ], const Duration(minutes: 24)),
+      (introStart: null, introEnd: null, outroStart: null),
+    );
+  });
+
   test('进度固定采样媒体身份，最终上报完成后再释放服务端会话', () async {
     final firstReport = Completer<void>();
     final released = Completer<void>();
@@ -411,6 +447,7 @@ void main() {
               title: '测试视频',
             ),
             position: Duration.zero,
+            duration: const Duration(minutes: 24),
             autoPlayEnabled: true,
             nextEpisodePreloadEnabled: false,
             aspectRatioMode: 'fit',
