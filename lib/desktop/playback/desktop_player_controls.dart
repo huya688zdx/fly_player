@@ -6,6 +6,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../theme/app_theme.dart';
 import 'desktop_playback_chapters.dart';
+import 'desktop_player_motion_icon.dart';
 import 'desktop_semantics_safe_slider.dart';
 
 Widget _tooltipOrChild({
@@ -84,8 +85,10 @@ class DesktopPlayerControls extends StatefulWidget {
     this.onHoverSettings,
     this.onHoverExit,
     this.onAddBookmark,
+    this.activeMenu,
   });
 
+  final String? activeMenu;
   final Player player;
   final bool showBuffer;
   final List<DesktopPlayerChapter> chapters;
@@ -258,16 +261,16 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
           tooltip: widget.screenshotLabel,
           onPressed: widget.onScreenshot,
         ),
-        Tooltip(
-          message: widget.abRepeatTooltip,
-          child: _CtrlTextButton(
-            label: widget.abRepeatLabel,
-            active: widget.abRepeatLabel != 'AB',
-            onPressed: widget.onAbRepeat,
-          ),
+        _CtrlIconButton(
+          motion: DesktopPlayerMotionKind.repeat,
+          motionLabel: widget.abRepeatLabel,
+          active: widget.abRepeatLabel != 'AB',
+          tooltip: widget.abRepeatTooltip,
+          onPressed: widget.onAbRepeat,
         ),
         _CtrlIconButton(
           icon: Icons.settings_outlined,
+          active: widget.activeMenu == 'settings',
           tooltip: widget.settingsTooltip,
           onPressed: widget.onSettings,
           onAnchor: widget.onSettingsAt,
@@ -427,37 +430,47 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
     );
   }
 
-  /// 右侧动作组：弹幕徽标 + 倍速/选集/清晰度文字钮 + 图标钮（.plc-right）。
+  /// 右侧动作组：透明动态图标，数值与名称继续用于状态和无障碍提示。
   Widget _buildRightActions({
     required AppThemeColors colors,
     required bool compact,
     required bool veryCompact,
   }) {
+    final rate = widget.rate == widget.rate.roundToDouble()
+        ? widget.rate.toStringAsFixed(1)
+        : widget.rate.toStringAsFixed(2).replaceFirst(RegExp(r'0$'), '');
     final actions = <Widget>[
-      _DanmakuBadgeButton(
-        enabled: widget.danmakuEnabled,
-        accent: colors.accent,
+      _CtrlIconButton(
+        motion: DesktopPlayerMotionKind.danmaku,
+        active: widget.danmakuEnabled,
         tooltip: widget.danmakuLabel,
         onPressed: widget.onToggleDanmaku,
       ),
-      _SpeedButton(
-        rate: widget.rate,
-        tooltip: widget.speedTooltip,
+      _CtrlIconButton(
+        motion: DesktopPlayerMotionKind.speed,
+        motionLabel: '$rate×',
+        active: widget.activeMenu == 'speed',
+        tooltip: '${widget.speedTooltip} · $rate×',
+        onPressed: () {},
         onAnchor: widget.onSpeedAt,
         onHoverEnter: widget.onHoverSpeed,
         onHoverExit: widget.onHoverExit,
       ),
       if (widget.onEpisodes != null)
-        _CtrlTextButton(
-          label: widget.episodeLabel,
+        _CtrlIconButton(
+          motion: DesktopPlayerMotionKind.episodes,
+          active: widget.activeMenu == 'episodes',
+          tooltip: widget.episodeLabel,
           onPressed: widget.onEpisodes!,
           onAnchor: widget.onEpisodesAt,
           onHoverEnter: widget.onHoverEpisodes,
           onHoverExit: widget.onHoverExit,
         ),
       if (widget.onQuality != null && !veryCompact)
-        _CtrlTextButton(
-          label: widget.resolution,
+        _CtrlIconButton(
+          motion: DesktopPlayerMotionKind.quality,
+          active: widget.activeMenu == 'quality',
+          tooltip: widget.resolution,
           onPressed: widget.onQuality!,
           onAnchor: widget.onQualityAt,
           onHoverEnter: widget.onHoverQuality,
@@ -465,7 +478,8 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
         ),
       if (widget.onSubtitle != null && !veryCompact)
         _CtrlIconButton(
-          icon: Icons.subtitles_outlined,
+          motion: DesktopPlayerMotionKind.subtitle,
+          active: widget.activeMenu == 'subtitle',
           tooltip: widget.subtitleLabel,
           onPressed: widget.onSubtitle!,
           onAnchor: widget.onSubtitleAt,
@@ -474,7 +488,8 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
         ),
       if (widget.onAudio != null && widget.audioTooltip.isNotEmpty && !compact)
         _CtrlIconButton(
-          icon: Icons.audiotrack_rounded,
+          motion: DesktopPlayerMotionKind.audio,
+          active: widget.activeMenu == 'audio',
           tooltip: widget.audioTooltip,
           onPressed: widget.onAudio!,
           onAnchor: widget.onAudioAt,
@@ -482,9 +497,8 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
           onHoverExit: widget.onHoverExit,
         ),
       _CtrlIconButton(
-        icon: widget.videoState.isFullscreen()
-            ? Icons.fullscreen_exit_rounded
-            : Icons.fullscreen_rounded,
+        motion: DesktopPlayerMotionKind.fullscreen,
+        active: widget.videoState.isFullscreen(),
         tooltip: widget.fullscreenTooltip,
         onPressed: () => unawaited(widget.videoState.toggleFullscreen()),
       ),
@@ -607,10 +621,13 @@ class _BigPlayButton extends StatelessWidget {
   }
 }
 
-/// 底栏图标钮（.pl-btn）：38px 透明底，悬停白 14% 底。
+/// 工具栏按钮始终透明，悬停只改变图标，不绘制背景高亮。
 class _CtrlIconButton extends StatelessWidget {
   const _CtrlIconButton({
-    required this.icon,
+    this.icon,
+    this.motion,
+    this.motionLabel = '',
+    this.active = false,
     required this.tooltip,
     required this.onPressed,
     this.loading = false,
@@ -620,7 +637,10 @@ class _CtrlIconButton extends StatelessWidget {
     this.onHoverExit,
   });
 
-  final IconData icon;
+  final IconData? icon;
+  final DesktopPlayerMotionKind? motion;
+  final String motionLabel;
+  final bool active;
   final String tooltip;
   final VoidCallback onPressed;
   final bool loading;
@@ -634,254 +654,73 @@ class _CtrlIconButton extends StatelessWidget {
     return _tooltipOrChild(
       message: tooltip,
       enabled: onHoverEnter == null,
-      child: _HoverSurface(
-        onEnter: onHoverEnter,
-        onExit: onHoverExit,
-        builder: (hovered) => Builder(
-          builder: (buttonContext) => SizedBox.square(
-            dimension: 38,
-            child: Material(
-              color: hovered
-                  ? Colors.white.withValues(alpha: 0.14)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
-              child: InkWell(
-                onTap: loading
-                    ? null
-                    : () {
-                        final object = buttonContext.findRenderObject();
-                        if (onAnchor != null &&
-                            object is RenderBox &&
-                            object.hasSize) {
-                          onAnchor!(
-                            object.localToGlobal(Offset.zero) & object.size,
-                          );
-                        } else {
-                          onPressed();
-                        }
-                      },
-                borderRadius: BorderRadius.circular(10),
-                child: Center(
-                  child: loading
-                      ? SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            color: spinner,
-                          ),
-                        )
-                      : Icon(
-                          icon,
-                          color: Colors.white.withValues(alpha: 0.88),
-                          size: 20,
-                        ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 底栏文字钮（.pl-btn.pl-txt）：选集 / 清晰度 / 倍速。
-class _CtrlTextButton extends StatelessWidget {
-  const _CtrlTextButton({
-    required this.label,
-    required this.onPressed,
-    this.active = false,
-    this.onAnchor,
-    this.onHoverEnter,
-    this.onHoverExit,
-  });
-
-  final String label;
-  final bool active;
-  final VoidCallback onPressed;
-  final ValueChanged<Rect>? onAnchor;
-  final ValueChanged<Rect>? onHoverEnter;
-  final VoidCallback? onHoverExit;
-
-  @override
-  Widget build(BuildContext context) {
-    return _HoverSurface(
-      onEnter: onHoverEnter,
-      onExit: onHoverExit,
-      builder: (hovered) => Material(
-        color: hovered
-            ? Colors.white.withValues(alpha: 0.14)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: () {
-            if (onAnchor == null) {
-              onPressed();
-              return;
-            }
-            final object = context.findRenderObject();
-            if (object is RenderBox && object.hasSize) {
-              onAnchor!(object.localToGlobal(Offset.zero) & object.size);
-            } else {
-              onPressed();
-            }
-          },
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            height: 38,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            alignment: Alignment.center,
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: active
-                    ? context.appColors.accent
-                    : Colors.white.withValues(alpha: 0.85),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.2,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 弹幕开关：深色底与白字保持对比，图标明确区分开关状态。
-class _DanmakuBadgeButton extends StatelessWidget {
-  const _DanmakuBadgeButton({
-    required this.enabled,
-    required this.accent,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  final bool enabled;
-  final Color accent;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: _HoverSurface(
-        builder: (hovered) => Material(
-          color: hovered
-              ? Colors.white.withValues(alpha: 0.14)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          child: InkWell(
-            onTap: onPressed,
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
+      child: Semantics(
+        label: tooltip,
+        button: true,
+        selected: active,
+        child: _HoverSurface(
+          onEnter: onHoverEnter,
+          onExit: onHoverExit,
+          builder: (hovered) => Builder(
+            builder: (buttonContext) => SizedBox(
+              width: motion == DesktopPlayerMotionKind.speed ? 52 : 38,
               height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              alignment: Alignment.center,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: enabled ? 0.45 : 0.2),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  splashColor: Colors.transparent,
+                  highlightColor: Colors.transparent,
+                  hoverColor: Colors.transparent,
+                  focusColor: Colors.transparent,
+                  onTap: loading
+                      ? null
+                      : () {
+                          final object = buttonContext.findRenderObject();
+                          if (onAnchor != null &&
+                              object is RenderBox &&
+                              object.hasSize) {
+                            onAnchor!(
+                              object.localToGlobal(Offset.zero) & object.size,
+                            );
+                          } else {
+                            onPressed();
+                          }
+                        },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Center(
+                    child: loading
+                        ? SizedBox.square(
+                            dimension: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: spinner,
+                            ),
+                          )
+                        : motion != null
+                        ? DesktopPlayerMotionIcon(
+                            kind: motion!,
+                            selected: active,
+                            hovered: hovered,
+                            label: motionLabel,
+                          )
+                        : Icon(
+                            icon,
+                            color: active
+                                ? const Color(0xFF8CBCFF)
+                                : Colors.white.withValues(
+                                    alpha: hovered ? 1 : 0.88,
+                                  ),
+                            size: 20,
+                          ),
                   ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      '弹幕',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        height: 1,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Icon(
-                      enabled ? Icons.check_rounded : Icons.block_rounded,
-                      size: 14,
-                      color: enabled ? accent : Colors.white70,
-                    ),
-                  ],
-                ),
               ),
             ),
           ),
         ),
       ),
     );
-  }
-}
-
-/// 倍速按钮（.pl-btn.pl-txt + .pl-lb）：文字显示当前倍速，弹层选择。
-class _SpeedButton extends StatelessWidget {
-  const _SpeedButton({
-    required this.rate,
-    required this.tooltip,
-    this.onAnchor,
-    this.onHoverEnter,
-    this.onHoverExit,
-  });
-
-  final double rate;
-  final String tooltip;
-  final ValueChanged<Rect>? onAnchor;
-  final ValueChanged<Rect>? onHoverEnter;
-  final VoidCallback? onHoverExit;
-
-  @override
-  Widget build(BuildContext context) {
-    return _tooltipOrChild(
-      message: tooltip,
-      enabled: false,
-      child: _HoverSurface(
-        onEnter: onHoverEnter,
-        onExit: onHoverExit,
-        builder: (hovered) => Material(
-          color: hovered
-              ? Colors.white.withValues(alpha: 0.14)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          child: InkWell(
-            onTap: () {
-              final object = context.findRenderObject();
-              if (onAnchor != null && object is RenderBox && object.hasSize) {
-                onAnchor!(object.localToGlobal(Offset.zero) & object.size);
-              }
-            },
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-              height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              alignment: Alignment.center,
-              child: Text(
-                '${_formatRate(rate)}x',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.4,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  static String _formatRate(double value) {
-    return value == value.roundToDouble()
-        ? value.toStringAsFixed(1)
-        : value.toStringAsFixed(2).replaceFirst(RegExp(r'0$'), '');
   }
 }
 
@@ -1153,27 +992,32 @@ class _HoverSurface extends StatefulWidget {
 
 class _HoverSurfaceState extends State<_HoverSurface> {
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) {
-        setState(() => _hovered = true);
-        final object = context.findRenderObject();
-        if (widget.onEnter != null && object is RenderBox && object.hasSize) {
-          widget.onEnter!(object.localToGlobal(Offset.zero) & object.size);
-        }
-      },
-      onExit: (_) {
-        setState(() => _hovered = false);
-        widget.onExit?.call();
-      },
-      child: AnimatedScale(
-        scale: _hovered ? 1.08 : 1,
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        child: widget.builder(_hovered),
+    return Focus(
+      canRequestFocus: false,
+      onFocusChange: (value) => setState(() => _focused = value),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) {
+          setState(() => _hovered = true);
+          final object = context.findRenderObject();
+          if (widget.onEnter != null && object is RenderBox && object.hasSize) {
+            widget.onEnter!(object.localToGlobal(Offset.zero) & object.size);
+          }
+        },
+        onExit: (_) {
+          setState(() => _hovered = false);
+          widget.onExit?.call();
+        },
+        child: AnimatedScale(
+          scale: _hovered || _focused ? 1.08 : 1,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          child: widget.builder(_hovered || _focused),
+        ),
       ),
     );
   }
