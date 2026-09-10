@@ -22,12 +22,53 @@ import '../../services/native_playback_reentry.dart';
 import '../../services/server_native_picker_support.dart';
 import '../../services/server_reentry_support.dart';
 import 'desktop_playback_screen.dart';
+import 'desktop_playback_session.dart';
 
 /// Windows 桌面播放宿主：初始化桌面内核并把正式播放页推入根导航栈。
 final class DesktopPlaybackHost implements PlaybackHost {
   const DesktopPlaybackHost(this.context);
 
   final BuildContext context;
+  static DesktopPlaybackSession? _session;
+  static WidgetBuilder? _screenBuilder;
+  static String? _scope;
+  static MaterialPageRoute<void>? _route;
+
+  @override
+  Future<bool> resume({
+    required String itemGuid,
+    String? mediaGuid,
+    String? audioGuid,
+    String? subtitleGuid,
+    Duration? position,
+  }) async {
+    final session = _session;
+    final builder = _screenBuilder;
+    // 弹出动画期间旧页面仍订阅内核，等它保存当前媒体并清理后再挂载。
+    if (_route?.isActive == false) await _route!.completed;
+    if (!context.mounted) return false;
+    if (session == null ||
+        builder == null ||
+        session.disposed ||
+        _scope != playbackSessionScope(context) ||
+        itemGuid.trim().isEmpty ||
+        session.source.itemGuid != itemGuid.trim() ||
+        (mediaGuid?.isNotEmpty == true &&
+            session.source.mediaGuid != mediaGuid) ||
+        (audioGuid != null && session.source.audioTrackGuid != audioGuid) ||
+        (subtitleGuid != null &&
+            session.source.subtitleTrackGuid != subtitleGuid)) {
+      return false;
+    }
+    if (session.active || !session.ready) return false;
+    await session.paused;
+    if (position != null) await session.player.seek(position);
+    if (!context.mounted) return false;
+    session.active = true;
+    _route = MaterialPageRoute<void>(builder: builder);
+    unawaited(Navigator.of(context, rootNavigator: true).push<void>(_route!));
+    return true;
+  }
 
   @override
   Future<bool> launch({
@@ -45,6 +86,11 @@ final class DesktopPlaybackHost implements PlaybackHost {
 
     // 只在 Windows 桌面播放真正启动时初始化，Android 主路径不会触发。
     MediaKit.ensureInitialized();
+    if (_route?.isActive == false) await _route!.completed;
+    await _session?.dispose();
+    _session = null;
+    _screenBuilder = null;
+    if (!context.mounted) return false;
     final backend = context.read<MediaBackendProvider>().backend;
     final effectiveNas = nas ?? context.read<NasProvider>();
     final serverReporter = ServerPlaybackReporter(backend);
@@ -62,102 +108,87 @@ final class DesktopPlaybackHost implements PlaybackHost {
     final subtitles = backend.capabilities.usesLegacyFeiniuFlow
         ? FeiniuSegmentedSubtitle(FeiniuApi(effectiveNas))
         : null;
-    unawaited(
-      Navigator.of(context, rootNavigator: true)
-          .push<void>(
-            MaterialPageRoute<void>(
-              builder: (_) => DesktopPlaybackScreen(
-                refreshDirectLink: backend.capabilities.usesLegacyFeiniuFlow
-                    ? (current) =>
-                          const FeiniuPlaybackSourceBridge().refreshDirectLink(
-                            api: FeiniuApi(effectiveNas),
-                            source: current,
-                          )
-                    : null,
-                resolveSegmentedSubtitle: subtitles?.resolve,
-                releaseServerSession: backend.capabilities.usesLegacyFeiniuFlow
-                    ? (link) => NativeReentrySupport.releaseServerSession(
-                        effectiveNas,
-                        link,
-                      )
-                    : null,
-                resolveSubtitleFile: backend.capabilities.usesLegacyFeiniuFlow
-                    ? (guid, {format}) =>
-                          NativeReentrySupport.resolveSubtitleFile(
-                            effectiveNas,
-                            guid,
-                            format: format,
-                          )
-                    : (guid, {format}) => backend.resolveExternalSubtitleFile(
-                        guid,
-                        format: format,
-                      ),
-                onRecordProgress: backend.capabilities.usesLegacyFeiniuFlow
-                    ? (progress) => NativeReentrySupport.recordProgress(
-                        effectiveNas,
-                        progress,
-                      )
-                    : serverReporter.report,
-                source: source,
-                episodes: effectiveEpisodes,
-                resolveEpisode:
-                    effectiveEpisodes == null || effectiveEpisodes.isEmpty
-                    ? null
-                    : (episode) async {
-                        final itemGuid =
-                            '${episode['itemGuid'] ?? episode['guid'] ?? ''}'
-                                .trim();
-                        if (itemGuid.isEmpty) return null;
-                        final resolved = await const ItemPlaybackLauncher()
-                            .resolveForNative(
-                              effectiveNas,
-                              backend: backend,
-                              itemGuid: itemGuid,
-                              fallbackTitle:
-                                  '${episode['title'] ?? episode['shortLabel'] ?? ''}',
-                              episodes: effectiveEpisodes,
-                              allowNetwork: !offline,
-                              l10n: l10n,
-                            );
-                        final raw = resolved?['loadArgs'];
-                        if (raw is! String || raw.isEmpty) return null;
-                        return (
-                          source: MpvMediaSource.fromMap(
-                            jsonDecode(raw) as Map<String, dynamic>,
-                          ),
-                          danmakuFilePath: resolved?['danmakuFile']
-                              ?.toString()
-                              .trim(),
-                        );
-                      },
-                reloadSource: (current, intent) async {
-                  final currentLoadArgs = jsonEncode(current.toMap());
-                  final result = backend.capabilities.usesLegacyFeiniuFlow
-                      ? await NativeReentrySupport.reloadServerSession(
-                          effectiveNas,
-                          currentLoadArgs: currentLoadArgs,
-                          intent: intent,
-                        )
-                      : await ServerReentrySupport.reloadServerSession(
-                          backend,
-                          currentLoadArgs: currentLoadArgs,
-                          intent: intent,
-                          l10n: l10n,
-                        );
-                  final raw = result?['loadArgs'];
-                  if (raw is! String || raw.isEmpty) return null;
-                  return MpvMediaSource.fromMap(
-                    jsonDecode(raw) as Map<String, dynamic>,
+    final session = DesktopPlaybackSession(
+      source,
+      danmakuFilePath: danmakuFilePath,
+    )..disposeResources = subtitles?.dispose;
+    _session = session;
+    _scope = playbackSessionScope(context);
+    _screenBuilder = (_) => DesktopPlaybackScreen(
+      session: session,
+      refreshDirectLink: backend.capabilities.usesLegacyFeiniuFlow
+          ? (current) => const FeiniuPlaybackSourceBridge().refreshDirectLink(
+              api: FeiniuApi(effectiveNas),
+              source: current,
+            )
+          : null,
+      resolveSegmentedSubtitle: subtitles?.resolve,
+      releaseServerSession: backend.capabilities.usesLegacyFeiniuFlow
+          ? (link) =>
+                NativeReentrySupport.releaseServerSession(effectiveNas, link)
+          : null,
+      resolveSubtitleFile: backend.capabilities.usesLegacyFeiniuFlow
+          ? (guid, {format}) => NativeReentrySupport.resolveSubtitleFile(
+              effectiveNas,
+              guid,
+              format: format,
+            )
+          : (guid, {format}) =>
+                backend.resolveExternalSubtitleFile(guid, format: format),
+      onRecordProgress: backend.capabilities.usesLegacyFeiniuFlow
+          ? (progress) =>
+                NativeReentrySupport.recordProgress(effectiveNas, progress)
+          : serverReporter.report,
+      source: session.source,
+      episodes: effectiveEpisodes,
+      resolveEpisode: effectiveEpisodes == null || effectiveEpisodes.isEmpty
+          ? null
+          : (episode) async {
+              final itemGuid = '${episode['itemGuid'] ?? episode['guid'] ?? ''}'
+                  .trim();
+              if (itemGuid.isEmpty) return null;
+              final resolved = await const ItemPlaybackLauncher()
+                  .resolveForNative(
+                    effectiveNas,
+                    backend: backend,
+                    itemGuid: itemGuid,
+                    fallbackTitle:
+                        '${episode['title'] ?? episode['shortLabel'] ?? ''}',
+                    episodes: effectiveEpisodes,
+                    allowNetwork: !offline,
+                    l10n: l10n,
                   );
-                },
-                danmakuFilePath: danmakuFilePath,
-              ),
-            ),
-          )
-          .whenComplete(() async {
-            await subtitles?.dispose();
-          }),
+              final raw = resolved?['loadArgs'];
+              if (raw is! String || raw.isEmpty) return null;
+              return (
+                source: MpvMediaSource.fromMap(
+                  jsonDecode(raw) as Map<String, dynamic>,
+                ),
+                danmakuFilePath: resolved?['danmakuFile']?.toString().trim(),
+              );
+            },
+      reloadSource: (current, intent) async {
+        final currentLoadArgs = jsonEncode(current.toMap());
+        final result = backend.capabilities.usesLegacyFeiniuFlow
+            ? await NativeReentrySupport.reloadServerSession(
+                effectiveNas,
+                currentLoadArgs: currentLoadArgs,
+                intent: intent,
+              )
+            : await ServerReentrySupport.reloadServerSession(
+                backend,
+                currentLoadArgs: currentLoadArgs,
+                intent: intent,
+                l10n: l10n,
+              );
+        final raw = result?['loadArgs'];
+        if (raw is! String || raw.isEmpty) return null;
+        return MpvMediaSource.fromMap(jsonDecode(raw) as Map<String, dynamic>);
+      },
+      danmakuFilePath: danmakuFilePath,
     );
+    _route = MaterialPageRoute<void>(builder: _screenBuilder!);
+    unawaited(Navigator.of(context, rootNavigator: true).push<void>(_route!));
     return true;
   }
 

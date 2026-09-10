@@ -57,6 +57,10 @@ class TvSeasonPlaybackLauncher {
       action: () async {
         final l10n = AppLocalizations.of(context);
         final provider = context.read<NasProvider>();
+        if (await playbackHostFor(context).resume(itemGuid: itemGuid)) {
+          return null;
+        }
+        if (!context.mounted) return null;
         // 后端中立：取活动后端，由后端自己的桥接器装配最终播放 source。
         final backend = context.read<MediaBackendProvider>().backend;
         final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
