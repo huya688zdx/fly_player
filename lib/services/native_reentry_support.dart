@@ -94,7 +94,7 @@ class NativeReentrySupport {
     final requestedSeasonGuid = seasonGuid.trim().isNotEmpty
         ? seasonGuid.trim()
         : (loadArgs['seasonGuid'] ?? '').toString().trim();
-    final seriesGuid = await _resolveSeriesGuid(
+    final seriesGuid = await resolveSeriesGuid(
       api,
       loadArgs,
       requestedSeasonGuid,
@@ -195,22 +195,14 @@ class NativeReentrySupport {
     }
   }
 
-  static Future<String> _resolveSeriesGuid(
+  /// 双端选集共用；播放信息缺少所属剧集时，优先从已知季回查。
+  static Future<String> resolveSeriesGuid(
     FeiniuApi api,
     Map<String, dynamic> loadArgs,
     String selectedSeasonGuid,
   ) async {
     final direct = (loadArgs['seriesGuid'] ?? '').toString().trim();
     if (direct.isNotEmpty) return direct;
-
-    final itemGuid = (loadArgs['itemGuid'] ?? '').toString().trim();
-    if (itemGuid.isNotEmpty) {
-      try {
-        final playInfo = await api.getPlayInfo(itemGuid);
-        final fromPlayInfo = playInfo.grandGuid.trim();
-        if (fromPlayInfo.isNotEmpty) return fromPlayInfo;
-      } catch (_) {}
-    }
 
     if (selectedSeasonGuid.isNotEmpty) {
       try {
@@ -219,6 +211,14 @@ class NativeReentrySupport {
         final itemMap = item is Map<String, dynamic> ? item : detail;
         final parentGuid = (itemMap['parent_guid'] ?? '').toString().trim();
         if (parentGuid.isNotEmpty) return parentGuid;
+      } catch (_) {}
+    }
+    final itemGuid = (loadArgs['itemGuid'] ?? '').toString().trim();
+    if (itemGuid.isNotEmpty) {
+      try {
+        final playInfo = await api.getPlayInfo(itemGuid);
+        final fromPlayInfo = playInfo.grandGuid.trim();
+        if (fromPlayInfo.isNotEmpty) return fromPlayInfo;
       } catch (_) {}
     }
     return '';
