@@ -227,6 +227,47 @@ void main() {
     expect(find.text('通用'), findsOneWidget);
   });
 
+  testWidgets('并行窗口选择搜索结果后，再点原输入框仍能展开结果', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await pumpSettings(tester, size: const Size(1400, 900), inShell: true);
+    final shellContext = tester.element(find.byType(DesktopSideBar));
+    await shellContext.read<ParallelWindowSettingsProvider>().setEnabled(true);
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    final input = find.byType(TextField).first;
+    await tester.tap(input);
+    await tester.enterText(input, '主题');
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.text('主题设置'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ThemeSettingsScreen), findsOneWidget);
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+
+    await tester.tap(input);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    expect(find.byType(DesktopFloatingPanel).hitTestable(), findsOneWidget);
+    await tester.enterText(input, '语言');
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.text('应用语言'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(LanguageSettingsScreen), findsOneWidget);
+    await tester.tap(input);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel).hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('语言从列表和搜索进入同一子页，选择保存后保留页面', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     await pumpSettings(tester);
