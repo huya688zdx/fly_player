@@ -252,12 +252,12 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
         const SizedBox(width: 14),
         if (widget.onAddBookmark != null && widget.bookmarkTooltip.isNotEmpty)
           _CtrlIconButton(
-            icon: Icons.bookmark_add_outlined,
+            motion: DesktopPlayerMotionKind.bookmark,
             tooltip: widget.bookmarkTooltip,
             onPressed: widget.onAddBookmark!,
           ),
         _CtrlIconButton(
-          icon: Icons.photo_camera_outlined,
+          motion: DesktopPlayerMotionKind.screenshot,
           tooltip: widget.screenshotLabel,
           onPressed: widget.onScreenshot,
         ),
@@ -269,7 +269,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
           onPressed: widget.onAbRepeat,
         ),
         _CtrlIconButton(
-          icon: Icons.settings_outlined,
+          motion: DesktopPlayerMotionKind.settings,
           active: widget.activeMenu == 'settings',
           tooltip: widget.settingsTooltip,
           onPressed: widget.onSettings,
@@ -356,11 +356,13 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                         ],
                         const SizedBox(width: 6),
                         _CtrlIconButton(
-                          icon: widget.volume <= 0
-                              ? Icons.volume_off_rounded
+                          motion: DesktopPlayerMotionKind.volume,
+                          active: widget.volume <= 0,
+                          motionLabel: widget.volume <= 0
+                              ? 'muted'
                               : widget.volume < 45
-                              ? Icons.volume_down_rounded
-                              : Icons.volume_up_rounded,
+                              ? 'low'
+                              : 'high',
                           tooltip: widget.muteTooltip,
                           onPressed: widget.onMute,
                         ),
