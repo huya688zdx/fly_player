@@ -10,7 +10,7 @@ void main() {
     expect(DanDanPlayResolver.normalizeSeriesTitle('总之就是非常可爱 第二季'), '总之就是非常可爱');
   });
 
-  test('手动候选把当前季度放在前面且不丢弃其他季度', () {
+  test('手动候选依次优先当前集和当前季，并保留其他集与季度', () {
     final sorted = DanDanPlayResolver.sortCandidatesForSeason(
       <DanDanPlayEpisodeSearchItem>[
         const DanDanPlayEpisodeSearchItem(
@@ -20,6 +20,12 @@ void main() {
           episodeNumber: 2,
         ),
         const DanDanPlayEpisodeSearchItem(
+          episodeId: 169610001,
+          animeTitle: '总之就是非常可爱 第二季',
+          episodeTitle: '第1话',
+          episodeNumber: 1,
+        ),
+        const DanDanPlayEpisodeSearchItem(
           episodeId: 169610002,
           animeTitle: '总之就是非常可爱 第二季',
           episodeTitle: '第2话',
@@ -27,9 +33,14 @@ void main() {
         ),
       ],
       seasonNumber: 2,
+      currentEpisodeNumber: 2,
     );
 
-    expect(sorted.map((item) => item.episodeId), <int>[169610002, 154210002]);
+    expect(sorted.map((item) => item.episodeId), <int>[
+      169610002,
+      169610001,
+      154210002,
+    ]);
   });
 
   test('跨季同集号候选只标记当前季度', () {

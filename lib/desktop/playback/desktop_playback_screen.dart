@@ -599,6 +599,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Future<bool> _loadDanmakuForSource(
     String? preferredPath, {
     String sourceLabel = '',
+    bool enableOnSuccess = false,
   }) async {
     final generation = ++_danmakuLoadGeneration;
     widget.session.danmakuFilePath = preferredPath;
@@ -636,6 +637,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
             ? sourceLabel.trim()
             : payload.sourceLabel;
       });
+      if (enableOnSuccess && payload.comments.isNotEmpty) {
+        await _updateDanmakuSettings(_danmakuSettings.copyWith(enabled: true));
+      }
       return payload.comments.isNotEmpty;
     } catch (_) {
       if (!mounted || generation != _danmakuLoadGeneration) return false;
@@ -690,6 +694,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     final loaded = await _loadDanmakuForSource(
       payloadPath,
       sourceLabel: result?.files.single.name ?? '',
+      enableOnSuccess: true,
     );
     if (loaded) {
       _showPlayerMessage('已导入 ${_danmakuComments.length} 条弹幕');
@@ -711,7 +716,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Future<List<Map<String, dynamic>>> _searchDanmakuSources(String keyword) {
     return NativeDanmakuPrefetch.searchCandidates(
       keyword: keyword,
-      episodeNumber: _source.episodeNumber,
+      episodeNumber: 0,
+      currentEpisodeNumber: _source.episodeNumber,
       seasonNumber: _source.seasonNumber,
       tmdbId: _source.tmdbId,
     );
@@ -736,7 +742,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       return false;
     }
     final label = '${source['label'] ?? sourceKey}'.trim();
-    final loaded = await _loadDanmakuForSource(path, sourceLabel: label);
+    final loaded = await _loadDanmakuForSource(
+      path,
+      sourceLabel: label,
+      enableOnSuccess: true,
+    );
     if (loaded) _showPlayerMessage('已切换弹幕源');
     return loaded;
   }
@@ -771,6 +781,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     final loaded = await _loadDanmakuForSource(
       path,
       sourceLabel: episodeTitle.isNotEmpty ? episodeTitle : animeTitle,
+      enableOnSuccess: true,
     );
     if (loaded) _showPlayerMessage('已加载在线弹幕');
     return loaded;
