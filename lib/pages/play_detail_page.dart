@@ -10,6 +10,8 @@ import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_sheet_controller.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../desktop/desktop_environment.dart';
+import '../desktop/playback/external_playback_controls.dart';
+import '../desktop/playback/external_playback_host.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
 import '../models/download_task_record.dart';
@@ -690,6 +692,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       qualityMediaGuid: version?.id,
       audioTrackId: _neutralSelectedAudioId,
       subtitleTrackId: _neutralSelectedSubtitleId,
+      resumePosition: _externalPlaybackPosition,
     );
   }
 
@@ -1036,6 +1039,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                             : null,
                         onDownloadTap: _neutralDownloadUnavailable,
                       ),
+                      if (DesktopEnvironment.isWindows)
+                        ExternalPlaybackControls(
+                          itemGuid: _currentItemGuid,
+                          onApplySelection: _startNeutralPlayback,
+                        ),
                       if (showVersionSelector)
                         DetailResolutionSection(
                           options: versionLabels,
@@ -1972,7 +1980,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       subtitleTracks: _currentSubtitleTracks(),
       audioTracks: _currentAudioTracks(),
     );
-    _selectedSubtitleGuid = synced.subtitleGuid;
+    _selectedSubtitleGuid = _selectedSubtitleGuid == ''
+        ? ''
+        : synced.subtitleGuid;
     _selectedAudioGuid = synced.audioGuid;
   }
 
@@ -2080,8 +2090,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
   }
 
+  Duration? get _externalPlaybackPosition {
+    if (!DesktopEnvironment.isWindows) return null;
+    final active = ExternalPlaybackHost.status.value;
+    return active?.source.itemGuid == _currentItemGuid
+        ? active!.position
+        : null;
+  }
+
   Future<void> _openPlayer() async {
-    final actionKey = 'play_detail_player:${_currentItemGuid.trim()}';
+    final itemGuid = _currentItemGuid;
+    final actionKey = 'play_detail_player:${itemGuid.trim()}';
     if (_playerRouteActive || AsyncActionGuard.isRunning(actionKey)) {
       _showTopTip(
         AppLocalizations.of(context).detailPreparingPlayback,
@@ -2099,14 +2118,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         if (data == null) return;
 
         if (await playbackHostFor(context).resume(
-          itemGuid: _currentItemGuid,
+          itemGuid: itemGuid,
           mediaGuid: _currentStreamOption()?.mediaGuid ?? data.mediaGuid,
           audioGuid: _selectedAudioGuid,
           subtitleGuid: _selectedSubtitleGuid,
         )) {
           return;
         }
-        if (!mounted) return;
+        if (!mounted || _currentItemGuid != itemGuid) return;
 
         final localRecord = _downloadedRecordForCurrentItem();
         if (localRecord != null) {
@@ -2150,6 +2169,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           );
           return;
         }
+        if (!mounted || _currentItemGuid != itemGuid) return;
 
         final effectiveDuration =
             (selectedOption != null && selectedOption.duration > 0)
@@ -2162,13 +2182,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 _watched ||
                 data.item.isWatched == 1);
         final resume = await PlaybackResumePositionResolver.resolve(
-          videoIds: <String>[data.item.guid, _currentItemGuid],
+          videoIds: <String>[data.item.guid, itemGuid],
           durationSeconds: effectiveDuration,
           networkPositionSeconds: sourceTs,
           networkPositionAvailable: true,
           networkCompleted: playbackCompleted,
         );
-        final effectiveTs = resume.position.inSeconds;
+        if (!mounted || _currentItemGuid != itemGuid) return;
+        final externalPosition = _externalPlaybackPosition;
+        final effectiveTs = (externalPosition ?? resume.position).inSeconds;
         final item = data.item;
         final title = formatPlayerTitleFromPlayItem(
           item,
@@ -2187,14 +2209,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               primaryTracks: playbackStream.subtitleStreams,
               extraTracks: _currentSubtitleTracks(),
             );
-        final selectedSubtitle =
-            PlayDetailTrackSelector.selectedOrFirstSubtitle(
-              selectedSubtitleGuid:
-                  _selectedSubtitleGuid?.trim().isNotEmpty == true
-                  ? _selectedSubtitleGuid
-                  : data.subtitleGuid,
-              subtitleTracks: playerSubtitleTracks,
-            );
+        final subtitleDisabled = _selectedSubtitleGuid == '';
+        final selectedSubtitle = subtitleDisabled
+            ? null
+            : PlayDetailTrackSelector.selectedOrFirstSubtitle(
+                selectedSubtitleGuid:
+                    _selectedSubtitleGuid ?? data.subtitleGuid,
+                subtitleTracks: playerSubtitleTracks,
+              );
         final playbackVideoGuid =
             playbackStream.videoStream?.guid.trim().isNotEmpty == true
             ? playbackStream.videoStream!.guid.trim()
@@ -2248,7 +2270,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final initialPlayback = await const PlayerSourceController()
             .buildInitialPlaybackResult(
               api: api,
-              itemGuid: _currentItemGuid,
+              itemGuid: itemGuid,
               directUrl: streamUrl,
               mediaGuid: mediaGuid,
               videoGuid: initialPlaybackVideoGuid,
@@ -2258,15 +2280,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               selectedSubtitle: selectedSubtitle,
               startPosition: Duration(seconds: effectiveTs),
             );
+        if (!mounted || _currentItemGuid != itemGuid) return;
         final playableSource = initialPlayback.playableSource;
         final resolvedStartPosition =
-            !playableSource.reliableSeek && effectiveTs > 0
-            ? Duration.zero
-            : resume.position;
+            externalPosition ??
+            (!playableSource.reliableSeek && effectiveTs > 0
+                ? Duration.zero
+                : resume.position);
 
         final source = MpvMediaSource(
           loadNonce: createMpvLoadNonce(),
-          itemGuid: _currentItemGuid,
+          itemGuid: itemGuid,
           seriesGuid: widget.seriesGuid.trim().isNotEmpty
               ? widget.seriesGuid.trim()
               : data.grandGuid.trim(),
@@ -2306,7 +2330,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               ? null
               : embeddedSubtitleTrackIndex,
           audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
-          subtitleTrackGuid: selectedSubtitle?.guid ?? data.subtitleGuid,
+          subtitleTrackGuid: subtitleDisabled
+              ? ''
+              : selectedSubtitle?.guid ?? data.subtitleGuid,
           resolution: initialPlaybackResolution,
           bitrate: initialPlaybackBitrate,
           durationSeconds: effectiveDuration,
@@ -2324,6 +2350,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           playbackSpeed: 1.0,
           audioTracks: playbackStream.audioStreams,
           subtitleTracks: playerSubtitleTracks,
+          localSubtitleFiles: {
+            for (final entry in _manualSubtitleEntries) entry.guid: entry.path,
+          },
           qualities: mergedQualities,
         );
 
@@ -2333,6 +2362,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   Future<void> _openLocalPlayer(DownloadTaskRecord record) async {
+    final itemGuid = _currentItemGuid;
     final data = _data;
     if (data == null) return;
     if (record.filePath.trim().isEmpty) {
@@ -2356,13 +2386,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             _watched ||
             data.item.isWatched == 1);
     final resume = await PlaybackResumePositionResolver.resolve(
-      videoIds: <String>[data.item.guid, _currentItemGuid, record.itemGuid],
+      videoIds: <String>[data.item.guid, itemGuid, record.itemGuid],
       durationSeconds: effectiveDuration,
       networkPositionSeconds: sourceTs,
       networkPositionAvailable: true,
       networkCompleted: playbackCompleted,
     );
-    final startPosition = resume.position;
+    if (!mounted || _currentItemGuid != itemGuid) return;
+    final startPosition = _externalPlaybackPosition ?? resume.position;
     final item = data.item;
     final title = formatPlayerTitleFromPlayItem(
       item,
@@ -2388,12 +2419,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final localSubtitleTracks = _currentSubtitleTracks().isNotEmpty
         ? _currentSubtitleTracks()
         : record.subtitleTracks;
-    final selectedSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
-      selectedSubtitleGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
-          ? _selectedSubtitleGuid
-          : data.subtitleGuid,
-      subtitleTracks: localSubtitleTracks,
-    );
+    final subtitleDisabled = _selectedSubtitleGuid == '';
+    final selectedSubtitle = subtitleDisabled
+        ? null
+        : PlayDetailTrackSelector.selectedOrFirstSubtitle(
+            selectedSubtitleGuid: _selectedSubtitleGuid ?? data.subtitleGuid,
+            subtitleTracks: localSubtitleTracks,
+          );
     final embeddedSubtitleTrackIndex =
         PlayDetailTrackSelector.embeddedSubtitleTrackIndex(
           selectedSubtitle: selectedSubtitle,
@@ -2426,9 +2458,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       localSubtitleBundle,
       manualBundle,
     );
-    final source = MpvMediaSource.localFile(
+    if (!mounted || _currentItemGuid != itemGuid) return;
+    var source = MpvMediaSource.localFile(
       filePath: record.filePath,
-      itemGuid: _currentItemGuid,
+      itemGuid: itemGuid,
       seriesGuid: widget.seriesGuid.trim().isNotEmpty
           ? widget.seriesGuid.trim()
           : data.grandGuid.trim(),
@@ -2450,9 +2483,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       startPosition: startPosition,
       audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
       subtitleTrackIndex: embeddedSubtitleTrackIndex,
-      subtitleTrackGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
-          ? _selectedSubtitleGuid
-          : data.subtitleGuid,
+      subtitleTrackGuid: _selectedSubtitleGuid ?? data.subtitleGuid,
       localSubtitleBundle: mergedLocalSubtitleBundle,
       resolution: record.resolution,
       bitrate: 0,
@@ -2470,6 +2501,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       qualities: mergedQualities,
       playbackSpeed: 1.0,
     );
+    if (subtitleDisabled) {
+      // 本地工厂会自动挑选同名字幕，在本页保留用户明确关闭的选择。
+      source = source.copyWith(
+        subtitleTrackGuid: '',
+        clearSubtitleTrackIndex: true,
+        preferExternalSubtitle: false,
+      );
+    }
 
     await _launchPlayer(source: source);
   }
@@ -3640,6 +3679,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                     },
                                   ),
                                 ),
+                                if (DesktopEnvironment.isWindows)
+                                  ExternalPlaybackControls(
+                                    itemGuid: _currentItemGuid,
+                                    onApplySelection: _openPlayer,
+                                  ),
                                 AnimatedBuilder(
                                   animation: _actionsPopController,
                                   builder: (context, child) {
