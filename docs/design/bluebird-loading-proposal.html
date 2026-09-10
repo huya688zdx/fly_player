@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>青鸟加载动效</title>
+<style>
+  :root {
+    --bg: #09111C;
+    --card: #0D1624;
+    --canvas: #0A1220;
+    --line: rgba(135, 230, 172, 0.08);
+    --line-strong: rgba(135, 230, 172, 0.16);
+    --ink: #E8F0EA;
+    --ink-dim: #8FA098;
+    --ink-faint: #5C6B66;
+    --accent: #87E6AC;
+    --mono: "Cascadia Code", ui-monospace, Consolas, monospace;
+    --sans: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.75;
+    min-height: 100vh;
+  }
+  .atmo {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(900px 480px at 20% -8%, rgba(63, 169, 245, 0.07), transparent 62%),
+      radial-gradient(760px 540px at 85% 6%, rgba(67, 229, 200, 0.06), transparent 60%),
+      radial-gradient(1000px 700px at 50% 112%, rgba(139, 124, 246, 0.05), transparent 65%);
+  }
+  main { position: relative; z-index: 1; max-width: 1020px; margin: 0 auto; padding: 64px 28px 90px; }
+
+  header { margin-bottom: 8px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.32em;
+    text-transform: uppercase; color: var(--accent); opacity: 0.85; margin-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 44px); font-weight: 600;
+    letter-spacing: 0.02em; line-height: 1.25; text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lede { color: var(--ink-dim); max-width: 64ch; margin-top: 14px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+  .lede i { font-style: normal; color: #9DB8E8; }
+
+  .hero {
+    margin-top: 34px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: radial-gradient(640px 340px at 50% 118%, rgba(63, 169, 245, 0.06), transparent 70%), var(--canvas);
+    overflow: hidden;
+  }
+  .birdStage { position: relative; width: 100%; }
+  .birdStage svg { display: block; width: 100%; height: auto; }
+  .hero .birdStage { max-width: 760px; margin: 0 auto; }
+
+  .timeline { border-top: 1px solid var(--line); padding: 18px 24px 22px; }
+  .tl-track {
+    position: relative; height: 4px; border-radius: 2px;
+    background: linear-gradient(90deg,
+      rgba(135,230,172,0.14) 0%, rgba(135,230,172,0.14) 56%,
+      rgba(255,204,103,0.30) 57%, rgba(255,204,103,0.30) 73%,
+      rgba(63,169,245,0.30) 74%, rgba(63,169,245,0.30) 91%,
+      rgba(139,124,246,0.30) 92%, rgba(139,124,246,0.30) 100%);
+  }
+  .tl-cursor {
+    position: absolute; top: -5px; width: 2px; height: 14px;
+    background: #F2FFF7; border-radius: 1px;
+    box-shadow: 0 0 8px rgba(135, 230, 172, 0.8);
+    left: 0;
+  }
+  .tl-labels { display: flex; margin-top: 12px; }
+  .tl-labels span { font-size: 12.5px; color: var(--ink-faint); transition: color 0.3s; }
+  .tl-labels span:nth-child(1) { flex: 0.58; }
+  .tl-labels span:nth-child(2) { flex: 0.15; }
+  .tl-labels span:nth-child(3) { flex: 0.17; }
+  .tl-labels span:nth-child(4) { flex: 0.10; text-align: right; }
+  .tl-labels span.on { color: var(--ink); font-weight: 600; }
+  .tl-note { margin-top: 10px; font-size: 12.5px; color: var(--ink-faint); font-family: var(--mono); letter-spacing: 0.04em; }
+
+  .section-title { margin: 62px 0 8px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .section-title h2 { font-size: 22px; font-weight: 600; }
+  .section-title p { color: var(--ink-faint); font-size: 13px; }
+
+  .tones { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-top: 20px; }
+  .tone {
+    border: 1px solid var(--line); border-radius: 16px;
+    background: var(--card); overflow: hidden;
+  }
+  .tone .birdStage { background: var(--canvas); }
+  .tone .cap {
+    padding: 10px 14px 12px; display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: var(--ink-dim);
+  }
+  .tone .cap code { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+  .tone.first { border-color: var(--line-strong); }
+
+  .sizes { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-top: 20px; }
+  .size {
+    border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+    padding: 22px 18px 12px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .size .birdStage { width: var(--w); }
+  .size span { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); letter-spacing: 0.08em; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 20px; }
+  .card {
+    border: 1px solid var(--line); border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent 45%), var(--card);
+    padding: 20px 22px;
+  }
+  .card h3 { font-size: 15px; font-weight: 600; color: var(--accent); margin-bottom: 8px; letter-spacing: 0.03em; }
+  .card p { font-size: 13.5px; color: var(--ink-dim); }
+  .card p b { color: var(--ink); font-weight: 600; }
+  .card .impl {
+    margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); line-height: 1.9;
+  }
+
+  footer { margin-top: 70px; color: var(--ink-faint); font-size: 12px; text-align: center; letter-spacing: 0.08em; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tl-cursor { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="atmo"></div>
+<main>
+  <header>
+    <p class="eyebrow">Fly Player · Blue Bird Loader</p>
+    <h1>青鸟盘旋<em>加载动效</em></h1>
+    <p class="lede">灵感取自<i>《利兹与青鸟》</i>：青鸟绕圈相伴，悬停、犹豫、振翅离去——又在无人察觉时无声归来。整段运动共用<i>一条闭合曲线</i>，飞离与归来在同一弧线上前后衔接，循环处零跳变。燕形经过控制点形变重建了扑翼动作，颜色不锁死品牌渐变，<strong>从主题动态取色派生三档明度</strong>，任何取色结果下都成立。</p>
+  </header>
+
+  <div class="hero">
+    <div class="birdStage" data-tint="logo" data-hero></div>
+    <div class="timeline">
+      <div class="tl-track"><div class="tl-cursor" id="tlCursor"></div></div>
+      <div class="tl-labels" id="tlLabels">
+        <span class="on">盘旋相伴</span><span>悬停犹豫</span><span>振翅离去</span><span>无声归来</span>
+      </div>
+      <p class="tl-note">single closed path · tangent-continuous loop · flap rate follows velocity（悬停时高频颤振，滑翔时舒展）</p>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <h2>动态取色适配</h2>
+    <p>主鸟保留 Logo 青绿→蓝→紫渐变；主题跟随模式只取动态取色结果派生「亮 / 主 / 深」三档渐变 —— 下图为同一动效换装</p>
+  </div>
+  <div class="tones">
+    <div class="tone first"><div class="birdStage" data-tint="logo"></div><div class="cap"><span>品牌渐变</span><code>logo</code></div></div>
+    <div class="tone"><div class="birdStage" data-tint="green"></div><div class="cap"><span>主题·绿</span><code>AppAccentTone.green</code></div></div>
+    <div class="tone"><div class="birdStage" data-tint="blue"></div><div class="cap"><span>主题·蓝</span><code>AppAccentTone.blue</code></div></div>
+    <div class="tone"><div class="birdStage" data-tint="rose"></div><div class="cap"><span>主题·玫红</span><code>AppAccentTone.rose</code></div></div>
+    <div class="tone"><div class="birdStage" data-tint="mint"></div><div class="cap"><span>主题·薄荷</span><code>AppAccentTone.mint</code></div></div>
+  </div>
+
+  <div class="section-title">
+    <h2>尺寸阶梯</h2>
+    <p>缩放不裁切：小尺寸时残影自动隐藏、光晕收窄，28px 仍可辨认飞行方向</p>
+  </div>
+  <div class="sizes">
+    <div class="size" style="--w:120px"><div class="birdStage" data-tint="logo" data-size-s="1"></div><span>全屏 1:1</span></div>
+    <div class="size" style="--w:64px"><div class="birdStage" data-tint="logo" data-size-s="0.5"></div><span>区块</span></div>
+    <div class="size" style="--w:36px"><div class="birdStage" data-tint="logo" data-size-s="0.28"></div><span>局部</span></div>
+  </div>
+
+  <div class="section-title">
+    <h2>动效细节</h2>
+    <p>让"犹豫"可被感知的四个设计决定</p>
+  </div>
+  <div class="cards">
+    <div class="card">
+      <h3>一条闭合曲线</h3>
+      <p>轨道、飞离、外圈巡航、归来全部是同一路径的连续段，衔接点<b>切线方向一致</b>。飞走和回来不靠淡入淡出拼接，是物理上真的一只鸟。</p>
+      <div class="impl">Flutter: Path + PathMetric.getPosAtDistance / getTangentAtDistance</div>
+    </div>
+    <div class="card">
+      <h3>速度会呼吸</h3>
+      <p>盘旋段匀速滑翔，接近顶点平滑减速到近乎悬停，停顿约 1 秒后<b>沿切线加速冲出</b>。全程无速度突变，节奏即情绪。</p>
+      <div class="impl">时间→弧长映射: 分段 smoothstep 关键帧积分</div>
+    </div>
+    <div class="card">
+      <h3>真·扑翼形变</h3>
+      <p>燕形剪影经控制点形变生成「上拍 / 原位 / 下拍」三个同构关键帧，运行时<b>数值插值</b>还原扇翅；悬停时高频浅颤、滑翔时舒展慢拍，振翅与速度互为因果。</p>
+      <div class="impl">三帧同构 path 数值 lerp；freq/amp 由速度权重混合驱动</div>
+    </div>
+    <div class="card">
+      <h3>取色即换装</h3>
+      <p>渐变三档色由动态取色种子经 HSL 明度偏移派生；<b>悬停光晕与残影同源</b>，取任何色都协调。品牌页可切回 Logo 原生渐变。</p>
+      <div class="impl">ColorScheme 种子 → HSLJitter(±0.06L) → 3 档 Gradient stops</div>
+    </div>
+  </div>
+
+  <footer>FLY PLAYER · 青鸟加载动效提案 · 燕形素材 Openclipart #278011 (CC0) 扑翼帧经控制点形变重建 · 灵感：《利兹与青鸟》 · 2026-08</footer>
+</main>
+
+<script>
+(function () {
+  const DUR = 7000; // 单圈时长 ms
+  const TINTS = {
+    logo:  ['#4AE8CF', '#3FA9F5', '#8B7CF6'],
+    green: ['#87E6AC', '#4ED08A', '#2E9E63'],
+    blue:  ['#8FBAFF', '#5D9BFF', '#3565D9'],
+    rose:  ['#FFB0C6', '#FF7FA3', '#D14E75'],
+    mint:  ['#B2F4E4', '#63DEBE', '#2FA98C'],
+  };
+  // 飞行路径：轨道 → 顶部飞离 → 场外大回环 → 右侧俯冲归位（闭合、切线连续）
+  const FLIGHT_D = 'M 380 170 C 380 214 324 248 260 248 C 196 248 140 214 140 170 ' +
+    'C 140 126 196 92 260 92 C 320 92 368 70 402 42 C 436 14 500 2 556 18 ' +
+    'C 640 40 668 130 650 210 C 632 292 560 350 460 362 C 360 374 200 368 100 332 ' +
+    'C 0 296 -55 226 -58 146 C -61 66 -16 -6 70 -34 C 190 -70 400 -50 470 40 ' +
+    'C 500 95 380 90 380 170';
+
+  // 燕形三帧（同构路径：M + 13C + 2L + Z，Openclipart #278011 CC0 经控制点形变）
+  const FRAME_D = {
+    down: 'M-14.260 -2.754 C-5.954 -0.477 1.126 -0.946 4.375 -3.607 C7.842 -7.557 7.434 -14.012 6.784 -20.165 C13.171 -16.855 14.526 -8.140 13.894 -3.122 C13.809 -2.205 13.026 -1.439 12.785 -0.911 C14.789 0.984 16.798 2.123 17.149 4.848 C15.243 5.637 13.248 5.811 11.224 6.063 C9.564 8.352 9.501 8.700 6.399 12.258 C3.709 15.708 0.838 17.830 -2.811 20.000 L-1.395 16.871 C0.016 13.660 1.006 12.888 1.857 10.203 C2.217 9.067 1.878 7.166 1.906 5.736 C-3.621 2.120 -9.495 3.277 -15.510 2.023 L-17.149 1.725 C-13.133 2.235 -8.409 1.390 -5.854 1.135 C-8.176 -0.575 -7.879 0.793 -14.260 -2.754 Z',
+    mid:  'M-14.226 -3.032 C-5.954 -0.477 1.136 -0.976 5.047 -4.008 C9.423 -7.400 10.143 -13.828 10.571 -20.000 C16.286 -15.631 16.107 -6.814 14.374 -2.466 C14.093 -1.759 13.176 -1.196 12.869 -0.762 C14.789 0.984 16.798 2.123 17.149 4.848 C15.243 5.637 13.248 5.811 11.224 6.063 C9.564 8.352 9.501 8.700 6.399 12.258 C3.709 15.708 0.838 17.830 -2.811 20.000 L-1.395 16.871 C0.016 13.660 1.006 12.888 1.857 10.203 C2.217 9.067 1.878 7.166 1.906 5.736 C-3.621 2.120 -9.495 3.277 -15.510 2.023 L-17.149 1.725 C-13.133 2.235 -8.409 1.390 -5.854 1.135 C-8.176 -0.575 -7.879 0.793 -14.226 -3.032 Z',
+    up:   'M-14.100 -3.403 C-5.954 -0.477 1.156 -1.016 6.082 -4.361 C11.540 -6.726 13.793 -12.789 15.702 -18.674 C20.190 -13.052 17.883 -4.540 14.841 -1.430 C14.352 -1.068 13.312 -0.820 12.939 -0.535 C14.788 0.986 16.798 2.123 17.149 4.848 C15.243 5.637 13.248 5.811 11.224 6.063 C9.564 8.352 9.501 8.700 6.399 12.258 C3.709 15.708 0.838 17.830 -2.811 20.000 L-1.395 16.871 C0.016 13.660 1.006 12.888 1.857 10.203 C2.217 9.067 1.878 7.166 1.906 5.736 C-3.621 2.120 -9.495 3.277 -15.510 2.023 L-17.149 1.725 C-13.133 2.235 -8.409 1.390 -5.854 1.135 C-8.176 -0.575 -7.879 0.793 -14.100 -3.403 Z',
+  };
+  function parseD(d) {
+    const segs = [], nums = [];
+    const re = /([MLCZ])([^MLCZ]*)/g; let m;
+    while ((m = re.exec(d))) {
+      if (m[1] === 'Z') { segs.push({ c: 'Z', n: 0 }); continue; }
+      const arr = m[2].trim().split(/[\s,]+/).filter(Boolean).map(Number);
+      segs.push({ c: m[1], n: arr.length });
+      for (const v of arr) nums.push(v);
+    }
+    return { segs, nums };
+  }
+  const MID = parseD(FRAME_D.mid);
+  const TPL = MID.segs, BASE = MID.nums;
+  const UP = parseD(FRAME_D.up).nums, DOWN = parseD(FRAME_D.down).nums;
+  function birdD(blend) {
+    const tgt = blend >= 0 ? UP : DOWN;
+    const t = Math.min(1, Math.abs(blend));
+    let s = '', i = 0;
+    for (const seg of TPL) {
+      if (seg.c === 'Z') { s += 'Z'; continue; }
+      s += seg.c;
+      for (let k = 0; k < seg.n; k++, i++) s += (BASE[i] + (tgt[i] - BASE[i]) * t).toFixed(3) + ' ';
+    }
+    return s;
+  }
+
+  // ── 时间 → 弧长 映射（分段 smoothstep 关键帧）──
+  const KNOTS = [[0, 0], [0.58, 0.185], [0.72, 0.215], [0.78, 0.30], [0.92, 0.90], [1, 1]];
+  const smooth = (x) => x * x * (3 - 2 * x);
+  function sOf(t) {
+    t = ((t % 1) + 1) % 1;
+    for (let i = 1; i < KNOTS.length; i++) {
+      if (t <= KNOTS[i][0]) {
+        const [t0, s0] = KNOTS[i - 1], [t1, s1] = KNOTS[i];
+        return s0 + (s1 - s0) * smooth((t - t0) / (t1 - t0));
+      }
+    }
+    return 1;
+  }
+  const gauss = (x, mu, sig) => Math.exp(-((x - mu) ** 2) / (2 * sig * sig));
+  const sstep = (x, a, b) => smooth(Math.min(1, Math.max(0, (x - a) / (b - a))));
+
+  const stages = [];
+  document.querySelectorAll('.birdStage').forEach((el, idx) => {
+    const tint = TINTS[el.dataset.tint] || TINTS.logo;
+    const small = parseFloat(el.dataset.sizeS || '1');
+    const id = 'b' + idx;
+    const wrap = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    wrap.setAttribute('viewBox', '0 0 520 340');
+    const glow = el.hasAttribute('data-hero') ? 8 : 0;
+    wrap.innerHTML =
+      `<defs>
+        <linearGradient id="g-${id}" x1="-18" y1="-16" x2="10" y2="14" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="${tint[0]}"/>
+          <stop offset="0.55" stop-color="${tint[1]}"/>
+          <stop offset="1" stop-color="${tint[2]}"/>
+        </linearGradient>
+        <path id="fl-${id}" d="${FLIGHT_D}" fill="none"/>
+      </defs>
+      <ellipse cx="260" cy="170" rx="120" ry="78" fill="none"
+        stroke="${tint[1]}" stroke-opacity="0.07" stroke-width="1" stroke-dasharray="1 7" stroke-linecap="round"/>
+      <path id="e2-${id}" fill="url(#g-${id})" opacity="0"/>
+      <path id="e1-${id}" fill="url(#g-${id})" opacity="0"/>
+      <g id="main-${id}" ${glow ? `style="filter: drop-shadow(0 0 ${glow}px ${tint[1]}88)"` : ''}>
+        <path fill="url(#g-${id})"/>
+      </g>`;
+    el.appendChild(wrap);
+    stages.push({
+      path: wrap.querySelector('#fl-' + id),
+      main: wrap.querySelector('#main-' + id + ' path'),
+      e1: wrap.querySelector('#e1-' + id),
+      e2: wrap.querySelector('#e2-' + id),
+      offset: idx * 900,
+      small,
+    });
+  });
+
+  const L = stages.length ? stages[0].path.getTotalLength() : 0;
+
+  function pose(s, timeMs, st, blend) {
+    const p1 = st.path.getPointAtLength(Math.max(0, Math.min(L, s * L - 1.2)));
+    const p2 = st.path.getPointAtLength(Math.max(0, Math.min(L, s * L + 1.2)));
+    const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x) + blend * 0.055; // 扇翅带来极轻微俯仰
+    const w = gauss(s, 0.20, 0.012); // 颤振只出现在悬停段
+    const wob = Math.sin(timeMs * 0.021) * 1.5 * w;
+    const nx = -Math.sin(ang), ny = Math.cos(ang);
+    return { x: p2.x + nx * wob, y: p2.y + ny * wob, ang };
+  }
+
+  const heroCursor = document.getElementById('tlCursor');
+  const heroLabels = document.querySelectorAll('#tlLabels span');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let wingPhase = 0, lastNow = performance.now();
+  function frame(now) {
+    const dt = Math.min(50, now - lastNow); lastNow = now;
+    for (const st of stages) {
+      const t = ((now + st.offset) % DUR) / DUR;
+      const s = sOf(t);
+      // 振翅：频率/幅度随阶段混合（悬停高频浅颤，离场舒展）
+      const wHes = gauss(s, 0.20, 0.03);
+      const wEsc = sstep(t, 0.74, 0.80) * (1 - sstep(t, 0.93, 1));
+      const freq = 2.2 + 3.4 * wHes - 1.1 * wEsc;
+      const amp = 17 - 8 * wHes + 3 * wEsc;
+      wingPhase += (Math.PI * 2 * freq * dt) / 1000;
+      const blend = Math.max(-1, Math.min(1, Math.sin(wingPhase) * amp / 18));
+      const scale = 1 - 0.30 * sstep(t, 0.76, 0.84) + 0.30 * sstep(t, 0.94, 1);
+      const p = pose(s, now + st.offset, st, blend);
+      st.main.setAttribute('d', birdD(blend));
+      st.main.parentNode.setAttribute('transform',
+        `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${((p.ang * 180) / Math.PI).toFixed(1)}) scale(${scale.toFixed(3)})`);
+      // 残影：固定路径间距跟飞（间距 > 半个鸟身，不与本体叠翼），透明度随速度淡入
+      const spd = Math.min(1, Math.abs(s - sOf(t - 0.016)) / 0.012);
+      const lagS = (dUnits) => { const x = s - dUnits / L; return x < 0 ? x + 1 : x; };
+      const eko = (el, dUnits, blendE, baseOp) => {
+        const q = pose(lagS(dUnits), now + st.offset, st, blendE);
+        el.setAttribute('d', birdD(blendE));
+        el.setAttribute('transform', `translate(${q.x.toFixed(1)},${q.y.toFixed(1)}) rotate(${((q.ang * 180) / Math.PI).toFixed(1)})`);
+        el.setAttribute('opacity', (st.small < 0.5 ? 0 : baseOp * (0.1 + 0.9 * spd)).toFixed(3));
+      };
+      eko(st.e1, 40, Math.max(-1, Math.min(1, Math.sin(wingPhase - 0.5) * amp / 18)), 0.14);
+      eko(st.e2, 80, Math.max(-1, Math.min(1, Math.sin(wingPhase - 1.0) * amp / 18)), 0.06);
+    }
+    if (heroCursor && !reduced) {
+      const t = (now % DUR) / DUR;
+      heroCursor.style.left = (t * 100).toFixed(2) + '%';
+      const marks = [0, 0.58, 0.74, 0.92];
+      let active = 0;
+      marks.forEach((m, i) => { if (t >= m) active = i; });
+      heroLabels.forEach((el, i) => el.classList.toggle('on', i === active));
+    }
+    if (!reduced) requestAnimationFrame(frame);
+  }
+
+  if (reduced) {
+    const now = performance.now();
+    for (const st of stages) {
+      const t = 0.65, s = sOf(t), p = pose(s, now, st, 0);
+      st.main.setAttribute('d', birdD(0));
+      st.main.parentNode.setAttribute('transform',
+        `translate(${p.x.toFixed(1)},${p.y.toFixed(1)}) rotate(${((p.ang * 180) / Math.PI).toFixed(1)})`);
+      st.trails.forEach(tl => tl.setAttribute('opacity', '0'));
+    }
+  } else {
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+</body>
+</html>

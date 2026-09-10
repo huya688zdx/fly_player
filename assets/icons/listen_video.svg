@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+  <path
+    d="M5.2 13C5.2 8.35 8.26 4.7 12 4.7C15.74 4.7 18.8 8.35 18.8 13"
+    stroke="#FFFFFF"
+    stroke-width="2.05"
+    stroke-linecap="round"
+  />
+  <rect
+    x="3.9"
+    y="11.45"
+    width="2.95"
+    height="6.05"
+    rx="1.48"
+    stroke="#FFFFFF"
+    stroke-width="2.05"
+  />
+  <rect
+    x="17.15"
+    y="11.45"
+    width="2.95"
+    height="6.05"
+    rx="1.48"
+    stroke="#FFFFFF"
+    stroke-width="2.05"
+  />
+  <path
+    d="M8.55 17.25C9.25 17.95 10.22 18.35 11.25 18.35H12.75C13.78 18.35 14.75 17.95 15.45 17.25"
+    stroke="#FFFFFF"
+    stroke-width="1.95"
+    stroke-linecap="round"
+  />
+  <path
+    d="M11 9.6L14.55 12L11 14.4V9.6Z"
+    fill="#FFFFFF"
+  />
+</svg>

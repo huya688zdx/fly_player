@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>飞翔播放器 · Windows 桌面端概念设计</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app" data-theme="midnight">
+
+  <!-- 氛围背景：对应 AppAtmosphericBackground（accent/selection/link 三组径向光晕 + vignette + grain） -->
+  <div class="atmosphere" aria-hidden="true">
+    <div class="glow glow-a"></div>
+    <div class="glow glow-b"></div>
+    <div class="glow glow-c"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+  </div>
+
+  <!-- Windows 标题栏：应用身份 + URI 路由指示（对应 main.dart _buildRoute）+ 窗口控制 -->
+  <header class="titlebar">
+    <div class="tb-left">
+      <div class="app-mark"><svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 16.8 5.5 21l2-7.5L2 9h7z" opacity=".0"/><path fill="currentColor" d="M4 5.5A1.5 1.5 0 0 1 5.5 4h5L13 6.5h5.5A1.5 1.5 0 0 1 20 8v10a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/></svg></div>
+      <div class="app-name">飞翔播放器<span class="disp">FLY PLAYER</span></div>
+      <div class="route-chip" id="routeChip" title="URI 路由 · 对应 lib/main.dart _buildRoute()">
+        <span class="rc-scheme disp">flyplayer://</span><span id="routePath">/</span>
+      </div>
+    </div>
+    <div class="tb-right">
+      <button class="tb-btn" id="btnShortcuts" title="键盘快捷键 (?)"></button>
+      <div class="win-controls">
+        <button class="win-btn" title="最小化"><svg viewBox="0 0 12 12" width="12" height="12"><path stroke="currentColor" stroke-width="1.2" d="M2 6h8"/></svg></button>
+        <button class="win-btn" title="最大化"><svg viewBox="0 0 12 12" width="12" height="12"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
+        <button class="win-btn win-close" title="关闭"><svg viewBox="0 0 12 12" width="12" height="12"><path stroke="currentColor" stroke-width="1.2" d="M3 3l6 6M9 3l-6 6"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-body">
+
+    <!-- 左侧栏：替代底部 _LiquidGlassBottomNavigation，双 tab 扩展为完整桌面导航 -->
+    <aside class="sidebar">
+      <nav class="side-nav" id="sideNav">
+        <div class="side-label">媒体</div>
+        <a class="nav-item active" data-nav="home" href="#/home"><span class="nv-ic" data-ic="film"></span>影视<span class="nv-key disp">1</span></a>
+        <a class="nav-item" data-nav="browse" href="#/poster-browse"><span class="nv-ic" data-ic="monitor"></span>沉浸浏览<span class="nv-key disp">2</span></a>
+        <a class="nav-item" data-nav="search" href="#/screen/search"><span class="nv-ic" data-ic="search"></span>搜索<span class="nv-key disp">3</span></a>
+        <a class="nav-item" data-nav="favorites" href="#/screen/favorites"><span class="nv-ic" data-ic="heart"></span>收藏<span class="nv-key disp">4</span></a>
+        <a class="nav-item" data-nav="downloads" href="#/screen/downloads"><span class="nv-ic" data-ic="download"></span>下载<span class="nv-key disp" id="dlCount">3</span></a>
+        <div class="side-label">应用</div>
+        <a class="nav-item" data-nav="settings" href="#/screen/settings"><span class="nv-ic" data-ic="sliders"></span>设置<span class="nv-key disp">5</span></a>
+      </nav>
+      <div class="side-foot">
+        <button class="split-toggle" id="btnSplit" title="对应 ParallelWindowCoordinator 分屏逻辑">
+          <span class="nv-ic" data-ic="columns"></span>
+          <span class="st-txt">分屏浏览<b id="splitState">关闭</b></span>
+          <span class="st-dot" id="splitDot"></span>
+        </button>
+        <div class="nas-card">
+          <span class="nas-dot"></span>
+          <div><b>飞牛 NAS · 客厅书房</b><i>已连接 · 192.168.1.8</i></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main" id="main">
+      <div class="pages-host" id="pagesHost">
+
+        <!-- ============ 首页 ============ -->
+        <section class="page active" id="page-home">
+          <header class="page-head">
+            <div>
+              <h1>影视</h1>
+              <p class="page-sub">媒体库共 1,286 部作品 · 上次同步 12 分钟前</p>
+            </div>
+            <div class="head-actions">
+              <label class="search-box" id="homeSearch">
+                <span data-ic="search"></span>
+                <input type="text" placeholder="搜索影片、剧集、人物…" id="homeSearchInput">
+                <kbd class="disp">Ctrl K</kbd>
+              </label>
+              <button class="icon-btn" data-go="#/poster-browse" title="沉浸浏览（对应 AppBar connected_tv 入口）"></button>
+              <button class="icon-btn" id="btnRefresh" title="刷新"></button>
+            </div>
+          </header>
+
+          <div class="tip-bar" id="tipBar">
+            <span data-ic="info"></span>
+            桌面端演示：点击任意海报 → 详情页 → 选集 → 播放器，完整复刻现有跳转链路；或开启左侧「分屏浏览」体验浏览|详情双栏。
+            <button class="tip-x" id="tipClose">✕</button>
+          </div>
+
+          <div id="homeSections"></div>
+        </section>
+
+        <!-- ============ 电影详情（/detail/item → PlayDetailPage） ============ -->
+        <section class="page detail-page" id="page-movie">
+          <div class="float-top" id="movieFloatTop">
+            <button class="icon-btn dark" data-back title="返回（Esc）"></button>
+            <div class="ft-title">沙丘哨兵</div>
+            <button class="icon-btn dark" title="更多操作"></button>
+          </div>
+          <div class="hero" id="movieHero">
+            <div class="hero-bg" id="movieHeroBg"></div>
+            <div class="hero-fade"></div>
+            <div class="hero-content">
+              <div class="logo-title disp">DUNE SENTINEL</div>
+              <h1 class="hero-title">沙丘哨兵</h1>
+              <div class="meta-line" id="movieMeta"></div>
+            </div>
+          </div>
+          <div class="detail-body" id="movieBody"></div>
+        </section>
+
+        <!-- ============ 剧集详情（/detail/item → TvDetailPage） ============ -->
+        <section class="page detail-page" id="page-tv">
+          <div class="float-top" id="tvFloatTop">
+            <button class="icon-btn dark" data-back></button>
+            <div class="ft-title">长风渡口</div>
+            <button class="icon-btn dark"></button>
+          </div>
+          <div class="hero">
+            <div class="hero-bg" id="tvHeroBg"></div>
+            <div class="hero-fade"></div>
+            <div class="hero-content">
+              <div class="logo-title disp">FERRY AT DAWN</div>
+              <h1 class="hero-title">长风渡口</h1>
+              <div class="meta-line" id="tvMeta"></div>
+            </div>
+          </div>
+          <div class="detail-body" id="tvBody"></div>
+        </section>
+
+        <!-- ============ 季选集页（/detail/season → TvSeasonDetailPage） ============ -->
+        <section class="page detail-page" id="page-season">
+          <div class="float-top" id="seasonFloatTop">
+            <button class="icon-btn dark" data-back></button>
+            <div class="ft-title">长风渡口 · 第 1 季</div>
+            <button class="icon-btn dark"></button>
+          </div>
+          <div class="season-bridge" id="seasonBridge">
+            <div class="bridge-bg" id="seasonBridgeBg"></div>
+            <div class="bridge-fade"></div>
+            <div class="bridge-inner">
+              <div class="bridge-poster" id="seasonPoster"></div>
+              <div class="bridge-info" id="seasonInfo"></div>
+            </div>
+          </div>
+          <div class="detail-body" id="seasonBody"></div>
+        </section>
+
+        <!-- ============ 搜索（/screen/search） ============ -->
+        <section class="page" id="page-search">
+          <header class="page-head"><div><h1>搜索</h1><p class="page-sub">跨全部媒体库检索标题、人物、标签</p></div></header>
+          <div class="search-stage">
+            <label class="search-box big">
+              <span data-ic="search"></span>
+              <input type="text" id="searchInput" placeholder="输入以搜索，例如「沙丘」「长风」…">
+            </label>
+            <div class="hot-chips" id="hotChips"></div>
+            <div class="search-result-head" id="searchResultHead" hidden></div>
+            <div class="poster-grid" id="searchGrid"></div>
+            <div class="empty-hint" id="searchEmpty" hidden>
+              <span data-ic="search"></span><p>没有找到匹配的内容<br><i>试试其他关键词，或检查 NAS 连接</i></p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 收藏（/screen/favorites） ============ -->
+        <section class="page" id="page-favorites">
+          <header class="page-head">
+            <div><h1>收藏</h1><p class="page-sub" id="favCount"></p></div>
+            <div class="head-actions"><button class="chip-btn" id="favEdit">管理</button></div>
+          </header>
+          <div class="poster-grid" id="favGrid"></div>
+        </section>
+
+        <!-- ============ 分类/全部（/screen/category） ============ -->
+        <section class="page" id="page-category">
+          <header class="page-head">
+            <div><h1 id="catTitle">电影</h1><p class="page-sub" id="catSub"></p></div>
+            <div class="head-actions">
+              <div class="seg" id="catSeg"><button class="active">海报</button><button>列表</button><button>横版</button></div>
+            </div>
+          </header>
+          <div class="poster-grid" id="catGrid"></div>
+        </section>
+
+        <!-- ============ 下载（/screen/downloads） ============ -->
+        <section class="page" id="page-downloads">
+          <header class="page-head">
+            <div><h1>下载</h1><p class="page-sub" id="dlSub"></p></div>
+            <div class="head-actions"><button class="chip-btn" id="btnPauseAll">全部暂停</button></div>
+          </header>
+          <div class="dl-list" id="dlList"></div>
+        </section>
+
+        <!-- ============ 设置（/screen/settings） ============ -->
+        <section class="page" id="page-settings">
+          <header class="page-head"><div><h1>设置</h1><p class="page-sub">桌面双栏布局 · 左侧分类，右侧内容</p></div></header>
+          <div class="set-wrap">
+            <nav class="set-nav" id="setNav"></nav>
+            <div class="set-panel" id="setPanel"></div>
+          </div>
+        </section>
+
+        <!-- ============ 沉浸浏览（/screen/poster-browse 大屏布局） ============ -->
+        <section class="page browse-page" id="page-browse">
+          <div class="browse-bg" id="browseBg"></div>
+          <div class="browse-fade"></div>
+          <div class="float-top on-glass">
+            <button class="icon-btn dark" data-back></button>
+            <div class="ft-title">沉浸浏览</div>
+            <button class="icon-btn dark" data-go="#/home" title="网格视图"></button>
+          </div>
+          <div class="b-info" id="browseInfo"></div>
+          <div class="b-track-wrap">
+            <div class="b-track" id="browseTrack"></div>
+          </div>
+          <div class="b-hint disp">← → 切换焦点 · Enter 打开详情 · Esc 返回</div>
+        </section>
+
+      </div>
+
+      <!-- 右侧详情栏：对应 DetailHostScreen / EmbeddedDetailLauncher（pane 模式详情页） -->
+      <div class="pane-right" id="paneRight" hidden>
+        <div class="pane-head">
+          <span class="ph-title">详情栏</span>
+          <div class="ratio-chips disp" id="ratioChips">
+            <button data-ratio="42">42/58</button>
+            <button class="active" data-ratio="50">50/50</button>
+            <button data-ratio="65">35/65</button>
+          </div>
+          <button class="icon-btn sm" id="paneClose" title="关闭详情栏"></button>
+        </div>
+        <div class="pane-slot" id="paneSlot"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ 播放器（全屏覆盖层 · 桌面端自建壳，对应原生 NativePlayerActivity） ============ -->
+  <div class="player" id="player" hidden>
+    <div class="pl-scene" id="plScene">
+      <div class="pl-grain"></div>
+      <div class="pl-danmaku" id="plDanmaku"></div>
+    </div>
+
+    <div class="pl-top" id="plTop">
+      <button class="icon-btn dark" id="plBack"></button>
+      <div class="pl-title"><b id="plTitle">沙丘哨兵</b><i id="plSub">正在播放 · 4K 杜比视界</i></div>
+      <div class="pl-top-actions">
+        <button class="pl-tbtn" id="plDmBtn" title="弹幕开关"><span class="on">弹</span></button>
+        <button class="pl-tbtn" title="画质">4K</button>
+        <button class="pl-tbtn" title="截图"></button>
+        <button class="pl-tbtn" title="小窗"></button>
+      </div>
+    </div>
+
+    <div class="pl-center">
+      <button class="pl-big" id="plBigPlay"></button>
+    </div>
+
+    <div class="pl-bottom" id="plBottom">
+      <div class="pl-progress" id="plProgress">
+        <div class="plp-buf"></div>
+        <div class="plp-fill" id="plpFill"><span class="plp-knob"></span></div>
+        <div class="plp-tip disp" id="plpTip">12:34</div>
+      </div>
+      <div class="pl-ctrls">
+        <div class="plc-left">
+          <button class="pl-btn" id="plPlay"></button>
+          <button class="pl-btn" id="plPrev" title="上一集"></button>
+          <button class="pl-btn" id="plNext" title="下一集"></button>
+          <div class="pl-vol">
+            <button class="pl-btn" id="plMute"></button>
+            <input type="range" id="plVol" min="0" max="100" value="80">
+          </div>
+          <span class="pl-time disp"><b id="plCur">12:34</b> / <span id="plDur">46:08</span></span>
+        </div>
+        <div class="plc-right">
+          <button class="pl-btn" id="plDmSet" title="弹幕设置"></button>
+          <button class="pl-btn" title="字幕"></button>
+          <button class="pl-btn" title="音轨"></button>
+          <button class="pl-btn" title="倍速"><i class="pl-lb">1.0x</i></button>
+          <button class="pl-btn" id="plEpBtn" title="选集面板（对应原生选集面板）"></button>
+          <button class="pl-btn" title="设置"></button>
+          <button class="pl-btn" id="plFull" title="全屏 (F)"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 选集抽屉 -->
+    <div class="pl-drawer" id="plDrawer" hidden>
+      <div class="pld-head">
+        <b>选集</b>
+        <div class="pld-tabs" id="pldTabs"><button class="active">第 1 季</button><button>第 2 季</button></div>
+        <button class="icon-btn sm dark" id="pldClose"></button>
+      </div>
+      <div class="pld-list" id="pldList"></div>
+    </div>
+  </div>
+
+  <!-- 右键菜单：对应 media_item_action_sheet_controller（长按动作表 → 桌面右键） -->
+  <div class="ctx-menu" id="ctxMenu" hidden></div>
+
+  <!-- 快捷键弹窗 -->
+  <div class="modal" id="shortcutsModal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><b>键盘快捷键</b><button class="icon-btn sm" id="scClose"></button></div>
+      <div class="sc-grid" id="scGrid"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

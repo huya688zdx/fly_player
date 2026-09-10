@@ -1,0 +1,481 @@
+import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
+import 'package:dio/dio.dart';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:fly_player/api/feiniu_api.dart';
+import 'package:fly_player/models/download_task_record.dart';
+import 'package:fly_player/models/stream_list_option.dart';
+import 'package:fly_player/models/stream_track_data.dart';
+import 'package:fly_player/providers/nas_provider.dart';
+import 'package:fly_player/services/app_log_service.dart';
+import 'package:fly_player/services/download_task_service.dart';
+
+class _DownloadNas implements NasProvider {
+  _DownloadNas(this.baseUrl);
+  @override
+  final String baseUrl;
+  @override
+  String get userName => 'user';
+  @override
+  String get token => 'test-token';
+  @override
+  String get accessCode => '';
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+DownloadTaskRecord _downloadedEpisode({
+  required String id,
+  required int seasonNumber,
+  required int episodeNumber,
+  required int updatedAtMs,
+}) {
+  return DownloadTaskRecord(
+    id: id,
+    remoteTaskId: '',
+    itemGuid: 'item-$id',
+    mediaGuid: 'media-$id',
+    groupId: 'series-1',
+    groupTitle: 'Series',
+    title: 'Episode $episodeNumber',
+    durationText: '24m',
+    posterUrls: const <String>[],
+    groupPosterUrls: const <String>[],
+    resolution: '1080P',
+    fileName: '$id.mkv',
+    filePath: '/tmp/$id.mkv',
+    totalBytes: 100,
+    downloadedBytes: 100,
+    status: DownloadTaskStatus.downloaded,
+    errorMessage: '',
+    createdAtMs: updatedAtMs,
+    updatedAtMs: updatedAtMs,
+    seasonNumber: seasonNumber,
+    episodeNumber: episodeNumber,
+  );
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('并发恢复复用同一请求，删除仅清理所属账号且远端失败不阻止本地删除', () async {
+    SharedPreferences.setMockInitialValues({});
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = null;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final temp = await Directory.systemTemp.createTemp('fly-download-delete-');
+    final service = DownloadTaskService.instance;
+    final requests = <String>[];
+    server.listen((request) async {
+      requests.add('${request.method} ${request.uri.path}');
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        '{"code":68157464,"msg":"download-delete-test-error"}',
+      );
+      await request.response.close();
+    });
+    try {
+      final nas = _DownloadNas('http://127.0.0.1:${server.port}/');
+      final owned =
+          _downloadedEpisode(
+            id: 'owned',
+            seasonNumber: 1,
+            episodeNumber: 1,
+            updatedAtMs: 1,
+          ).copyWith(
+            status: DownloadTaskStatus.paused,
+            remoteTaskId: 'remote-owned',
+            remoteOwnerKey: 'http://127.0.0.1:${server.port}|user',
+            filePath: '',
+          );
+      service.debugSetRecordsFilePathForTesting('${temp.path}/records.json');
+      service.debugReplaceRecordsForTesting([
+        DownloadTaskRecord.fromJson(owned.toJson()),
+        owned.copyWith(id: 'foreign', remoteOwnerKey: 'http://other-nas|user'),
+        owned.copyWith(id: 'legacy', remoteOwnerKey: ''),
+      ]);
+      await Future.wait([
+        service.resumeDownload(nas, owned.id),
+        service.resumeDownload(nas, owned.id),
+      ]);
+      expect(requests, ['GET /v/api/v1/download/taskProgress']);
+      requests.clear();
+      expect(await service.clearActiveDownloadRecords(provider: nas), 3);
+      expect(requests, ['DELETE /v/api/v1/download/task/remote-owned']);
+      expect(service.records, isEmpty);
+      expect(
+        jsonDecode(await File('${temp.path}/records.json').readAsString()),
+        isEmpty,
+      );
+      expect(
+        AppLogService.instance.entries.any(
+          (entry) =>
+              entry.source == 'feiniu_api' &&
+              entry.message.contains('download-delete-test-error'),
+        ),
+        isTrue,
+      );
+    } finally {
+      service.debugReplaceRecordsForTesting([]);
+      service.debugSetRecordsFilePathForTesting(null);
+      await server.close(force: true);
+      await temp.delete(recursive: true);
+      HttpOverrides.global = previous;
+    }
+  });
+
+  test('下载进度使用产物总大小，整份响应从零写入', () {
+    expect(
+      resolveDownloadResponse(
+        206,
+        Headers.fromMap({
+          'content-range': ['bytes 1024-4095/4096'],
+          'content-length': ['3072'],
+        }),
+        1024,
+      ),
+      (offset: 1024, total: 4096),
+    );
+    expect(
+      resolveDownloadResponse(
+        200,
+        Headers.fromMap({
+          'content-length': ['4096'],
+        }),
+        1024,
+      ),
+      (offset: 0, total: 4096),
+    );
+  });
+
+  test('错误的续传范围不能追加到断点文件', () {
+    expect(
+      () => resolveDownloadResponse(
+        206,
+        Headers.fromMap({
+          'content-range': ['bytes 0-4095/4096'],
+        }),
+        1024,
+      ),
+      throwsFormatException,
+    );
+  });
+  test('已下载剧集按季号和集数升序排列，与完成时间无关', () {
+    final records =
+        <DownloadTaskRecord>[
+          _downloadedEpisode(
+            id: 'episode-13',
+            seasonNumber: 1,
+            episodeNumber: 13,
+            updatedAtMs: 600,
+          ),
+          _downloadedEpisode(
+            id: 'episode-5',
+            seasonNumber: 1,
+            episodeNumber: 5,
+            updatedAtMs: 300,
+          ),
+          _downloadedEpisode(
+            id: 'episode-12',
+            seasonNumber: 1,
+            episodeNumber: 12,
+            updatedAtMs: 500,
+          ),
+          _downloadedEpisode(
+            id: 'episode-4',
+            seasonNumber: 1,
+            episodeNumber: 4,
+            updatedAtMs: 200,
+          ),
+          _downloadedEpisode(
+            id: 'episode-11',
+            seasonNumber: 1,
+            episodeNumber: 11,
+            updatedAtMs: 400,
+          ),
+          _downloadedEpisode(
+            id: 'episode-6',
+            seasonNumber: 1,
+            episodeNumber: 6,
+            updatedAtMs: 100,
+          ),
+        ]..sort(
+          (left, right) => compareDownloadTaskRecordsForDisplay(
+            left,
+            right,
+            statusHint: DownloadTaskStatus.downloaded,
+          ),
+        );
+
+    expect(records.map((record) => record.episodeNumber), <int>[
+      4,
+      5,
+      6,
+      11,
+      12,
+      13,
+    ]);
+  });
+
+  test('DownloadTaskRecord round-trips audio and subtitle tracks', () {
+    const record = DownloadTaskRecord(
+      id: 'record-1',
+      remoteTaskId: 'remote-1',
+      itemGuid: 'item-1',
+      mediaGuid: 'media-1',
+      groupId: 'group-1',
+      groupTitle: 'Group',
+      title: 'Title',
+      durationText: '24m',
+      posterUrls: <String>['poster'],
+      groupPosterUrls: <String>['groupPoster'],
+      resolution: '1080p',
+      fileName: 'demo.mkv',
+      filePath: '/tmp/demo.mkv',
+      totalBytes: 1024,
+      downloadedBytes: 1024,
+      audioTracks: <AudioTrackOption>[
+        AudioTrackOption(
+          mediaGuid: 'media-1',
+          guid: 'audio-1',
+          title: 'Japanese 2.0',
+          codecName: 'aac',
+          profile: '',
+          language: 'jpn',
+          audioType: '',
+          channelLayout: 'stereo',
+          channels: 2,
+          sampleRate: 48000,
+          bps: 128000,
+          index: 1,
+          isDefault: 1,
+        ),
+      ],
+      subtitleTracks: <SubtitleTrackOption>[
+        SubtitleTrackOption(
+          mediaGuid: 'media-1',
+          guid: 'local:file:///tmp/demo.ass',
+          title: 'demo.zh.ass',
+          codecName: 'ass',
+          format: 'ass',
+          language: 'zho',
+          index: -1,
+          isDefault: 1,
+          forced: 0,
+          isExternal: 1,
+          extraFile: 1,
+          isBitmap: 0,
+        ),
+      ],
+      status: DownloadTaskStatus.downloaded,
+      errorMessage: '',
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    );
+
+    final decoded = DownloadTaskRecord.fromJson(record.toJson());
+
+    expect(decoded.audioTracks, hasLength(1));
+    expect(decoded.audioTracks.first.language, 'jpn');
+    expect(decoded.audioTracks.first.title, 'Japanese 2.0');
+    expect(decoded.subtitleTracks, hasLength(1));
+    expect(decoded.subtitleTracks.first.guid, 'local:file:///tmp/demo.ass');
+    expect(decoded.subtitleTracks.first.title, 'demo.zh.ass');
+    expect(decoded.subtitleTracks.first.language, 'zho');
+  });
+
+  test('downloaded lookup respects the selected media version', () {
+    const downloadedRecord = DownloadTaskRecord(
+      id: 'record-downloaded',
+      remoteTaskId: 'remote-downloaded',
+      itemGuid: 'item-1',
+      mediaGuid: 'media-downloaded',
+      groupId: 'group-1',
+      groupTitle: 'Group',
+      title: 'Episode',
+      durationText: '24m',
+      posterUrls: <String>[],
+      groupPosterUrls: <String>[],
+      resolution: '1080P SDR',
+      fileName: 'episode-a.mkv',
+      filePath: '/tmp/episode-a.mkv',
+      totalBytes: 1024,
+      downloadedBytes: 1024,
+      status: DownloadTaskStatus.downloaded,
+      errorMessage: '',
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    );
+
+    final wrongVersion = selectDownloadedRecordForItem(
+      const <DownloadTaskRecord>[downloadedRecord],
+      'item-1',
+      mediaGuid: 'media-online',
+      resolution: '1080P SDR',
+      isAvailable: (_) => true,
+    );
+    final selectedVersion = selectDownloadedRecordForItem(
+      const <DownloadTaskRecord>[downloadedRecord],
+      'item-1',
+      mediaGuid: 'media-downloaded',
+      resolution: '1080P SDR',
+      isAvailable: (_) => true,
+    );
+
+    expect(wrongVersion, isNull);
+    expect(selectedVersion, downloadedRecord);
+  });
+
+  test('download stream selection prefers selected media version', () {
+    const firstVersion = StreamListOption(
+      mediaGuid: 'media-first',
+      videoGuid: 'video-first',
+      resolutionType: '1080P SDR',
+      colorRangeType: 'SDR',
+      audioType: '',
+      audioLanguage: '',
+      duration: 0,
+    );
+    const selectedVersion = StreamListOption(
+      mediaGuid: 'media-selected',
+      videoGuid: 'video-selected',
+      resolutionType: '1080P SDR',
+      colorRangeType: 'SDR',
+      audioType: '',
+      audioLanguage: '',
+      duration: 0,
+    );
+
+    final result = selectDownloadStreamOption(
+      const <StreamListOption>[firstVersion, selectedVersion],
+      resolution: '1080P SDR',
+      mediaGuid: 'media-selected',
+    );
+
+    expect(result, selectedVersion);
+  });
+
+  test('immediate download record persistence can be awaited', () async {
+    final service = DownloadTaskService.instance;
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fly-player-download-records-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+      service.debugSetRecordsFilePathForTesting(null);
+    });
+    final recordsFile = File('${tempDir.path}/records.json');
+    service.debugSetRecordsFilePathForTesting(recordsFile.path);
+
+    const first = DownloadTaskRecord(
+      id: 'record-persist',
+      remoteTaskId: 'remote-1',
+      itemGuid: 'item-1',
+      mediaGuid: 'media-1',
+      groupId: 'group-1',
+      groupTitle: 'Group',
+      title: 'Episode',
+      durationText: '24m',
+      posterUrls: <String>[],
+      groupPosterUrls: <String>[],
+      resolution: '1080P',
+      fileName: 'episode.mkv',
+      filePath: '/tmp/episode.mkv',
+      totalBytes: 100,
+      downloadedBytes: 10,
+      status: DownloadTaskStatus.downloading,
+      errorMessage: '',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    );
+    final second = first.copyWith(
+      downloadedBytes: 100,
+      status: DownloadTaskStatus.downloaded,
+      updatedAtMs: 2,
+    );
+
+    service.debugReplaceRecordsForTesting(const <DownloadTaskRecord>[]);
+    final firstPersist = service.debugUpsertRecordForTesting(
+      first,
+      persistImmediately: true,
+    );
+    final secondPersist = service.debugUpsertRecordForTesting(
+      second,
+      persistImmediately: true,
+    );
+
+    await firstPersist;
+    await secondPersist;
+
+    final raw = await recordsFile.readAsString();
+    final decoded = jsonDecode(raw) as List<dynamic>;
+    final persisted = DownloadTaskRecord.fromJson(
+      Map<String, dynamic>.from(decoded.single as Map),
+    );
+    expect(persisted.downloadedBytes, 100);
+    expect(persisted.status, DownloadTaskStatus.downloaded);
+  });
+
+  test('download task progress polling skips reentrant requests', () async {
+    final service = DownloadTaskService.instance;
+    const record = DownloadTaskRecord(
+      id: 'record-progress',
+      remoteTaskId: 'remote-progress',
+      itemGuid: 'item-1',
+      mediaGuid: 'media-1',
+      groupId: 'group-1',
+      groupTitle: 'Group',
+      title: 'Episode',
+      durationText: '24m',
+      posterUrls: <String>[],
+      groupPosterUrls: <String>[],
+      resolution: '720P',
+      fileName: 'episode.mkv',
+      filePath: '/tmp/episode.mkv',
+      totalBytes: 100,
+      downloadedBytes: 10,
+      status: DownloadTaskStatus.downloading,
+      errorMessage: '',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    );
+    service.debugReplaceRecordsForTesting(const <DownloadTaskRecord>[record]);
+
+    var requestCount = 0;
+    final firstRequest = Completer<DownloadTaskProgressInfo?>();
+    final firstPoll = service.debugPollDownloadTaskProgressForTesting(
+      recordId: record.id,
+      fetchProgress: (_) {
+        requestCount += 1;
+        return firstRequest.future;
+      },
+    );
+    final secondPoll = service.debugPollDownloadTaskProgressForTesting(
+      recordId: record.id,
+      fetchProgress: (_) {
+        requestCount += 1;
+        return Future<DownloadTaskProgressInfo?>.value(
+          const DownloadTaskProgressInfo(status: 0, percents: 30),
+        );
+      },
+    );
+
+    await Future<void>.delayed(Duration.zero);
+    expect(requestCount, 1);
+
+    firstRequest.complete(
+      const DownloadTaskProgressInfo(status: 0, percents: 20),
+    );
+    await firstPoll;
+    await secondPoll;
+
+    expect(requestCount, 1);
+    expect(service.debugTaskProgressForTesting(record.id)?.percents, 20);
+  });
+}
