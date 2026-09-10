@@ -715,6 +715,12 @@ void main() {
       find.byType(PosterBrowseMediaInfo),
     );
     final initialSelectorTop = tester.getTopLeft(find.text('继续观看')).dy;
+    final selector = find.byKey(
+      const ValueKey('poster_browse_row_selector_scroll'),
+    );
+    final track = find.byType(PosterBrowsePosterTrack);
+    final initialGap =
+        tester.getTopLeft(track).dy - tester.getRect(selector).bottom;
     final gesture = await tester.startGesture(
       tester.getCenter(
         find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
@@ -729,6 +735,11 @@ void main() {
       initialInfoElement,
     );
     expect(tester.getSize(find.byType(PosterBrowseMediaInfo)), initialInfoSize);
+    expect(
+      tester.getTopLeft(track).dy - tester.getRect(selector).bottom,
+      closeTo(initialGap, 0.01),
+      reason: '分类栏与海报必须保持原有间距，不能在下滑时互相覆盖',
+    );
     expect(
       tester
           .getTopLeft(
