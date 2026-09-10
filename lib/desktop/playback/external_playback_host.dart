@@ -17,6 +17,7 @@ import '../../services/native_reentry_support.dart';
 import '../../services/playback_progress_offline_queue.dart';
 import 'desktop_mpv_runtime.dart';
 import 'desktop_playback_reporter.dart';
+import 'external_player_media_proxy.dart';
 import 'external_player_settings.dart';
 import 'external_player_subtitles.dart';
 import 'potplayer_session.dart';
@@ -77,6 +78,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     if (_launching) throw StateError('外部播放器正在启动，请稍候');
     _launching = true;
     Directory? directory;
+    ExternalPlayerMediaProxy? mediaProxy;
     PotPlayerSession? launched;
     try {
       final settings = await ExternalPlayerSettings.load();
@@ -185,14 +187,24 @@ final class ExternalPlaybackHost implements PlaybackHost {
       // 新启动前结束旧会话，避免两份定时器同时回报。
       await stop();
       final uri = Uri.tryParse(source.url);
+      // 仅中转飞牛原画文件；HLS 清单仍需原始基地址解析分片。
+      if (backend.capabilities.usesLegacyFeiniuFlow &&
+          (uri?.scheme == 'http' || uri?.scheme == 'https') &&
+          uri!.path.startsWith('/v/api/v1/media/range/')) {
+        mediaProxy = await ExternalPlayerMediaProxy.start(
+          source: uri,
+          headers: source.headers,
+        );
+      }
+      final playerUrl = mediaProxy?.url ?? source.url;
       final pid = await PotPlayerSession.channel.invokeMethod<int>('launch', {
         'executable': settings.executablePath,
         'url': uri?.scheme == 'file'
             ? uri!.toFilePath(windows: true)
-            : source.url,
+            : playerUrl,
         'startMs': source.startPosition.inMilliseconds,
         'title': source.title,
-        'headers': source.headers,
+        'headers': mediaProxy == null ? source.headers : <String, String>{},
         if (subtitle?.isNotEmpty == true) 'subtitlePath': subtitle,
       });
       if (pid == null || pid <= 0) throw StateError('未能启动 PotPlayer');
@@ -260,9 +272,10 @@ final class ExternalPlaybackHost implements PlaybackHost {
       }
 
       final ownedDirectory = directory;
+      final ownedProxy = mediaProxy;
       launched = PotPlayerSession(
         pid: pid,
-        mediaUrl: source.url,
+        mediaUrl: playerUrl,
         isCurrentSession: isCurrentSession,
         onProgress: (position, duration, paused) {
           final seek =
@@ -286,6 +299,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         },
         onFinished: () async {
           try {
+            await ownedProxy?.close();
             await reporter.flushServer();
             if (isCurrentSession() && lastDuration > Duration.zero) {
               recordServer(true);
@@ -327,6 +341,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
       return true;
     } catch (_) {
       await launched?.finish(closePlayer: true);
+      await mediaProxy?.close();
       await _cleanDirectory(directory);
       rethrow;
     } finally {
