@@ -132,6 +132,7 @@ Widget buildDetailRouteChild(String routeName, {required bool isActiveRoute}) {
       backdropPath: uri.queryParameters['backdropPath'] ?? '',
       seasonItem: seasonItem,
       seasonGuid: seasonGuid,
+      initialEpisodeGuid: uri.queryParameters['initialEpisodeGuid'] ?? '',
       payloadToken: payloadToken,
       presentation: DetailPresentation.pane,
     );

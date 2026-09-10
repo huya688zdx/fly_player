@@ -33,6 +33,8 @@ import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_hero_image.dart';
+import '../ui/detail_presentation.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../ui/detail_theme_prewarmer.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/main_navigation_metrics.dart';
