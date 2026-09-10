@@ -673,8 +673,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('高分辨率横屏上下拖动时信息和分类栏跟随手指位移淡出', (tester) async {
+  testWidgets('高分辨率横屏上下拖动时同一份信息保持尺寸平移且可原路返回', (tester) async {
     final card = _card(id: 'vertical-motion', title: '上下联动影片');
+    var playCount = 0;
 
     await tester.binding.setSurfaceSize(const Size(1920, 1080));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -699,7 +700,7 @@ void main() {
           onSelectRow: (_) {},
           onSelectItem: (_) {},
           onRetryCurrentRow: () {},
-          onPlay: () {},
+          onPlay: () => playCount++,
           onDetail: () {},
           onBack: () {},
         ),
@@ -709,6 +710,10 @@ void main() {
     final initialInfoTop = tester
         .getTopLeft(find.byType(PosterBrowseMediaInfo))
         .dy;
+    final initialInfoSize = tester.getSize(find.byType(PosterBrowseMediaInfo));
+    final initialInfoElement = tester.element(
+      find.byType(PosterBrowseMediaInfo),
+    );
     final initialSelectorTop = tester.getTopLeft(find.text('继续观看')).dy;
     final gesture = await tester.startGesture(
       tester.getCenter(
@@ -718,14 +723,12 @@ void main() {
     await gesture.moveBy(const Offset(0, 80));
     await tester.pump();
 
-    final infoOpacity = tester.widget<Opacity>(
-      find.byKey(const ValueKey('poster_browse_primary_collapse_opacity')),
+    expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
+    expect(
+      tester.element(find.byType(PosterBrowseMediaInfo)),
+      initialInfoElement,
     );
-    final selectorOpacity = tester.widget<Opacity>(
-      find.byKey(const ValueKey('poster_browse_row_selector_collapse_opacity')),
-    );
-    expect(infoOpacity.opacity, inExclusiveRange(0, 1));
-    expect(selectorOpacity.opacity, inExclusiveRange(0, 1));
+    expect(tester.getSize(find.byType(PosterBrowseMediaInfo)), initialInfoSize);
     expect(
       tester
           .getTopLeft(
@@ -743,6 +746,22 @@ void main() {
 
     await gesture.up();
     await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ElevatedButton, '播放'));
+    expect(playCount, 1);
+    await tester.timedDrag(
+      find.text('验证上下拖动跟手动画。'),
+      const Offset(0, -180),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.element(find.byType(PosterBrowseMediaInfo)),
+      initialInfoElement,
+    );
+    expect(
+      tester.getTopLeft(find.byType(PosterBrowseMediaInfo)).dy,
+      initialInfoTop,
+    );
     expect(tester.takeException(), isNull);
   });
 
