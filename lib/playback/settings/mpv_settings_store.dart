@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../desktop/desktop_environment.dart';
+
 class MpvSettingOption {
   final String value;
   final String label;
@@ -314,7 +316,15 @@ class MpvSettingsCatalog {
     MpvAudioEqBand(key: audioEqBand6000Key, label: '6K', frequency: 6000),
   ];
 
-  static const Map<String, String> defaults = <String, String>{
+  static Map<String, String> get defaults =>
+      DesktopEnvironment.isDesktopPlatform ? _desktopDefaults : _defaults;
+
+  static final Map<String, String> _desktopDefaults = Map.unmodifiable({
+    ..._defaults,
+    deinterlaceKey: 'off',
+  });
+
+  static const Map<String, String> _defaults = <String, String>{
     debandKey: 'off',
     sharpenKey: 'off',
     denoiseKey: 'off',
@@ -698,11 +708,6 @@ class MpvSettingsCatalog {
           description: 'Prefer compatibility.',
         ),
         MpvSettingOption(
-          value: 'conservative',
-          label: 'Conservative',
-          description: 'Tone-map more safely.',
-        ),
-        MpvSettingOption(
           value: 'enhanced',
           label: 'Enhanced',
           description: 'Emphasize contrast and highlights.',
@@ -783,11 +788,6 @@ class MpvSettingsCatalog {
           value: 'audio',
           label: 'Audio',
           description: 'Prefer continuous audio.',
-        ),
-        MpvSettingOption(
-          value: 'display',
-          label: 'Display',
-          description: 'Prefer display refresh matching.',
         ),
         MpvSettingOption(
           value: 'smooth',
@@ -1340,12 +1340,42 @@ class MpvSettingsCatalog {
   static Map<String, String> normalizeSettings(Map<String, String> raw) {
     final resolved = Map<String, String>.from(defaults);
     for (final entry in raw.entries) {
-      if (!defaults.containsKey(entry.key)) continue;
+      if (!defaults.containsKey(entry.key) || !isSettingAvailable(entry.key)) {
+        continue;
+      }
       final value = entry.value.trim();
       if (value.isEmpty) continue;
       resolved[entry.key] = value;
     }
+    // 已保存的旧档位归并到实际等价项，避免菜单删项后仍显示幽灵选中态。
+    if (resolved[hdrModeKey] == 'conservative') {
+      resolved[hdrModeKey] = 'sdr_map';
+    }
+    if (resolved[videoSyncKey] == 'display') resolved[videoSyncKey] = 'auto';
+    if (DesktopEnvironment.isDesktopPlatform) {
+      if (resolved[deinterlaceKey] == 'auto') resolved[deinterlaceKey] = 'off';
+      if (resolved[frameInterpolationKey] == 'auto') {
+        resolved[frameInterpolationKey] = 'off';
+      }
+      if (resolved[audioPassthroughKey] == 'auto') {
+        resolved[audioPassthroughKey] = 'on';
+      }
+    }
     return resolved;
+  }
+
+  /// 只展示当前播放宿主实际消费的设置；桌面尚未接入这两项。
+  static bool isSettingAvailable(String key) =>
+      !DesktopEnvironment.isDesktopPlatform ||
+      (key != hdrModeKey && key != compatibilityKey);
+
+  static bool isOptionAvailable(String key, String value) {
+    // 桌面内核不接受反交错 auto；另外两项的 auto 没有独立实现。
+    return !DesktopEnvironment.isDesktopPlatform ||
+        value != 'auto' ||
+        (key != deinterlaceKey &&
+            key != frameInterpolationKey &&
+            key != audioPassthroughKey);
   }
 
   static MpvSettingDefinition? definitionByKey(String key) {
@@ -1901,7 +1931,7 @@ class MpvSettingsStore {
         resolved[key] = stored.trim();
       }
     }
-    return resolved;
+    return MpvSettingsCatalog.normalizeSettings(resolved);
   }
 
   Future<Map<String, double>> loadVideoAdjustments() async {
