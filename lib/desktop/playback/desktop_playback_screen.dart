@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../l10n/generated/app_localizations.dart';
+import '../../media_backend/detail/media_season_summary.dart';
 import '../../danmaku/models/danmaku_comment.dart';
 import '../../danmaku/models/danmaku_settings.dart';
 import '../../danmaku/settings/danmaku_settings_store.dart';
@@ -37,6 +38,7 @@ const Duration _controlsAnimationDuration = Duration(milliseconds: 220);
 typedef DesktopResolvedEpisode = ({
   MpvMediaSource source,
   String? danmakuFilePath,
+  List<Map<String, dynamic>> episodes,
 });
 
 /// 片头片尾跳过提示种类。
@@ -52,6 +54,8 @@ class DesktopPlaybackScreen extends StatefulWidget {
     required this.session,
     this.episodes,
     this.resolveEpisode,
+    this.loadSeasons,
+    this.loadSeasonEpisodes,
     this.reloadSource,
     this.danmakuFilePath,
     this.onRecordProgress,
@@ -64,6 +68,8 @@ class DesktopPlaybackScreen extends StatefulWidget {
   final MpvMediaSource source;
   final DesktopPlaybackSession session;
   final List<Map<String, dynamic>>? episodes;
+  final Future<List<MediaSeasonSummary>> Function()? loadSeasons;
+  final Future<List<Map<String, dynamic>>> Function(String)? loadSeasonEpisodes;
   final Future<DesktopResolvedEpisode?> Function(Map<String, dynamic> episode)?
   resolveEpisode;
   final Future<MpvMediaSource?> Function(
@@ -86,6 +92,9 @@ class DesktopPlaybackScreen extends StatefulWidget {
 }
 
 class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
+  late List<Map<String, dynamic>> _episodes = widget.episodes ?? const [];
+  bool get _canBrowseEpisodes =>
+      _episodes.isNotEmpty || widget.loadSeasons != null;
   static const String _autoPlayPrefKey = 'player_auto_play_enabled';
   static const String _nextEpisodePreloadPrefKey =
       'player_next_episode_preload_enabled';
@@ -1119,7 +1128,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       }
       final source = await _freshDirectLinkSource(resolved.source);
       _releaseSource(resolved.source, replacement: source);
-      resolved = (source: source, danmakuFilePath: resolved.danmakuFilePath);
+      resolved = (
+        source: source,
+        danmakuFilePath: resolved.danmakuFilePath,
+        episodes: resolved.episodes,
+      );
       if (!_isCurrentSourceChange(generation)) return;
       _playbackRate = _validPlaybackRate(source.playbackSpeed);
       adopted = true;
@@ -1131,6 +1144,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         return;
       }
       _showResumeFromPrompt(source.startPosition);
+      _updateView(() => _episodes = resolved!.episodes);
       unawaited(_loadDanmakuForSource(resolved.danmakuFilePath));
       await _loadBookmarks();
       if (!_isCurrentSourceChange(generation)) return;
@@ -2380,8 +2394,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
               ? '${_source.seriesTitle.trim()} · ${_l10n.playerEpisodeAction}'
               : _l10n.nativePlayerEpisodePickerTitle,
           emptyLabel: _l10n.desktopPlaybackEpisodesEmpty,
-          episodes: widget.episodes ?? const <Map<String, dynamic>>[],
+          episodes: _episodes,
           currentItemGuid: _source.itemGuid,
+          currentSeasonGuid: _source.seasonGuid,
+          loadSeasons: widget.loadSeasons,
+          loadSeasonEpisodes: widget.loadSeasonEpisodes,
           seriesTitle: _subtitle,
           onSelected: widget.resolveEpisode == null
               ? null
@@ -2722,7 +2739,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _showEpisodes() async {
     _wakeControls(scheduleHide: false);
-    final episodes = widget.episodes;
+    final episodes = _episodes;
     if (!mounted) return;
     await showPlayerOverlayPanel(
       context,
@@ -2733,8 +2750,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
             ? '${_source.seriesTitle.trim()} · ${_l10n.playerEpisodeAction}'
             : _l10n.nativePlayerEpisodePickerTitle,
         emptyLabel: _l10n.desktopPlaybackEpisodesEmpty,
-        episodes: episodes ?? const <Map<String, dynamic>>[],
+        episodes: episodes,
         currentItemGuid: _source.itemGuid,
+        currentSeasonGuid: _source.seasonGuid,
+        loadSeasons: widget.loadSeasons,
+        loadSeasonEpisodes: widget.loadSeasonEpisodes,
         seriesTitle: _subtitle,
         onSelected: widget.resolveEpisode == null
             ? null
@@ -2747,8 +2767,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   Map<String, dynamic>? get _nextEpisode {
-    final episodes = widget.episodes;
-    if (episodes == null || episodes.isEmpty) return null;
+    final episodes = _episodes;
+    if (episodes.isEmpty) return null;
     final currentGuid = _source.itemGuid.trim();
     var index = episodes.indexWhere(
       (episode) =>
@@ -2798,8 +2818,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   /// 上一集（与 [_nextEpisode] 同一定位规则，向前找一集）。
   Map<String, dynamic>? get _previousEpisode {
-    final episodes = widget.episodes;
-    if (episodes == null || episodes.isEmpty) return null;
+    final episodes = _episodes;
+    if (episodes.isEmpty) return null;
     final currentGuid = _source.itemGuid.trim();
     var index = episodes.indexWhere(
       (episode) =>
@@ -3023,7 +3043,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
           Icons.subtitles_rounded,
           _l10n.nativePlayerSubtitleTrackPickerTitle,
         ),
-        if (widget.episodes?.isNotEmpty == true)
+        if (_canBrowseEpisodes)
           _contextMenuItem(
             'episodes',
             Icons.video_library_rounded,
@@ -3376,10 +3396,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                                 PlayerHoverOverlayKind.previousEpisode,
                                 anchor,
                               ),
-                        onEpisodes: widget.episodes?.isNotEmpty == true
+                        onEpisodes: _canBrowseEpisodes
                             ? () => unawaited(_showEpisodes())
                             : null,
-                        onEpisodesAt: widget.episodes?.isNotEmpty == true
+                        onEpisodesAt: _canBrowseEpisodes
                             ? (anchor) => _openHoverOverlay(
                                 PlayerHoverOverlayKind.episodes,
                                 anchor,
@@ -3417,7 +3437,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                           PlayerHoverOverlayKind.speed,
                           anchor,
                         ),
-                        onHoverEpisodes: widget.episodes?.isNotEmpty == true
+                        onHoverEpisodes: _canBrowseEpisodes
                             ? (anchor) => _openHoverOverlay(
                                 PlayerHoverOverlayKind.episodes,
                                 anchor,
