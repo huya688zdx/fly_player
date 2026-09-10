@@ -10,5 +10,5 @@ PlaybackHost playbackHostFor(BuildContext context) {
   if (DesktopEnvironment.isWindows) {
     return DesktopPlaybackHost(context);
   }
-  return const NativePlaybackHost();
+  return NativePlaybackHost(context);
 }

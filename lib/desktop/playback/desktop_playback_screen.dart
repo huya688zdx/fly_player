@@ -24,6 +24,7 @@ import 'desktop_danmaku_overlay.dart';
 import 'desktop_mpv_runtime.dart';
 import 'desktop_playback_chapters.dart';
 import 'desktop_playback_reporter.dart';
+import 'desktop_playback_session.dart';
 import 'desktop_player_controls.dart';
 import 'desktop_player_dialogs.dart';
 import '../desktop_floating_panel.dart';
@@ -48,6 +49,7 @@ class DesktopPlaybackScreen extends StatefulWidget {
   const DesktopPlaybackScreen({
     super.key,
     required this.source,
+    required this.session,
     this.episodes,
     this.resolveEpisode,
     this.reloadSource,
@@ -60,6 +62,7 @@ class DesktopPlaybackScreen extends StatefulWidget {
   });
 
   final MpvMediaSource source;
+  final DesktopPlaybackSession session;
   final List<Map<String, dynamic>>? episodes;
   final Future<DesktopResolvedEpisode?> Function(Map<String, dynamic> episode)?
   resolveEpisode;
@@ -221,8 +224,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     );
     _pausedByUser = _source.startPaused;
     MediaKit.ensureInitialized();
-    _player = Player();
-    _videoController = VideoController(_player);
+    _player = widget.session.player;
+    _videoController = widget.session.videoController;
+    widget.session.releaseSource = _reporter.release;
     _chapterLoader = DesktopPlaybackChapters(() async {
       final platform = _player.platform;
       return platform is NativePlayer
@@ -250,19 +254,49 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       if (!mounted) return;
       await _loadBookmarks();
       if (!mounted) return;
-      await _openSource();
+      if (widget.session.ready) {
+        await widget.session.paused;
+        if (!mounted) return;
+        _playbackRate = _player.state.rate;
+        _reportReady = true;
+        _pausedByUser = false;
+        _onDurationChanged(_player.state.duration);
+        await _applyDesktopMpvProperties();
+        if (!mounted) return;
+        await _player.play();
+        if (!mounted) return;
+        _reporter.onLaunch(_source);
+        _finishLoading();
+        _scheduleProgressReport();
+        unawaited(_loadDanmakuForSource(widget.session.danmakuFilePath));
+        debugPrint('[桌面播放] 已复用暂停会话，无需重新打开媒体');
+      } else {
+        await _openSource();
+      }
     });
   }
 
   @override
   void dispose() {
+    final session = widget.session;
+    final retain =
+        session.ready &&
+        _errorMessage == null &&
+        !_playbackCompleted &&
+        !_isLoading;
+    if (retain) {
+      session.paused = _player.pause();
+      _pausedByUser = true;
+      debugPrint('[桌面播放] 已暂停并保留最近会话');
+    }
+    session.source = _source;
+    session.active = false;
     _recordLocalStats();
     _localStatsTimer?.cancel();
     unawaited(_reporter.dispose());
     _reportProgress();
     _sourceChangeGeneration++;
     _clearPreloadedNext();
-    _releaseSource(_source);
     _progressTimer?.cancel();
     _directLinkTimer?.cancel();
     _controlsHideTimer?.cancel();
@@ -281,7 +315,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     unawaited(_positionSubscription.cancel());
     _chapterLoader.dispose();
     _skipPromptKindNotifier.dispose();
-    unawaited(_player.dispose());
+    if (!retain) unawaited(session.dispose());
     _controlsVisibleNotifier.dispose();
     _playingNotifier.dispose();
     _hoverOverlayNotifier.dispose();
@@ -439,7 +473,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       final ultraHd = _source.videoWidth >= 3800 || _source.videoHeight >= 2100;
       profile = ultraHd || _source.bitrate >= 8000000 ? 'network' : 'stable';
     }
-    final cacheEnabled = profile != 'low_latency';
+    final cacheEnabled = _isRemoteHttpSource && profile != 'low_latency';
     final maxBytesMb = switch (profile) {
       'stable' => 128,
       'network' => 256,
@@ -459,7 +493,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         ? configuredMb
         : maxBytesMb;
     await _setMpvProperty('cache', cacheEnabled ? 'yes' : 'no');
+    // 磁盘包缓存会让字节上限只约束元数据，无法约束临时文件大小。
+    await _setMpvProperty('cache-on-disk', 'no');
+    await _setMpvProperty('cache-secs', '$readahead');
     await _setMpvProperty('demuxer-max-bytes', '${effectiveMb * 1024 * 1024}');
+    await _setMpvProperty('demuxer-max-back-bytes', '${32 * 1024 * 1024}');
     await _setMpvProperty('demuxer-readahead-secs', '$readahead');
   }
 
@@ -563,6 +601,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     String sourceLabel = '',
   }) async {
     final generation = ++_danmakuLoadGeneration;
+    widget.session.danmakuFilePath = preferredPath;
     if (mounted) {
       _updateView(() {
         _danmakuLoading = true;
@@ -590,6 +629,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       if (path.isEmpty) return false;
       final payload = await DesktopDanmakuPayload.load(path);
       if (!mounted || generation != _danmakuLoadGeneration) return false;
+      widget.session.danmakuFilePath = path;
       _updateView(() {
         _danmakuComments = payload.comments;
         _danmakuSourceLabel = sourceLabel.trim().isNotEmpty
@@ -949,6 +989,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     final previousTracks = _player.state.track;
     _source = source;
     _pausedByUser = !play;
+    widget.session.ready = false;
     _subtitleWindowSecond = -100;
     try {
       await _applyDesktopMpvProperties();
@@ -974,6 +1015,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       if (play) await _player.play();
       if (!_isCurrentSourceChange(generation)) return false;
       _reportReady = true;
+      widget.session.ready = true;
       return true;
     } finally {
       _releaseSource(previousSource, replacement: _source);
@@ -1269,7 +1311,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _source,
       position: _player.state.position,
       duration: _player.state.duration,
-      paused: !_player.state.playing || _isBuffering,
+      paused: _pausedByUser || !_player.state.playing || _isBuffering,
     );
   }
 
@@ -1279,7 +1321,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _source,
       position: _player.state.position,
       duration: _player.state.duration,
-      paused: !_player.state.playing,
+      paused: _pausedByUser || !_player.state.playing,
       completed: _player.state.completed,
     );
   }
