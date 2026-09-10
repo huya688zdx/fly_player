@@ -15,6 +15,9 @@ enum DesktopPlayerMotionKind {
   screenshot,
   settings,
   volume,
+  playPause,
+  previous,
+  next,
 }
 
 /// 透明图标只绘制笔画；交互时运行一次，静止时不保留动画帧回调。
@@ -45,6 +48,7 @@ class _DesktopPlayerMotionIconState extends State<DesktopPlayerMotionIcon>
     value: 1,
   );
   bool _entering = true;
+  late double _playPauseFrom = widget.label == 'pause' ? 1 : 0;
 
   @override
   void didUpdateWidget(DesktopPlayerMotionIcon oldWidget) {
@@ -52,6 +56,11 @@ class _DesktopPlayerMotionIconState extends State<DesktopPlayerMotionIcon>
     if (oldWidget.selected != widget.selected ||
         oldWidget.hovered != widget.hovered ||
         oldWidget.label != widget.label) {
+      // 切换中再次操作时，从当前轮廓继续，避免三角和暂停条突然跳变。
+      final oldTarget = oldWidget.label == 'pause' ? 1.0 : 0.0;
+      _playPauseFrom +=
+          (oldTarget - _playPauseFrom) *
+          Curves.easeOutCubic.transform(_motion.value);
       _entering = oldWidget.selected != widget.selected
           ? widget.selected
           : widget.hovered;
@@ -81,6 +90,7 @@ class _DesktopPlayerMotionIconState extends State<DesktopPlayerMotionIcon>
         hovered: widget.hovered,
         entering: _entering,
         label: widget.label,
+        playPauseFrom: _playPauseFrom,
       ),
     ),
   );
@@ -94,12 +104,14 @@ class _MotionPainter extends CustomPainter {
     required this.hovered,
     required this.entering,
     required this.label,
+    required this.playPauseFrom,
   }) : super(repaint: motion);
 
   final Animation<double> motion;
   final DesktopPlayerMotionKind kind;
   final bool selected, hovered, entering;
   final String label;
+  final double playPauseFrom;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -163,6 +175,77 @@ class _MotionPainter extends CustomPainter {
     }
 
     switch (kind) {
+      case DesktopPlayerMotionKind.playPause:
+        final target = label == 'pause' ? 1.0 : 0.0;
+        final progress =
+            playPauseFrom +
+            (target - playPauseFrom) * Curves.easeOutCubic.transform(q);
+        const play = [
+          [Offset(68, 58), Offset(106, 80), Offset(106, 120), Offset(68, 142)],
+          [
+            Offset(106, 80),
+            Offset(145, 100),
+            Offset(145, 100),
+            Offset(106, 120),
+          ],
+        ];
+        const pause = [
+          [Offset(68, 58), Offset(88, 58), Offset(88, 142), Offset(68, 142)],
+          [
+            Offset(116, 58),
+            Offset(138, 58),
+            Offset(138, 142),
+            Offset(116, 142),
+          ],
+        ];
+        canvas.save();
+        canvas.translate(100, 100);
+        canvas.scale(1 + .04 * wave);
+        canvas.translate(-100, -100);
+        for (var half = 0; half < 2; half++) {
+          final path = Path();
+          for (var point = 0; point < 4; point++) {
+            final offset = Offset.lerp(
+              play[half][point],
+              pause[half][point],
+              progress,
+            )!;
+            if (point == 0) {
+              path.moveTo(offset.dx, offset.dy);
+            } else {
+              path.lineTo(offset.dx, offset.dy);
+            }
+          }
+          canvas.drawPath(path..close(), Paint()..color = ink);
+        }
+        canvas.restore();
+        break;
+      case DesktopPlayerMotionKind.previous:
+      case DesktopPlayerMotionKind.next:
+        canvas.save();
+        if (kind == DesktopPlayerMotionKind.next) {
+          canvas.translate(200, 0);
+          canvas.scale(-1, 1);
+        }
+        final fill = Paint()..color = ink;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            const Rect.fromLTWH(53, 62, 10, 76),
+            const Radius.circular(3),
+          ),
+          fill,
+        );
+        final shift = -direction * 9 * wave;
+        canvas.drawPath(
+          Path()
+            ..moveTo(77 + shift, 100)
+            ..lineTo(140 + shift, 62)
+            ..lineTo(140 + shift, 138)
+            ..close(),
+          fill,
+        );
+        canvas.restore();
+        break;
       case DesktopPlayerMotionKind.bookmark:
         final lift = 7 * wave;
         canvas.drawPath(
@@ -385,5 +468,6 @@ class _MotionPainter extends CustomPainter {
       oldDelegate.hovered != hovered ||
       oldDelegate.entering != entering ||
       oldDelegate.label != label ||
+      oldDelegate.playPauseFrom != playPauseFrom ||
       oldDelegate.motion != motion;
 }
