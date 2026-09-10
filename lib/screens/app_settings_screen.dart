@@ -211,6 +211,18 @@ class AppSettingsScreen extends StatelessWidget {
         onSelect: () =>
             _openSettingsDestination(context, SettingsDestinationRoutes.mpv),
       ),
+      if (DesktopEnvironment.isDesktopPlatform && DesktopEnvironment.isWindows)
+        SettingsSearchEntry(
+          id: 'external_player_settings',
+          title: '外部播放器接入',
+          subtitle: '使用 PotPlayer 播放并回报播放进度',
+          location: l10n.settingsLocationRoot,
+          keywords: const <String>['PotPlayer', '外部播放器', '字幕', '弹幕', '进度回报'],
+          onSelect: () => _openSettingsDestination(
+            context,
+            SettingsDestinationRoutes.externalPlayer,
+          ),
+        ),
       if (parallelWindowSupported)
         SettingsSearchEntry(
           id: 'parallel_window_settings',
@@ -583,6 +595,18 @@ class AppSettingsScreen extends StatelessWidget {
               SettingsDestinationRoutes.mpv,
             ),
           ),
+          if (DesktopEnvironment.isDesktopPlatform &&
+              DesktopEnvironment.isWindows)
+            _DesktopRowData(
+              icon: Icons.launch_rounded,
+              title: '外部播放器接入',
+              subtitle: '使用 PotPlayer 播放并回报播放进度',
+              value: 'PotPlayer',
+              onTap: () => _openSettingsDestination(
+                context,
+                SettingsDestinationRoutes.externalPlayer,
+              ),
+            ),
           if (parallelWindowSupported)
             _DesktopRowData(
               icon: Icons.splitscreen_outlined,

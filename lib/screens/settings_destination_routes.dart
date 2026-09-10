@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../desktop/desktop_environment.dart';
 import 'app_log_screen.dart';
 import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
 import 'download_list_screen.dart';
+import 'external_player_settings_screen.dart';
 import 'language_settings_screen.dart';
 import 'mpv_player_settings_screen.dart';
 import 'parallel_window_settings_screen.dart';
@@ -20,6 +22,7 @@ class SettingsDestinationRoutes {
   static const String themeCustomRecipe =
       '/screen/settings/theme/custom-recipe';
   static const String mpv = '/screen/settings/mpv';
+  static const String externalPlayer = '/screen/settings/external-player';
   static const String parallelWindow = '/screen/settings/parallel-window';
   static const String downloads = '/screen/settings/downloads';
   static const String storage = '/screen/settings/storage';
@@ -78,6 +81,12 @@ class SettingsDestinationRoutes {
         return _dedupeSequential(stack);
       case parallelWindow:
         return const <String>[home, parallelWindow];
+      case externalPlayer:
+        if (!DesktopEnvironment.isDesktopPlatform ||
+            !DesktopEnvironment.isWindows) {
+          return null;
+        }
+        return const <String>[home, externalPlayer];
       case downloads:
         return const <String>[home, downloads];
       case storage:
@@ -126,6 +135,12 @@ class SettingsDestinationRoutes {
         );
       case parallelWindow:
         return ParallelWindowSettingsScreen(key: key);
+      case externalPlayer:
+        if (!DesktopEnvironment.isDesktopPlatform ||
+            !DesktopEnvironment.isWindows) {
+          return null;
+        }
+        return ExternalPlayerSettingsScreen(key: key);
       case downloads:
         return DownloadListScreen(
           key: key,
