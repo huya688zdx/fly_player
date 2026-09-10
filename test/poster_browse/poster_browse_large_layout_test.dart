@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
@@ -774,6 +775,92 @@ void main() {
       initialInfoTop,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('电脑矮窗口长简介不遮挡分类且鼠标点击可收起展开', (tester) async {
+    final previousPlatform = DesktopEnvironment.debugOverridePlatform;
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(
+      () => DesktopEnvironment.debugOverridePlatform = previousPlatform,
+    );
+    await tester.binding.setSurfaceSize(const Size(1100, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final card = _card(id: 'desktop-toggle', title: '轻音少女');
+    var selectedRow = -1;
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: [
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: [card],
+            ),
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '动漫TV',
+              items: [card],
+            ),
+          ],
+          displayItemOf: _displayItem,
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: _displayItem(
+            card,
+            overview:
+                '平泽唯、秋山澪、田井中律、琴吹䌷四位轻音部成员升上了高三，并参加开学典礼。在高一新生决定加入哪个社团的这个时期，轻音部成员一起努力试图争取新生的加入。',
+          ),
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '第 2 季 第 1 集 · 高三！',
+          metaWidgets: const [
+            Text('★ 8'),
+            Text('2010'),
+            Text('24分钟'),
+            Text('1080p'),
+          ],
+          imageOf: _loadableImageOf,
+          secondaryLabelOf: (_) => '',
+          onSelectRow: (index) => selectedRow = index,
+          onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final play = find.widgetWithText(ElevatedButton, '播放');
+    final selector = find.byKey(
+      const ValueKey('poster_browse_row_selector_scroll'),
+    );
+    expect(
+      tester.getBottomLeft(play).dy,
+      lessThan(tester.getTopLeft(selector).dy),
+    );
+    expect(tester.takeException(), isNull);
+    final toggle = find.byKey(const ValueKey('poster_browse_desktop_toggle'));
+    await tester.tap(toggle, kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(find.text('继续观看'), findsNothing);
+    expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
+    await tester.tap(toggle, kind: PointerDeviceKind.mouse);
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tap(toggle, kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(find.text('继续观看'), findsNothing);
+    await tester.tap(toggle, kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    // 最后一帧前的极小进度不能使分类栏一直处于禁用状态。
+    await tester.pump(const Duration(milliseconds: 319));
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(find.text('继续观看'), findsOneWidget);
+    expect(
+      tester.getBottomLeft(play).dy,
+      lessThan(tester.getTopLeft(selector).dy),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('动漫TV'), kind: PointerDeviceKind.mouse);
+    expect(selectedRow, 1);
   });
 
   testWidgets('大屏主内容区左右滑动也能切换影视', (tester) async {

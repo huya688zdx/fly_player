@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_environment.dart';
 import '../../desktop/desktop_horizontal_wheel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_image_request.dart';
@@ -130,6 +131,17 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
               collapseProgress: collapseProgress,
             );
             final trackSlideDistance = trackHeight + selectorSpacing + 48;
+            // 按展开态的真实剩余高度约束信息，动画中保持同一尺寸。
+            final infoHeight =
+                (viewportHeight -
+                        topInset -
+                        bottomInset -
+                        72 -
+                        expandedTrackHeight -
+                        selectorSpacing -
+                        48 -
+                        16)
+                    .clamp(0.0, viewportHeight);
             final cardWidth =
                 ((expandedTrackHeight -
                             _trackVerticalPadding -
@@ -150,14 +162,29 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
                       top: 48 + 24,
                       // 同一份信息随进度移到左下方，不再叠放淡入的副本。
                       bottom:
-                          (expandedTrackHeight + selectorSpacing + 48) *
+                          (expandedTrackHeight + selectorSpacing + 48 + 16) *
                               (1 - collapseProgress) +
                           34 * collapseProgress,
                       child: Align(
                         alignment: Alignment(-1, collapseProgress),
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 560),
-                          child: _buildAnimatedPrimaryMediaInfo(viewportHeight),
+                          constraints: BoxConstraints(
+                            maxWidth: 560,
+                            maxHeight: infoHeight,
+                          ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: SizedBox(
+                              width: (constraints.maxWidth - 128).clamp(
+                                0.0,
+                                560.0,
+                              ),
+                              child: _buildAnimatedPrimaryMediaInfo(
+                                viewportHeight,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -258,6 +285,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         onCollapseProgressChanged: _handleCollapseProgressChanged,
         cardWidth: cardWidth,
         trackSlideFactor: trackSlideFactor,
+        showDesktopControls: DesktopEnvironment.isDesktopPlatform,
         collapsedContent: showMediaInfo || widget.focusedItem == null
             ? const SizedBox.shrink()
             : Padding(
@@ -295,7 +323,8 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
   }
 
   void _handleCollapseProgressChanged(double progress) {
-    if ((_collapseProgress - progress).abs() < 0.0001) return;
+    // 终点必须精确传递，否则极小的残余进度会让分类栏一直忽略点击。
+    if (_collapseProgress == progress) return;
     setState(() => _collapseProgress = progress);
   }
 
