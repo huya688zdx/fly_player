@@ -104,7 +104,8 @@ class _PosterBrowseLandscapeGesturePanelState
         final progress = _collapseController.value;
         return GestureDetector(
           key: const ValueKey('poster_browse_landscape_gesture_panel'),
-          behavior: HitTestBehavior.opaque,
+          // 收起后仍接收纵向手势，同时让下层信息区的播放按钮接收点击。
+          behavior: HitTestBehavior.translucent,
           onVerticalDragStart: (_) => _collapseController.stop(),
           onVerticalDragUpdate: _handleVerticalDragUpdate,
           onVerticalDragEnd: _handleVerticalDragEnd,
@@ -130,26 +131,20 @@ class _PosterBrowseLandscapeGesturePanelState
                       key: const ValueKey(
                         'poster_browse_landscape_track_opacity',
                       ),
-                      // 收起编排：先下沉、后淡出（透明度走 easeIn 后置衰减）、
-                      // 再微微缩小——海报像稳稳退到幕后，而不是直上直下消失。
-                      opacity: 1 - Curves.easeIn.transform(progress),
-                      child: Transform.translate(
-                        offset: Offset(0, 72 * progress),
-                        child: Transform.scale(
-                          scale: 1 - 0.05 * progress,
-                          alignment: Alignment.bottomCenter,
-                          child: PosterBrowsePosterTrack(
-                            items: widget.items,
-                            focusedIndex: widget.focusedIndex,
-                            showProgress: widget.showProgress,
-                            imageOf: widget.imageOf,
-                            secondaryLabelOf: widget.secondaryLabelOf,
-                            onItemTap: widget.onItemTap,
-                            controller: _scrollController,
-                            physics: const NeverScrollableScrollPhysics(),
-                            cardWidth: widget.cardWidth,
-                            itemSpacing: widget.itemSpacing,
-                          ),
+                      opacity: progress < 1 ? 1 : 0,
+                      child: FractionalTranslation(
+                        translation: Offset(0, progress),
+                        child: PosterBrowsePosterTrack(
+                          items: widget.items,
+                          focusedIndex: widget.focusedIndex,
+                          showProgress: widget.showProgress,
+                          imageOf: widget.imageOf,
+                          secondaryLabelOf: widget.secondaryLabelOf,
+                          onItemTap: widget.onItemTap,
+                          controller: _scrollController,
+                          physics: const NeverScrollableScrollPhysics(),
+                          cardWidth: widget.cardWidth,
+                          itemSpacing: widget.itemSpacing,
                         ),
                       ),
                     ),
