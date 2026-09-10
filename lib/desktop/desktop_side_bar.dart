@@ -83,6 +83,7 @@ class DesktopSideBar extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
+            SizedBox(height: MediaQuery.paddingOf(context).top),
             _DesktopSideBarBrand(title: l10n.appTitle),
             Expanded(
               child: SingleChildScrollView(
