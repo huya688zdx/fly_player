@@ -176,6 +176,7 @@ class AdaptiveDetailRequest {
         seriesTitle: seriesTitle,
         backdropPath: backdropPath,
         seasonItem: seasonItem.toJson(),
+        initialEpisodeGuid: initialEpisodeGuid,
       ),
       actionKey: 'season:${parentGuid.trim()}:${seasonItem.guid.trim()}',
       heroBackdropPath: backdropPath.trim(),
