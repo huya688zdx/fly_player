@@ -148,13 +148,16 @@ void main() {
     expect(find.byIcon(Icons.search_rounded), findsOneWidget);
   });
 
-  testWidgets('设置搜索框与快捷键共用公共弹层，结果关闭弹层后进入子页', (tester) async {
+  testWidgets('设置搜索框与快捷键在搜索入口下方展开结果，选择后进入子页', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     await pumpSettings(tester, size: const Size(1400, 900), inShell: true);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     expect(find.textContaining('行尾实时显示'), findsNothing);
     expect(find.byIcon(Icons.manage_search_rounded), findsNothing);
+    final anchorRect = tester.getRect(
+      find.byKey(const ValueKey<String>('settings_open_full_search')),
+    );
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
@@ -162,6 +165,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsOneWidget);
     expect(find.text('常用入口'), findsOneWidget);
+    final resultRect = tester.getRect(find.byType(DesktopFloatingPanel));
+    final originalField = find.byKey(
+      const ValueKey<String>('settings_open_full_search'),
+    );
+    expect(tester.getRect(originalField), anchorRect);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      find.descendant(of: originalField, matching: find.byType(TextField)),
+      findsOneWidget,
+    );
+    expect(find.text('搜索设置项'), findsOneWidget);
+    expect(resultRect.top, closeTo(anchorRect.bottom + 10, 1));
+    expect(resultRect.right, closeTo(anchorRect.right, 1));
+    expect(find.byType(Dialog), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.byType(TextField),
+      ),
+      findsNothing,
+    );
+    tester.view.physicalSize = const Size(1100, 900);
+    tester.view.padding = const FakeViewPadding(top: 32);
+    addTearDown(tester.view.resetPadding);
+    await tester.pumpAndSettle();
+    final resizedAnchor = tester.getRect(originalField);
+    final resizedResults = tester.getRect(find.byType(DesktopFloatingPanel));
+    expect(resizedResults.top, closeTo(resizedAnchor.bottom + 10, 1));
+    expect(resizedResults.right, closeTo(resizedAnchor.right, 1));
+    expect(find.byType(TextField), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsNothing);
@@ -171,6 +204,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    await tester.tapAt(const Offset(20, 800));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    await tester.tap(originalField);
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '主题');
     await tester.pumpAndSettle();
     await tester.tap(

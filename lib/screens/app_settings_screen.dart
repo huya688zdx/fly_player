@@ -134,23 +134,6 @@ class AppSettingsScreen extends StatelessWidget {
       parallelSummary,
       parallelWindowSupported,
     );
-    if (DesktopEnvironment.isDesktopPlatform) {
-      return showDialog<void>(
-        context: context,
-        useRootNavigator: false,
-        barrierColor: Colors.transparent,
-        builder: (_) => Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: const EdgeInsets.all(24),
-          child: SizedBox(
-            width: 640,
-            height: 620,
-            child: SettingsSearchScreen(entries: entries, asPanel: true),
-          ),
-        ),
-      );
-    }
     return Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
         SettingsSearchScreen(entries: entries),
@@ -718,7 +701,7 @@ class AppSettingsScreen extends StatelessWidget {
               parallelWindowSupported: parallelWindowSupported,
               parallelSummary: parallelSummary,
             ),
-            onOpenSearch: (context) => _openSettingsSearch(
+            buildSearchEntries: (context) => _buildSearchEntries(
               context,
               // 事件回调里不得再 watch：复用 build 阶段已取好的 provider。
               themeProvider,
@@ -753,6 +736,12 @@ class AppSettingsScreen extends StatelessWidget {
                   icon: const Icon(Icons.arrow_back_ios_new_rounded),
                 )
               : null,
+          buildSearchEntries: (context) => _buildSearchEntries(
+            context,
+            themeProvider,
+            parallelSummary,
+            parallelWindowSupported,
+          ),
           onOpenFullSearch: () => _openSettingsSearch(
             context,
             themeProvider,
@@ -821,7 +810,7 @@ class _SettingsSection {
 class _DesktopSettingsArea extends StatefulWidget {
   final double bottomInset;
   final List<_SettingsSection> Function(BuildContext) buildSections;
-  final void Function(BuildContext) onOpenSearch;
+  final List<SettingsSearchEntry> Function(BuildContext) buildSearchEntries;
 
   /// 「并行窗口」开关：true 时子页在右栏并排打开，false 时单屏铺满。
   final bool twoPane;
@@ -830,7 +819,7 @@ class _DesktopSettingsArea extends StatefulWidget {
     super.key,
     required this.bottomInset,
     required this.buildSections,
-    required this.onOpenSearch,
+    required this.buildSearchEntries,
     required this.twoPane,
   });
 
@@ -868,12 +857,6 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
     (_twoPaneActive ? _subNavKey : _singlePaneNavKey).currentState?.pushNamed(
       routeName,
     );
-  }
-
-  void openSearch() {
-    final nav = (_twoPaneActive ? _subNavKey : _singlePaneNavKey).currentState;
-    if (nav == null) return;
-    widget.onOpenSearch(nav.context);
   }
 
   void _handleStackChanged(String? topRoute) {
@@ -985,7 +968,7 @@ class _DesktopSettingsAreaState extends State<_DesktopSettingsArea> {
                 child: _DesktopSettingsGrid(
                   sections: widget.buildSections(context),
                   bottomInset: widget.bottomInset,
-                  onOpenFullSearch: openSearch,
+                  buildSearchEntries: widget.buildSearchEntries,
                 ),
               ),
               // 右栏：设置子页列（三级），开启时以 1px 竖线与网格分隔。
@@ -1092,7 +1075,7 @@ class _DesktopSettingsAreaScope extends InheritedWidget {
 /// 设置区首页（设计稿「放映控制台」）：页头标题 + 统一搜索入口，
 /// 分组卡片网格（宽视口双列，窄视口单列），行尾当前值预览。
 /// 桌面双栏与手机/平板/窄窗单列形态共用此首页。
-class _DesktopSettingsGrid extends StatelessWidget {
+class _DesktopSettingsGrid extends StatefulWidget {
   final List<_SettingsSection> sections;
   final double bottomInset;
 
@@ -1101,6 +1084,7 @@ class _DesktopSettingsGrid extends StatelessWidget {
 
   /// 完整设置搜索入口（跨子页深搜）；null 时不显示入口。
   final VoidCallback? onOpenFullSearch;
+  final List<SettingsSearchEntry> Function(BuildContext)? buildSearchEntries;
 
   static const double _gridMaxWidth = 1128;
   static const double _twoColumnMinWidth = 1000;
@@ -1110,7 +1094,53 @@ class _DesktopSettingsGrid extends StatelessWidget {
     required this.bottomInset,
     this.leading,
     this.onOpenFullSearch,
+    this.buildSearchEntries,
   });
+
+  @override
+  State<_DesktopSettingsGrid> createState() => _DesktopSettingsGridState();
+}
+
+class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
+  final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
+  final _searchOverlay = OverlayPortalController();
+  List<SettingsSearchEntry> _searchEntries = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _searchFocus.addListener(_handleSearchFocus);
+  }
+
+  @override
+  void dispose() {
+    _searchFocus.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _handleSearchFocus() {
+    if (_searchFocus.hasFocus) _openSearch();
+  }
+
+  void _openSearch() {
+    if (!DesktopEnvironment.isDesktopPlatform) {
+      widget.onOpenFullSearch?.call();
+      return;
+    }
+    if (!_searchOverlay.isShowing) {
+      _searchEntries = widget.buildSearchEntries!(context);
+      _searchOverlay.show();
+    }
+    _searchFocus.requestFocus();
+  }
+
+  void _closeSearch() {
+    _searchOverlay.hide();
+    _searchFocus.unfocus();
+    _searchController.clear();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1126,14 +1156,14 @@ class _DesktopSettingsGrid extends StatelessWidget {
                 LogicalKeyboardKey.keyK,
                 control: true,
               ): () =>
-                  onOpenFullSearch?.call(),
+                  _openSearch(),
             },
             child: SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
                 compact ? 16 : 40,
                 26,
                 compact ? 16 : 40,
-                bottomInset + 28,
+                widget.bottomInset + 28,
               ),
               child: Align(
                 alignment: Alignment.topCenter,
@@ -1153,9 +1183,9 @@ class _DesktopSettingsGrid extends StatelessWidget {
                               _DesktopSettingsGrid._twoColumnMinWidth;
                           final leftSections = <_SettingsSection>[];
                           final rightSections = <_SettingsSection>[];
-                          for (var i = 0; i < sections.length; i++) {
+                          for (var i = 0; i < widget.sections.length; i++) {
                             (i.isEven ? leftSections : rightSections).add(
-                              sections[i],
+                              widget.sections[i],
                             );
                           }
                           final Widget content = twoColumns
@@ -1177,7 +1207,7 @@ class _DesktopSettingsGrid extends StatelessWidget {
                                     ),
                                   ],
                                 )
-                              : _buildSectionColumn(context, sections);
+                              : _buildSectionColumn(context, widget.sections);
                           return content;
                         },
                       ),
@@ -1200,8 +1230,8 @@ class _DesktopSettingsGrid extends StatelessWidget {
       children: <Widget>[
         Row(
           children: <Widget>[
-            if (leading != null) ...<Widget>[
-              leading!,
+            if (widget.leading != null) ...<Widget>[
+              widget.leading!,
               const SizedBox(width: 10),
             ],
             Text(
@@ -1256,10 +1286,10 @@ class _DesktopSettingsGrid extends StatelessWidget {
   Widget _buildSearchField(BuildContext context, AppLocalizations l10n) {
     final colors = context.appColors;
     final compact = MediaQuery.sizeOf(context).width < 720;
-    return InkWell(
+    final field = InkWell(
       key: const ValueKey<String>('settings_open_full_search'),
-      autofocus: true,
-      onTap: onOpenFullSearch,
+      autofocus: !DesktopEnvironment.isDesktopPlatform,
+      onTap: _openSearch,
       borderRadius: BorderRadius.circular(10),
       child: Container(
         width: compact ? double.infinity : 292,
@@ -1275,13 +1305,34 @@ class _DesktopSettingsGrid extends StatelessWidget {
             Icon(Icons.search_rounded, size: 15, color: colors.textMuted),
             const SizedBox(width: 9),
             Expanded(
-              child: Text(
-                l10n.settingsSearchHint,
-                style: TextStyle(
-                  color: colors.textMuted,
-                  fontSize: AdaptiveText.roleSize(13),
-                ),
-              ),
+              child: DesktopEnvironment.isDesktopPlatform
+                  ? TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      groupId: _searchController,
+                      onTap: _openSearch,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: AdaptiveText.roleSize(13),
+                      ),
+                      decoration: InputDecoration(
+                        hintText: l10n.settingsSearchHint,
+                        hintStyle: TextStyle(
+                          color: colors.textMuted,
+                          fontSize: AdaptiveText.roleSize(13),
+                        ),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    )
+                  : Text(
+                      l10n.settingsSearchHint,
+                      style: TextStyle(
+                        color: colors.textMuted,
+                        fontSize: AdaptiveText.roleSize(13),
+                      ),
+                    ),
             ),
             if (!compact)
               Container(
@@ -1301,6 +1352,63 @@ class _DesktopSettingsGrid extends StatelessWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+    if (!DesktopEnvironment.isDesktopPlatform) return field;
+    return OverlayPortal.overlayChildLayoutBuilder(
+      controller: _searchOverlay,
+      overlayLocation: OverlayChildLocation.rootOverlay,
+      overlayChildBuilder: (context, info) {
+        final anchor = MatrixUtils.transformRect(
+          info.childPaintTransform,
+          Offset.zero & info.childSize,
+        );
+        final width = math.min(520.0, info.overlaySize.width - 32);
+        final left = (anchor.right - width).clamp(
+          16.0,
+          info.overlaySize.width - width - 16,
+        );
+        final top = anchor.bottom + 10;
+        return Stack(
+          children: <Widget>[
+            Positioned(
+              left: left,
+              top: top,
+              width: width,
+              height: math.max(
+                0.0,
+                math.min(620.0, info.overlaySize.height - top - 16),
+              ),
+              child: TapRegion(
+                groupId: _searchController,
+                child: SettingsSearchScreen(
+                  entries: _searchEntries,
+                  asPanel: true,
+                  controller: _searchController,
+                  onClose: _closeSearch,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      child: TapRegion(
+        groupId: _searchController,
+        onTapOutside: (_) {
+          if (_searchOverlay.isShowing) _closeSearch();
+        },
+        child: Focus(
+          onKeyEvent: (_, event) {
+            if (_searchOverlay.isShowing &&
+                event is KeyDownEvent &&
+                event.logicalKey == LogicalKeyboardKey.escape) {
+              _closeSearch();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: field,
         ),
       ),
     );
@@ -1590,7 +1698,7 @@ class _DesktopSettingsHomeView extends StatelessWidget {
       sections:
           area?.widget.buildSections(context) ?? const <_SettingsSection>[],
       bottomInset: area?.widget.bottomInset ?? 0,
-      onOpenFullSearch: area == null ? null : () => area.openSearch(),
+      buildSearchEntries: area?.widget.buildSearchEntries,
     );
   }
 }
