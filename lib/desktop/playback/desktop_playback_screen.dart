@@ -3140,6 +3140,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                       curve: Curves.easeOutCubic,
                       child: DesktopPlayerControls(
                         player: _player,
+                        showBuffer: !Uri.parse(_source.url).isScheme('file'),
                         chapters: _chapters,
                         videoState: videoState,
                         title: _source.title,

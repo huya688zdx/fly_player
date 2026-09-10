@@ -27,6 +27,7 @@ class DesktopPlayerControls extends StatefulWidget {
   const DesktopPlayerControls({
     super.key,
     required this.player,
+    required this.showBuffer,
     this.chapters = const [],
     required this.videoState,
     required this.title,
@@ -85,6 +86,7 @@ class DesktopPlayerControls extends StatefulWidget {
   });
 
   final Player player;
+  final bool showBuffer;
   final List<DesktopPlayerChapter> chapters;
   final VideoState videoState;
   final String title;
@@ -306,7 +308,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                       child: _DesktopTimeline(
                         position: position,
                         duration: duration,
-                        buffered: buffer,
+                        buffered: widget.showBuffer ? buffer : Duration.zero,
                         chapters: widget.chapters,
                         accent: colors.accent,
                         onSeek: widget.onSeek,
