@@ -35,6 +35,7 @@ class MainActivity : FlutterHostActivity() {
 
     override fun onDestroy() {
         if (isFinishing) {
+            NativePlayerActivity.releaseRetained()
             ParallelWindowCoordinator.detachMainHost(this)
             ParallelWindowCoordinator.detachBrowseHost(this)
         }

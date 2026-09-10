@@ -67,6 +67,16 @@ class ItemPlaybackLauncher {
       action: () async {
         final l10n = AppLocalizations.of(context);
         final nas = context.read<NasProvider>();
+        if (await playbackHostFor(context).resume(
+          itemGuid: itemGuid,
+          mediaGuid: qualityMediaGuid,
+          audioGuid: audioTrackId,
+          subtitleGuid: subtitleTrackId,
+          position: startFromBeginning ? Duration.zero : null,
+        )) {
+          return null;
+        }
+        if (!context.mounted) return null;
         // 后端中立：取当前活动后端，由后端自己的桥接器装配最终播放 source。飞牛会话下
         // 返回的就是 FeiniuMediaBackend(FeiniuApi(nasProvider))，与旧直接构造等价、零回归。
         final backend = context.read<MediaBackendProvider>().backend;

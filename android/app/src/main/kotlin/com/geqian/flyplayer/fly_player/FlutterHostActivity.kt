@@ -231,6 +231,16 @@ abstract class FlutterHostActivity : FlutterActivity() {
             nativePlayerChannel = channel
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "resume" -> result.success(
+                        NativePlayerActivity.resumeRetained(
+                            scope = call.argument<String>("scope").orEmpty(),
+                            itemGuid = call.argument<String>("itemGuid").orEmpty(),
+                            mediaGuid = call.argument<String>("mediaGuid"),
+                            audioGuid = call.argument<String>("audioGuid"),
+                            subtitleGuid = call.argument<String>("subtitleGuid"),
+                            positionMs = call.argument<Number>("positionMs")?.toLong(),
+                        ),
+                    )
                     "launch" -> {
                         val loadArgs = call.argument<String>("loadArgs")
                         if (loadArgs.isNullOrBlank()) {
@@ -245,6 +255,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
                                     } else {
                                         // 全屏态：独立 task 强制全屏（维持原行为）。
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                                     }
                                     putExtra(NativePlayerActivity.EXTRA_LOAD_ARGS, loadArgs)
                                     call.argument<String>("danmakuFile")

@@ -922,6 +922,12 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
         settleDuration: const Duration(milliseconds: 500),
         action: () async {
           final provider = context.read<NasProvider>();
+          if (await playbackHostFor(
+            context,
+          ).resume(itemGuid: record.itemGuid, mediaGuid: record.mediaGuid)) {
+            return;
+          }
+          if (!mounted) return;
           final resolved = await _resolveLocalSource(record, provider);
           if (resolved == null) {
             if (mounted) {
