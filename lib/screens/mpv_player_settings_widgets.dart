@@ -21,7 +21,7 @@ class _SchemeStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 13, 16, 13),
       decoration: BoxDecoration(
@@ -29,7 +29,10 @@ class _SchemeStatusBar extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: <Color>[colors.surfaceSubtle, colors.surface],
+          colors: <Color>[
+            AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
+            AppAmbientPage.cardColorOf(context, colors.surface),
+          ],
         ),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -115,7 +118,7 @@ class _MiniPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
       decoration: BoxDecoration(
@@ -192,7 +195,7 @@ class _PresetChipCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
@@ -200,7 +203,9 @@ class _PresetChipCard extends StatelessWidget {
         duration: const Duration(milliseconds: 160),
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
         decoration: BoxDecoration(
-          color: selected ? colors.accentSoft : colors.surface,
+          color: selected
+              ? colors.accentSoft
+              : AppAmbientPage.cardColorOf(context, colors.surface),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: colors.borderSubtle),
         ),
@@ -333,7 +338,7 @@ class _TuneEntryCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(13, 13, 14, 12),
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: AppAmbientPage.cardColorOf(context, colors.surface),
           borderRadius: BorderRadius.circular(13),
           border: Border.all(color: colors.borderSubtle),
         ),
@@ -414,7 +419,7 @@ class _MgmtEntryRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(13, 12, 16, 12),
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: AppAmbientPage.cardColorOf(context, colors.surface),
           borderRadius: BorderRadius.circular(13),
           border: Border.all(color: colors.borderSubtle),
         ),
@@ -477,7 +482,7 @@ class _CheckDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     if (!selected) {
       return Container(
         width: 15,
@@ -510,7 +515,7 @@ class _CardBlock extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -625,7 +630,7 @@ class _ChoiceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -638,7 +643,9 @@ class _ChoiceTile extends StatelessWidget {
             border: Border.all(
               color: selected ? colors.accent : colors.borderSubtle,
             ),
-            color: selected ? colors.accentSoft : colors.surface,
+            color: selected
+                ? colors.accentSoft
+                : AppAmbientPage.cardColorOf(context, colors.surface),
           ),
           child: Row(
             children: <Widget>[
@@ -728,7 +735,7 @@ class _VideoAdjustmentSliderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final safeValue = value.clamp(_videoAdjustmentMin, _videoAdjustmentMax);
     return _CardBlock(
       child: Column(
