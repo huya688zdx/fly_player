@@ -1,9 +1,11 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../danmaku/settings/danmaku_settings_store.dart';
 import '../desktop/playback/external_player_settings.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../widgets/common/app_ambient_page.dart';
+import 'settings_destination_routes.dart';
 
 class ExternalPlayerSettingsScreen extends StatefulWidget {
   const ExternalPlayerSettingsScreen({super.key});
@@ -16,7 +18,9 @@ class ExternalPlayerSettingsScreen extends StatefulWidget {
 class _ExternalPlayerSettingsScreenState
     extends State<ExternalPlayerSettingsScreen> {
   final _pathController = TextEditingController();
+  final _danmakuSettingsStore = const DanmakuSettingsStore();
   bool _enabled = false;
+  bool? _danmakuEnabled;
   bool _busy = true;
   String? _message;
   bool _isError = false;
@@ -39,11 +43,28 @@ class _ExternalPlayerSettingsScreenState
       if (!mounted) return;
       _pathController.text = settings.executablePath;
       setState(() => _enabled = settings.enabled);
+      await _loadDanmakuSettings();
     } catch (_) {
       _showMessage('读取外部播放器设置失败，请重新打开此页面。', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _loadDanmakuSettings() async {
+    try {
+      final settings = await _danmakuSettingsStore.load();
+      if (!mounted) return;
+      setState(() => _danmakuEnabled = settings.enabled);
+    } catch (_) {
+      _showMessage('读取弹幕设置失败，请重新打开此页面。', error: true);
+    }
+  }
+
+  Future<void> _openDanmakuSettings() async {
+    await Navigator.of(context).pushNamed(SettingsDestinationRoutes.danmaku);
+    if (!mounted) return;
+    await _loadDanmakuSettings();
   }
 
   void _showMessage(String message, {bool error = false}) {
@@ -207,13 +228,33 @@ class _ExternalPlayerSettingsScreenState
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              Card(
+                color: AppAmbientPage.cardColorOf(context, colors.surface),
+                child: ListTile(
+                  title: Text(
+                    '弹幕设置',
+                    style: TextStyle(color: colors.textPrimary),
+                  ),
+                  subtitle: Text(switch (_danmakuEnabled) {
+                    true => '当前已开启，匹配到弹幕源后会带入 PotPlayer。',
+                    false => '当前已关闭，开启后才能在 PotPlayer 显示弹幕。',
+                    null => '暂未读取到弹幕状态。',
+                  }, style: TextStyle(color: colors.textSecondary)),
+                  trailing: Icon(
+                    Icons.chevron_right_rounded,
+                    color: colors.textSecondary,
+                  ),
+                  onTap: _busy ? null : _openDanmakuSettings,
+                ),
+              ),
               const SizedBox(height: 16),
               Text(
                 '播放时请保持 Fly Player 运行，用于向 NAS 回报播放进度。\n\n'
-                '当前支持 PotPlayer。弹幕随视频同步暂停和跳转，修改弹幕设置后需重新打开播放。\n\n'
+                '当前支持 PotPlayer。弹幕需开启且匹配到弹幕源，随视频同步暂停和跳转；修改弹幕设置后需重新打开播放。\n\n'
+                '飞牛原画剧集会带入各季播放列表；在列表内切集会同步对应字幕、弹幕和播放进度，切换到列表外视频会结束跟踪。\n\n'
                 '外挂 ASS 字幕保留样式；SRT、VTT 保留文字和时间。与弹幕合并时，字幕需为 UTF-8 或 UTF-16 编码。\n\n'
-                '音轨由 PotPlayer 选择。内封字幕、位图字幕不能与弹幕合并，AI 人物遮挡不支持。\n\n'
-                '在 PotPlayer 内换片会停止原影片的进度回报，请从 Fly Player 选择下一集。',
+                '音轨由 PotPlayer 选择。内封字幕、位图字幕不能与弹幕合并，AI 人物遮挡不支持。',
                 style: TextStyle(color: colors.textSecondary, height: 1.6),
               ),
             ],

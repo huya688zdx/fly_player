@@ -22,8 +22,11 @@ class PotPlayerBridge {
     std::string method;
     DWORD pid = 0;
     int64_t position_ms = -1;
+    bool focus = true;
     int paused = -1;
     int speed = -1;
+    std::wstring subtitle_path;
+    std::string media_url;
     std::wstring executable;
     std::wstring command_line;
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
@@ -32,6 +35,7 @@ class PotPlayerBridge {
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
     flutter::EncodableValue value;
     std::string error;
+    std::string error_message;
   };
 
   void Run();
