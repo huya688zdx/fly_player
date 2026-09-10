@@ -86,6 +86,12 @@ extension _MediaListScreenActions on _MediaListScreenState {
         seasonItem: seasonTarget.seasonItem,
         initialEpisodeGuid: seasonTarget.initialEpisodeGuid,
       ),
+      // 桌面宿主统一决定分屏或窄窗回退，避免季详情绕过副屏。
+      presentation:
+          DesktopEnvironment.isDesktopPlatform &&
+              PlayerPaneHostScope.maybeOf(context) != null
+          ? DetailPresentation.pane
+          : DetailPresentation.page,
     );
     if (mounted) unawaited(_refreshContinueWatching());
   }

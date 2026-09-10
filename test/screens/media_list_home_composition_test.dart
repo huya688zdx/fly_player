@@ -157,6 +157,16 @@ void main() {
     expect(widgetsSource, contains('_openContinueWatchingDetail(item)'));
     expect(
       actionsSource,
+      matches(r'presentation:\s+DesktopEnvironment\.isDesktopPlatform'),
+    );
+    expect(
+      actionsSource,
+      contains('PlayerPaneHostScope.maybeOf(context) != null'),
+    );
+    expect(actionsSource, contains('? DetailPresentation.pane'));
+
+    expect(
+      actionsSource,
       contains('Future<void> _openContinueWatchingDetail('),
     );
 
