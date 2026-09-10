@@ -5,6 +5,28 @@ import 'app_theme.dart';
 class AppThemeL10n {
   const AppThemeL10n._();
 
+  static String backgroundStyleTitle(
+    AppLocalizations l10n,
+    AppBackgroundStyle style,
+  ) => switch (style) {
+    AppBackgroundStyle.softMist => l10n.themeBackgroundStyleSoftMist,
+    AppBackgroundStyle.edgeGlow => l10n.themeBackgroundStyleEdgeGlow,
+    AppBackgroundStyle.auroraRibbon => l10n.themeBackgroundStyleAuroraRibbon,
+    AppBackgroundStyle.cinemaLight => l10n.themeBackgroundStyleCinemaLight,
+  };
+
+  static String backgroundStyleSubtitle(
+    AppLocalizations l10n,
+    AppBackgroundStyle style,
+  ) => switch (style) {
+    AppBackgroundStyle.softMist => l10n.themeBackgroundStyleSoftMistSubtitle,
+    AppBackgroundStyle.edgeGlow => l10n.themeBackgroundStyleEdgeGlowSubtitle,
+    AppBackgroundStyle.auroraRibbon =>
+      l10n.themeBackgroundStyleAuroraRibbonSubtitle,
+    AppBackgroundStyle.cinemaLight =>
+      l10n.themeBackgroundStyleCinemaLightSubtitle,
+  };
+
   static String presetSubtitle(AppLocalizations l10n, AppThemePreset preset) {
     return switch (preset) {
       AppThemePreset.midnight => l10n.themePresetMidnightSubtitle,

@@ -8,6 +8,7 @@ import '../theme/app_theme_l10n.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
+import '../widgets/app_atmospheric_background.dart';
 import '../widgets/common/app_ambient_page.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/settings/theme/theme_settings_helpers.dart';
@@ -17,7 +18,7 @@ import '../widgets/settings/theme/theme_settings_preview_card.dart';
 import 'theme_custom_recipe_screen.dart';
 
 /// 主题设置：紧凑英雄预览（色板簇 + mini 应用示意）→ 固定主题网格 →
-/// 色彩自定义（四行色调，行内色板圈即点即生效）→ 动态取色 → 自定义主题
+/// 背景样式 → 色彩自定义（四行色调，行内色板圈即点即生效）→ 动态取色 → 自定义主题
 /// （当前配方入口 + 已保存主题网格）。桌面网格 4 列，窄视口 3/2 列。
 class ThemeSettingsScreen extends StatelessWidget {
   const ThemeSettingsScreen({super.key});
@@ -69,6 +70,7 @@ class ThemeSettingsScreen extends StatelessWidget {
             children: <Widget>[
               ThemeSettingsPreviewCard(
                 themeTitle: AppThemeL10n.currentThemeTitle(l10n, provider),
+                backgroundStyle: provider.backgroundStyle,
                 themeSubtitle: AppThemeL10n.currentThemeSubtitle(
                   l10n,
                   provider,
@@ -97,6 +99,58 @@ class ThemeSettingsScreen extends StatelessWidget {
                       selected:
                           provider.isPresetActive && provider.preset == preset,
                       onTap: () => provider.applyPreset(preset),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 18),
+              ThemeSettingsSectionTitle(
+                title: l10n.themeBackgroundStyleTitle,
+                subtitle: l10n.themeBackgroundStyleSubtitle,
+              ),
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) => GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: constraints.maxWidth >= 980 ? 4 : 2,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    mainAxisExtent: 178,
+                  ),
+                  itemCount: AppBackgroundStyle.values.length,
+                  itemBuilder: (context, index) {
+                    final style = AppBackgroundStyle.values[index];
+                    final colors = provider.selectedThemeBaseColors;
+                    return Semantics(
+                      selected: provider.backgroundStyle == style,
+                      child: ThemeSettingsPresetCard(
+                        key: ValueKey<String>('background-style-${style.name}'),
+                        title: AppThemeL10n.backgroundStyleTitle(l10n, style),
+                        subtitle: AppThemeL10n.backgroundStyleSubtitle(
+                          l10n,
+                          style,
+                        ),
+                        previewColors: colors,
+                        selected: provider.backgroundStyle == style,
+                        onTap: () => provider.setBackgroundStyle(style),
+                        preview: SizedBox(
+                          height: 84,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: AppAtmosphereSurface(
+                              palette: AppAtmospherePalette.resolve(
+                                baseColors: colors,
+                                effectiveColors: colors,
+                                hasDynamicTheme: false,
+                              ),
+                              style: style,
+                            ),
+                          ),
+                        ),
+                      ),
                     );
                   },
                 ),
