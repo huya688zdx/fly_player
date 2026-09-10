@@ -45,8 +45,8 @@ def draw_icon(index, amount=0, phase="静止", q=0):
     # 按状态图的造型拆开图形笔画，每帧绘制运动部件，文字不做叠帧混合。
     image = Image.new("RGBA", (200, 200))
     draw = ImageDraw.Draw(image)
-    ink = "#edf4ff"
-    draw.rounded_rectangle((8, 8, 192, 192), 40, fill="#1c2633", outline="#34465d", width=2)
+    # 只有图形笔画着色，图标底板与边框完全透明。
+    ink = tuple(round(a + (b - a) * amount) for a, b in zip((237, 244, 255), (140, 188, 255)))
     moving = phase != "静止"
     wave = math.sin(q * math.pi) if moving else 0
     sign = 1 if phase == "进入" else -1
@@ -87,7 +87,6 @@ def draw_icon(index, amount=0, phase="静止", q=0):
         mask = Image.new("L", (200, 200))
         ImageDraw.Draw(mask).rectangle((37, 69, 165, 125), fill=255)
         image.alpha_composite(Image.composite(layer, Image.new("RGBA", (200, 200)), mask))
-        draw.arc((64, 131, 136, 147), 5, 175, fill="#8cbcff", width=3)
     elif index == 2:
         for j in range(3):
             row_q = max(0, min(1, (q - j * 0.12) / 0.76))
@@ -124,9 +123,6 @@ def draw_icon(index, amount=0, phase="静止", q=0):
         for sx, sy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
             x, y = 100 + sx * (40 + gap), 100 + sy * (35 + gap)
             line([(x - sx * 23, y), (x, y), (x, y - sy * 23)], width=7)
-    if amount > 0:
-        color = (140, 190, 255, round(255 * amount))
-        draw.rounded_rectangle((87, 170, 113, 174), 2, fill=color)
     return image
 
 
@@ -138,10 +134,8 @@ def backdrop():
     image = Image.new("RGBA", (WIDTH, HEIGHT), "#10151d")
     draw = ImageDraw.Draw(image)
     draw.text((42, 30), "播放器图标 · 状态动效", font=font(26, True), fill="#eef3fa")
-    draw.text((43, 72), "动的是图形本身：穿行、滚动、展开、聚焦、书写、跳动、扩展。", font=font(14), fill="#93a2b6")
-    draw.rounded_rectangle((28, 130, 932, 304), 24, fill="#161e29", outline="#293647")
+    draw.text((43, 72), "透明图标，无底板、无外框；保留图形本身的进入与退出动作。", font=font(14), fill="#93a2b6")
     draw.text((43, 329), "实际工具栏尺寸", font=font(15, True), fill="#bdc9d9")
-    draw.rounded_rectangle((28, 362, 932, 448), 18, fill="#090d12", outline="#263241")
     draw.line((53, 380, 908, 380), fill="#334252", width=3)
     draw.line((53, 380, 344, 380), fill="#81b8f8", width=3)
     draw.text((44, 478), "弹幕：开启 / 关闭    ·    菜单：展开 / 收起    ·    全屏：进入 / 退出", font=font(14), fill="#a2b0c2")
@@ -161,9 +155,6 @@ def render(t, sprites=None, all_state=None):
         size = 100
         image.alpha_composite(sprite.resize((size, size), Image.Resampling.LANCZOS), (cx - size // 2, 194 - size // 2))
         centered(draw, NAMES[i], cx, 263, 15, "#dae6f7" if amount > 0.5 else "#8d9aaf")
-        if amount > 0:
-            color = tuple(round(a + (b - a) * amount) for a, b in zip((22, 30, 41), (126, 184, 255)))
-            draw.ellipse((cx - 2, 286, cx + 2, 290), fill=color)
         small_size = 42
         small_x = 493 + i * 64
         image.alpha_composite(sprite.resize((small_size, small_size), Image.Resampling.LANCZOS), (small_x - small_size // 2, 414 - small_size // 2))
@@ -181,11 +172,11 @@ def main():
         for row in range(2):
             draw_icon(i, row).save(ROOT / f"icon-{i}-{'on' if row else 'off'}.png")
     # 先输出逐帧关键图，再把同一套绘制结果合成为循环动图。
-    keyframes = Image.new("RGB", (1400, 800), "#10151d")
+    keyframes = Image.new("RGBA", (1400, 800))
     for row, q in enumerate([0, 0.22, 0.5, 1]):
         for i in range(7):
             icon = draw_icon(i, ease(q), "进入", q)
-            keyframes.paste(icon, (i * 200, row * 200), icon)
+            keyframes.alpha_composite(icon, (i * 200, row * 200))
     keyframes.save(ROOT / "keyframes.png")
     comparison = Image.new("RGB", (WIDTH, HEIGHT * 2), "#10151d")
     comparison.paste(render(0, sprites, 0), (0, 0))
@@ -193,6 +184,15 @@ def main():
     comparison.save(ROOT / "states.png")
     frames = [render(i / FPS, sprites) for i in range(round(FPS * SECONDS))]
     frames[0].save(ROOT / "preview.webp", save_all=True, append_images=frames[1:], duration=[33, 33, 34] * (len(frames) // 3), loop=0, quality=85, method=4)
+    # 单独提供真正透明的动画，可直接叠在任意视频画面上。
+    transparent_frames = []
+    for frame in range(round(FPS * SECONDS)):
+        strip = Image.new("RGBA", (840, 144))
+        for i in range(7):
+            icon = draw_icon(i, *state(frame / FPS, i))
+            strip.alpha_composite(icon.resize((120, 120), Image.Resampling.LANCZOS), (i * 120, 12))
+        transparent_frames.append(strip)
+    transparent_frames[0].save(ROOT / "icons-transparent.webp", save_all=True, append_images=transparent_frames[1:], duration=[33, 33, 34] * (len(transparent_frames) // 3), loop=0, lossless=True, method=4)
     gif_frames = [frame.quantize(colors=128) for frame in frames[::2]]
     gif_frames[0].save(ROOT / "preview.gif", save_all=True, append_images=gif_frames[1:], duration=[60, 70, 70] * (len(gif_frames) // 3), loop=0, disposal=2, optimize=False)
     render(1.72, sprites).save(ROOT / "motion-check.png")
