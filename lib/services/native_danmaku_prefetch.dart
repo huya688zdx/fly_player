@@ -358,10 +358,8 @@ class NativeDanmakuPrefetch {
   /// 在线搜索弹幕候选（供原生壳弹幕源子页）。返回每项的精简 Map，便于跨 channel 传回。
   static Future<List<Map<String, dynamic>>> searchCandidates({
     required String keyword,
-    int episodeNumber = 0,
     int currentEpisodeNumber = 0,
     int seasonNumber = 0,
-    String tmdbId = '',
   }) async {
     try {
       if (keyword.trim().isEmpty) return const <Map<String, dynamic>>[];
@@ -369,12 +367,7 @@ class NativeDanmakuPrefetch {
         return const <Map<String, dynamic>>[];
       }
       final resolver = _buildResolver();
-      final items = await resolver.searchEpisodeCandidates(
-        keyword: keyword,
-        episodeNumber: episodeNumber,
-        tmdbId: tmdbId,
-        allowLooseTitleFallback: true,
-      );
+      final items = await resolver.searchManualCandidates(keyword);
       final sortedItems = DanDanPlayResolver.sortCandidatesForSeason(
         items,
         seasonNumber: seasonNumber,

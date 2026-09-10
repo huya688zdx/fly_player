@@ -8773,7 +8773,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun buildDanmakuSearchPage() {
         val seriesTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty()
-        // 保留标题中的季度标记；Flutter 解析器会先精确搜索，再自动尝试去季名的回退词。
+        // 手动输入按原关键词搜索，季度标记也由用户决定。
         val initial = danmakuSearchKeyword.ifEmpty { seriesTitle.trim() }
         val input = android.widget.EditText(this).apply {
             setText(initial)
@@ -9099,11 +9099,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             method = "searchDanmakuSource",
             args = mapOf(
                 "keyword" to keyword,
-                // 手动搜索故意不传集号：让接口返回整部全集，避免合季/双季集号对不上时翻不到正确
-                // 的那一集。集号只在本地用于排序/高亮（见 onResult），不收窄结果。
-                "episodeNumber" to 0,
+                // 季集号只用于本地排序和提示，不附加当前影片的搜索过滤条件。
                 "seasonNumber" to ((loadArgsMap["seasonNumber"] as? Number)?.toInt() ?: 0),
-                "tmdbId" to loadArgsMap["tmdbId"]?.toString().orEmpty(),
             ),
             onResult = { result ->
                 runOnUiThread {
