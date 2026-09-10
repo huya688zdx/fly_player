@@ -12,6 +12,7 @@ class PosterBrowseMediaInfo extends StatelessWidget {
   final List<Widget> metaWidgets;
   final bool compact;
   final bool collapsed;
+  final bool stableLayout;
   final VoidCallback onPlay;
   final VoidCallback onDetail;
 
@@ -23,6 +24,7 @@ class PosterBrowseMediaInfo extends StatelessWidget {
     required this.metaWidgets,
     required this.compact,
     this.collapsed = false,
+    this.stableLayout = false,
     required this.onPlay,
     required this.onDetail,
   });
@@ -55,7 +57,7 @@ class PosterBrowseMediaInfo extends StatelessWidget {
             ),
           ),
         ),
-        if (secondary.isNotEmpty) ...[
+        if (stableLayout || secondary.isNotEmpty) ...[
           SizedBox(height: spacing),
           Text(
             key: const ValueKey('poster_browse_secondary_label'),
@@ -68,18 +70,38 @@ class PosterBrowseMediaInfo extends StatelessWidget {
             ),
           ),
         ],
-        if (metaWidgets.isNotEmpty) ...[
+        if (stableLayout || metaWidgets.isNotEmpty) ...[
           SizedBox(height: collapsed ? 4 : (compact ? 6 : 10)),
-          Wrap(
-            spacing: collapsed ? 5 : (compact ? 6 : 8),
-            runSpacing: collapsed ? 3 : (compact ? 5 : 6),
-            children: metaWidgets,
-          ),
+          if (stableLayout)
+            // 大屏信息固定为一行，避免标签换行让简介和按钮上下跳动。
+            SizedBox(
+              height: MediaQuery.textScalerOf(context).scale(20) + 6,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.topLeft,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    spacing: compact ? 6 : 8,
+                    children: metaWidgets,
+                  ),
+                ),
+              ),
+            )
+          else
+            Wrap(
+              spacing: collapsed ? 5 : (compact ? 6 : 8),
+              runSpacing: collapsed ? 3 : (compact ? 5 : 6),
+              children: metaWidgets,
+            ),
         ],
-        if (overview.isNotEmpty) ...[
+        if (stableLayout || overview.isNotEmpty) ...[
           SizedBox(height: spacing),
           Text(
-            overview,
+            // 补足三行占位，让短简介和空简介也保持相同高度。
+            stableLayout ? '$overview\n\n' : overview,
             maxLines: collapsed ? 2 : 3,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
