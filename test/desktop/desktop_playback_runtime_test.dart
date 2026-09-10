@@ -20,6 +20,44 @@ import 'package:fly_player/playback/settings/mpv_settings_store.dart';
 import 'package:media_kit/media_kit.dart';
 
 void main() {
+  testWidgets('弹幕快捷填入片名或 TMDB 后仍可编辑，点击搜索才发起查询', (tester) async {
+    final queries = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DesktopDanmakuSourcePanel(
+            currentSourceLabel: '',
+            commentCount: 0,
+            loading: false,
+            initialKeyword: '轻音少女 剧场版',
+            currentTmdbId: 'tt100049',
+            onLoadSavedSources: () async => [],
+            onSearch: (query) async {
+              queries.add(query);
+              return [];
+            },
+            onSelectSavedSource: (_) async => true,
+            onSelectSearchResult: (_) async => true,
+            onDeleteSavedSource: (_) async {},
+            onImportFile: () async => false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final input = find.byType(TextField);
+    await tester.enterText(input, '其他作品');
+    await tester.tap(find.text('填入当前片名'));
+    expect(tester.widget<TextField>(input).controller!.text, '轻音少女 剧场版');
+    await tester.tap(find.text('填入当前 TMDB'));
+    expect(tester.widget<TextField>(input).controller!.text, 'TMDB:100049');
+    expect(queries, isEmpty);
+    await tester.enterText(input, '轻音少女');
+    await tester.tap(find.byTooltip('搜索'));
+    await tester.pumpAndSettle();
+    expect(queries, ['轻音少女']);
+  });
+
   testWidgets('无章节最多补读一次，换源后旧读取失效并保留零秒章节', (tester) async {
     var reads = 0;
     final pending = Completer<String>();

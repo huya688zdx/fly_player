@@ -2789,6 +2789,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         initialKeyword: _source.seriesTitle.trim().isNotEmpty
             ? _source.seriesTitle
             : _source.title,
+        currentTmdbId: _source.tmdbId,
         onLoadSavedSources: _loadSavedDanmakuSources,
         onSearch: _searchDanmakuSources,
         onSelectSavedSource: _selectSavedDanmakuSource,

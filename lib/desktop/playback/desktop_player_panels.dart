@@ -494,6 +494,7 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
     required this.commentCount,
     required this.loading,
     required this.initialKeyword,
+    this.currentTmdbId = '',
     required this.onLoadSavedSources,
     required this.onSearch,
     required this.onSelectSavedSource,
@@ -508,6 +509,7 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final int commentCount;
   final bool loading;
   final String initialKeyword;
+  final String currentTmdbId;
   final Future<List<Map<String, dynamic>>> Function() onLoadSavedSources;
   final Future<List<Map<String, dynamic>>> Function(String keyword) onSearch;
   final Future<bool> Function(Map<String, dynamic> source) onSelectSavedSource;
@@ -566,6 +568,13 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     });
   }
 
+  void _fillSearch(String value) {
+    _searchController.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
   Future<void> _applySaved(Map<String, dynamic> source) async {
     if (_applying) return;
     setState(() => _applying = true);
@@ -620,6 +629,13 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
   @override
   Widget build(BuildContext context) {
     final currentSource = widget.currentSourceLabel.trim();
+    final currentTitle = widget.initialKeyword.trim();
+    final currentTmdb = int.tryParse(
+      widget.currentTmdbId.trim().replaceFirst(
+        RegExp(r'^(?:tm|tt)', caseSensitive: false),
+        '',
+      ),
+    );
     final currentStatus = widget.loading
         ? '正在加载'
         : widget.commentCount > 0
@@ -688,6 +704,21 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                         ),
                       ),
                     ),
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    children: <Widget>[
+                      if (currentTitle.isNotEmpty)
+                        TextButton(
+                          onPressed: () => _fillSearch(currentTitle),
+                          child: const Text('填入当前片名'),
+                        ),
+                      if (currentTmdb != null && currentTmdb > 0)
+                        TextButton(
+                          onPressed: () => _fillSearch('TMDB:$currentTmdb'),
+                          child: const Text('填入当前 TMDB'),
+                        ),
+                    ],
                   ),
                   if (_searchResults.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 10),
