@@ -1035,10 +1035,13 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
     setState(() => _dragValue = _fraction(dx, width));
   }
 
-  void _end() {
-    if (!_dragging) return;
+  void _end({double? tapFraction}) {
+    // 单击使用松开位置，不依赖可能已被拖动取消回调清掉的状态。
+    if (tapFraction == null && !_dragging) return;
     final target = Duration(
-      milliseconds: (_dragValue * widget.duration.inMilliseconds).round(),
+      milliseconds:
+          ((tapFraction ?? _dragValue) * widget.duration.inMilliseconds)
+              .round(),
     );
     setState(() => _dragging = false);
     unawaited(widget.onSeek(target));
@@ -1070,7 +1073,8 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
           return GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTapDown: (details) => _begin(details.localPosition.dx, width),
-            onTapUp: (_) => _end(),
+            onTapUp: (details) =>
+                _end(tapFraction: _fraction(details.localPosition.dx, width)),
             onTapCancel: () => setState(() => _dragging = false),
             onHorizontalDragStart: (details) =>
                 _begin(details.localPosition.dx, width),
