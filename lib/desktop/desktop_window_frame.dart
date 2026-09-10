@@ -17,20 +17,32 @@ class DesktopWindowFrame extends StatefulWidget {
 }
 
 class _DesktopWindowFrameState extends State<DesktopWindowFrame>
-    with WindowListener {
+    with WindowListener, WidgetsBindingObserver {
   bool _fullscreen = false;
+  bool _maximized = false;
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
-    unawaited(_readFullscreen());
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_readWindowState());
   }
 
-  Future<void> _readFullscreen() async {
+  @override
+  void didChangeMetrics() {
+    // 最大化窗口退出播放全屏时，插件可能漏发退出事件，以实际状态为准。
+    unawaited(_readWindowState());
+  }
+
+  Future<void> _readWindowState() async {
     final fullscreen = await windowManager.isFullScreen();
-    if (mounted && fullscreen != _fullscreen) {
-      setState(() => _fullscreen = fullscreen);
+    final maximized = await windowManager.isMaximized();
+    if (mounted && (fullscreen != _fullscreen || maximized != _maximized)) {
+      setState(() {
+        _fullscreen = fullscreen;
+        _maximized = maximized;
+      });
     }
   }
 
@@ -43,6 +55,7 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
   @override
   void dispose() {
     windowManager.removeListener(this);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -52,7 +65,11 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
     final brightness = ThemeData.estimateBrightnessForColor(
       colors.backgroundBase,
     );
-    return VirtualWindowFrame(
+    // 顶部缩放区域与标题栏共用实际状态，避免插件内部缓存也因漏事件而失效。
+    return DragToResizeArea(
+      enableResizeEdges: (_fullscreen || _maximized)
+          ? const []
+          : const [ResizeEdge.topLeft, ResizeEdge.top, ResizeEdge.topRight],
       child: Column(
         children: [
           if (!_fullscreen)
