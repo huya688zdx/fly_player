@@ -695,8 +695,8 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                       _DanmakuSourceTile(
                         title: '${result['title'] ?? '弹弹play'}',
                         subtitle: '${result['subtitle'] ?? ''}',
-                        trailing: result['matchesCurrentSeason'] == true
-                            ? '当前季'
+                        trailing: result['matchesCurrentEpisode'] == true
+                            ? '当前集'
                             : '',
                         onTap: _applying
                             ? null

@@ -3489,8 +3489,8 @@ class DownloadTaskService extends ChangeNotifier {
         mediaGuid: record.mediaGuid.trim().isNotEmpty
             ? record.mediaGuid.trim()
             : record.id,
-        seasonNumber: 0,
-        episodeNumber: 0,
+        seasonNumber: record.seasonNumber,
+        episodeNumber: record.episodeNumber,
         mediaType: record.itemGuid.trim().isEmpty ? 'local' : '',
         commentCount: parsed.comments.length,
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -3514,8 +3514,8 @@ class DownloadTaskService extends ChangeNotifier {
         itemGuid: itemGuid,
         mediaGuid: mediaGuid,
         seasonGuid: seasonGuid,
-        seasonNumber: 0,
-        episodeNumber: 0,
+        seasonNumber: record.seasonNumber,
+        episodeNumber: record.episodeNumber,
         seriesTitle: record.groupTitle,
         itemTitle: record.title,
       );
@@ -5462,6 +5462,11 @@ class DownloadTaskService extends ChangeNotifier {
         }
       }
       if (!await DanDanPlayConfig.ensureConfigured()) {
+        await AppLogService.instance.recordWarning(
+          error: '随片弹幕未下载：弹弹play凭据未配置',
+          source: 'download-danmaku-prefetch',
+          details: 'item=${record.itemGuid}',
+        );
         return;
       }
       final seriesTitle = _downloadDanmakuSeriesTitle(
@@ -5501,6 +5506,14 @@ class DownloadTaskService extends ChangeNotifier {
         tmdbId: item.trimId.trim(),
       );
       if (resolved == null) {
+        await AppLogService.instance.record(
+          level: AppLogLevel.info,
+          error: '随片弹幕未下载：未匹配到可用弹幕',
+          source: 'download-danmaku-prefetch',
+          details:
+              'title=$seriesTitle season=${item.seasonNumber} '
+              'episode=${item.episodeNumber}',
+        );
         return;
       }
       const store = DanmakuSavedSourceStore();
@@ -5547,7 +5560,9 @@ class DownloadTaskService extends ChangeNotifier {
             seasonGuid: sourceSeasonGuid,
           ),
         );
-        for (final target in await _danmakuRecoveryTargetsForRecord(record)) {
+        for (final target in await _danmakuRecoveryTargetsForRecord(
+          _recordById(record.id) ?? record,
+        )) {
           addTarget(target);
         }
 
@@ -5581,6 +5596,14 @@ class DownloadTaskService extends ChangeNotifier {
             ),
           );
         }
+        await AppLogService.instance.record(
+          level: AppLogLevel.info,
+          error: '随片弹幕已保存',
+          source: 'download-danmaku-prefetch',
+          details:
+              'item=${record.itemGuid} '
+              'count=${resolved.result.comments.length} path=${localFile.path}',
+        );
       }
     } catch (error, stackTrace) {
       await AppLogService.instance.recordWarning(
