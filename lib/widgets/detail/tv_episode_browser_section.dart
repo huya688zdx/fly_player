@@ -801,16 +801,12 @@ class _EpisodeSummaryLineState extends State<_EpisodeSummaryLine> {
   String _cacheFitted = '';
 
   bool _exceedsTwoLines({
-    required BuildContext context,
+    required TextPainter painter,
     required double maxWidth,
     required InlineSpan text,
   }) {
-    final painter = TextPainter(
-      text: text,
-      maxLines: 2,
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-    )..layout(maxWidth: maxWidth);
+    painter.text = text;
+    painter.layout(maxWidth: maxWidth);
     return painter.didExceedMaxLines;
   }
 
@@ -848,50 +844,60 @@ class _EpisodeSummaryLineState extends State<_EpisodeSummaryLine> {
             _cacheScaler == scaler;
 
         if (!cacheHit) {
-          final plain = TextSpan(text: widget.summary, style: normalStyle);
-          final overflowed = _exceedsTwoLines(
-            context: context,
-            maxWidth: safeWidth,
-            text: plain,
+          // 一次截断计算共用一个测量对象，完成后立即释放原生段落资源。
+          final painter = TextPainter(
+            maxLines: 2,
+            textDirection: direction,
+            textScaler: scaler,
           );
-          var fitted = '';
-          if (overflowed) {
-            const suffixNormal = '...';
-            int low = 0;
-            int high = widget.summary.length;
-            int best = 0;
-            while (low <= high) {
-              final mid = (low + high) >> 1;
-              final candidate = widget.summary.substring(0, mid).trimRight();
-              final span = TextSpan(
-                children: [
-                  TextSpan(text: candidate, style: normalStyle),
-                  TextSpan(text: suffixNormal, style: normalStyle),
-                  TextSpan(text: widget.detailText, style: detailStyle),
-                ],
-              );
-              final fits = !_exceedsTwoLines(
-                context: context,
-                maxWidth: safeWidth,
-                text: span,
-              );
-              if (fits) {
-                best = mid;
-                low = mid + 1;
-              } else {
-                high = mid - 1;
+          try {
+            final plain = TextSpan(text: widget.summary, style: normalStyle);
+            final overflowed = _exceedsTwoLines(
+              painter: painter,
+              maxWidth: safeWidth,
+              text: plain,
+            );
+            var fitted = '';
+            if (overflowed) {
+              const suffixNormal = '...';
+              int low = 0;
+              int high = widget.summary.length;
+              int best = 0;
+              while (low <= high) {
+                final mid = (low + high) >> 1;
+                final candidate = widget.summary.substring(0, mid).trimRight();
+                final span = TextSpan(
+                  children: [
+                    TextSpan(text: candidate, style: normalStyle),
+                    TextSpan(text: suffixNormal, style: normalStyle),
+                    TextSpan(text: widget.detailText, style: detailStyle),
+                  ],
+                );
+                final fits = !_exceedsTwoLines(
+                  painter: painter,
+                  maxWidth: safeWidth,
+                  text: span,
+                );
+                if (fits) {
+                  best = mid;
+                  low = mid + 1;
+                } else {
+                  high = mid - 1;
+                }
               }
+              fitted = widget.summary.substring(0, best).trimRight();
             }
-            fitted = widget.summary.substring(0, best).trimRight();
+            _cacheSummary = widget.summary;
+            _cacheFontSize = widget.fontSize;
+            _cacheDetailText = widget.detailText;
+            _cacheMaxWidth = maxWidth;
+            _cacheDirection = direction;
+            _cacheScaler = scaler;
+            _cacheOverflowed = overflowed;
+            _cacheFitted = fitted;
+          } finally {
+            painter.dispose();
           }
-          _cacheSummary = widget.summary;
-          _cacheFontSize = widget.fontSize;
-          _cacheDetailText = widget.detailText;
-          _cacheMaxWidth = maxWidth;
-          _cacheDirection = direction;
-          _cacheScaler = scaler;
-          _cacheOverflowed = overflowed;
-          _cacheFitted = fitted;
         }
 
         if (!_cacheOverflowed) {
