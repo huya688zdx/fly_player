@@ -4,6 +4,10 @@ import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/models/media_library_item.dart';
 import 'package:fly_player/screens/home/continue_detail_target.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/ui/adaptive_detail_navigator.dart';
+import 'package:fly_player/ui/detail_route_builder.dart';
+import 'package:fly_player/ui/detail_presentation.dart';
+import 'package:fly_player/screens/detail_route_bodies.dart';
 
 MediaLibraryItem episode({String ancestorGuid = 'series-1'}) {
   return MediaLibraryItem(
@@ -82,6 +86,19 @@ void main() {
     expect(target.seasonItem.guid, 'season-1');
     expect(target.seasonItem.type, 'season');
     expect(target.initialEpisodeGuid, 'episode-1');
+    final request = AdaptiveDetailRequest.season(
+      parentGuid: target.parentGuid,
+      seriesTitle: target.seriesTitle,
+      backdropPath: target.backdropPath,
+      seasonItem: target.seasonItem,
+      initialEpisodeGuid: target.initialEpisodeGuid,
+    );
+    final page =
+        buildDetailRouteChild(request.localRouteName!, isActiveRoute: true)
+            as DetailSeasonRouteBody;
+    expect(page.presentation, DetailPresentation.pane);
+    expect(page.initialEpisodeGuid, 'episode-1');
+    expect(page.seasonGuid, target.seasonItem.guid);
   });
 
   test('单集没有背景图时用主海报作为季详情背景回退', () {

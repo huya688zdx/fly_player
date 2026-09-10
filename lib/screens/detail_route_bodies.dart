@@ -109,6 +109,7 @@ class DetailSeasonRouteBody extends StatefulWidget {
   final String backdropPath;
   final MediaLibraryItem? seasonItem;
   final String? seasonGuid;
+  final String initialEpisodeGuid;
   final String? payloadToken;
   final DetailPresentation presentation;
 
@@ -119,6 +120,7 @@ class DetailSeasonRouteBody extends StatefulWidget {
     required this.backdropPath,
     this.seasonItem,
     this.seasonGuid,
+    this.initialEpisodeGuid = '',
     this.payloadToken,
     this.presentation = DetailPresentation.page,
   });
@@ -198,6 +200,7 @@ class _DetailSeasonRouteBodyState extends State<DetailSeasonRouteBody> {
       seriesTitle: widget.seriesTitle,
       backdropPath: widget.backdropPath,
       seasonItem: resolvedSeasonItem,
+      initialEpisodeGuid: widget.initialEpisodeGuid,
       presentation: widget.presentation,
     );
   }
