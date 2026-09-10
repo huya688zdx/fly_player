@@ -1,0 +1,1 @@
+enum DetailPresentation { page, pane }

@@ -1,0 +1,55 @@
+name: fly_player
+description: "A custom Android player application that integrates with the Feiniu NAS system."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  dio: ^5.4.0
+  intl: ^0.20.2
+  path: ^1.9.0
+  # 使用系统下载目录及应用数据目录，支持 Windows 重定向的用户文件夹。
+  path_provider: ^2.1.5
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.3+2
+  sqflite_common_ffi: ^2.4.0
+  provider: ^6.1.1
+  crypto: ^3.0.3
+  file_picker: ^10.3.2
+  flutter_svg: ^2.0.10+1
+  fl_chart: ^0.70.2
+  url_launcher: ^6.3.1
+  # 真莫奈取色（Celebi 量化 + CAM16 Score）；版本随 Flutter SDK 传递依赖钉死。
+  material_color_utilities: 0.13.0
+  webview_flutter: ^4.13.1
+  photo_view: ^0.15.0
+  # Windows DPAPI 凭据后端（secure_credential_store_windows）的 calloc/Struct。
+  ffi: ^2.2.0
+  media_kit: 1.2.6
+  media_kit_video: 2.0.1
+  media_kit_libs_windows_video: 1.0.11
+  webview_windows: 0.4.0
+  window_manager: 0.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  # 用于虚拟时间驱动看门狗 Timer 的真实触发路径测试(native_play_stats_recorder_test.dart)。
+  fake_async: ^1.3.3
+
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/refresh/
+    - lib/img/
