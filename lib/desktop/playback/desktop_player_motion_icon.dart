@@ -11,6 +11,10 @@ enum DesktopPlayerMotionKind {
   audio,
   fullscreen,
   repeat,
+  bookmark,
+  screenshot,
+  settings,
+  volume,
 }
 
 /// 透明图标只绘制笔画；交互时运行一次，静止时不保留动画帧回调。
@@ -159,6 +163,97 @@ class _MotionPainter extends CustomPainter {
     }
 
     switch (kind) {
+      case DesktopPlayerMotionKind.bookmark:
+        final lift = 7 * wave;
+        canvas.drawPath(
+          Path()
+            ..moveTo(61, 55 - lift)
+            ..lineTo(113, 55 - lift)
+            ..lineTo(113, 146 - lift)
+            ..lineTo(87, 130 - lift)
+            ..lineTo(61, 146 - lift)
+            ..close(),
+          pen,
+        );
+        final arm = 12 + 6 * wave;
+        line(140 - arm, 75, 140 + arm, 75);
+        line(140, 75 - arm, 140, 75 + arm);
+        break;
+      case DesktopPlayerMotionKind.screenshot:
+        canvas.drawPath(
+          Path()
+            ..moveTo(49, 67)
+            ..lineTo(73, 67)
+            ..lineTo(82, 52)
+            ..lineTo(118, 52)
+            ..lineTo(127, 67)
+            ..lineTo(151, 67)
+            ..quadraticBezierTo(157, 67, 157, 74)
+            ..lineTo(157, 140)
+            ..quadraticBezierTo(157, 146, 150, 146)
+            ..lineTo(50, 146)
+            ..quadraticBezierTo(43, 146, 43, 140)
+            ..lineTo(43, 74)
+            ..quadraticBezierTo(43, 67, 49, 67)
+            ..close(),
+          pen,
+        );
+        canvas.drawCircle(const Offset(100, 105), 25 - 10 * wave, pen);
+        canvas.drawCircle(const Offset(139, 80), 3, Paint()..color = ink);
+        break;
+      case DesktopPlayerMotionKind.settings:
+        canvas.save();
+        canvas.translate(100, 100);
+        // 八齿齿轮转过一个齿距，终点与静止轮廓重合，退出时反转。
+        canvas.rotate(
+          direction * Curves.easeOutCubic.transform(q) * math.pi / 4,
+        );
+        final gear = Path();
+        for (var tooth = 0; tooth < 8; tooth++) {
+          for (var point = 0; point < 4; point++) {
+            final angle = (tooth + point / 4) * math.pi / 4;
+            final radius = point == 1 || point == 2 ? 50.0 : 39.0;
+            final x = radius * math.cos(angle), y = radius * math.sin(angle);
+            if (tooth == 0 && point == 0) {
+              gear.moveTo(x, y);
+            } else {
+              gear.lineTo(x, y);
+            }
+          }
+        }
+        canvas.drawPath(gear..close(), pen);
+        canvas.drawCircle(Offset.zero, 17, pen);
+        canvas.restore();
+        break;
+      case DesktopPlayerMotionKind.volume:
+        canvas.drawPath(
+          Path()
+            ..moveTo(47, 85)
+            ..lineTo(69, 85)
+            ..lineTo(96, 63)
+            ..lineTo(96, 137)
+            ..lineTo(69, 115)
+            ..lineTo(47, 115)
+            ..close(),
+          pen,
+        );
+        if (label == 'muted') {
+          final arm = 12 + 4 * wave;
+          line(132 - arm, 100 - arm, 132 + arm, 100 + arm);
+          line(132 - arm, 100 + arm, 132 + arm, 100 - arm);
+        } else {
+          for (var i = 0; i < (label == 'low' ? 1 : 2); i++) {
+            final radius = 30.0 + i * 22 + (i + 1) * 3 * wave;
+            canvas.drawArc(
+              Rect.fromCircle(center: const Offset(96, 100), radius: radius),
+              -.75 - .15 * wave,
+              1.5 + .3 * wave,
+              false,
+              pen,
+            );
+          }
+        }
+        break;
       case DesktopPlayerMotionKind.danmaku:
         screen();
         canvas.save();
