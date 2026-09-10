@@ -339,7 +339,7 @@ class MpvAdvancedSettingsController(
             } else {
                 requestedProfile
             }
-        val cacheEnabled = profile != "low_latency"
+        val cacheEnabled = source.isRemoteHttpSource() && profile != "low_latency"
         val maxBytes =
             when (profile) {
                 "stable" -> 128L * 1024L * 1024L
@@ -364,7 +364,11 @@ class MpvAdvancedSettingsController(
         val safeMaxBytes = effectiveMaxBytes.coerceAtMost(Int.MAX_VALUE.toLong())
         return runCatching {
             mpv.setPropertyBoolean("cache", cacheEnabled)
+            // 时间和字节上限同时约束实际包缓存，不写无上限的磁盘临时文件。
+            mpv.setPropertyBoolean("cache-on-disk", false)
+            mpv.setPropertyDouble("cache-secs", readahead)
             mpv.setPropertyInt("demuxer-max-bytes", safeMaxBytes)
+            mpv.setPropertyInt("demuxer-max-back-bytes", 32L * 1024L * 1024L)
             mpv.setPropertyDouble("demuxer-readahead-secs", readahead)
             true
         }.getOrDefault(false)
