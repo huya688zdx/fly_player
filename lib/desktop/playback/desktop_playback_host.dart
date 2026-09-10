@@ -24,6 +24,8 @@ import '../../services/server_native_picker_support.dart';
 import '../../services/server_reentry_support.dart';
 import 'desktop_playback_screen.dart';
 import 'desktop_playback_session.dart';
+import 'external_playback_host.dart';
+import 'external_player_settings.dart';
 
 /// Windows 桌面播放宿主：初始化桌面内核并把正式播放页推入根导航栈。
 final class DesktopPlaybackHost implements PlaybackHost {
@@ -43,6 +45,16 @@ final class DesktopPlaybackHost implements PlaybackHost {
     String? subtitleGuid,
     Duration? position,
   }) async {
+    if ((await ExternalPlayerSettings.load()).enabled) {
+      if (!context.mounted) return false;
+      return ExternalPlaybackHost(context).resume(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        audioGuid: audioGuid,
+        subtitleGuid: subtitleGuid,
+        position: position,
+      );
+    }
     final session = _session;
     final builder = _screenBuilder;
     // 弹出动画期间旧页面仍订阅内核，等它保存当前媒体并清理后再挂载。
@@ -62,6 +74,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
       return false;
     }
     if (session.active || !session.ready) return false;
+    await ExternalPlaybackHost.stop();
     await session.paused;
     if (position != null) await session.player.seek(position);
     if (!context.mounted) return false;
@@ -85,7 +98,27 @@ final class DesktopPlaybackHost implements PlaybackHost {
       return false;
     }
 
+    if ((await ExternalPlayerSettings.load()).enabled) {
+      if (!context.mounted) return false;
+      if (_route?.isActive == false) await _route!.completed;
+      await _session?.dispose();
+      _session = null;
+      _screenBuilder = null;
+      if (!context.mounted) return false;
+      return ExternalPlaybackHost(context).launch(
+        source: source,
+        episodes: episodes,
+        initialPlayInfo: initialPlayInfo,
+        danmakuFilePath: danmakuFilePath,
+        startSource: startSource,
+        nas: nas,
+        offline: offline,
+      );
+    }
+
     // 只在 Windows 桌面播放真正启动时初始化，Android 主路径不会触发。
+    await ExternalPlaybackHost.stop();
+    if (!context.mounted) return false;
     MediaKit.ensureInitialized();
     if (_route?.isActive == false) await _route!.completed;
     await _session?.dispose();
