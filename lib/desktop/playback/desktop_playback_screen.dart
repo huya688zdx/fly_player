@@ -829,11 +829,29 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   void _onDurationChanged(Duration duration) => _chapterLoader.load(duration);
 
   void _onChaptersChanged() {
-    if (mounted) _updateView(() {});
+    if (!mounted) return;
+    _updateView(() {});
+    _skipPromptKindNotifier.value = _computeSkipPromptKind(
+      _player.state.position,
+    );
   }
 
-  /// 片头片尾跳过提示：对齐安卓 updateIntroOutroSkip 的时长窗口逻辑
-  /// （片头窗口 2s→上限，片尾窗口 时长-上限→结尾；章节推断边界待接入）。
+  ({Duration introStart, Duration introEnd, Duration outroStart})
+  get _skipBounds {
+    final duration = _player.state.duration;
+    final bounds = desktopChapterSkipBounds(_chapters, duration);
+    final start = bounds.introStart ?? Duration.zero;
+    return (
+      introStart: start < const Duration(seconds: 2)
+          ? const Duration(seconds: 2)
+          : start,
+      introEnd: bounds.introEnd ?? Duration(minutes: _introMaxMinutes),
+      outroStart:
+          bounds.outroStart ?? duration - Duration(minutes: _outroMaxMinutes),
+    );
+  }
+
+  /// 优先使用章节边界，无明确片头/片尾章节时回退到设置的时长窗口。
   void _onPositionChanged(Duration position) {
     unawaited(_refreshSegmentedSubtitle(position));
     final kind = _computeSkipPromptKind(position);
@@ -845,10 +863,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     if (!_introOutroEnabled || _playbackCompleted || _isLoading) return null;
     final duration = _player.state.duration;
     if (duration <= Duration.zero) return null;
-    final introEnd = Duration(seconds: _introMaxMinutes * 60);
-    final outroStart = duration - Duration(seconds: _outroMaxMinutes * 60);
+    final bounds = _skipBounds;
+    final introEnd = bounds.introEnd;
+    final outroStart = bounds.outroStart;
     if (!_introSkipDismissed &&
-        position >= const Duration(seconds: 2) &&
+        position >= bounds.introStart &&
         position < introEnd &&
         introEnd < outroStart) {
       return _SkipPromptKind.intro;
@@ -873,7 +892,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     if (kind == null) return;
     _dismissSkipPrompt();
     if (kind == _SkipPromptKind.intro) {
-      await _seekTo(Duration(seconds: _introMaxMinutes * 60));
+      await _seekTo(_skipBounds.introEnd);
       return;
     }
     final next = _nextEpisode;
@@ -2238,6 +2257,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
           initialPage: snapshot.initialPage ?? DesktopPlaybackSettingsPage.main,
           source: _source,
           position: _player.state.position,
+          duration: _player.state.duration,
           autoPlayEnabled: _autoPlayEnabled,
           nextEpisodePreloadEnabled: _nextEpisodePreloadEnabled,
           aspectRatioMode: _aspectRatioMode,
@@ -2742,6 +2762,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       builder: (context) => DesktopPlaybackSettingsPanel(
         source: _source,
         position: _player.state.position,
+        duration: _player.state.duration,
         autoPlayEnabled: _autoPlayEnabled,
         nextEpisodePreloadEnabled: _nextEpisodePreloadEnabled,
         aspectRatioMode: _aspectRatioMode,
@@ -3081,14 +3102,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                 }
                 unawaited(_togglePlayback());
               },
-              onDoubleTap: () {
-                // 弹窗开着时双击既不关弹窗也不切全屏：双击识别器不走竞技场
-                // （第一下在 PointerRouter 层直接记账并 hold 序列，第二下直接
-                // 胜出），玻璃外壳的挡板拦不住它，只能在这里按状态忽略。
-                if (_hoverOverlayKind != null) return;
-                _wakeControls();
-                unawaited(videoState.toggleFullscreen());
-              },
               onSecondaryTapUp: (details) {
                 if (_hoverOverlayKind != null) {
                   _dismissHoverOverlay();
@@ -3099,6 +3112,17 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
+                  // 双击只由视频背景接收，避免抢走进度条的连续点击。
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onDoubleTap: () {
+                        if (_hoverOverlayKind != null) return;
+                        _wakeControls();
+                        unawaited(videoState.toggleFullscreen());
+                      },
+                    ),
+                  ),
                   _buildStatusLayer(),
                   if (_danmakuSettings.enabled && _danmakuComments.isNotEmpty)
                     Positioned.fill(
@@ -3116,6 +3140,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                       curve: Curves.easeOutCubic,
                       child: DesktopPlayerControls(
                         player: _player,
+                        chapters: _chapters,
                         videoState: videoState,
                         title: _source.title,
                         subtitle: _subtitle,

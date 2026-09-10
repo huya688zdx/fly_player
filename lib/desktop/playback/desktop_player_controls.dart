@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../theme/app_theme.dart';
+import 'desktop_playback_chapters.dart';
 import 'desktop_semantics_safe_slider.dart';
 
 Widget _tooltipOrChild({
@@ -26,6 +27,7 @@ class DesktopPlayerControls extends StatefulWidget {
   const DesktopPlayerControls({
     super.key,
     required this.player,
+    this.chapters = const [],
     required this.videoState,
     required this.title,
     required this.subtitle,
@@ -83,6 +85,7 @@ class DesktopPlayerControls extends StatefulWidget {
   });
 
   final Player player;
+  final List<DesktopPlayerChapter> chapters;
   final VideoState videoState;
   final String title;
   final String subtitle;
@@ -304,6 +307,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                         position: position,
                         duration: duration,
                         buffered: buffer,
+                        chapters: widget.chapters,
                         accent: colors.accent,
                         onSeek: widget.onSeek,
                       ),
@@ -973,6 +977,7 @@ class _DesktopTimeline extends StatefulWidget {
     required this.position,
     required this.duration,
     required this.buffered,
+    required this.chapters,
     required this.accent,
     required this.onSeek,
   });
@@ -980,6 +985,7 @@ class _DesktopTimeline extends StatefulWidget {
   final Duration position;
   final Duration duration;
   final Duration buffered;
+  final List<DesktopPlayerChapter> chapters;
   final Color accent;
   final Future<void> Function(Duration) onSeek;
 
@@ -1079,6 +1085,8 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                     buffered: _bufferFraction,
                     emphasized: _hovered || _dragging,
                     accent: widget.accent,
+                    chapters: widget.chapters,
+                    duration: widget.duration,
                   ),
                   size: Size(width, constraints.maxHeight),
                 ),
@@ -1133,12 +1141,16 @@ class _TimelinePainter extends CustomPainter {
     required this.buffered,
     required this.emphasized,
     required this.accent,
+    required this.chapters,
+    required this.duration,
   });
 
   final double position;
   final double buffered;
   final bool emphasized;
   final Color accent;
+  final List<DesktopPlayerChapter> chapters;
+  final Duration duration;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1173,6 +1185,25 @@ class _TimelinePainter extends CustomPainter {
         Paint()..color = accent,
       );
     }
+    if (duration > Duration.zero) {
+      final markerPaint = Paint()..color = Colors.white.withValues(alpha: 0.85);
+      for (final chapter in chapters) {
+        if (chapter.position <= Duration.zero || chapter.position >= duration) {
+          continue;
+        }
+        final x =
+            size.width *
+            chapter.position.inMilliseconds /
+            duration.inMilliseconds;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(x - 1, top - 1.5, 2, trackHeight + 3),
+            const Radius.circular(1),
+          ),
+          markerPaint,
+        );
+      }
+    }
     final thumb = Offset(progressWidth.clamp(0, size.width), size.height / 2);
     if (emphasized) {
       canvas.drawCircle(thumb, 6.5, Paint()..color = Colors.white);
@@ -1184,6 +1215,8 @@ class _TimelinePainter extends CustomPainter {
     return oldDelegate.position != position ||
         oldDelegate.buffered != buffered ||
         oldDelegate.emphasized != emphasized ||
+        oldDelegate.chapters != chapters ||
+        oldDelegate.duration != duration ||
         oldDelegate.accent != accent;
   }
 }
