@@ -218,7 +218,7 @@ void main() {
     expect(requestedAnime.first, '测试动画 Season 2');
   });
 
-  test('搜索启用弹弹play新版搜索引擎', () async {
+  test('中文剧场版搜索使用官方默认引擎', () async {
     Object? requestedV2;
     final dio = Dio();
     dio.interceptors.add(
@@ -239,12 +239,12 @@ void main() {
     );
 
     await resolver.searchEpisodeCandidates(
-      keyword: '测试动画',
-      episodeNumber: 1,
+      keyword: '轻音少女 剧场版',
+      episodeNumber: 0,
       tmdbId: '',
     );
 
-    expect(requestedV2, isTrue);
+    expect(requestedV2, isFalse);
   });
 
   test('评论缓存不可用时仍回源并返回弹幕', () async {
