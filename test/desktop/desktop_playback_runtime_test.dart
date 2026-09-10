@@ -125,6 +125,29 @@ void main() {
     tester.view.physicalSize = const Size(430, 560);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final snapshot = ValueNotifier(
+      const PlayerHoverOverlaySnapshot(
+        kind: PlayerHoverOverlayKind.episodes,
+        visible: true,
+        anchor: Rect.fromLTWH(320, 500, 40, 30),
+      ),
+    );
+    Timer? closeTimer;
+    addTearDown(() {
+      closeTimer?.cancel();
+      snapshot.dispose();
+    });
+    final mouse = await tester.createGesture(kind: ui.PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(1, 1));
+    addTearDown(mouse.removePointer);
+    Future<void> click(Finder target) async {
+      await mouse.moveTo(tester.getCenter(target));
+      await mouse.down(tester.getCenter(target));
+      await mouse.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
     final calls = <String>[];
     final pendingSecond = Completer<List<Map<String, dynamic>>>();
     var failThird = true;
@@ -142,28 +165,44 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: DesktopEpisodePanel(
-            title: '测试剧 · 选集',
-            emptyLabel: '暂无剧集',
-            currentItemGuid: 's1-13',
-            currentSeasonGuid: 's1',
-            episodes: episodes('s1', 30),
-            onSelected: (episode) => selected = episode['itemGuid'] as String,
-            loadSeasons: () async => [
-              for (var i = 1; i <= 3; i++)
-                MediaSeasonSummary(
-                  id: 's$i',
-                  title: '第$i季',
-                  seasonNumber: i,
-                  primaryImage: MediaImageRef.empty,
+          body: Stack(
+            children: [
+              PlayerHoverOverlayLayer(
+                snapshot: snapshot,
+                onPanelEnter: () => closeTimer?.cancel(),
+                onPanelExit: () =>
+                    closeTimer = Timer(const Duration(milliseconds: 210), () {
+                      snapshot.value = snapshot.value.copyWith(visible: false);
+                    }),
+                contentBuilder: (_, __, ___) => PlayerHoverOverlayContent(
+                  width: 390,
+                  child: DesktopEpisodePanel(
+                    title: '测试剧 · 选集',
+                    emptyLabel: '暂无剧集',
+                    currentItemGuid: 's1-13',
+                    currentSeasonGuid: 's1',
+                    episodes: episodes('s1', 30),
+                    onSelected: (episode) =>
+                        selected = episode['itemGuid'] as String,
+                    loadSeasons: () async => [
+                      for (var i = 1; i <= 3; i++)
+                        MediaSeasonSummary(
+                          id: 's$i',
+                          title: '第$i季',
+                          seasonNumber: i,
+                          primaryImage: MediaImageRef.empty,
+                        ),
+                    ],
+                    loadSeasonEpisodes: (season) async {
+                      calls.add(season);
+                      if (season == 's2') return pendingSecond.future;
+                      if (failThird) throw StateError('模拟网络失败');
+                      return episodes(season, 2);
+                    },
+                  ),
                 ),
+              ),
             ],
-            loadSeasonEpisodes: (season) async {
-              calls.add(season);
-              if (season == 's2') return pendingSecond.future;
-              if (failThird) throw StateError('模拟网络失败');
-              return episodes(season, 2);
-            },
           ),
         ),
       ),
@@ -172,27 +211,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('第13集 · s1 剧集 13').hitTestable(), findsOneWidget);
     expect(calls, isEmpty);
-    await tester.tap(find.byIcon(Icons.grid_view_rounded));
+    await click(find.byIcon(Icons.grid_view_rounded));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('13').hitTestable(), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.view_list_rounded));
+    await click(find.byIcon(Icons.view_list_rounded));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('第13集 · s1 剧集 13').hitTestable(), findsOneWidget);
-    Future<void> choose(String label) async {
-      await tester.tap(find.byType(DropdownButton<String>));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.tap(find.text(label).last);
-      await tester.pump(const Duration(milliseconds: 400));
-    }
-
-    await choose('第2季');
+    await click(find.text('第2季'));
     // 第二季仍在请求时选择第三季，第三季失败后第二季回包不得覆盖它。
-    await tester.tap(find.byType(DropdownButton<String>));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('第3季').last);
+    await click(find.text('第3季'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     pendingSecond.complete(episodes('s2', 2));
@@ -201,13 +230,17 @@ void main() {
     expect(find.text('剧集加载失败，点击重试'), findsOneWidget);
     expect(find.text('第1集 · s2 剧集 1'), findsNothing);
     failThird = false;
-    await tester.tap(find.text('剧集加载失败，点击重试'));
+    await click(find.text('剧集加载失败，点击重试'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('第1集 · s3 剧集 1'));
+    await click(find.text('第1集 · s3 剧集 1'));
+    expect(snapshot.value.visible, isTrue);
     expect(selected, 's3-1');
     expect(calls, ['s2', 's3', 's3']);
     expect(tester.takeException(), isNull);
+    await mouse.moveTo(const Offset(1, 1));
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(snapshot.value.visible, isFalse);
   });
 
   testWidgets('顶栏单行标题与工具入口对齐，书签截图只出现一次且可点击', (tester) async {
