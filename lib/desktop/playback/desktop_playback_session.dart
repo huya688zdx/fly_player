@@ -6,7 +6,8 @@ import '../../playback/playback_source.dart';
 /// 最近一次播放的内核与视频纹理；页面关闭后暂停保留，换片时释放。
 class DesktopPlaybackSession {
   DesktopPlaybackSession(this.source, {this.danmakuFilePath}) {
-    player = Player();
+    // 由内核渲染 ASS/SSA 特效字幕，避免默认文字层丢失样式、定位和动画。
+    player = Player(configuration: const PlayerConfiguration(libass: true));
     videoController = VideoController(player);
   }
 
