@@ -1,4 +1,4 @@
-import '../../models/playback_stream.dart';
+import '../models/playback_stream.dart';
 
 class WeakNetworkQualityRecommendation {
   final PlaybackQualityOption quality;
