@@ -415,19 +415,22 @@ class AppSettingsScreen extends StatelessWidget {
           ),
         ),
       ),
-      SettingsSearchEntry(
-        id: 'mpv_compatibility',
-        title: l10n.settingsMpvCompatibilityTitle,
-        subtitle: l10n.settingsMpvCompatibilitySubtitle,
-        location: l10n.settingsLocationMpv,
-        keywords: _keywords(l10n.settingsMpvCompatibilityKeywords),
-        onSelect: () => _openSettingsDestination(
-          context,
-          SettingsDestinationRoutes.mpvRoute(
-            section: MpvPlayerSettingsScreen.sectionCompatibility,
+      if (MpvSettingsCatalog.isSettingAvailable(
+        MpvSettingsCatalog.compatibilityKey,
+      ))
+        SettingsSearchEntry(
+          id: 'mpv_compatibility',
+          title: l10n.settingsMpvCompatibilityTitle,
+          subtitle: l10n.settingsMpvCompatibilitySubtitle,
+          location: l10n.settingsLocationMpv,
+          keywords: _keywords(l10n.settingsMpvCompatibilityKeywords),
+          onSelect: () => _openSettingsDestination(
+            context,
+            SettingsDestinationRoutes.mpvRoute(
+              section: MpvPlayerSettingsScreen.sectionCompatibility,
+            ),
           ),
         ),
-      ),
     ];
 
     for (final definition in MpvSettingsL10n.definitions(l10n)) {

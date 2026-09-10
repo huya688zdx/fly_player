@@ -3,15 +3,68 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/l10n/generated/app_localizations_zh.dart';
 import 'package:fly_player/playback/settings/mpv_settings_store.dart';
+import 'package:fly_player/playback/settings/mpv_settings_l10n.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/screens/mpv_player_settings_screen.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/app_ambient_page.dart';
 
 void main() {
+  test('MPV 菜单按宿主移除空选项并归并旧设置，保留安卓有效档位', () async {
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+    final l10n = AppLocalizationsZh();
+    List<String> options(String key) => MpvSettingsL10n.definitionByKey(
+      l10n,
+      key,
+    )!.options.map((option) => option.value).toList();
+
+    DesktopEnvironment.debugOverridePlatform = true;
+    expect(MpvSettingsL10n.definitionByKey(l10n, 'hdr_mode'), isNull);
+    expect(
+      MpvSettingsL10n.definitionByKey(l10n, 'compatibility_profile'),
+      isNull,
+    );
+    expect(options('deinterlace'), ['off', 'force']);
+    expect(options('frame_interpolation'), ['off', 'on']);
+    expect(options('audio_passthrough'), ['off', 'on']);
+    expect(
+      MpvSettingsL10n.categories(l10n).every((c) => c.entries.isNotEmpty),
+      isTrue,
+    );
+    SharedPreferences.setMockInitialValues({
+      '${MpvSettingsCatalog.prefPrefix}deinterlace': 'auto',
+      '${MpvSettingsCatalog.prefPrefix}hdr_mode': 'enhanced',
+      '${MpvSettingsCatalog.prefPrefix}frame_interpolation': 'auto',
+      '${MpvSettingsCatalog.prefPrefix}audio_passthrough': 'auto',
+    });
+    final stored = await const MpvSettingsStore().load();
+    expect(stored['deinterlace'], 'off');
+    expect(stored['hdr_mode'], 'auto');
+    expect(stored['frame_interpolation'], 'off');
+    expect(stored['audio_passthrough'], 'on');
+
+    DesktopEnvironment.debugOverridePlatform = false;
+    expect(options('hdr_mode'), ['auto', 'sdr_map', 'enhanced']);
+    expect(options('video_sync'), ['auto', 'audio', 'smooth']);
+    expect(options('deinterlace'), contains('auto'));
+    expect(options('frame_interpolation'), contains('auto'));
+    expect(options('audio_passthrough'), ['off', 'auto', 'on']);
+    expect(
+      MpvSettingsL10n.definitionByKey(l10n, 'compatibility_profile'),
+      isNotNull,
+    );
+    final legacy = MpvSettingsCatalog.normalizeSettings({
+      'hdr_mode': 'conservative',
+      'video_sync': 'display',
+    });
+    expect(legacy['hdr_mode'], 'sdr_map');
+    expect(legacy['video_sync'], 'auto');
+  });
+
   testWidgets('桌面共用背景下 MPV 卡片透底且选中态与文字操作同色', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     final colors = AppThemePalette.colorsFor(
