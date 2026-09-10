@@ -123,45 +123,58 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: widget.episodes.isEmpty
-                ? _EmptyPanel(widget.emptyLabel)
-                : _grid
-                ? GridView.builder(
-                    controller: _gridScrollController,
-                    padding: EdgeInsets.zero,
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 64,
-                          childAspectRatio: 1,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                        ),
-                    itemCount: widget.episodes.length,
-                    itemBuilder: (_, i) => _EpisodeNumberTile(
-                      episode: widget.episodes[i],
-                      fallbackNumber: i + 1,
-                      current: _isCurrent(widget.episodes[i]),
-                      enabled: widget.onSelected != null,
-                      onTap: widget.onSelected == null
-                          ? null
-                          : () => widget.onSelected!(widget.episodes[i]),
+            child: TweenAnimationBuilder<double>(
+              key: ValueKey<bool>(_grid),
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) => Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 6 * (1 - value)),
+                  child: child,
+                ),
+              ),
+              child: widget.episodes.isEmpty
+                  ? _EmptyPanel(widget.emptyLabel)
+                  : _grid
+                  ? GridView.builder(
+                      controller: _gridScrollController,
+                      padding: EdgeInsets.zero,
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 64,
+                            childAspectRatio: 1,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                          ),
+                      itemCount: widget.episodes.length,
+                      itemBuilder: (_, i) => _EpisodeNumberTile(
+                        episode: widget.episodes[i],
+                        fallbackNumber: i + 1,
+                        current: _isCurrent(widget.episodes[i]),
+                        enabled: widget.onSelected != null,
+                        onTap: widget.onSelected == null
+                            ? null
+                            : () => widget.onSelected!(widget.episodes[i]),
+                      ),
+                    )
+                  : ListView.separated(
+                      controller: _listScrollController,
+                      padding: EdgeInsets.zero,
+                      itemCount: widget.episodes.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) => _EpisodeCard(
+                        widget.episodes[i],
+                        _isCurrent(widget.episodes[i]),
+                        widget.onSelected != null,
+                        false,
+                        widget.onSelected == null
+                            ? null
+                            : () => widget.onSelected!(widget.episodes[i]),
+                      ),
                     ),
-                  )
-                : ListView.separated(
-                    controller: _listScrollController,
-                    padding: EdgeInsets.zero,
-                    itemCount: widget.episodes.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) => _EpisodeCard(
-                      widget.episodes[i],
-                      _isCurrent(widget.episodes[i]),
-                      widget.onSelected != null,
-                      false,
-                      widget.onSelected == null
-                          ? null
-                          : () => widget.onSelected!(widget.episodes[i]),
-                    ),
-                  ),
+            ),
           ),
         ],
       ),
