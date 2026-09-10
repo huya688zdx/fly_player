@@ -1266,18 +1266,15 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
       ],
     );
     final searchField = _buildSearchField(context, l10n);
-    if (compact) {
-      // 窄视口：标题行与搜索框分两行排布，搜索框占满行宽。
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[titleBlock, const SizedBox(height: 14), searchField],
-      );
-    }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    // 分屏切换宽度时只改变排列方向，保留搜索框及弹层的挂载关系。
+    return Flex(
+      direction: compact ? Axis.vertical : Axis.horizontal,
+      crossAxisAlignment: compact
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
       children: <Widget>[
-        Expanded(child: titleBlock),
-        const SizedBox(width: 24),
+        Flexible(flex: compact ? 0 : 1, fit: FlexFit.tight, child: titleBlock),
+        SizedBox(width: compact ? 0 : 24, height: compact ? 14 : 0),
         searchField,
       ],
     );
