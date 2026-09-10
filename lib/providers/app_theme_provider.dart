@@ -17,6 +17,7 @@ import '../utils/swallowed_error_logger.dart';
 
 class AppThemeProvider extends ChangeNotifier {
   static const String _presetKey = 'app_theme_preset';
+  static const String _backgroundStyleKey = 'app_theme_background_style';
   static const String _backgroundToneKey = 'app_theme_background_tone';
   static const String _accentToneKey = 'app_theme_accent_tone';
   static const String _selectionToneKey = 'app_theme_selection_tone';
@@ -57,6 +58,7 @@ class AppThemeProvider extends ChangeNotifier {
   static _AppThemeBootstrapSnapshot? _bootstrapSnapshot;
 
   AppThemePreset _preset = AppThemePreset.midnight;
+  AppBackgroundStyle _backgroundStyle = AppBackgroundStyle.softMist;
   AppBackgroundTone _backgroundTone = AppBackgroundTone.night;
   AppAccentTone _accentTone = AppAccentTone.blue;
   AppAccentTone _selectionTone = AppAccentTone.blue;
@@ -152,6 +154,7 @@ class AppThemeProvider extends ChangeNotifier {
 
   bool get isReady => _isReady;
   AppThemePreset get preset => _preset;
+  AppBackgroundStyle get backgroundStyle => _backgroundStyle;
   AppBackgroundTone get backgroundTone => _backgroundTone;
   AppAccentTone get accentTone => _accentTone;
   AppAccentTone get selectionTone => _selectionTone;
@@ -564,6 +567,12 @@ class AppThemeProvider extends ChangeNotifier {
     await _persist(
       (prefs) => prefs.setString(_glassLevelKey, value.storageValue),
     );
+  }
+
+  Future<void> setBackgroundStyle(AppBackgroundStyle value) async {
+    if (_backgroundStyle == value && _isReady) return;
+    _backgroundStyle = value;
+    await _persist((prefs) => prefs.setString(_backgroundStyleKey, value.name));
   }
 
   Future<void> setRuntimeDynamicTheme({
@@ -1116,6 +1125,7 @@ class AppThemeProvider extends ChangeNotifier {
 
   String _effectiveThemeSignature() {
     final parts = <Object?>[
+      _backgroundStyle.name,
       _themeSourceType.storageValue,
       _activeSavedThemeId,
       _preset.storageValue,
@@ -1236,6 +1246,9 @@ class AppThemeProvider extends ChangeNotifier {
   }
 
   void _applyStoredValues(SharedPreferences prefs) {
+    _backgroundStyle = AppBackgroundStyleX.fromStorageValue(
+      prefs.getString(_backgroundStyleKey),
+    );
     _preset = AppThemePresetX.fromStorageValue(prefs.getString(_presetKey));
     _backgroundTone = AppBackgroundToneX.fromStorageValue(
       prefs.getString(_backgroundToneKey),
@@ -1311,6 +1324,7 @@ class AppThemeProvider extends ChangeNotifier {
   }
 
   void _applyBootstrapSnapshot(_AppThemeBootstrapSnapshot snapshot) {
+    _backgroundStyle = snapshot.backgroundStyle;
     _preset = snapshot.preset;
     _backgroundTone = snapshot.backgroundTone;
     _accentTone = snapshot.accentTone;
@@ -1341,6 +1355,7 @@ class AppThemeProvider extends ChangeNotifier {
 
   void _cacheBootstrapSnapshot() {
     _bootstrapSnapshot = _AppThemeBootstrapSnapshot(
+      backgroundStyle: _backgroundStyle,
       preset: _preset,
       backgroundTone: _backgroundTone,
       accentTone: _accentTone,
@@ -1490,6 +1505,7 @@ class AppThemeProvider extends ChangeNotifier {
 }
 
 class _AppThemeBootstrapSnapshot {
+  final AppBackgroundStyle backgroundStyle;
   final AppThemePreset preset;
   final AppBackgroundTone backgroundTone;
   final AppAccentTone accentTone;
@@ -1513,6 +1529,7 @@ class _AppThemeBootstrapSnapshot {
   final String runtimeSessionId;
 
   const _AppThemeBootstrapSnapshot({
+    required this.backgroundStyle,
     required this.preset,
     required this.backgroundTone,
     required this.accentTone,
