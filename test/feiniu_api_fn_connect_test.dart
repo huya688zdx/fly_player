@@ -12,6 +12,75 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('列表偏好先恢复本地、后台只请求一次且不覆盖新选择', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.updateSettings(
+      baseUrl: 'http://127.0.0.1:5667',
+      userName: 'user',
+      password: '',
+      token: 'token',
+    );
+    final refresh = Completer<ResponseBody>();
+    final refreshStarted = Completer<void>();
+    var reads = 0;
+    final adapter = _FakeDioAdapter((options) {
+      if (options.path.endsWith('/getData')) {
+        reads++;
+        if (reads == 1) {
+          return _jsonResponse({
+            'code': 0,
+            'data': {
+              'value': jsonEncode({
+                'view_type': 'horizontal_poster',
+                'sort_field': 'title',
+              }),
+            },
+          });
+        }
+        refreshStarted.complete();
+        return refresh.future;
+      }
+      return _jsonResponse({'code': 0, 'data': <String, dynamic>{}});
+    });
+    const key = 'mdb:list:setting:favorite';
+    final api = FeiniuApi(provider, httpClientAdapter: adapter);
+    expect(
+      (await api.getUserListSetting('', key: key))?.viewType,
+      'horizontal_poster',
+    );
+    final reopened = FeiniuApi(provider, httpClientAdapter: adapter);
+    expect(
+      (await reopened.getUserListSetting('', key: key))?.viewType,
+      'horizontal_poster',
+    );
+    await refreshStarted.future;
+    expect(reads, 2);
+    expect(refresh.isCompleted, isFalse);
+    expect(
+      await reopened.setUserListSetting('', key: key, viewType: 'list'),
+      isTrue,
+    );
+    refresh.complete(
+      _jsonResponse({
+        'code': 0,
+        'data': {
+          'value': jsonEncode({'view_type': 'vertical_poster'}),
+        },
+      }),
+    );
+    await Future<void>.delayed(Duration.zero);
+    final prefs = await SharedPreferences.getInstance();
+    final cacheKey = prefs.getKeys().singleWhere(
+      (key) => key.startsWith('user_list_setting_'),
+    );
+    final saved = jsonDecode(prefs.getString(cacheKey)!);
+    expect(saved['view_type'], 'list');
+    expect(saved['sort_field'], 'title');
+    expect(reads, 2);
+  });
+
   group('FeiniuApi FN Connect relay helpers', () {
     test('fnos.net relay host should use relay mode cookie', () {
       expect(
@@ -659,7 +728,7 @@ void main() {
 class _FakeDioAdapter implements HttpClientAdapter {
   _FakeDioAdapter(this.handler);
 
-  final ResponseBody Function(RequestOptions options) handler;
+  final FutureOr<ResponseBody> Function(RequestOptions options) handler;
 
   @override
   Future<ResponseBody> fetch(

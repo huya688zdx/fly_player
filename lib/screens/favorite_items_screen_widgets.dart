@@ -2,6 +2,7 @@ part of 'favorite_items_screen.dart';
 
 extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
   Widget _buildTabButton(_FavoriteTab tab, String text) {
+    final desktop = DesktopEnvironment.isDesktopPlatform;
     final selected = _selectedTab == tab;
     final colors = context.appColors;
     final selectedColors = AppTonalControlPalette.resolve(
@@ -12,7 +13,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
       child: InkWell(
         onTap: () => _switchTab(tab),
         child: SizedBox(
-          height: 42,
+          height: desktop ? 36 : 42,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
@@ -22,7 +23,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                   color: selected
                       ? selectedColors.foreground
                       : colors.textPrimary,
-                  fontSize: 16,
+                  fontSize: desktop ? 14 : 16,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -66,6 +67,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
   }
 
   Widget _buildScreen(BuildContext context) {
+    final desktop = DesktopEnvironment.isDesktopPlatform;
     final provider = context.read<NasProvider>();
     final layout = MediaLayoutProfile.of(context);
     final colors = context.appColors;
@@ -79,6 +81,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
+          toolbarHeight: desktop ? 48 : null,
           backgroundColor: Colors.transparent,
           surfaceTintColor: Colors.transparent,
           foregroundColor: colors.textPrimary,
@@ -96,7 +99,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           ),
           titleTextStyle: TextStyle(
             color: colors.textPrimary,
-            fontSize: 20,
+            fontSize: desktop ? 18 : 20,
             fontWeight: FontWeight.w700,
           ),
           title: Text(AppLocalizations.of(context).actionFavoriteAdd),
@@ -158,11 +161,12 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
   }
 
   Widget _buildSortFilterRow(MediaLayoutProfile layout, _FavoriteTab tab) {
+    final desktop = DesktopEnvironment.isDesktopPlatform;
     final tabData = _dataOf(tab);
     final showFilter = tab != _FavoriteTab.person && _isFeiniuBackend;
     final colors = context.appColors;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: desktop ? 6 : 8),
       child: Row(
         children: <Widget>[
           Expanded(
@@ -180,7 +184,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                           _sortLabelFor(_sortColumn),
                           style: TextStyle(
                             color: colors.textPrimary,
-                            fontSize: 16,
+                            fontSize: desktop ? 14 : 16,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -319,14 +323,23 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
       case MediaCollectionViewType.horizontalPoster:
         content = LayoutBuilder(
           builder: (context, constraints) {
-            final crossAxisCount = layout.isTablet ? 3 : 2;
+            final desktop = DesktopEnvironment.isDesktopPlatform;
+            // 桌面横幅按约 280px 卡宽增减列数，避免大窗口仍只显示三张巨幅卡片。
+            final crossAxisCount = desktop
+                ? ((constraints.maxWidth -
+                              layout.pageHorizontalPadding * 2 +
+                              layout.itemGap) /
+                          (280 + layout.itemGap))
+                      .round()
+                      .clamp(1, 12)
+                : (layout.isTablet ? 3 : 2);
             final availableWidth =
                 constraints.maxWidth -
                 layout.pageHorizontalPadding * 2 -
                 layout.itemGap * (crossAxisCount - 1);
             final cardWidth = availableWidth / crossAxisCount;
             final imageHeight = cardWidth * 0.56;
-            final rowHeight = imageHeight + 58;
+            final rowHeight = imageHeight + (desktop ? 48 : 58);
 
             return GridView.builder(
               controller: _tabScrollControllers[tab],
@@ -373,8 +386,12 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                     resolutions: resolutions,
                     watched: item.watched == 1,
                     imageHeight: imageHeight,
-                    titleFontSize: layout.homePosterTitleFontSize,
-                    subtitleFontSize: layout.homePosterSubtitleFontSize,
+                    titleFontSize: desktop
+                        ? 12
+                        : layout.homePosterTitleFontSize,
+                    subtitleFontSize: desktop
+                        ? 11
+                        : layout.homePosterSubtitleFontSize,
                     expandImageToFit: false,
                     imageFit: BoxFit.contain,
                     autoFitByImageAspect: false,
@@ -496,6 +513,7 @@ class _FavoriteToolButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final desktop = DesktopEnvironment.isDesktopPlatform;
     final colors = context.appColors;
     final control = AppTonalControlPalette.resolve(
       colors: colors,
@@ -505,8 +523,8 @@ class _FavoriteToolButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        width: 40,
-        height: 40,
+        width: desktop ? 34 : 40,
+        height: desktop ? 34 : 40,
         decoration: BoxDecoration(
           color: DesktopEnvironment.isDesktopPlatform
               ? colors.selection.withValues(alpha: active ? 0.14 : 0.05)
@@ -514,7 +532,7 @@ class _FavoriteToolButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: control.border),
         ),
-        child: Icon(icon, color: control.foreground, size: 21),
+        child: Icon(icon, color: control.foreground, size: desktop ? 18 : 21),
       ),
     );
   }
