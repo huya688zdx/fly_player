@@ -18,6 +18,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
   final double cardWidth;
   final double itemSpacing;
   final double trackSlideFactor;
+  final bool showDesktopControls;
 
   const PosterBrowseLandscapeGesturePanel({
     super.key,
@@ -32,6 +33,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
     this.cardWidth = 116,
     this.itemSpacing = 18,
     this.trackSlideFactor = 1,
+    this.showDesktopControls = false,
   });
 
   @override
@@ -61,6 +63,7 @@ class _PosterBrowseLandscapeGesturePanelState
   double _horizontalDragStartOffset = 0;
   int _horizontalSettleGeneration = 0;
   int _contentSwitchDirection = 1;
+  bool _collapseTarget = false;
 
   @override
   void initState() {
@@ -211,39 +214,68 @@ class _PosterBrowseLandscapeGesturePanelState
                       ),
                     ),
                   ),
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: IgnorePointer(
-                    ignoring: progress < 0.5,
-                    child: Opacity(
-                      key: const ValueKey(
-                        'poster_browse_landscape_expand_handle',
+                if (widget.showDesktopControls)
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: IconButton.filledTonal(
+                      key: const ValueKey('poster_browse_desktop_toggle'),
+                      tooltip: _collapseTarget
+                          ? MaterialLocalizations.of(
+                              context,
+                            ).collapsedIconTapHint
+                          : MaterialLocalizations.of(
+                              context,
+                            ).expandedIconTapHint,
+                      onPressed: () => _animateCollapse(
+                        _collapseController.isAnimating
+                            ? !_collapseTarget
+                            : progress < 0.5,
                       ),
-                      opacity: progress,
-                      child: Transform.translate(
-                        offset: Offset(0, 8 * (1 - progress)),
-                        child: Container(
-                          width: 72,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.38),
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(18),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black.withValues(alpha: 0.6),
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: Icon(
+                        _collapseTarget
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                      ),
+                    ),
+                  )
+                else
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: IgnorePointer(
+                      ignoring: progress < 0.5,
+                      child: Opacity(
+                        key: const ValueKey(
+                          'poster_browse_landscape_expand_handle',
+                        ),
+                        opacity: progress,
+                        child: Transform.translate(
+                          offset: Offset(0, 8 * (1 - progress)),
+                          child: Container(
+                            width: 72,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.38),
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(18),
+                              ),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.22),
+                              ),
                             ),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.22),
+                            child: const Icon(
+                              Icons.keyboard_arrow_up_rounded,
+                              color: Colors.white,
+                              size: 24,
                             ),
-                          ),
-                          child: const Icon(
-                            Icons.keyboard_arrow_up_rounded,
-                            color: Colors.white,
-                            size: 24,
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -264,6 +296,11 @@ class _PosterBrowseLandscapeGesturePanelState
     final collapse = velocity.abs() > _velocityThreshold
         ? velocity > 0
         : _collapseController.value >= 0.45;
+    _animateCollapse(collapse);
+  }
+
+  void _animateCollapse(bool collapse) {
+    _collapseTarget = collapse;
     _collapseController.animateTo(
       collapse ? 1 : 0,
       duration: _settleDuration,
