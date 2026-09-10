@@ -127,9 +127,14 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
         }
         Request request;
         request.method = method;
+        request.media_url = ReadString(*args, "mediaUrl");
+        if ((method == "activate" || method == "configure") &&
+            args->count(Value("mediaUrl")) && request.media_url.empty()) {
+          result->Error("invalid_media_url", "播放媒体标识为空");
+          return;
+        }
         if (method == "subtitle") {
           request.subtitle_path = WideString(ReadString(*args, "path"));
-          request.media_url = ReadString(*args, "mediaUrl");
           if (request.subtitle_path.empty() || request.media_url.empty()) {
             result->Error("invalid_subtitle", "字幕文件或媒体标识为空");
             return;
@@ -302,6 +307,31 @@ PotPlayerBridge::Completion PotPlayerBridge::Execute(Request request,
   if (request.method == "close") {
     completion.value = Value(PostMessageW(window, WM_CLOSE, 0, 0) != FALSE);
     return completion;
+  }
+  if ((request.method == "activate" || request.method == "configure") &&
+      !request.media_url.empty()) {
+    if (!receiver) {
+      completion.error = "potplayer_receiver";
+      return completion;
+    }
+    // 控制命令排队期间可能切集，投递前再次核对同一进程的媒体身份。
+    expected_pid_ = request.pid;
+    received_file_ = false;
+    current_file_.clear();
+    int64_t ignored = 0;
+    const bool queried =
+        Query(window, kGetFile, reinterpret_cast<LPARAM>(receiver), &ignored);
+    expected_pid_ = 0;
+    if (!queried || !received_file_) {
+      completion.error = queried ? "potplayer_file_unavailable"
+                                 : "potplayer_timeout";
+      return completion;
+    }
+    if (current_file_ != request.media_url) {
+      completion.error = "potplayer_file_changed";
+      completion.error_message = "播放内容已切换，已取消控制操作";
+      return completion;
+    }
   }
   if (request.method == "activate") {
     bool sent = true;

@@ -251,10 +251,10 @@ class _ExternalPlayerSettingsScreenState
               const SizedBox(height: 16),
               Text(
                 '播放时请保持 Fly Player 运行，用于向 NAS 回报播放进度。\n\n'
-                '当前支持 PotPlayer。弹幕需开启且匹配到弹幕源，随视频同步暂停和跳转；修改弹幕设置后需重新打开播放。\n\n'
+                '当前支持 PotPlayer。播放时可在影片详情页暂停、跳转、搜索或更换弹幕源，并应用所选片源与外挂字幕。弹幕随视频同步暂停和跳转。\n\n'
                 '飞牛原画剧集会带入各季播放列表；在列表内切集会同步对应字幕、弹幕和播放进度，切换到列表外视频会结束跟踪。\n\n'
                 '外挂 ASS 字幕保留样式；SRT、VTT 保留文字和时间。与弹幕合并时，字幕需为 UTF-8 或 UTF-16 编码。\n\n'
-                '音轨由 PotPlayer 选择。内封字幕、位图字幕不能与弹幕合并，AI 人物遮挡不支持。',
+                '音轨和内封字幕请在 PotPlayer 的声音、字幕菜单中选择。内封字幕、位图字幕不能与弹幕合并，AI 人物遮挡不支持。',
                 style: TextStyle(color: colors.textSecondary, height: 1.6),
               ),
             ],
