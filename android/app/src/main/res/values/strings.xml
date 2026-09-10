@@ -494,7 +494,7 @@
     <string name="player_text_0254">加载弹幕中…</string>
     <string name="player_text_0255">弹幕加载失败</string>
     <string name="player_text_0256">本地文件</string>
-    <string name="player_text_0257">输入番名 / 关键词</string>
+    <string name="player_text_0257">作品名或 TMDB:编号（如 TMDB:100049）</string>
     <string name="player_text_0258">搜索</string>
     <string name="player_text_0259">请输入关键词</string>
     <string name="player_text_0260">结果</string>

@@ -218,13 +218,13 @@ void main() {
     expect(requestedAnime.first, '测试动画 Season 2');
   });
 
-  test('中文剧场版搜索使用官方默认引擎', () async {
-    Object? requestedV2;
+  test('手动作品名不附带过滤，TMDB 输入及纯 ID 查询独立发出请求', () async {
+    final requests = <Map<String, dynamic>>[];
     final dio = Dio();
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          requestedV2 ??= options.queryParameters['v2'];
+          requests.add(Map<String, dynamic>.from(options.queryParameters));
           handler.resolve(
             Response<Map<String, dynamic>>(
               requestOptions: options,
@@ -238,13 +238,19 @@ void main() {
       DanDanPlayApi(dio: dio, appId: 'test', appSecret: 'secret'),
     );
 
+    await resolver.searchManualCandidates('轻音少女 剧场版');
+    await resolver.searchManualCandidates('TMDB:100049');
     await resolver.searchEpisodeCandidates(
-      keyword: '轻音少女 剧场版',
+      keyword: '',
       episodeNumber: 0,
-      tmdbId: '',
+      tmdbId: '100049',
     );
 
-    expect(requestedV2, isFalse);
+    expect(requests, <Map<String, dynamic>>[
+      <String, dynamic>{'anime': '轻音少女 剧场版', 'v2': false},
+      <String, dynamic>{'tmdbId': 100049, 'v2': false},
+      <String, dynamic>{'tmdbId': 100049, 'v2': false},
+    ]);
   });
 
   test('评论缓存不可用时仍回源并返回弹幕', () async {

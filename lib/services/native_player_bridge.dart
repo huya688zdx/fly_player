@@ -344,9 +344,7 @@ class NativePlayerBridge {
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           return await NativeDanmakuPrefetch.searchCandidates(
             keyword: (args['keyword'] ?? '').toString(),
-            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
             seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
-            tmdbId: (args['tmdbId'] ?? '').toString(),
           );
         case 'loadDanmakuEpisode':
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};

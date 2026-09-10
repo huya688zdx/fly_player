@@ -716,10 +716,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   Future<List<Map<String, dynamic>>> _searchDanmakuSources(String keyword) {
     return NativeDanmakuPrefetch.searchCandidates(
       keyword: keyword,
-      episodeNumber: 0,
       currentEpisodeNumber: _source.episodeNumber,
       seasonNumber: _source.seasonNumber,
-      tmdbId: _source.tmdbId,
     );
   }
 
