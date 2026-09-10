@@ -184,11 +184,7 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
     });
     if (_routeStack.length == 1) {
       // 路由观察者也接住页面自身的 Navigator.pop。
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _routeStack.length == 1) {
-          _splitController.paneVisible = false;
-        }
-      });
+      _splitController.paneVisible = false;
     }
   }
 
@@ -220,6 +216,8 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
     return AppTransitions.paneCardRoute<void>(
       buildDetailRouteChild(name, isActiveRoute: true),
       settings: settings,
+      // 第一层由 Shell 统一转场，避免页面淡出后副屏才开始收起。
+      animate: _routeStack.length > 2,
     );
   }
 
