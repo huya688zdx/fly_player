@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -86,6 +87,7 @@ class DesktopHoverDropdown extends StatefulWidget {
     required this.spec,
     this.activation = DesktopDropdownActivation.hover,
     this.onOpenChanged,
+    this.pageScrollController,
   });
 
   final Widget child;
@@ -94,6 +96,9 @@ class DesktopHoverDropdown extends StatefulWidget {
 
   /// 展开态回调（详情页用它复用箭头旋转动画）。
   final ValueChanged<bool>? onOpenChanged;
+
+  /// 固定工具栏不在页面滚动区内时，指定其所控制的列表。
+  final ScrollController? pageScrollController;
 
   @override
   State<DesktopHoverDropdown> createState() => DesktopHoverDropdownState();
@@ -167,6 +172,28 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
   void _handlePanelExit() => _scheduleGraceClose();
 
+  void _handlePanelPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final controller = widget.pageScrollController;
+    final position = controller == null
+        ? Scrollable.maybeOf(context, axis: Axis.vertical)?.position
+        : controller.positions.singleOrNull;
+    if (position == null) return;
+    final delta = axisDirectionIsReversed(position.axisDirection)
+        ? -event.scrollDelta.dy
+        : event.scrollDelta.dy;
+    if (delta == 0 || !position.physics.shouldAcceptUserOffset(position)) {
+      return;
+    }
+
+    // 浮层的命中路径不经过所属页面；列表未消费的滚轮显式交还页面。
+    // 子级列表先注册，因此长菜单仍优先滚动自身，不会同时带动背景。
+    GestureBinding.instance.pointerSignalResolver.register(
+      event,
+      (_) => position.pointerScroll(delta),
+    );
+  }
+
   @override
   void didUpdateWidget(covariant DesktopHoverDropdown oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -238,9 +265,8 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                 child: child,
               ),
             ),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {},
+            child: Listener(
+              onPointerSignal: _handlePanelPointerSignal,
               child: MouseRegion(
                 onEnter: _tapMode ? null : (_) => _handlePanelEnter(),
                 onExit: _tapMode ? null : (_) => _handlePanelExit(),
@@ -327,24 +353,12 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     );
 
     if (!_tapMode) return panel;
-
-    // 点击式：面板打开时铺一层透明点击屏障——点击面板外任意处（含再次点击
-    // 触发件）关闭；面板绘制在屏障之上，不受影响。面板同样铺满弹层（锚点
-    // 变换把内容放回触发件旁），保证命中测试几何与悬停模式一致。
-    return Stack(
-      children: <Widget>[
-        Positioned.fill(
-          child: IgnorePointer(
-            ignoring: !_visible,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _close,
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-        Positioned.fill(child: panel),
-      ],
+    // 只消费外部点击，保留关闭行为；不再用全屏屏障拦截背景滚轮。
+    return TapRegion(
+      enabled: _visible,
+      consumeOutsideTaps: true,
+      onTapOutside: (_) => _close(),
+      child: panel,
     );
   }
 
@@ -398,12 +412,14 @@ Widget desktopTapDropdownWrapper({
   required GlobalKey<DesktopHoverDropdownState> dropdownKey,
   required DesktopHoverDropdownSpec? spec,
   required Widget child,
+  ScrollController? pageScrollController,
 }) {
   if (!DesktopEnvironment.isDesktopPlatform || spec == null) return child;
   return DesktopHoverDropdown(
     key: dropdownKey,
     activation: DesktopDropdownActivation.tap,
     spec: spec,
+    pageScrollController: pageScrollController,
     child: child,
   );
 }
