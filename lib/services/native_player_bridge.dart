@@ -38,6 +38,29 @@ class NativePlayerBridge {
   static Object? _activeBindToken;
   static Future<void> Function()? _onUnbind;
 
+  static Future<bool> resume({
+    required String scope,
+    required String itemGuid,
+    String? mediaGuid,
+    String? audioGuid,
+    String? subtitleGuid,
+    Duration? position,
+  }) async {
+    if (defaultTargetPlatform != TargetPlatform.android ||
+        itemGuid.trim().isEmpty) {
+      return false;
+    }
+    return await _channel.invokeMethod<bool>('resume', <String, dynamic>{
+          'scope': scope,
+          'itemGuid': itemGuid.trim(),
+          if (mediaGuid?.isNotEmpty == true) 'mediaGuid': mediaGuid,
+          if (audioGuid != null) 'audioGuid': audioGuid,
+          if (subtitleGuid != null) 'subtitleGuid': subtitleGuid,
+          if (position != null) 'positionMs': position.inMilliseconds,
+        }) ??
+        false;
+  }
+
   /// 启动原生播放壳。
   ///
   /// - [loadArgs]：`MpvMediaSource.toMap()`，含 `url` 等，即 `controller.load` 的入参。

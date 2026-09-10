@@ -2098,6 +2098,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final data = _data;
         if (data == null) return;
 
+        if (await playbackHostFor(context).resume(
+          itemGuid: _currentItemGuid,
+          mediaGuid: _currentStreamOption()?.mediaGuid ?? data.mediaGuid,
+          audioGuid: _selectedAudioGuid,
+          subtitleGuid: _selectedSubtitleGuid,
+        )) {
+          return;
+        }
+        if (!mounted) return;
+
         final localRecord = _downloadedRecordForCurrentItem();
         if (localRecord != null) {
           await _openLocalPlayer(localRecord);
