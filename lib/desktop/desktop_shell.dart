@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -60,12 +62,59 @@ class DesktopShell extends StatefulWidget {
   State<DesktopShell> createState() => _DesktopShellState();
 }
 
-class _DesktopShellState extends State<DesktopShell> {
+class _DesktopShellState extends State<DesktopShell>
+    with SingleTickerProviderStateMixin {
   // 接线分屏详情宿主（feat/desktop-detail-pane）：开启分屏后右栏由
   // DesktopDetailPaneHost 承载。开关在「设置 → 分屏窗口」（与安卓一致），
   // 壳层监听设置中的开关、方向和比例。
   late final DesktopSplitController _splitController = DesktopSplitController()
     ..paneHostBuilder = _buildPaneHost;
+
+  final _surfaceKey = GlobalKey();
+  late final AnimationController _layoutTransition =
+      AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 240),
+        value: 1,
+      )..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          setState(() {
+            _previousSurface?.dispose();
+            _previousSurface = null;
+          });
+        }
+      });
+  ui.Image? _previousSurface;
+  Size? _previousSurfaceSize;
+  (bool, bool, double)? _previousLayout;
+
+  // 保存上一帧的绘制结果，让响应式布局只重排一次，再原比例混合过渡。
+  // 不复制页面或导航器；快速反向时从当前合成画面接续。
+  void _onSplitLayoutChanged() {
+    final layout = (
+      _splitController.paneVisible,
+      _splitController.primaryOnLeft,
+      _splitController.paneFraction,
+    );
+    if (_previousLayout == layout) return;
+    _previousLayout = layout;
+    final boundary =
+        _surfaceKey.currentContext?.findRenderObject()
+            as RenderRepaintBoundary?;
+    if (!_paneHasRoom ||
+        MediaQuery.disableAnimationsOf(context) ||
+        boundary == null ||
+        !boundary.hasSize) {
+      return;
+    }
+    final previous = _previousSurface;
+    _previousSurfaceSize = boundary.size;
+    _previousSurface = boundary.toImageSync(
+      pixelRatio: MediaQuery.devicePixelRatioOf(context),
+    );
+    previous?.dispose();
+    _layoutTransition.forward(from: 0);
+  }
 
   /// 全局 pane host 代理：宿主就绪后注入，让首页等
   /// pane 槽位之外的入口也能把详情打开到右栏；分屏未开启时回退内容区。
@@ -128,6 +177,12 @@ class _DesktopShellState extends State<DesktopShell> {
       _applyParallelSettings(parallel);
       parallel.addListener(_onParallelSettingsChanged);
     }
+    _previousLayout = (
+      _splitController.paneVisible,
+      _splitController.primaryOnLeft,
+      _splitController.paneFraction,
+    );
+    _splitController.addListener(_onSplitLayoutChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSidebarCatalogData();
     });
@@ -138,6 +193,9 @@ class _DesktopShellState extends State<DesktopShell> {
     _shellFocusNode.dispose();
     _settingsFocusScope.dispose();
     _parallelSettings?.removeListener(_onParallelSettingsChanged);
+    _splitController.removeListener(_onSplitLayoutChanged);
+    _layoutTransition.dispose();
+    _previousSurface?.dispose();
     _splitController.dispose();
     super.dispose();
   }
@@ -435,96 +493,102 @@ class _DesktopShellState extends State<DesktopShell> {
                                     ? (constraints.maxWidth - 1) *
                                           _splitController.paneFraction
                                     : constraints.maxWidth;
-                                final tabStack = _buildTabStack();
-                                return TweenAnimationBuilder<double>(
-                                  tween: Tween<double>(
-                                    begin: 0,
-                                    end: visible ? 1 : 0,
-                                  ),
-                                  duration:
-                                      _paneHasRoom &&
-                                          !MediaQuery.disableAnimationsOf(
-                                            context,
-                                          )
-                                      ? const Duration(milliseconds: 300)
-                                      : Duration.zero,
-                                  curve: Curves.easeOutCubic,
-                                  child: SizedBox(
-                                    width: paneWidth,
-                                    child: _buildDetailPane(context),
-                                  ),
-                                  builder: (context, progress, pane) {
-                                    final sideBySide =
-                                        progress > 0 && _paneHasRoom;
-                                    final browseWidth = sideBySide
-                                        ? constraints.maxWidth -
-                                              (paneWidth + 1) * progress
-                                        : constraints.maxWidth;
-                                    final layoutWidth = visible && _paneHasRoom
-                                        ? constraints.maxWidth - paneWidth - 1
-                                        : constraints.maxWidth;
-                                    // 主屏按目标宽度排版一次，中间帧只改变绘制尺寸。
-                                    return Row(
+                                final alignment = _splitController.primaryOnLeft
+                                    ? Alignment.topLeft
+                                    : Alignment.topRight;
+                                return RepaintBoundary(
+                                  key: _surfaceKey,
+                                  child: AnimatedBuilder(
+                                    animation: _layoutTransition,
+                                    child: Row(
                                       textDirection:
                                           _splitController.primaryOnLeft
                                           ? TextDirection.ltr
                                           : TextDirection.rtl,
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
-                                      children: <Widget>[
+                                      children: [
                                         Offstage(
-                                          offstage: progress > 0 && !sideBySide,
+                                          offstage: visible && !_paneHasRoom,
                                           child: SizedBox(
-                                            width: browseWidth,
+                                            width: visible && _paneHasRoom
+                                                ? constraints.maxWidth -
+                                                      paneWidth -
+                                                      1
+                                                : constraints.maxWidth,
                                             child: ClipRect(
-                                              child: OverflowBox(
-                                                alignment:
-                                                    _splitController
-                                                        .primaryOnLeft
-                                                    ? Alignment.topLeft
-                                                    : Alignment.topRight,
-                                                minWidth: layoutWidth,
-                                                maxWidth: layoutWidth,
-                                                child: Transform.scale(
-                                                  scaleX:
-                                                      browseWidth / layoutWidth,
-                                                  alignment:
-                                                      _splitController
-                                                          .primaryOnLeft
-                                                      ? Alignment.topLeft
-                                                      : Alignment.topRight,
-                                                  child: RepaintBoundary(
-                                                    child: tabStack,
-                                                  ),
-                                                ),
-                                              ),
+                                              child: _buildTabStack(),
                                             ),
                                           ),
                                         ),
                                         SizedBox(
-                                          width: sideBySide ? progress : 0,
+                                          width: visible && _paneHasRoom
+                                              ? 1
+                                              : 0,
                                           child: ColoredBox(
                                             color: dividerColor,
                                           ),
                                         ),
                                         Offstage(
-                                          offstage: progress == 0,
-                                          child: ClipRect(
-                                            child: Align(
-                                              alignment:
-                                                  _splitController.primaryOnLeft
-                                                  ? Alignment.centerLeft
-                                                  : Alignment.centerRight,
-                                              widthFactor: _paneHasRoom
-                                                  ? progress
-                                                  : 1,
-                                              child: pane,
+                                          offstage: !visible,
+                                          child: SizedBox(
+                                            width: paneWidth,
+                                            child: ClipRect(
+                                              child: AnimatedBuilder(
+                                                animation: _layoutTransition,
+                                                child: _buildDetailPane(
+                                                  context,
+                                                ),
+                                                builder: (context, pane) =>
+                                                    Transform.translate(
+                                                      offset: Offset(
+                                                        (_splitController
+                                                                    .primaryOnLeft
+                                                                ? 24
+                                                                : -24) *
+                                                            (1 -
+                                                                Curves
+                                                                    .easeOutCubic
+                                                                    .transform(
+                                                                      _layoutTransition
+                                                                          .value,
+                                                                    )),
+                                                        0,
+                                                      ),
+                                                      child: pane,
+                                                    ),
+                                              ),
                                             ),
                                           ),
                                         ),
                                       ],
-                                    );
-                                  },
+                                    ),
+                                    builder: (context, layout) => ClipRect(
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          layout!,
+                                          if (_previousSurface != null &&
+                                              _previousSurfaceSize ==
+                                                  constraints.biggest)
+                                            Positioned.fill(
+                                              child: IgnorePointer(
+                                                child: RawImage(
+                                                  image: _previousSurface,
+                                                  alignment: alignment,
+                                                  fit: BoxFit.fill,
+                                                  opacity: ReverseAnimation(
+                                                    _layoutTransition,
+                                                  ),
+                                                  filterQuality:
+                                                      FilterQuality.none,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 );
                               },
                             );
