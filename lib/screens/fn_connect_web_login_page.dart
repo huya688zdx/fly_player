@@ -405,24 +405,30 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       final type = decoded['type']?.toString() ?? '';
       final url = decoded['url']?.toString() ?? '';
 
-      if (type == 'XHR' &&
-          url.contains('/sac/rpcproxy/v1/new-user-guide/status')) {
-        final cookie = decoded['cookie']?.toString().trim() ?? '';
-        if (cookie.isNotEmpty) {
-          _cookieString = cookie;
-          await _loadOauthConfigFromCookie(
-            cookie: cookie,
-            pageUrl: decoded['pageUrl']?.toString(),
-          );
+      if (type == 'cookie') {
+        final pageUrl = decoded['pageUrl']?.toString() ?? '';
+        final page = Uri.tryParse(pageUrl);
+        if (page == null ||
+            (page.scheme != 'http' && page.scheme != 'https') ||
+            page.host.isEmpty ||
+            page.host == FnConnectWebLoginEntry.officialPrimaryHost ||
+            page.host == FnConnectWebLoginEntry.officialSecondaryHost ||
+            page.host == 'www.fnos.net' ||
+            _windowsPrimingCookies ||
+            _isExchangingCode) {
+          return;
         }
-        return;
-      }
-
-      if (type == 'SysConfig') {
-        final body = decoded['body']?.toString() ?? '';
-        await _handleSysConfigBody(
-          body,
-          pageUrl: decoded['pageUrl']?.toString(),
+        if (_lastSigninUrl.isNotEmpty &&
+            (page.path == '/login' ||
+                page.path == '/signin' ||
+                page.path == '/v/oauth/result')) {
+          return;
+        }
+        // NAS 页面就绪后统一走带 authx 签名的 API，不依赖系统桌面的特定请求。
+        _cookieString = decoded['cookie']?.toString().trim() ?? '';
+        await _loadOauthConfigFromCookie(
+          cookie: _cookieString,
+          pageUrl: pageUrl,
         );
         return;
       }
@@ -478,36 +484,6 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       );
     } finally {
       _isFetchingOauthConfig = false;
-    }
-  }
-
-  Future<void> _handleSysConfigBody(String body, {String? pageUrl}) async {
-    if (_isClosing || body.trim().isEmpty) return;
-    try {
-      final payload = jsonDecode(body);
-      if (payload is! Map<String, dynamic>) return;
-      final data = payload['data'];
-      if (data is! Map<String, dynamic>) return;
-      final oauth = data['nas_oauth'];
-      if (oauth is! Map<String, dynamic>) return;
-      final appId = oauth['app_id']?.toString().trim() ?? '';
-      if (appId.isEmpty) return;
-
-      final oauthUrl = oauth['url']?.toString().trim() ?? '';
-      final fallbackBaseUrl = _originFromUrl(pageUrl ?? '');
-      final targetBaseUrl = oauthUrl.isNotEmpty && oauthUrl != '://'
-          ? _originFromUrl(oauthUrl)
-          : fallbackBaseUrl;
-      if (targetBaseUrl.isEmpty) return;
-      await _navigateToSignin(baseUrl: targetBaseUrl, appId: appId);
-    } catch (error, stackTrace) {
-      await logSwallowedError(
-        action: 'handle fn connect sys config',
-        id: pageUrl,
-        error: error,
-        stackTrace: stackTrace,
-        source: 'fn_connect_web_login_page',
-      );
     }
   }
 
