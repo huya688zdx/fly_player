@@ -1127,7 +1127,7 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
       colors.navBarBackground,
     );
     final selectedSurface = Color.alphaBlend(
-      colors.selection.withValues(alpha: isLightSurface ? .16 : .20),
+      colors.selection.withValues(alpha: isLightSurface ? .08 : .10),
       outerSurface,
     );
 
@@ -1158,7 +1158,7 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: outerSurface,
-                  borderRadius: BorderRadius.circular(25),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: Color.alphaBlend(
                       colors.selection.withValues(alpha: .24),
@@ -1188,7 +1188,7 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
                           // 选中块只靠填充色阶区分，去掉旧的双层描边。
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(19),
+                              borderRadius: BorderRadius.circular(14),
                               color: selectedSurface,
                             ),
                           ),
@@ -1196,6 +1196,8 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
                       ),
                     ),
                     Row(
+                      // 撑满底栏高度，让图标上下的空白也能点击。
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: List.generate(destinations.length, (index) {
                         final selected = index == safeIndex;
                         return Expanded(
@@ -1252,12 +1254,12 @@ class _LiquidGlassNavItem extends StatelessWidget {
           curve: Curves.easeOutCubic,
           style: TextStyle(
             color: color,
-            fontSize: selected ? 13 : 12.5,
+            fontSize: 13,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
             height: 1.0,
           ),
           child: IconTheme(
-            data: IconThemeData(color: color, size: selected ? 21 : 20),
+            data: IconThemeData(color: color, size: 21),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
