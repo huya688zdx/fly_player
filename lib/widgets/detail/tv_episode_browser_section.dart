@@ -8,7 +8,6 @@ import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/app_transitions.dart';
 import '../../ui/detail_artwork_resolver.dart';
-import '../../ui/layout_adaptive.dart';
 import '../../ui/media_detail_components.dart';
 import '../common/liquid_glass.dart';
 import 'capability_badge.dart';
@@ -377,8 +376,8 @@ class _PreviewGridState extends State<_PreviewGrid> {
             },
           ),
         );
-        // 桌面档接入悬停翻页箭头（与首页海报行同款）；非桌面档原样透出。
-        if (!MediaLayoutProfile.of(context).isDesktopTier) return list;
+        // 鼠标翻页按平台启用，分屏窄栏也保留箭头。
+        if (!DesktopEnvironment.isDesktopPlatform) return list;
         return HoverScrollArrows(
           scrollController: _scrollController,
           edgePadding: DetailTokens.screenHorizontalPadding,
@@ -429,9 +428,9 @@ class _EpisodeButtonStrip extends StatelessWidget {
     const tileSize = 68.0;
     return SizedBox(
       height: tileSize,
-      // 桌面档接入悬停翻页箭头；非桌面档 HoverScrollRow 原样透出 builder 产物。
+      // 数字选集与缩略图列表使用相同的桌面翻页入口。
       child: HoverScrollRow(
-        enabled: MediaLayoutProfile.of(context).isDesktopTier,
+        enabled: DesktopEnvironment.isDesktopPlatform,
         edgePadding: DetailTokens.screenHorizontalPadding,
         builder: (controller) => ListView.separated(
           controller: controller,
