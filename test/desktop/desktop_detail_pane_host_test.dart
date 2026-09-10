@@ -4,6 +4,7 @@ import 'package:fly_player/desktop/desktop.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/ui/app_transitions.dart';
 import 'package:fly_player/ui/player_pane_host_scope.dart';
 
 /// 测试用极简路由映射：按 URI path 分发到便携页面。
@@ -72,6 +73,37 @@ Future<void> _flushTimers(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('桌面详情返回在 180ms 内原位淡出', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(navigatorKey: navigator, home: const Text('首页')),
+    );
+    final route = AppTransitions.leftToRightPageTurnRoute<void>(
+      const Text('详情'),
+    );
+    navigator.currentState!.push(route);
+    await tester.pumpAndSettle();
+    final detail = find.text('详情');
+    final position = tester.getTopLeft(detail);
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.getTopLeft(detail), position);
+    final opacity = tester
+        .widget<Opacity>(
+          find.ancestor(of: detail, matching: find.byType(Opacity)).first,
+        )
+        .opacity;
+    expect(opacity, closeTo(0.5, 0.01));
+    await tester.pump(const Duration(milliseconds: 90));
+    expect((route as PageRoute<void>).animation!.value, closeTo(0.0, 0.0001));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(detail, findsNothing);
+    expect(find.text('首页'), findsOneWidget);
+  });
+
   group('DesktopDetailPaneHost', () {
     testWidgets('openRoute 在 pane 内打开目标页并返回 true，scope 暴露同一控制器', (
       tester,

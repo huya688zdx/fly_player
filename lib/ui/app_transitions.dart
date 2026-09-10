@@ -36,6 +36,9 @@ class AppTransitions {
   // Generic route animation timing.
   static const Duration routeEnter = AppMotion.routeEnter;
   static const Duration routeExit = AppMotion.routeExit;
+  static Duration get _pageTurnExit => DesktopEnvironment.isDesktopPlatform
+      ? const Duration(milliseconds: 180)
+      : routeExit;
   static const Duration switchDuration = AppMotion.switchDuration;
   static const Duration contentSwitchDuration = AppMotion.contentSwitchDuration;
   static const Duration topBarFadeDuration = AppMotion.topBarFadeDuration;
@@ -107,18 +110,22 @@ class AppTransitions {
     if (AppAmbientPage.sharesBackgroundOf(context)) {
       return Offstage(offstage: !secondaryAnimation.isDismissed, child: child);
     }
-    // 桌面详情保持页面不透明，避免深色背景叠在首页上形成移动的整块蒙层。
+    // 桌面进入仍不透明地轻移；返回原位淡出，并保持组件层级稳定。
     if (DesktopEnvironment.isDesktopPlatform) {
-      return SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0.018, 0), end: Offset.zero)
-            .animate(
-              CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-                reverseCurve: Curves.easeInCubic,
-              ),
-            ),
-        child: child,
+      final exiting =
+          animation.status == AnimationStatus.reverse ||
+          animation.status == AnimationStatus.dismissed;
+      return Opacity(
+        opacity: exiting ? Curves.easeInOut.transform(animation.value) : 1.0,
+        child: FractionalTranslation(
+          translation: exiting
+              ? Offset.zero
+              : Offset(
+                  0.018 * (1 - Curves.easeOutCubic.transform(animation.value)),
+                  0,
+                ),
+          child: child,
+        ),
       );
     }
     return _lightweightPageTransition(
@@ -138,7 +145,7 @@ class AppTransitions {
       settings: settings,
       fullscreenDialog: fullscreenDialog,
       transitionDuration: routeEnter,
-      reverseTransitionDuration: routeExit,
+      reverseTransitionDuration: _pageTurnExit,
       pageBuilder: (context, animation, secondaryAnimation) => page,
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
           leftToRightPageTurnTransition(
@@ -358,7 +365,7 @@ class AppPaneCardRoute<T> extends PageRoute<T> {
 
   @override
   Duration get reverseTransitionDuration =>
-      animate ? AppTransitions.routeExit : Duration.zero;
+      animate ? AppTransitions._pageTurnExit : Duration.zero;
 
   @override
   DelegatedTransitionBuilder? get delegatedTransition => null;
@@ -420,7 +427,7 @@ class _AppPageBasedPaneCardRoute<T> extends PageRoute<T> {
 
   @override
   Duration get reverseTransitionDuration =>
-      _page.animate ? AppTransitions.routeExit : Duration.zero;
+      _page.animate ? AppTransitions._pageTurnExit : Duration.zero;
 
   @override
   DelegatedTransitionBuilder? get delegatedTransition => null;
@@ -489,7 +496,7 @@ class _AppSplitPaneHostRoute<T> extends PageRoute<T> {
   Duration get transitionDuration => AppTransitions.routeEnter;
 
   @override
-  Duration get reverseTransitionDuration => AppTransitions.routeExit;
+  Duration get reverseTransitionDuration => AppTransitions._pageTurnExit;
 
   @override
   DelegatedTransitionBuilder? get delegatedTransition => null;
