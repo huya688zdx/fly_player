@@ -8772,7 +8772,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildDanmakuSearchPage() {
-        val seriesTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty()
+        val seriesTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty().trim()
+            .ifEmpty { loadArgsMap["title"]?.toString().orEmpty().trim() }
+        val tmdbId = loadArgsMap["tmdbId"]?.toString().orEmpty().trim()
+            .replaceFirst(Regex("^(?:tm|tt)", RegexOption.IGNORE_CASE), "")
+            .toLongOrNull()?.takeIf { it > 0 }
         // 手动输入按原关键词搜索，季度标记也由用户决定。
         val initial = danmakuSearchKeyword.ifEmpty { seriesTitle.trim() }
         val input = android.widget.EditText(this).apply {
@@ -8787,6 +8791,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             maxLines = 1
         }
         addPanelRow(input)
+        fun fillQuery(value: String) {
+            danmakuSearchKeyword = value
+            input.setText(value)
+            input.setSelection(value.length)
+        }
+        if (seriesTitle.isNotEmpty() || tmdbId != null) {
+            addPanelRow(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                if (seriesTitle.isNotEmpty()) {
+                    addView(panelActionRow(localizedString(R.string.player_danmaku_fill_title)) {
+                        fillQuery(seriesTitle)
+                    }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                }
+                if (tmdbId != null) {
+                    addView(panelActionRow(localizedString(R.string.player_danmaku_fill_tmdb)) {
+                        fillQuery("TMDB:$tmdbId")
+                    }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                }
+            })
+        }
         addPanelRow(panelActionRow(localizedString(R.string.player_text_0258)) {
             val keyword = input.text.toString().trim()
             if (keyword.isEmpty()) {
