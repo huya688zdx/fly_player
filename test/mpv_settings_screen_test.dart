@@ -8,8 +8,60 @@ import 'package:fly_player/l10n/generated/app_localizations_zh.dart';
 import 'package:fly_player/playback/settings/mpv_settings_store.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/screens/mpv_player_settings_screen.dart';
+import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/widgets/common/app_ambient_page.dart';
 
 void main() {
+  testWidgets('桌面共用背景下 MPV 卡片透底且选中态与文字操作同色', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final colors = AppThemePalette.colorsFor(
+      AppThemePreset.forest,
+      accentTone: AppAccentTone.green,
+      selectionTone: AppAccentTone.cyan,
+    );
+    final l10n = AppLocalizationsZh();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppThemeBuilder.buildFromColors(colors),
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const AppAmbientPage(
+          shareBackground: true,
+          child: MpvPlayerSettingsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final normalCard = tester.widget<AnimatedContainer>(
+      find
+          .ancestor(
+            of: find.text(l10n.mpvPicturePresetAnimeLabel),
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+    expect(
+      (normalCard.decoration! as BoxDecoration).color,
+      colors.surface.withValues(alpha: 0.16),
+    );
+    expect(
+      tester
+          .widget<Text>(find.text(l10n.mpvPicturePresetOffLabel).first)
+          .style!
+          .color,
+      colors.selectionStrong,
+    );
+    final buttonContext = tester.element(find.text(l10n.commonRestoreDefault));
+    expect(
+      Theme.of(
+        buttonContext,
+      ).textButtonTheme.style!.foregroundColor!.resolve({}),
+      colors.selectionStrong,
+    );
+  });
+
   testWidgets('保存音频自定义预设时建议名称使用本地化内置预设名', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       '${MpvSettingsCatalog.prefPrefix}${MpvSettingsCatalog.volumeGainKey}':

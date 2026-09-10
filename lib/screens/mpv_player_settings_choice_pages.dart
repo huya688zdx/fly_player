@@ -32,7 +32,7 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final l10n = AppLocalizations.of(context);
     return AppAmbientPage(
       child: Scaffold(
@@ -104,7 +104,7 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
   }
 
   void _showCacheProfileHelp(BuildContext context, String value) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final l10n = AppLocalizations.of(context);
     final title = switch (value) {
       'default' => l10n.mpvOptionDefault,
@@ -422,7 +422,7 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final l10n = AppLocalizations.of(context);
     final selectedPercent = _sliderValue.round().clamp(
       MpvSettingsCatalog.cachePercentSliderMin,
