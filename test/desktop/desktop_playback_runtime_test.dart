@@ -396,6 +396,20 @@ void main() {
     final title = DesktopMpvRuntime.audioTrackTitle(track, '轨道 1');
 
     expect(title, '日语');
+    expect(
+      DesktopMpvRuntime.audioTrackTitle(
+        const AudioTrack('3', 'Japanese Audio', 'jpn'),
+        '轨道 1',
+      ),
+      '日语',
+    );
+    expect(
+      DesktopMpvRuntime.audioTrackTitle(
+        const AudioTrack('4', 'Japanese Commentary', 'jpn'),
+        '轨道 2',
+      ),
+      'Japanese Commentary',
+    );
   });
 
   test('本地切音轨按原文件流索引更新上报 GUID，未知索引不沿用旧选择', () {
