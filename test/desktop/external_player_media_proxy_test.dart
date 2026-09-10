@@ -66,6 +66,26 @@ void main() {
         'range': null,
       },
     ]);
+    final localDirectory = await Directory.systemTemp.createTemp(
+      'fly_playlist_test_',
+    );
+    addTearDown(() => localDirectory.delete(recursive: true));
+    final local = await File(
+      '${localDirectory.path}/downloaded.bin',
+    ).writeAsBytes([6, 7, 8, 9]);
+    var resolutions = 0;
+    final localUrl = proxy.addMedia(() async {
+      resolutions++;
+      return (source: local.uri, headers: <String, String>{});
+    });
+    expect(resolutions, 0);
+    final localRequest = await client.getUrl(Uri.parse(localUrl));
+    localRequest.headers.set('Range', 'bytes=1-2');
+    final localResponse = await localRequest.close();
+    expect(localResponse.statusCode, 206);
+    expect(localResponse.headers.value('Content-Range'), 'bytes 1-2/4');
+    expect(await localResponse.expand((chunk) => chunk).toList(), [7, 8]);
+    expect(resolutions, 1);
     final missing = await (await client.getUrl(
       Uri.parse(proxy.url).replace(path: '/unknown/media'),
     )).close();
