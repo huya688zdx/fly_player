@@ -664,7 +664,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                       textInputAction: TextInputAction.search,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        hintText: '输入作品名搜索弹弹play',
+                        hintText: '作品名或 TMDB:编号（如 TMDB:100049）',
                         hintStyle: const TextStyle(color: Colors.white38),
                         filled: true,
                         fillColor: const Color(0x14FFFFFF),

@@ -88,6 +88,13 @@ class DanDanPlayResolver {
     }
 
     final filteredEpisodeNumber = episodeNumber > 0 ? episodeNumber : null;
+    if (rawKeyword.isEmpty && tmdbNumericId != null) {
+      return _searchEpisodeCandidatesOnce(
+        keyword: '',
+        episodeNumber: filteredEpisodeNumber,
+        tmdbId: tmdbNumericId,
+      );
+    }
     final keywords = <String>{
       if (rawKeyword.isNotEmpty) rawKeyword,
       if (normalizedKeyword.isNotEmpty) normalizedKeyword,
@@ -131,6 +138,26 @@ class DanDanPlayResolver {
       }
     }
     return const <DanDanPlayEpisodeSearchItem>[];
+  }
+
+  /// 手动搜索仅使用用户输入，不附加当前影片条件，也不拆词替换关键词。
+  /// 使用 TMDB:编号 时只按 ID 查询，避免纯数字作品名被误当成 ID。
+  Future<List<DanDanPlayEpisodeSearchItem>> searchManualCandidates(
+    String input,
+  ) async {
+    final query = input.trim();
+    if (!_api.ready || query.isEmpty) {
+      return const <DanDanPlayEpisodeSearchItem>[];
+    }
+    final idMatch = RegExp(
+      r'^tmdb\s*[:：]\s*(\d+)$',
+      caseSensitive: false,
+    ).firstMatch(query);
+    return _searchEpisodeCandidatesOnce(
+      keyword: idMatch == null ? query : '',
+      episodeNumber: null,
+      tmdbId: idMatch == null ? null : int.tryParse(idMatch.group(1)!),
+    );
   }
 
   /// 按剧集 id 导入弹幕，优先命中本地缓存并对并发请求做去重。
