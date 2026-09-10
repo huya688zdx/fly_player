@@ -157,6 +157,32 @@ void main() {
     expect(backgroundTapCount, 0);
   });
 
+  testWidgets('关闭字幕时关闭项显示选中标记', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          child: DesktopHoverOptionsPanel(
+            title: '字幕',
+            options: const [DesktopPlayerPanelOption(value: '1', title: '中文')],
+            emptyLabel: '',
+            offLabel: '关闭',
+            offSelected: true,
+            onOff: () {},
+            onSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+    final offRow = find
+        .ancestor(of: find.text('关闭'), matching: find.byType(Row))
+        .first;
+    expect(
+      find.descendant(of: offRow, matching: find.byIcon(Icons.check_rounded)),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.circle_outlined), findsOneWidget);
+  });
+
   testWidgets('空字幕列表不显示无意义的关闭项', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

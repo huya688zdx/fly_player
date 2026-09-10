@@ -126,6 +126,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   int _preloadGeneration = 0;
   String _preloadingItemGuid = '';
   bool _subtitleWindowPending = false;
+  SubtitleTrack? _menuSubtitleTrack;
   int _subtitleWindowSecond = -100;
   late final DesktopPlaybackReporter _reporter;
   bool _reportReady = false;
@@ -1876,6 +1877,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _showTracks({required bool audio, Rect? anchor}) async {
     _wakeControls(scheduleHide: false);
+    if (!audio) await _refreshMenuSubtitleTrack();
+    if (!mounted) return;
     final usesServerReload =
         _source.serverPlaybackManaged && widget.reloadSource != null;
     if (usesServerReload) {
@@ -1969,7 +1972,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     );
     final selectedSubtitleTrack = DesktopMpvRuntime.selectedSubtitleTrack(
       subtitleTracks,
-      _player.state.track.subtitle,
+      _menuSubtitleTrack ?? _player.state.track.subtitle,
     );
     final options = <DesktopPlayerPanelOption>[
       if (audio)
@@ -2066,7 +2069,34 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
         visible: true,
         anchor: anchor,
       );
+      if (kind == PlayerHoverOverlayKind.subtitle) {
+        unawaited(_refreshMenuSubtitleTrack(_hoverOverlayNotifier.value));
+      }
     });
+  }
+
+  Future<void> _refreshMenuSubtitleTrack([
+    PlayerHoverOverlaySnapshot? snapshot,
+  ]) async {
+    _menuSubtitleTrack = null;
+    final platform = _player.platform;
+    if (_source.serverPlaybackManaged || platform is! NativePlayer) return;
+    final generation = _sourceChangeGeneration;
+    try {
+      // 外挂字幕的应用状态保存 URI，内核轨道列表使用数字 ID；以实际 sid 为准。
+      final id = (await platform.getProperty('sid')).trim();
+      if (!_isCurrentSourceChange(generation) ||
+          (snapshot != null &&
+              !identical(snapshot, _hoverOverlayNotifier.value))) {
+        return;
+      }
+      if (id.isNotEmpty) _menuSubtitleTrack = SubtitleTrack(id, null, null);
+      if (snapshot != null) {
+        _hoverOverlayNotifier.value = snapshot.copyWith();
+      }
+    } catch (_) {
+      // 内核尚未就绪时沿用 media_kit 已知的选轨状态。
+    }
   }
 
   void _scheduleHoverOverlayClose() {
@@ -2182,7 +2212,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     );
     final selectedTrack = DesktopMpvRuntime.selectedSubtitleTrack(
       tracks,
-      _player.state.track.subtitle,
+      _menuSubtitleTrack ?? _player.state.track.subtitle,
     );
     return <DesktopPlayerPanelOption>[
       for (var index = 0; index < tracks.length; index++)
@@ -2307,6 +2337,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
           options: _hoverTrackOptions(false),
           emptyLabel: _l10n.desktopPlaybackNoSubtitleTracks,
           offLabel: _l10n.nativePlayerTrackOff,
+          offSelected: _source.serverPlaybackManaged
+              ? (_source.subtitleTrackGuid?.isEmpty ?? true)
+              : (_menuSubtitleTrack ?? _player.state.track.subtitle).id == 'no',
           actions: <DesktopPanelHeaderAction>[
             DesktopPanelHeaderAction(
               label: '样式',
@@ -2606,7 +2639,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   );
 
   List<DesktopPlayerPanelOption> _localSubtitleOptions() {
-    final currentId = _player.state.track.subtitle.id;
+    final currentId = (_menuSubtitleTrack ?? _player.state.track.subtitle).id;
     final existingIds = _player.state.tracks.subtitle
         .map((track) => track.id)
         .toSet();
