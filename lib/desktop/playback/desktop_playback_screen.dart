@@ -562,10 +562,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     await _setMpvProperty('vf', filters.join(','));
     await _setMpvProperty(
       'deinterlace',
-      switch (settings[MpvSettingsCatalog.deinterlaceKey] ?? 'auto') {
+      switch (settings[MpvSettingsCatalog.deinterlaceKey]) {
         'force' => 'yes',
-        'off' => 'no',
-        _ => 'auto',
+        _ => 'no',
       },
     );
     final scale = switch (settings[MpvSettingsCatalog.scaleProfileKey] ??
