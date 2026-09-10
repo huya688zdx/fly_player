@@ -903,6 +903,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       desktopTapDropdownWrapper(
                         dropdownKey: _sortDropdownKey,
                         spec: _sortDropdownSpec,
+                        pageScrollController: _scrollController,
                         child: InkWell(
                           onTap: _onSortTriggerTap,
                           borderRadius: BorderRadius.circular(8),
@@ -951,6 +952,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                 desktopTapDropdownWrapper(
                   dropdownKey: _layoutDropdownKey,
                   spec: _layoutDropdownSpec,
+                  pageScrollController: _scrollController,
                   child: _CategoryToolButton(
                     icon: Icons.grid_view_rounded,
                     active: _viewType != MediaCollectionViewType.list,
