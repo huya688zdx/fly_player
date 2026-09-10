@@ -10,6 +10,7 @@ import 'package:fly_player/desktop/playback/desktop_playback_chapters.dart';
 import 'package:fly_player/desktop/playback/desktop_playback_reporter.dart';
 import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
 import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
+import 'package:fly_player/desktop/playback/desktop_player_controls.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/models/playback_stream.dart';
@@ -18,8 +19,82 @@ import 'package:fly_player/playback/bookmarks/bookmark_store.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/playback/settings/mpv_settings_store.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
+  testWidgets('顶栏单行标题与工具入口对齐，书签截图只出现一次且可点击', (tester) async {
+    final player = Player(platformPlayer: _ControlsPlayer());
+    final calls = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DesktopPlayerControls(
+            player: player,
+            videoState: _ControlsVideoState(),
+            showBuffer: false,
+            title: '异国日记 第1季 第13集 明日将至',
+            resolution: '原画',
+            playing: true,
+            loading: false,
+            volume: 100,
+            rate: 1,
+            nowPlayingLabel: '正在播放',
+            playTooltip: '播放',
+            pauseTooltip: '暂停',
+            muteTooltip: '静音',
+            speedTooltip: '倍速',
+            fullscreenTooltip: '全屏',
+            settingsTooltip: '设置',
+            prevTooltip: '上一集',
+            bookmarkTooltip: '书签',
+            episodeLabel: '选集',
+            subtitleLabel: '字幕',
+            audioTooltip: '音轨',
+            screenshotLabel: '截图',
+            danmakuEnabled: true,
+            danmakuLabel: '弹幕开关',
+            abRepeatLabel: 'AB',
+            abRepeatTooltip: '设置 A 点',
+            onBack: () => calls.add('返回'),
+            onToggle: () {},
+            onSeek: (_) async {},
+            onVolume: (_) {},
+            onMute: () {},
+            onRate: (_) {},
+            onScreenshot: () => calls.add('截图'),
+            onAddBookmark: () => calls.add('书签'),
+            onToggleDanmaku: () {},
+            onAbRepeat: () => calls.add('AB'),
+            onDanmakuSettings: () => calls.add('弹幕设置'),
+            onSettings: () => calls.add('设置'),
+          ),
+        ),
+      ),
+    );
+    final back = find.byIcon(Icons.arrow_back_rounded);
+    final title = find.text('异国日记 第1季 第13集 明日将至');
+    expect(title, findsOneWidget);
+    expect(find.text('异国日记 · S01E13'), findsNothing);
+    final topY = tester.getCenter(back).dy;
+    expect(tester.getCenter(title).dy, topY);
+    final tools = ['书签', '截图', '设置 A 点', '弹幕设置', '设置'];
+    var lastX = tester.getRect(title).right;
+    for (final label in tools) {
+      final button = find.byTooltip(label);
+      expect(button, findsOneWidget);
+      final center = tester.getCenter(button);
+      expect(center.dy, topY);
+      expect(center.dx, greaterThan(lastX));
+      lastX = center.dx;
+      await tester.tap(button);
+    }
+    await tester.tap(back);
+    expect(calls, ['书签', '截图', 'AB', '弹幕设置', '设置', '返回']);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await player.dispose();
+  });
+
   testWidgets('弹幕快捷填入片名或 TMDB 后仍可编辑，点击搜索才发起查询', (tester) async {
     final queries = <String>[];
     await tester.pumpWidget(
@@ -545,6 +620,15 @@ void main() {
     expect(find.byType(DesktopPlaybackSettingsPanel), findsOneWidget);
     expect(find.text('弹幕源内页'), findsOneWidget);
   });
+}
+
+class _ControlsPlayer extends PlatformPlayer {
+  _ControlsPlayer() : super(configuration: const PlayerConfiguration());
+}
+
+class _ControlsVideoState extends VideoState {
+  @override
+  bool isFullscreen() => false;
 }
 
 MpvMediaSource _qualitySource() {
