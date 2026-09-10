@@ -73,7 +73,7 @@ Future<void> _flushTimers(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('桌面详情返回在 180ms 内原位淡出', (tester) async {
+  testWidgets('桌面详情原位淡入 200ms，返回原位淡出 180ms', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
     final navigator = GlobalKey<NavigatorState>();
@@ -84,9 +84,22 @@ void main() {
       const Text('详情'),
     );
     navigator.currentState!.push(route);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     final detail = find.text('详情');
     final position = tester.getTopLeft(detail);
+    expect(
+      tester
+          .widget<Opacity>(
+            find.ancestor(of: detail, matching: find.byType(Opacity)).first,
+          )
+          .opacity,
+      closeTo(0.5, 0.01),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getTopLeft(detail), position);
+    expect((route as PageRoute<void>).animation!.value, 1);
+    await tester.pumpAndSettle();
     navigator.currentState!.pop();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 90));
@@ -98,7 +111,7 @@ void main() {
         .opacity;
     expect(opacity, closeTo(0.5, 0.01));
     await tester.pump(const Duration(milliseconds: 90));
-    expect((route as PageRoute<void>).animation!.value, closeTo(0.0, 0.0001));
+    expect(route.animation!.value, closeTo(0.0, 0.0001));
     await tester.pump(const Duration(milliseconds: 16));
     expect(detail, findsNothing);
     expect(find.text('首页'), findsOneWidget);
