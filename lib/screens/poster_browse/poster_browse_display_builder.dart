@@ -138,8 +138,9 @@ class PosterBrowseDisplayBuilder {
     final seriesPrimary = seriesDetail?.primaryImage ?? MediaImageRef.empty;
     if (preferSeries) {
       return <MediaImageRef>[
-        seriesPrimary,
+        // 单集优先展示所属季海报，避免不同季都显示同一张整剧海报。
         seasonPrimary,
+        seriesPrimary,
         ...card.posters,
         card.primaryImage,
       ];
