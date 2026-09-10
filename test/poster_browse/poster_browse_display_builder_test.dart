@@ -178,8 +178,8 @@ void main() {
       'item-logo',
     ]);
     expect(result.posterImages.map((image) => image.url), [
-      'series-primary',
       'season-primary',
+      'series-primary',
       'card-poster-a',
       'card-poster-b',
       'card-primary-landscape',
