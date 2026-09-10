@@ -894,7 +894,10 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(24),
-                  color: colors.surfaceSubtle,
+                  color: AppAmbientPage.cardColorOf(
+                    context,
+                    colors.surfaceSubtle,
+                  ),
                   border: Border.all(color: colors.borderSubtle),
                 ),
                 child: Column(
@@ -1181,7 +1184,7 @@ class _ScreenshotCustomDirectoryScreenState
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final l10n = AppLocalizations.of(context);
     final usingCustomDirectory =
         _settings.savePathMode == ScreenshotSettingsStore.customSavePathMode;
@@ -1215,7 +1218,10 @@ class _ScreenshotCustomDirectoryScreenState
                           end: Alignment.bottomRight,
                           colors: <Color>[
                             colors.accent.withValues(alpha: 0.22),
-                            colors.surfaceSubtle,
+                            AppAmbientPage.cardColorOf(
+                              context,
+                              colors.surfaceSubtle,
+                            ),
                           ],
                         ),
                         border: Border.all(color: colors.borderSubtle),
@@ -1332,7 +1338,7 @@ class _CardBlock extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         border: Border.all(color: colors.borderSubtle),
       ),
       child: Padding(
@@ -1361,14 +1367,14 @@ class _OtherEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: AppAmbientPage.cardColorOf(context, colors.surface),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: colors.borderSubtle),
         ),
@@ -1510,7 +1516,7 @@ class _ChoiceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1521,7 +1527,9 @@ class _ChoiceTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: selected ? colors.accentSoft : colors.surface,
+            color: selected
+                ? colors.accentSoft
+                : AppAmbientPage.cardColorOf(context, colors.surface),
             border: Border.all(
               color: selected ? colors.accent : colors.borderSubtle,
             ),
@@ -1623,7 +1631,7 @@ class _HintCard extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
-        color: colors.surfaceSubtle,
+        color: AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
         border: Border.all(color: colors.borderSubtle),
       ),
       child: Column(
