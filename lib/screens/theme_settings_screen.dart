@@ -37,7 +37,7 @@ class ThemeSettingsScreen extends StatelessWidget {
     final provider = context.watch<AppThemeProvider>();
     final l10n = AppLocalizations.of(context);
 
-    // 页面自绘与首页同源的氛围底（整面覆盖，防转场残影）。
+    // 设置宿主提供氛围底时沿用，独立打开时由页面绘制。
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -57,8 +57,15 @@ class ThemeSettingsScreen extends StatelessWidget {
         ),
         body: SafeArea(
           top: false,
+          bottom: false,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+            // 让内容延伸到悬浮导航后方，末项仍能滚动到安全区域。
+            padding: EdgeInsets.fromLTRB(
+              16,
+              12,
+              16,
+              28 + MediaQuery.paddingOf(context).bottom,
+            ),
             children: <Widget>[
               ThemeSettingsPreviewCard(
                 themeTitle: AppThemeL10n.currentThemeTitle(l10n, provider),
@@ -159,7 +166,9 @@ class _ToneCustomizationCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.sharesBackgroundOf(context)
+            ? colors.surface.withValues(alpha: 0.16)
+            : colors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -278,116 +287,137 @@ class _ToneRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 11),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 26,
-            height: 26,
-            decoration: BoxDecoration(
-              color: currentColor,
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(
-                color: themeSettingsVisibleBorderFor(currentColor),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 620;
+        final swatch = Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            color: currentColor,
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: themeSettingsVisibleBorderFor(currentColor),
+            ),
+          ),
+        );
+        final label = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Flexible(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: AdaptiveText.roleSize(13.5),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (usesCustom) ...<Widget>[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 1.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.accentSoft,
+                      borderRadius: BorderRadius.circular(99),
+                      border: Border.all(
+                        color: colors.accent.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Text(
+                      AppLocalizations.of(context).themeCustomLabel,
+                      style: TextStyle(
+                        color: colors.accentStrong,
+                        fontSize: AdaptiveText.roleSize(10),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              subtitle,
+              maxLines: compact ? 3 : 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.textMuted,
+                fontSize: AdaptiveText.roleSize(10.5),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 148,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Flexible(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: AdaptiveText.roleSize(13.5),
-                          fontWeight: FontWeight.w700,
-                        ),
+          ],
+        );
+        final options = Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: <Widget>[
+            for (final chip in chips)
+              Tooltip(
+                message: chip.tooltip,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(99),
+                  onTap: chip.onTap,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: chip.color,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: chip.selected
+                            ? colors.accent
+                            : colors.textPrimary.withValues(alpha: 0.18),
+                        width: chip.selected ? 2.5 : 1,
                       ),
                     ),
-                    if (usesCustom) ...<Widget>[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 1.5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colors.accentSoft,
-                          borderRadius: BorderRadius.circular(99),
-                          border: Border.all(
-                            color: colors.accent.withValues(alpha: 0.5),
-                          ),
-                        ),
-                        child: Text(
-                          AppLocalizations.of(context).themeCustomLabel,
-                          style: TextStyle(
-                            color: colors.accentStrong,
-                            fontSize: AdaptiveText.roleSize(10),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+        final palette = _PaletteButton(onOpenPalette: onOpenPalette);
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: compact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        swatch,
+                        const SizedBox(width: 12),
+                        Expanded(child: label),
+                        const SizedBox(width: 8),
+                        palette,
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    options,
+                  ],
+                )
+              : Row(
+                  children: <Widget>[
+                    swatch,
+                    const SizedBox(width: 12),
+                    SizedBox(width: 148, child: label),
+                    const SizedBox(width: 12),
+                    Expanded(child: options),
+                    const SizedBox(width: 8),
+                    palette,
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.textMuted,
-                    fontSize: AdaptiveText.roleSize(10.5),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Wrap(
-              spacing: 7,
-              runSpacing: 7,
-              children: <Widget>[
-                for (final chip in chips)
-                  Tooltip(
-                    message: chip.tooltip,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(99),
-                      onTap: chip.onTap,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 140),
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: chip.color,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: chip.selected
-                                ? colors.accent
-                                : colors.textPrimary.withValues(alpha: 0.18),
-                            width: chip.selected ? 2.5 : 1,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          _PaletteButton(onOpenPalette: onOpenPalette),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -457,7 +487,9 @@ class _CurrentCustomThemeRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: AppAmbientPage.sharesBackgroundOf(context)
+              ? colors.surface.withValues(alpha: 0.16)
+              : colors.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: provider.isCurrentCustomActive
@@ -599,7 +631,9 @@ class _EmptySavedThemesCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.sharesBackgroundOf(context)
+            ? colors.surface.withValues(alpha: 0.16)
+            : colors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.borderSubtle),
       ),
