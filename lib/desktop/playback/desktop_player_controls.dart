@@ -748,8 +748,7 @@ class _CtrlTextButton extends StatelessWidget {
   }
 }
 
-/// 弹幕开关（.pl-btn > span.on）：38px 方钮内嵌「弹」徽标，
-/// 开启时 accent 底、关闭时白 25% 底。
+/// 弹幕开关：深色底与白字保持对比，图标明确区分开关状态。
 class _DanmakuBadgeButton extends StatelessWidget {
   const _DanmakuBadgeButton({
     required this.enabled,
@@ -780,24 +779,35 @@ class _DanmakuBadgeButton extends StatelessWidget {
               height: 38,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               alignment: Alignment.center,
-              child: Container(
-                width: 18,
-                height: 18,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                 decoration: BoxDecoration(
-                  color: enabled
-                      ? accent
-                      : Colors.white.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  '弹',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    height: 1,
-                    fontWeight: FontWeight.w700,
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: enabled ? 0.45 : 0.2),
                   ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '弹幕',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        height: 1,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Icon(
+                      enabled ? Icons.check_rounded : Icons.block_rounded,
+                      size: 14,
+                      color: enabled ? accent : Colors.white70,
+                    ),
+                  ],
                 ),
               ),
             ),
