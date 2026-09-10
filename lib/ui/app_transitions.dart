@@ -36,6 +36,9 @@ class AppTransitions {
   // Generic route animation timing.
   static const Duration routeEnter = AppMotion.routeEnter;
   static const Duration routeExit = AppMotion.routeExit;
+  static Duration get _pageTurnEnter => DesktopEnvironment.isDesktopPlatform
+      ? const Duration(milliseconds: 200)
+      : routeEnter;
   static Duration get _pageTurnExit => DesktopEnvironment.isDesktopPlatform
       ? const Duration(milliseconds: 180)
       : routeExit;
@@ -110,22 +113,11 @@ class AppTransitions {
     if (AppAmbientPage.sharesBackgroundOf(context)) {
       return Offstage(offstage: !secondaryAnimation.isDismissed, child: child);
     }
-    // 桌面进入仍不透明地轻移；返回原位淡出，并保持组件层级稳定。
+    // 桌面进出均原位淡变，避免整页的小幅横移产生抖动感。
     if (DesktopEnvironment.isDesktopPlatform) {
-      final exiting =
-          animation.status == AnimationStatus.reverse ||
-          animation.status == AnimationStatus.dismissed;
       return Opacity(
-        opacity: exiting ? Curves.easeInOut.transform(animation.value) : 1.0,
-        child: FractionalTranslation(
-          translation: exiting
-              ? Offset.zero
-              : Offset(
-                  0.018 * (1 - Curves.easeOutCubic.transform(animation.value)),
-                  0,
-                ),
-          child: child,
-        ),
+        opacity: Curves.easeInOut.transform(animation.value),
+        child: child,
       );
     }
     return _lightweightPageTransition(
@@ -144,7 +136,7 @@ class AppTransitions {
     return PageRouteBuilder<T>(
       settings: settings,
       fullscreenDialog: fullscreenDialog,
-      transitionDuration: routeEnter,
+      transitionDuration: _pageTurnEnter,
       reverseTransitionDuration: _pageTurnExit,
       pageBuilder: (context, animation, secondaryAnimation) => page,
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
@@ -361,7 +353,7 @@ class AppPaneCardRoute<T> extends PageRoute<T> {
 
   @override
   Duration get transitionDuration =>
-      animate ? AppTransitions.routeEnter : Duration.zero;
+      animate ? AppTransitions._pageTurnEnter : Duration.zero;
 
   @override
   Duration get reverseTransitionDuration =>
@@ -423,7 +415,7 @@ class _AppPageBasedPaneCardRoute<T> extends PageRoute<T> {
 
   @override
   Duration get transitionDuration =>
-      _page.animate ? AppTransitions.routeEnter : Duration.zero;
+      _page.animate ? AppTransitions._pageTurnEnter : Duration.zero;
 
   @override
   Duration get reverseTransitionDuration =>
@@ -493,7 +485,7 @@ class _AppSplitPaneHostRoute<T> extends PageRoute<T> {
   });
 
   @override
-  Duration get transitionDuration => AppTransitions.routeEnter;
+  Duration get transitionDuration => AppTransitions._pageTurnEnter;
 
   @override
   Duration get reverseTransitionDuration => AppTransitions._pageTurnExit;
