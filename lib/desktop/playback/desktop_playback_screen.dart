@@ -2919,6 +2919,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       barrierLabel: _l10n.commonClose,
       closeTooltip: _l10n.commonClose,
       builder: (context) => DesktopPlaybackSettingsPanel(
+        reserveCloseButtonSpace: true,
         source: _source,
         position: _player.state.position,
         duration: _player.state.duration,
@@ -3349,12 +3350,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                             ? '设置 B 点'
                             : '设置 A 点',
                         onAbRepeat: () => unawaited(_toggleAbRepeat()),
-                        onDanmakuSettings: () => unawaited(
-                          _showPlaybackSettingsPanel(
-                            initialPage:
-                                DesktopPlaybackSettingsPage.danmakuSettings,
-                          ),
-                        ),
                         onToggleDanmaku: _toggleDanmaku,
                         onSettings: () =>
                             unawaited(_showPlaybackSettingsPanel()),

@@ -62,7 +62,6 @@ class DesktopPlayerControls extends StatefulWidget {
     required this.abRepeatLabel,
     required this.abRepeatTooltip,
     required this.onAbRepeat,
-    required this.onDanmakuSettings,
     this.onNext,
     this.onPrevious,
     this.onEpisodes,
@@ -132,7 +131,6 @@ class DesktopPlayerControls extends StatefulWidget {
   final String abRepeatLabel;
   final String abRepeatTooltip;
   final VoidCallback onAbRepeat;
-  final VoidCallback onDanmakuSettings;
   final VoidCallback? onNext;
   final VoidCallback? onPrevious;
   final VoidCallback? onEpisodes;
@@ -218,7 +216,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
   }
 
   // ---------------------------------------------------------------------------
-  // 顶栏：返回 + 单行标题 | 书签 / 截图 / AB / 弹幕设置 / 设置
+  // 顶栏：返回 + 单行标题 | 书签 / 截图 / AB / 设置
   // ---------------------------------------------------------------------------
 
   Widget _buildTopBar() {
@@ -267,11 +265,6 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
             active: widget.abRepeatLabel != 'AB',
             onPressed: widget.onAbRepeat,
           ),
-        ),
-        _CtrlIconButton(
-          icon: Icons.tune_rounded,
-          tooltip: '弹幕设置',
-          onPressed: widget.onDanmakuSettings,
         ),
         _CtrlIconButton(
           icon: Icons.settings_outlined,
