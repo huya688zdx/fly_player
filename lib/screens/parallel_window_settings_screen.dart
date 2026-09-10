@@ -331,7 +331,7 @@ class _SettingsCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -434,7 +434,7 @@ class _SegmentItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return InkWell(
       borderRadius: BorderRadius.circular(11),
       onTap: enabled ? onTap : null,
@@ -445,7 +445,9 @@ class _SegmentItem extends StatelessWidget {
           vertical: dense ? 10 : 12,
         ),
         decoration: BoxDecoration(
-          color: selected ? colors.accentSoft : colors.surfaceSubtle,
+          color: selected
+              ? colors.accentSoft
+              : AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
           borderRadius: BorderRadius.circular(11),
           border: Border.all(
             color: selected
@@ -512,7 +514,7 @@ class _MiniSplitGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final fill = selected
         ? colors.accent.withValues(alpha: 0.85)
         : colors.textMuted.withValues(alpha: 0.35);
@@ -584,7 +586,7 @@ class _PreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final l10n = AppLocalizations.of(context);
     final leftPct = mainIsLeft ? mainPct : otherPct;
     final rightPct = mainIsLeft ? otherPct : mainPct;
@@ -601,7 +603,9 @@ class _PreviewCard extends StatelessWidget {
       return Expanded(
         flex: pct,
         child: Container(
-          color: isMain ? colors.accentSoft : colors.surfaceSubtle,
+          color: isMain
+              ? colors.accentSoft
+              : AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
           padding: const EdgeInsets.all(10),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -869,11 +873,13 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(
-        color: enabled ? colors.accentSoft : colors.surface,
+        color: enabled
+            ? colors.accentSoft
+            : AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(99),
         border: Border.all(
           color: enabled

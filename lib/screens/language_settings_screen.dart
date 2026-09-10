@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../providers/app_locale_provider.dart';
-import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../widgets/common/app_ambient_page.dart';
@@ -71,7 +70,7 @@ class _LanguageOptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final selected = mode == groupValue;
     return ListTile(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
