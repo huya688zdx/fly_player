@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
@@ -115,6 +117,48 @@ void main() {
       tester.widget<PosterBrowsePosterCard>(_cardByTitle('标题2')).focused,
       isTrue,
     );
+  });
+
+  testWidgets('快速跨多张拖动后沿松手方向吸附，不拉回起点相邻项', (tester) async {
+    final settled = <int>[];
+    await tester.pumpWidget(
+      _app(
+        PosterBrowseArcCarousel(
+          items: _items(12),
+          initialIndex: 0,
+          spacing: 100,
+          showProgress: false,
+          imageOf: (_) => MediaImageRequest.empty,
+          secondaryLabelOf: (_) => '',
+          onSettled: settled.add,
+          onCenteredTap: (_) {},
+        ),
+      ),
+    );
+    await tester.timedDrag(
+      find.byType(PosterBrowseArcCarousel),
+      const Offset(-350, 0),
+      const Duration(milliseconds: 150),
+    );
+    await tester.pumpAndSettle();
+    expect(settled.single, 4);
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final center = tester.getCenter(find.byType(PosterBrowseArcCarousel));
+    // 动画未结束前连续滚两格，目标也要累计两项。
+    for (var i = 0; i < 2; i++) {
+      await tester.sendEventToBinding(
+        PointerScrollEvent(position: center, scrollDelta: const Offset(0, 120)),
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(settled.last, 6);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(position: center, scrollDelta: const Offset(0, -120)),
+    );
+    await tester.pumpAndSettle();
+    expect(settled.last, 5);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('点击侧项只吸附 settle，点击中心才触发 centeredTap', (tester) async {
