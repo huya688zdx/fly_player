@@ -152,6 +152,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   PlayerHoverOverlayKind? get _hoverOverlayKind =>
       _hoverOverlayNotifier.value.kind;
   bool _takingScreenshot = false;
+  Duration? _abLoopStart;
+  Duration? _abLoopEnd;
+  bool _updatingAbLoop = false;
   bool _showResumePrompt = false;
   bool _playbackCompleted = false;
   int _autoNextSeconds = 0;
@@ -909,7 +912,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   }
 
   _SkipPromptKind? _computeSkipPromptKind(Duration position) {
-    if (!_introOutroEnabled || _playbackCompleted || _isLoading) return null;
+    if (!_introOutroEnabled ||
+        _playbackCompleted ||
+        _isLoading ||
+        _abLoopStart != null) {
+      return null;
+    }
     final duration = _player.state.duration;
     if (duration <= Duration.zero) return null;
     final bounds = _skipBounds;
@@ -1001,6 +1009,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     widget.session.ready = false;
     _subtitleWindowSecond = -100;
     try {
+      // 每次打开媒体都清除旧循环，避免换集后沿用上一集的时间点。
+      await _setMpvProperty('ab-loop-b', 'no');
+      if (!_isCurrentSourceChange(generation)) return false;
+      await _setMpvProperty('ab-loop-a', 'no');
+      if (!_isCurrentSourceChange(generation)) return false;
+      _updateView(() {
+        _abLoopStart = null;
+        _abLoopEnd = null;
+      });
       await _applyDesktopMpvProperties();
       if (!_isCurrentSourceChange(generation)) return false;
       _chapterLoader.reset();
@@ -1662,6 +1679,63 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     _toastTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) _updateView(() => _toastMessage = null);
     });
+  }
+
+  Future<void> _toggleAbRepeat() async {
+    if (_updatingAbLoop || _isLoading) return;
+    if (_player.state.duration <= Duration.zero) {
+      _showPlayerMessage(_l10n.playerAbLoopUnavailable);
+      return;
+    }
+    _wakeControls();
+    final generation = _sourceChangeGeneration;
+    final position = _player.state.position;
+    final start = _abLoopStart;
+    _updatingAbLoop = true;
+    try {
+      if (_abLoopEnd != null) {
+        // B 点关闭即可停止循环，A 点在下一次设置或打开媒体时覆盖。
+        await _setMpvProperty('ab-loop-b', 'no');
+        if (!_isCurrentSourceChange(generation)) return;
+        _updateView(() {
+          _abLoopStart = null;
+          _abLoopEnd = null;
+        });
+        _showPlayerMessage(_l10n.playerAbLoopCleared);
+      } else if (start == null) {
+        await _setMpvProperty(
+          'ab-loop-a',
+          (position.inMilliseconds / 1000).toStringAsFixed(3),
+        );
+        if (!_isCurrentSourceChange(generation)) return;
+        _updateView(() => _abLoopStart = position);
+        _skipPromptKindNotifier.value = null;
+        _showPlayerMessage(
+          _l10n.playerAbLoopPointSet(_formatDuration(position)),
+        );
+      } else if (position <= start) {
+        _showPlayerMessage(_l10n.nativePlayerAbEndMustAfterStart);
+      } else {
+        await _setMpvProperty(
+          'ab-loop-b',
+          (position.inMilliseconds / 1000).toStringAsFixed(3),
+        );
+        if (!_isCurrentSourceChange(generation)) return;
+        _updateView(() => _abLoopEnd = position);
+        _showPlayerMessage(
+          _l10n.playerAbLoopSet(
+            _formatDuration(start),
+            _formatDuration(position),
+          ),
+        );
+      }
+    } catch (_) {
+      if (_isCurrentSourceChange(generation)) {
+        _showPlayerMessage(_l10n.playerAbLoopUnavailable);
+      }
+    } finally {
+      _updatingAbLoop = false;
+    }
   }
 
   void _cycleFit() {
@@ -3196,7 +3270,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                         chapters: _chapters,
                         videoState: videoState,
                         title: _source.title,
-                        subtitle: _subtitle,
                         resolution: _resolutionLabel,
                         playing: _isPlaying,
                         loading: _isLoading || _isBuffering,
@@ -3232,6 +3305,23 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                         onMute: () => unawaited(_toggleMute()),
                         onRate: (value) => unawaited(_setPlaybackRate(value)),
                         onScreenshot: () => unawaited(_captureScreenshot()),
+                        abRepeatLabel: _abLoopEnd != null
+                            ? 'A-B'
+                            : _abLoopStart != null
+                            ? 'A'
+                            : 'AB',
+                        abRepeatTooltip: _abLoopEnd != null
+                            ? '关闭 A-B 循环'
+                            : _abLoopStart != null
+                            ? '设置 B 点'
+                            : '设置 A 点',
+                        onAbRepeat: () => unawaited(_toggleAbRepeat()),
+                        onDanmakuSettings: () => unawaited(
+                          _showPlaybackSettingsPanel(
+                            initialPage:
+                                DesktopPlaybackSettingsPage.danmakuSettings,
+                          ),
+                        ),
                         onToggleDanmaku: _toggleDanmaku,
                         onSettings: () =>
                             unawaited(_showPlaybackSettingsPanel()),
