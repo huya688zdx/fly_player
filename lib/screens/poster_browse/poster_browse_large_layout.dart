@@ -129,6 +129,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
               selectorSpacing: selectorSpacing,
               collapseProgress: collapseProgress,
             );
+            final trackSlideDistance = trackHeight + selectorSpacing + 48;
             final cardWidth =
                 ((expandedTrackHeight -
                             _trackVerticalPadding -
@@ -171,7 +172,8 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
                           child: Transform.translate(
                             offset: Offset(
                               0,
-                              (trackHeight + selectorSpacing + 48) *
+                              // 间距收缩已推动分类栏下移，扣除这部分以同步海报位移。
+                              (trackSlideDistance - selectorSpacing) *
                                   collapseProgress,
                             ),
                             child: Align(
@@ -196,6 +198,9 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
                           currentItems,
                           cardWidth,
                           showMediaInfo: showMediaInfo,
+                          trackSlideFactor: trackHeight > 0
+                              ? trackSlideDistance / trackHeight
+                              : 1,
                         ),
                       ),
                     ],
@@ -240,6 +245,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
     List<PosterBrowseDisplayItem> currentItems,
     double cardWidth, {
     required bool showMediaInfo,
+    required double trackSlideFactor,
   }) {
     if (currentItems.isNotEmpty) {
       return PosterBrowseLandscapeGesturePanel(
@@ -251,6 +257,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         onItemTap: widget.onSelectItem,
         onCollapseProgressChanged: _handleCollapseProgressChanged,
         cardWidth: cardWidth,
+        trackSlideFactor: trackSlideFactor,
         collapsedContent: showMediaInfo || widget.focusedItem == null
             ? const SizedBox.shrink()
             : Padding(
