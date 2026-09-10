@@ -28,6 +28,24 @@ void main() {
   });
   tearDown(() async => directory.delete(recursive: true));
 
+  test('关闭影片字幕会生成空字幕轨，仍可独立启用弹幕', () async {
+    final closed = await ExternalPlayerSubtitles.prepare(
+      directory: directory,
+      subtitlePath: '${directory.path}/不应读取的字幕.ass',
+      settings: DanmakuSettings.defaults.copyWith(enabled: false),
+      disableSubtitles: true,
+    );
+    expect(await File(closed!).readAsString(), isNot(contains('Dialogue:')));
+    final withDanmaku = await ExternalPlayerSubtitles.prepare(
+      directory: directory,
+      subtitlePath: '${directory.path}/不应读取的字幕.ass',
+      danmakuPath: danmaku.path,
+      settings: DanmakuSettings.defaults.copyWith(enabled: true),
+      disableSubtitles: true,
+    );
+    expect(await File(withDanmaku!).readAsString(), contains('Dialogue:'));
+  });
+
   test('保留原 ASS 样式和字幕，按原分辨率合并去重后的三类弹幕', () async {
     const originalStyle =
         'Style: FlyPlayerDanmaku,Arial,40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,20,20,20,1';
