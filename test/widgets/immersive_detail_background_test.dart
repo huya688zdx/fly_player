@@ -1,46 +1,56 @@
 import 'package:fly_player/media_backend/media_image_request.dart';
+import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/widgets/app_atmospheric_background.dart';
 import 'package:fly_player/widgets/detail/detail_hero_overlay.dart';
 import 'package:fly_player/widgets/detail/immersive_detail_background.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('详情正文背景持续绘制可感知的海报取色晕染', (tester) async {
+  testWidgets('详情正文使用所选样式绘制海报取色晕染', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final provider = AppThemeProvider();
     final baseColors = AppThemeBuilder.build(
       AppThemePreset.midnight,
     ).extension<AppThemeColors>()!;
     const ambientTint = Color(0xFF65A85D);
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppThemeBuilder.build(AppThemePreset.midnight),
-        home: AppRuntimeColorScope(
-          colors: baseColors,
-          hasRuntimeColors: true,
-          child: const Scaffold(
-            body: ImmersiveDetailBackground(
-              images: MediaImageRequest.empty,
-              scrollOffset: 0,
-              posterHeight: 420,
-              ambientTintOverride: ambientTint,
+      ChangeNotifierProvider(
+        create: (_) => provider,
+        child: MaterialApp(
+          theme: AppThemeBuilder.build(AppThemePreset.midnight),
+          home: AppRuntimeColorScope(
+            colors: baseColors,
+            hasRuntimeColors: true,
+            child: const Scaffold(
+              body: ImmersiveDetailBackground(
+                images: MediaImageRequest.empty,
+                scrollOffset: 0,
+                posterHeight: 420,
+                ambientTintOverride: ambientTint,
+              ),
             ),
           ),
         ),
       ),
     );
-
-    final wash = tester.widget<DecoratedBox>(
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => provider.setBackgroundStyle(AppBackgroundStyle.cinemaLight),
+    );
+    await tester.pumpAndSettle();
+    final wash = tester.widget<AppAtmosphereSurface>(
       find.byKey(const ValueKey<String>('detail-background-ambient-wash')),
     );
-    final decoration = wash.decoration as BoxDecoration;
-    final gradient = decoration.gradient;
-
-    expect(gradient, isNotNull);
-    expect(gradient!.colors.first, isNot(baseColors.backgroundBase));
-    expect(gradient.colors.first.a, greaterThan(0.10));
-    expect(gradient.colors.last.a, greaterThan(0.02));
-    expect(gradient.colors.last.a, lessThan(gradient.colors.first.a));
+    expect(wash.style, AppBackgroundStyle.cinemaLight);
+    expect(wash.palette.hasDynamicTheme, isTrue);
+    expect(wash.palette.base, baseColors.backgroundBase);
+    expect(wash.palette.accentGlow.withValues(alpha: 1), ambientTint);
+    expect(wash.palette.accentGlow.a, greaterThan(.10));
   });
 
   testWidgets('海报与正文交接层完全属于海报且不侵入正文', (tester) async {
