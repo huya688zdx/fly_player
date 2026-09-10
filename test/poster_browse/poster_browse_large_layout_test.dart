@@ -761,7 +761,7 @@ void main() {
     await tester.tap(find.widgetWithText(ElevatedButton, '播放'));
     expect(playCount, 1);
     await tester.timedDrag(
-      find.text('验证上下拖动跟手动画。'),
+      find.textContaining('验证上下拖动跟手动画。'),
       const Offset(0, -180),
       const Duration(milliseconds: 300),
     );
@@ -908,7 +908,7 @@ void main() {
     expect(selectedIndex, 1);
   });
 
-  testWidgets('大屏横滑切换时媒体信息按滑动方向位移过渡', (tester) async {
+  testWidgets('大屏切换影片时集数评分和按钮位置保持固定', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1920, 1080));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -917,39 +917,34 @@ void main() {
 
     const firstKey = ValueKey('poster_browse_primary_info_animated-1');
     const secondKey = ValueKey('poster_browse_primary_info_animated-2');
-    final restingLeft = tester.getTopLeft(find.byKey(firstKey)).dx;
+    List<Offset> positions(Key key) => [
+      for (final target in [
+        find.byKey(const ValueKey('poster_browse_secondary_label')),
+        find.textContaining('★'),
+        find.byType(ElevatedButton),
+        find.byType(OutlinedButton),
+      ])
+        tester.getTopLeft(
+          find.descendant(of: find.byKey(key), matching: target),
+        ),
+    ];
+    final restingPositions = positions(firstKey);
+    final restingSize = tester.getSize(find.byKey(firstKey));
 
-    await tester.timedDragFrom(
-      const Offset(1000, 300),
-      const Offset(-120, 0),
-      const Duration(milliseconds: 300),
-    );
-    await tester.pump(const Duration(milliseconds: 80));
-
-    expect(find.byKey(firstKey), findsOneWidget);
-    expect(find.byKey(secondKey), findsOneWidget);
-    expect(tester.getTopLeft(find.byKey(firstKey)).dx, lessThan(restingLeft));
-    expect(
-      tester.getTopLeft(find.byKey(secondKey)).dx,
-      greaterThan(restingLeft),
-    );
-
-    await tester.pumpAndSettle();
-    expect(find.byKey(firstKey), findsNothing);
-    expect(find.byKey(secondKey), findsOneWidget);
-
-    await tester.timedDragFrom(
-      const Offset(1000, 300),
-      const Offset(120, 0),
-      const Duration(milliseconds: 300),
-    );
-    await tester.pump(const Duration(milliseconds: 80));
-
-    expect(
-      tester.getTopLeft(find.byKey(secondKey)).dx,
-      greaterThan(restingLeft),
-    );
-    expect(tester.getTopLeft(find.byKey(firstKey)).dx, lessThan(restingLeft));
+    for (final delta in [-120.0, 120.0]) {
+      await tester.timedDragFrom(
+        const Offset(1000, 300),
+        Offset(delta, 0),
+        const Duration(milliseconds: 300),
+      );
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(positions(firstKey), restingPositions);
+      expect(positions(secondKey), restingPositions);
+      await tester.pumpAndSettle();
+      final currentKey = delta < 0 ? secondKey : firstKey;
+      expect(positions(currentKey), restingPositions);
+      expect(tester.getSize(find.byKey(currentKey)), restingSize);
+    }
   });
 
   testWidgets(
@@ -1033,7 +1028,7 @@ class _InteractiveLargeLayoutHarnessState
   Widget build(BuildContext context) {
     final focused = _displayItem(
       _cards[_focusedIndex],
-      overview: '验证媒体信息的横向位移动画。',
+      overview: _focusedIndex == 0 ? '一句简介。' : '第一行简介。\n第二行简介。\n第三行简介。',
     );
     return PosterBrowseLargeLayout(
       rows: <PosterBrowseRow>[
@@ -1047,8 +1042,10 @@ class _InteractiveLargeLayoutHarnessState
       focusedIndex: _focusedIndex,
       focusedItem: focused,
       logoRequest: MediaImageRequest.empty,
-      secondaryLabel: '第 ${_focusedIndex + 1} 集',
-      metaWidgets: const <Widget>[],
+      secondaryLabel: _focusedIndex == 0 ? '第 1 集' : '',
+      metaWidgets: _focusedIndex == 0
+          ? const [Text('★ 7.2'), Text('2009')]
+          : const [Text('★ 8'), Text('2010'), Text('24分钟'), Text('1080p')],
       imageOf: _loadableImageOf,
       secondaryLabelOf: (_) => '',
       onSelectRow: (_) {},
