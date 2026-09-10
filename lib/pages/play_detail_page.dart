@@ -3433,6 +3433,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               : null;
           final audioSheetItems = PlayDetailSheetController.audioItems(
             audioTracks: audioTracks,
+            l10n: selectorL10n,
           );
           final audioHoverPopup = showAudioArrow
               ? DesktopHoverDropdownSpec.single(
