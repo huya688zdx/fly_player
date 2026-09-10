@@ -24,6 +24,51 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
+  testWidgets('选集缩略图显示观看状态，下载文字独立且零续播值不遮掉观看进度', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DesktopEpisodePanel(
+            title: '选集',
+            emptyLabel: '暂无剧集',
+            episodes: const [
+              {
+                'itemGuid': '1',
+                'title': '已看并下载',
+                'watched': 1,
+                'downloaded': true,
+                'duration': 100,
+                'ts': 100,
+              },
+              {
+                'itemGuid': '2',
+                'title': '未看完',
+                'duration': 100,
+                'ts': 0,
+                'watchedTs': 25,
+              },
+            ],
+            onSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    final posters = find.byType(DesktopEpisodePoster);
+    expect(
+      find.descendant(of: posters.first, matching: find.text('已观看')),
+      findsOneWidget,
+    );
+    expect(find.text('已下载'), findsOneWidget);
+    final progress = find.descendant(
+      of: posters.last,
+      matching: find.byType(LinearProgressIndicator),
+    );
+    expect(tester.widget<LinearProgressIndicator>(progress).value, .25);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('选集打开定位当前集，按需切季且旧回包不覆盖失败重试', (tester) async {
     tester.view.physicalSize = const Size(430, 560);
     tester.view.devicePixelRatio = 1;
