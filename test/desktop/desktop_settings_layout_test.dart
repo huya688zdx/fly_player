@@ -371,7 +371,19 @@ void main() {
     expect(find.text('通用'), findsNothing);
 
     // 再进入调色盘，转场期间也不能透出下层主题选项。
+    await tester.scrollUntilVisible(
+      find.text('背景主色'),
+      300,
+      scrollable: find
+          .descendant(
+            of: find.byType(ThemeSettingsScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('调色盘').first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('调色盘').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));

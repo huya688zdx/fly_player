@@ -3811,5 +3811,15 @@
   "desktopPlaybackScreenshotDialogTitle": "保存当前画面",
   "desktopPlaybackPrevEpisodeTooltip": "上一集 (P)",
   "desktopPlaybackNextEpisodeTooltip": "下一集 (N)",
-  "desktopPlaybackPrevEpisodeLabel": "上一集"
+  "desktopPlaybackPrevEpisodeLabel": "上一集",
+  "themeBackgroundStyleTitle": "背景样式",
+  "themeBackgroundStyleSubtitle": "选择背景光晕的形态，颜色随当前主题变化。",
+  "themeBackgroundStyleSoftMist": "柔雾晕染",
+  "themeBackgroundStyleSoftMistSubtitle": "大片柔光自然交融",
+  "themeBackgroundStyleEdgeGlow": "边缘微光",
+  "themeBackgroundStyleEdgeGlowSubtitle": "色光沿边缘轻轻铺开",
+  "themeBackgroundStyleAuroraRibbon": "极光丝带",
+  "themeBackgroundStyleAuroraRibbonSubtitle": "宽幅弧光柔和交错",
+  "themeBackgroundStyleCinemaLight": "影院顶光",
+  "themeBackgroundStyleCinemaLightSubtitle": "顶部光晕向下渐隐"
 }
