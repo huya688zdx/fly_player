@@ -26,12 +26,15 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
-  testWidgets('透明弹幕图标进入退出时移动笔画，静止后停止调度帧', (tester) async {
-    Widget icon(bool selected) => MaterialApp(
+  testWidgets('透明图标进入退出及播放暂停切换后停止调度帧', (tester) async {
+    Widget icon(bool selected, {String? playback}) => MaterialApp(
       home: Center(
         child: DesktopPlayerMotionIcon(
-          kind: DesktopPlayerMotionKind.danmaku,
+          kind: playback == null
+              ? DesktopPlayerMotionKind.danmaku
+              : DesktopPlayerMotionKind.playPause,
           selected: selected,
+          label: playback ?? '',
         ),
       ),
     );
@@ -73,6 +76,18 @@ void main() {
     expect(await pixels(), isNot(orderedEquals(initial)));
     await tester.pumpAndSettle();
     expect(await pixels(), orderedEquals(initial));
+    expect(tester.hasRunningAnimations, isFalse);
+
+    await tester.pumpWidget(icon(false, playback: 'pause'));
+    await tester.pumpAndSettle();
+    final paused = await pixels();
+    await tester.pumpWidget(icon(false, playback: 'play'));
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(await pixels(), isNot(orderedEquals(paused)));
+    // 动画还未完成时再暂停，最终必须恢复暂停轮廓并停止刷新。
+    await tester.pumpWidget(icon(false, playback: 'pause'));
+    await tester.pumpAndSettle();
+    expect(await pixels(), orderedEquals(paused));
     expect(tester.hasRunningAnimations, isFalse);
   });
 
@@ -277,7 +292,9 @@ void main() {
             abRepeatLabel: 'AB',
             abRepeatTooltip: '设置 A 点',
             onBack: () => calls.add('返回'),
-            onToggle: () {},
+            onToggle: () => calls.add('播放暂停'),
+            onPrevious: () => calls.add('上一集'),
+            onNext: () => calls.add('下一集'),
             onSeek: (_) async {},
             onVolume: (_) {},
             onMute: () => calls.add('静音'),
@@ -317,14 +334,18 @@ void main() {
     await tester.tap(back);
     expect(calls, ['书签', '截图', 'AB', '设置', '返回']);
     for (final label in ['弹幕开关', '倍速 · 1.0×', '选集', '原画', '字幕', '音轨']) {
-      await tester.tap(find.byTooltip(label));
+      await tester.tap(find.byTooltip(label).last);
     }
     expect(calls.skip(5), ['弹幕', '倍速', '选集', '画质', '字幕', '音轨']);
     expect(find.text('选集'), findsNothing);
     expect(find.text('原画'), findsNothing);
     await tester.tap(find.byTooltip('静音'));
     expect(calls.last, '静音');
-    expect(find.byType(DesktopPlayerMotionIcon), findsNWidgets(12));
+    await tester.tap(find.byTooltip('暂停'));
+    await tester.tap(find.byTooltip('上一集'));
+    await tester.tap(find.byTooltip('选集').first);
+    expect(calls.skip(12), ['播放暂停', '上一集', '下一集']);
+    expect(find.byType(DesktopPlayerMotionIcon), findsNWidgets(15));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await player.dispose();
