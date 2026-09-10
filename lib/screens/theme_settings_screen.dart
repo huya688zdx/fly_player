@@ -37,6 +37,14 @@ class ThemeSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.watch<AppThemeProvider>();
     final l10n = AppLocalizations.of(context);
+    final previewColors = provider.effectiveThemeColors;
+    final previewAtmosphere = AppAtmospherePalette.resolve(
+      baseColors: provider.selectedThemeBaseColors,
+      effectiveColors: previewColors,
+      hasDynamicTheme:
+          provider.dynamicThemeEnabled &&
+          provider.runtimeDynamicThemeSeed != null,
+    );
 
     // 设置宿主提供氛围底时沿用，独立打开时由页面绘制。
     return AppAmbientPage(
@@ -71,11 +79,11 @@ class ThemeSettingsScreen extends StatelessWidget {
               ThemeSettingsPreviewCard(
                 themeTitle: AppThemeL10n.currentThemeTitle(l10n, provider),
                 backgroundStyle: provider.backgroundStyle,
-                themeSubtitle: AppThemeL10n.currentThemeSubtitle(
-                  l10n,
-                  provider,
-                ),
-                colors: provider.selectedThemeBaseColors,
+                themeSubtitle: previewAtmosphere.hasDynamicTheme
+                    ? l10n.themeBackgroundStyleDynamicPreview
+                    : AppThemeL10n.currentThemeSubtitle(l10n, provider),
+                colors: previewColors,
+                atmosphere: previewAtmosphere,
               ),
               const SizedBox(height: 18),
               ThemeSettingsSectionTitle(
@@ -106,7 +114,9 @@ class ThemeSettingsScreen extends StatelessWidget {
               const SizedBox(height: 18),
               ThemeSettingsSectionTitle(
                 title: l10n.themeBackgroundStyleTitle,
-                subtitle: l10n.themeBackgroundStyleSubtitle,
+                subtitle: previewAtmosphere.hasDynamicTheme
+                    ? l10n.themeBackgroundStyleDynamicPreview
+                    : l10n.themeBackgroundStyleSubtitle,
               ),
               const SizedBox(height: 12),
               LayoutBuilder(
@@ -123,7 +133,6 @@ class ThemeSettingsScreen extends StatelessWidget {
                   itemCount: AppBackgroundStyle.values.length,
                   itemBuilder: (context, index) {
                     final style = AppBackgroundStyle.values[index];
-                    final colors = provider.selectedThemeBaseColors;
                     return Semantics(
                       selected: provider.backgroundStyle == style,
                       child: ThemeSettingsPresetCard(
@@ -133,7 +142,7 @@ class ThemeSettingsScreen extends StatelessWidget {
                           l10n,
                           style,
                         ),
-                        previewColors: colors,
+                        previewColors: previewColors,
                         selected: provider.backgroundStyle == style,
                         onTap: () => provider.setBackgroundStyle(style),
                         preview: SizedBox(
@@ -141,11 +150,7 @@ class ThemeSettingsScreen extends StatelessWidget {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
                             child: AppAtmosphereSurface(
-                              palette: AppAtmospherePalette.resolve(
-                                baseColors: colors,
-                                effectiveColors: colors,
-                                hasDynamicTheme: false,
-                              ),
+                              palette: previewAtmosphere,
                               style: style,
                             ),
                           ),
