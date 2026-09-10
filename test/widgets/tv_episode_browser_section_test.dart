@@ -1,3 +1,5 @@
+import 'package:flutter/gestures.dart';
+import 'package:fly_player/desktop/desktop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/models/tv_episode_browser_models.dart';
@@ -6,7 +8,9 @@ import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/detail/tv_episode_browser_section.dart';
 
 void main() {
-  testWidgets('选集预览初次显示时滚动到选中的集数', (tester) async {
+  testWidgets('桌面窄栏选集定位到续看集后仍可左右翻页', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
     final episodes = List<TvEpisodeCardData>.generate(
       9,
       (index) => TvEpisodeCardData(
@@ -62,5 +66,17 @@ void main() {
         .state<ScrollableState>(find.byType(Scrollable))
         .position;
     expect(position.pixels, greaterThan(0));
+    final end = position.pixels;
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: tester.getCenter(find.byType(ListView)));
+    addTearDown(mouse.removePointer);
+    await tester.pumpAndSettle();
+    expect(find.byType(HoverScrollArrows), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+    expect(position.pixels, lessThan(end));
+    await tester.tap(find.byIcon(Icons.chevron_right));
+    await tester.pumpAndSettle();
+    expect(position.pixels, closeTo(end, 0.5));
   });
 }
