@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/desktop_scroll_behavior.dart';
 
 void main() {
-  testWidgets('桌面滚轮优先滚动横向列表，到边界后交给纵向页面', (tester) async {
+  testWidgets('卡片上普通滚轮上下滚动页面，横向输入和 Shift 滚轮横移', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final horizontal = ScrollController();
@@ -44,22 +45,26 @@ void main() {
     }
 
     await wheel(const Offset(0, 120));
-    expect(horizontal.offset, 120);
-    expect(vertical.offset, 0);
-    await wheel(const Offset(60, 0));
-    expect(horizontal.offset, 180);
-    horizontal.jumpTo(horizontal.position.maxScrollExtent);
-    await tester.pump();
-    await wheel(const Offset(0, 120));
+    expect(horizontal.offset, 0);
     expect(vertical.offset, 120);
     vertical.jumpTo(0);
     await tester.pump();
-    await wheel(const Offset(0, -120));
-    expect(horizontal.offset, horizontal.position.maxScrollExtent - 120);
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    await wheel(const Offset(60, 0));
+    expect(horizontal.offset, 60);
+    expect(vertical.offset, 0);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
     await wheel(const Offset(0, 120));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    expect(horizontal.offset, 180);
+    expect(vertical.offset, 0);
+    await wheel(const Offset(0, 120));
+    await wheel(const Offset(0, -60));
+    expect(vertical.offset, 60);
+    expect(horizontal.offset, 180);
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    await wheel(const Offset(0, 60));
     expect(vertical.offset, 120);
-    expect(horizontal.offset, horizontal.position.maxScrollExtent - 120);
+    expect(horizontal.offset, 180);
     debugDefaultTargetPlatformOverride = null;
   });
 

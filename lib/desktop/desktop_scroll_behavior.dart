@@ -1,55 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
-
-import 'desktop_horizontal_wheel.dart';
 
 /// Windows 桌面统一滚动行为：纵向列表使用细窄、可拖拽的自绘滚动条；
 /// 横向 shelf 不渲染滚动条，移动端沿用 Flutter 默认行为。
+/// 保留原生滚轮方向：普通滚轮上下浏览，Shift 滚轮或横向输入左右浏览。
 /// 尊重 [ScrollBehavior.scrollbars] 开关：悬浮卡/弹窗内关闭滚动条时不再强制绘制。
 class DesktopScrollBehavior extends MaterialScrollBehavior {
   const DesktopScrollBehavior();
-
-  @override
-  Widget buildOverscrollIndicator(
-    BuildContext context,
-    Widget child,
-    ScrollableDetails details,
-  ) {
-    final content = super.buildOverscrollIndicator(context, child, details);
-    if (axisDirectionToAxis(details.direction) != Axis.horizontal) {
-      return content;
-    }
-    return Listener(
-      onPointerSignal: (event) {
-        final controller = details.controller;
-        if (event is! PointerScrollEvent ||
-            controller == null ||
-            controller.positions.length != 1) {
-          return;
-        }
-        final position = controller.position;
-        if (!position.hasContentDimensions ||
-            !position.physics.shouldAcceptUserOffset(position)) {
-          return;
-        }
-        final delta = event.scrollDelta.dx.abs() > event.scrollDelta.dy.abs()
-            ? event.scrollDelta.dx
-            : event.scrollDelta.dy;
-        final direction = details.direction == AxisDirection.left ? -1 : 1;
-        final target = (position.pixels + delta * direction).clamp(
-          position.minScrollExtent,
-          position.maxScrollExtent,
-        );
-        if (target == position.pixels) return;
-        handleDesktopHorizontalWheel(
-          event,
-          (delta) => position.pointerScroll(delta * direction),
-        );
-      },
-      child: content,
-    );
-  }
 
   @override
   Widget buildScrollbar(
