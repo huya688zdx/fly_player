@@ -854,6 +854,7 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     super.key,
     required this.source,
     required this.position,
+    required this.duration,
     required this.autoPlayEnabled,
     required this.nextEpisodePreloadEnabled,
     required this.aspectRatioMode,
@@ -895,6 +896,7 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
 
   final MpvMediaSource source;
   final Duration position;
+  final Duration duration;
   final bool autoPlayEnabled;
   final bool nextEpisodePreloadEnabled;
   final String aspectRatioMode;
@@ -1317,6 +1319,12 @@ class _DesktopPlaybackSettingsPanelState
 
   // 片头片尾跳过：对齐安卓 buildIntroOutroPage（开关 + 时长上限 + 提示秒数）。
   Widget _buildIntroOutroPage(AppLocalizations l10n) {
+    final bounds = desktopChapterSkipBounds(widget.chapters, widget.duration);
+    final detected = <String>[
+      if (bounds.introEnd != null)
+        '片头 ${_duration(bounds.introStart!)}–${_duration(bounds.introEnd!)}',
+      if (bounds.outroStart != null) '片尾 ${_duration(bounds.outroStart!)} 起',
+    ];
     final children = <Widget>[
       _SettingsSwitchTile(
         title: '启用片头片尾跳过',
@@ -1329,7 +1337,7 @@ class _DesktopPlaybackSettingsPanelState
       children.add(
         _SettingsSliderTile(
           title: '片头时长上限',
-          subtitle: '起播后该窗口内提示跳过片头',
+          subtitle: '未识别到片头章节时使用该窗口',
           valueLabel: '${widget.introMaxMinutes} 分钟',
           value: widget.introMaxMinutes.toDouble(),
           min: 1,
@@ -1343,7 +1351,7 @@ class _DesktopPlaybackSettingsPanelState
       children.add(
         _SettingsSliderTile(
           title: '片尾时长上限',
-          subtitle: '距结尾该窗口内提示跳过片尾/下一集',
+          subtitle: '未识别到片尾章节时使用该窗口',
           valueLabel: '${widget.outroMaxMinutes} 分钟',
           value: widget.outroMaxMinutes.toDouble(),
           min: 1,
@@ -1370,10 +1378,10 @@ class _DesktopPlaybackSettingsPanelState
       );
     }
     children.add(
-      const _SettingsStatusCard(
+      _SettingsStatusCard(
         title: '当前视频',
-        value: '未检测到片头片尾时间点',
-        description: '将按上面的时长上限窗口提示跳过。',
+        value: detected.isEmpty ? '未检测到片头片尾时间点' : detected.join(' · '),
+        description: '优先按明确的片头片尾章节跳过，未识别的部分使用时长上限。',
       ),
     );
     return _settingsList(children);
