@@ -50,25 +50,42 @@ class PotPlayerSession with WidgetsBindingObserver {
     required bool paused,
     required double speed,
     required Duration initialPosition,
+    VoidCallback? onWaiting,
   }) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 25));
+    // 蓝光原盘需要远距离探测封装和索引，实测 M2TS 解析与续播约 80 秒。
+    final startedAt = DateTime.now();
+    final deadline = startedAt.add(const Duration(minutes: 2));
+    var waitingNotified = false;
     var configured = false;
+    var sawPlayerWindow = false;
     while (!_finished && DateTime.now().isBefore(deadline)) {
       if (!isCurrentSession()) throw StateError('播放账号已切换，请重新播放');
+      if (!waitingNotified &&
+          DateTime.now().difference(startedAt) >= const Duration(seconds: 10)) {
+        waitingNotified = true;
+        onWaiting?.call();
+      }
       try {
         final state = await _snapshot();
+        if (state['alive'] == true) {
+          sawPlayerWindow = true;
+        } else if (sawPlayerWindow) {
+          throw StateError('PotPlayer 已关闭');
+        }
         if (_matches(state) && (state['state'] == 1 || state['state'] == 2)) {
           if (!configured) {
             await channel.invokeMethod<void>('configure', {
               'pid': pid,
               'paused': paused,
               'speed': speed,
+              'mediaUrl': mediaUrl,
             });
             configured = true;
             if (initialPosition > Duration.zero) {
               await channel.invokeMethod<void>('activate', {
                 'pid': pid,
                 'positionMs': initialPosition.inMilliseconds,
+                'mediaUrl': mediaUrl,
               });
               continue;
             }
@@ -220,11 +237,13 @@ class PotPlayerSession with WidgetsBindingObserver {
             'pid': pid,
             'positionMs': targetMs,
             'focus': false,
+            'mediaUrl': mediaUrl,
           });
           // PotPlayer 切集加载后可能暂停，续播定位后明确恢复播放。
           await channel.invokeMethod<void>('configure', {
             'pid': pid,
             'paused': false,
+            'mediaUrl': mediaUrl,
           });
           _seekRequestedAt = DateTime.now();
           return;
@@ -267,10 +286,12 @@ class PotPlayerSession with WidgetsBindingObserver {
     await channel.invokeMethod<void>('activate', {
       'pid': pid,
       if (position != null) 'positionMs': position.inMilliseconds,
+      'mediaUrl': mediaUrl,
     });
     await channel.invokeMethod<void>('configure', {
       'pid': pid,
       'paused': false,
+      'mediaUrl': mediaUrl,
     });
     return true;
   }

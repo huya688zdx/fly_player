@@ -16,22 +16,39 @@ class ExternalPlayerSubtitles {
     String? subtitlePath,
     String? danmakuPath,
     required DanmakuSettings settings,
+    bool disableSubtitles = false,
+    void Function(int count)? onDanmakuPrepared,
   }) async {
+    if (disableSubtitles) subtitlePath = null;
     if (!settings.enabled ||
         danmakuPath == null ||
         !(settings.scrollEnabled ||
             settings.topEnabled ||
             settings.bottomEnabled)) {
-      return subtitlePath;
+      return subtitlePath ?? (disableSubtitles ? writeEmpty(directory) : null);
     }
     final payload = await DesktopDanmakuPayload.load(danmakuPath);
-    if (payload.comments.isEmpty) return subtitlePath;
-    return compute(_prepare, (
+    if (payload.comments.isEmpty) {
+      return subtitlePath ?? (disableSubtitles ? writeEmpty(directory) : null);
+    }
+    final prepared = await compute(_prepare, (
       directory: directory.path,
       subtitle: subtitlePath,
       comments: payload.comments,
       settings: settings,
     ));
+    if (prepared != null && prepared != subtitlePath) {
+      onDanmakuPrepared?.call(payload.comments.length);
+    }
+    return prepared ?? (disableSubtitles ? writeEmpty(directory) : null);
+  }
+
+  /// 空 ASS 作为本次媒体的字幕轨，覆盖播放器自动选中的内封字幕。
+  static Future<String> writeEmpty(Directory directory) async {
+    await directory.create(recursive: true);
+    final file = File('${directory.path}/subtitles_off.ass');
+    await file.writeAsString(_emptyAss, flush: true);
+    return file.path;
   }
 }
 
