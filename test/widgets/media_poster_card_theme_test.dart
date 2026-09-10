@@ -5,14 +5,19 @@ import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
 
 void main() {
-  testWidgets('海报占位和评分徽标跟随亮暗主题且不显示外框', (tester) async {
+  testWidgets('海报占位跟随主题，评分保持固定配色且不显示外框', (tester) async {
     for (final preset in <AppThemePreset>[
       AppThemePreset.latte,
       AppThemePreset.midnight,
     ]) {
       await tester.pumpWidget(
         MaterialApp(
-          theme: AppThemeBuilder.build(preset),
+          theme: AppThemeBuilder.build(
+            preset,
+            accentTone: preset == AppThemePreset.latte
+                ? AppAccentTone.rose
+                : AppAccentTone.cyan,
+          ),
           home: const Scaffold(
             body: Center(
               child: SizedBox(
@@ -57,8 +62,13 @@ void main() {
         find.byKey(const ValueKey<String>('media-poster-rating')),
       );
       final ratingDecoration = rating.decoration! as BoxDecoration;
-      expect(ratingDecoration.color, isNot(const Color(0xFFC5A425)));
-      expect(ratingDecoration.border, isNotNull);
+      expect(ratingDecoration.color, const Color(0xD91A1D21));
+      expect(ratingDecoration.border, isNull);
+      expect(tester.widget<Text>(find.text('9.1')).style!.color, Colors.white);
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.star_rounded)).color,
+        const Color(0xFFF2C66D),
+      );
       expect(tester.takeException(), isNull, reason: preset.storageValue);
     }
   });

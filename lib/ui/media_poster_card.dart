@@ -138,11 +138,6 @@ class MediaPosterCard extends StatelessWidget {
 
   Widget _buildPosterArea(BuildContext context) {
     final colors = context.appColors;
-    final ratingFill = Color.alphaBlend(
-      colors.accent.withValues(alpha: .92),
-      colors.surface,
-    );
-    final ratingForeground = _contrastingForeground(ratingFill);
     return SizedBox(
       width: double.infinity,
       height: expandImageToFit ? null : imageHeight,
@@ -178,24 +173,33 @@ class MediaPosterCard extends StatelessWidget {
                 child: Container(
                   key: const ValueKey<String>('media-poster-rating'),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
+                    horizontal: 5,
+                    vertical: 3,
                   ),
+                  // 评分属于海报信息，固定中性底色，避免被主题取色染色。
                   decoration: BoxDecoration(
-                    color: ratingFill,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: colors.accentStrong.withValues(alpha: .56),
-                      width: .6,
-                    ),
+                    color: const Color(0xD91A1D21),
+                    borderRadius: BorderRadius.circular(5),
                   ),
-                  child: Text(
-                    rating!.toStringAsFixed(1),
-                    style: TextStyle(
-                      color: ratingForeground,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.star_rounded,
+                        size: 11,
+                        color: Color(0xFFF2C66D),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        rating!.toStringAsFixed(1),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -257,12 +261,6 @@ class MediaPosterCard extends StatelessWidget {
       ),
     );
   }
-}
-
-Color _contrastingForeground(Color background) {
-  return background.computeLuminance() >= .54
-      ? const Color(0xFF172030)
-      : Colors.white;
 }
 
 class _PosterCapabilityBadge extends StatelessWidget {
