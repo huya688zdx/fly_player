@@ -8736,7 +8736,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 setPadding(dp(12), dp(4), dp(4), dp(4))
                 isClickable = true
-                setOnClickListener { removeDanmakuSource(rec); renderTopPanel() }
+                setOnClickListener { removeDanmakuSource(rec) }
             })
         }
     }
@@ -8858,8 +8858,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun importDanmakuFromUri(uri: android.net.Uri) {
         showCenterHint(localizedString(R.string.player_text_0264))
+        val mediaArgs = HashMap(danmakuMediaArgs()).apply {
+            put("itemTitle", loadArgsMap["title"]?.toString().orEmpty())
+            put("mediaType", loadArgsMap["mediaType"]?.toString().orEmpty())
+        }
         Thread {
-            val tempPath = copyUriToCache(uri)
+            val tempPath = copyDanmakuToFiles(uri)
             runOnUiThread {
                 if (tempPath == null) {
                     pendingDanmakuSource = null
@@ -8867,8 +8871,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
                 NativePlayerReverseBridge.dispatch(
                     method = "importDanmakuFile",
-                    args = mapOf("path" to tempPath),
-                    onResult = { res -> runOnUiThread { applyDanmakuLoadResult(res) } },
+                    args = mediaArgs.apply { put("path", tempPath) },
+                    onResult = { res -> runOnUiThread {
+                        flutterDanmakuSources = null
+                        applyDanmakuLoadResult(res)
+                    } },
                     onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint(localizedString(R.string.player_text_0265)) } },
                 )
             }
@@ -8959,7 +8966,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun danmakuSourceIdentity(type: String, episodeId: Long, uri: String): String =
-        if (type == "dandan") "dandan:$episodeId" else "local:$uri"
+        if (type == "dandan") "dandan:$episodeId"
+        else "local:${importedDanmakuFile(android.net.Uri.parse(uri)).absolutePath}"
 
     private fun jsonToDanmakuSource(o: JSONObject): DanmakuSource = DanmakuSource(
         mediaKey = o.optString("mediaKey"), type = o.optString("type"), label = o.optString("label"),
@@ -9016,7 +9024,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 danmakuSourceIdentity(o.optString("type"), o.optLong("episodeId"), o.optString("uri")) == identity
             if (!same) kept.put(o)
         }
-        settingsStore.saveString(NativePlayerSettingsStore.KEY_DANMAKU_SOURCES, kept.toString())
+        // 两侧同时删除，避免原生列表删掉后，统一来源库又把同一来源显示出来。
+        NativePlayerReverseBridge.dispatch(
+            method = "removeSavedDanmakuSource",
+            args = HashMap(danmakuMediaArgs()).apply { put("sourceKey", identity) },
+            onResult = { res -> runOnUiThread {
+                if (res == true) {
+                    settingsStore.saveString(NativePlayerSettingsStore.KEY_DANMAKU_SOURCES, kept.toString())
+                    flutterDanmakuSources = null
+                    renderTopPanel()
+                } else {
+                    showTransientHint("弹幕源删除失败")
+                }
+            } },
+            onError = { runOnUiThread { showTransientHint("弹幕源删除失败") } },
+        )
     }
 
     private fun reapplyDanmakuSource(rec: DanmakuSource) {
@@ -9048,10 +9070,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    private fun copyUriToCache(uri: android.net.Uri): String? = runCatching {
+    private fun importedDanmakuFile(uri: android.net.Uri): java.io.File {
         val name = queryDisplayName(uri) ?: "danmaku.xml"
         val ext = name.substringAfterLast('.', "xml").ifEmpty { "xml" }
-        val dest = java.io.File(cacheDir, "imported_danmaku_${System.currentTimeMillis()}.$ext")
+        val id = UUID.nameUUIDFromBytes(uri.toString().toByteArray(Charsets.UTF_8))
+        return java.io.File(filesDir, "danmaku/$id.$ext")
+    }
+
+    private fun copyDanmakuToFiles(uri: android.net.Uri): String? = runCatching {
+        // 使用固定的持久路径，重选同一文件不会生成新来源，清理缓存也不影响下次播放。
+        val dest = importedDanmakuFile(uri)
+        dest.parentFile?.mkdirs()
         contentResolver.openInputStream(uri)?.use { input ->
             java.io.FileOutputStream(dest).use { output -> input.copyTo(output) }
         } ?: return@runCatching null

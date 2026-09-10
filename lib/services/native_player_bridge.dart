@@ -371,7 +371,17 @@ class NativePlayerBridge {
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final path = (args['path'] ?? '').toString().trim();
           if (path.isEmpty) return null;
-          return await NativeDanmakuPrefetch.importLocalFileToFile(path);
+          return await NativeDanmakuPrefetch.importLocalFileToFile(
+            path,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            seasonGuid: (args['seasonGuid'] ?? '').toString(),
+            seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
+            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            seriesTitle: (args['seriesTitle'] ?? '').toString(),
+            itemTitle: (args['itemTitle'] ?? '').toString(),
+            mediaType: (args['mediaType'] ?? '').toString(),
+          );
         case 'listSavedDanmakuSources':
           // 原生壳弹幕源面板合并显示 Flutter 弹幕源库（随片下载/在线自动匹配注册的源）。
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
@@ -390,6 +400,17 @@ class NativePlayerBridge {
           if (sourceKey.isEmpty) return null;
           return await NativeDanmakuPrefetch.loadSavedSourceToFile(
             sourceKey: sourceKey,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            seasonGuid: (args['seasonGuid'] ?? '').toString(),
+            seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
+            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            seriesTitle: (args['seriesTitle'] ?? '').toString(),
+          );
+        case 'removeSavedDanmakuSource':
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          return await NativeDanmakuPrefetch.removeSavedSource(
+            sourceKey: (args['sourceKey'] ?? '').toString(),
             itemGuid: (args['itemGuid'] ?? '').toString(),
             mediaGuid: (args['mediaGuid'] ?? '').toString(),
             seasonGuid: (args['seasonGuid'] ?? '').toString(),
