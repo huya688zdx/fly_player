@@ -2,27 +2,36 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+typedef ExternalPlayerMedia = ({Uri source, Map<String, String> headers});
+
 /// 飞牛视频交由 Fly 处理证书和鉴权，播放器只读取本次会话的本机地址。
 final class ExternalPlayerMediaProxy {
   ExternalPlayerMediaProxy._(
     this._server,
     this._client,
-    this._source,
-    this._headers,
+    Uri source,
+    Map<String, String> headers,
   ) {
     final random = Random.secure();
     _path =
         '/${List.generate(24, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join()}/media';
+    _loaders[_path] = () async => (source: source, headers: headers);
   }
 
   final HttpServer _server;
   final HttpClient _client;
-  final Uri _source;
-  final Map<String, String> _headers;
+  final _loaders = <String, Future<ExternalPlayerMedia> Function()>{};
   late final String _path;
   bool _closed = false;
 
   String get url => 'http://127.0.0.1:${_server.port}$_path';
+
+  /// 列表先登记稳定地址，用户选中时才解析该集的视频与鉴权。
+  String addMedia(Future<ExternalPlayerMedia> Function() load) {
+    final path = '$_path/${_loaders.length}';
+    _loaders[path] = load;
+    return 'http://127.0.0.1:${_server.port}$path';
+  }
 
   static Future<ExternalPlayerMediaProxy> start({
     required Uri source,
@@ -65,7 +74,8 @@ final class ExternalPlayerMediaProxy {
       ),
     );
     try {
-      if (_closed || request.uri.path != _path) {
+      final load = _loaders[request.uri.path];
+      if (_closed || load == null) {
         response.statusCode = HttpStatus.notFound;
         return;
       }
@@ -73,13 +83,19 @@ final class ExternalPlayerMediaProxy {
         response.statusCode = HttpStatus.methodNotAllowed;
         return;
       }
-      var target = _source;
+      final entry = await load();
+      if (_closed) return;
+      if (entry.source.scheme == 'file') {
+        await _serveFile(File.fromUri(entry.source), request);
+        return;
+      }
+      var target = entry.source;
       for (var redirects = 0; redirects <= 5; redirects++) {
         // 飞牛 Authx 对 GET 签名；探测 HEAD 也向上游发 GET，仅返回响应头。
         upstream = await _client.getUrl(target);
         upstream.followRedirects = false;
-        if (target.origin == _source.origin) {
-          _headers.forEach((name, value) {
+        if (target.origin == entry.source.origin) {
+          entry.headers.forEach((name, value) {
             if (!{
               HttpHeaders.hostHeader,
               HttpHeaders.connectionHeader,
@@ -148,6 +164,43 @@ final class ExternalPlayerMediaProxy {
       } catch (_) {
         // 拖动或退出时播放器会主动取消旧的取流请求。
       }
+    }
+  }
+
+  Future<void> _serveFile(File file, HttpRequest request) async {
+    final size = await file.length();
+    var start = 0;
+    var end = size - 1;
+    final response = request.response;
+    response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+    final range = request.headers.value(HttpHeaders.rangeHeader);
+    if (range != null) {
+      final match = RegExp(r'^bytes=(\d*)-(\d*)$').firstMatch(range);
+      if (match == null || (match[1]!.isEmpty && match[2]!.isEmpty)) {
+        response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size');
+        return;
+      }
+      if (match[1]!.isEmpty) {
+        start = max(0, size - (int.tryParse(match[2]!) ?? 0));
+      } else {
+        start = int.tryParse(match[1]!) ?? size;
+        end = min(end, int.tryParse(match[2]!) ?? end);
+      }
+      if (start >= size || start > end) {
+        response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+        response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size');
+        return;
+      }
+      response.statusCode = HttpStatus.partialContent;
+      response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$end/$size',
+      );
+    }
+    response.contentLength = max(0, end - start + 1);
+    if (request.method != 'HEAD') {
+      await response.addStream(file.openRead(start, end + 1));
     }
   }
 }
