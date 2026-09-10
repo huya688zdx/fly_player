@@ -68,18 +68,12 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
 
   double _collapseProgress = 0;
   double _horizontalDragDistance = 0;
-  int _contentSwitchDirection = 1;
   int? _wheelTargetIndex;
 
   @override
   void didUpdateWidget(covariant PosterBrowseLargeLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
     _wheelTargetIndex = null;
-    if (widget.focusedIndex != oldWidget.focusedIndex) {
-      _contentSwitchDirection = widget.focusedIndex > oldWidget.focusedIndex
-          ? 1
-          : -1;
-    }
   }
 
   @override
@@ -356,7 +350,6 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
           ],
         );
       },
-      transitionBuilder: _buildPrimaryInfoTransition,
       child: focusedItem == null
           ? const SizedBox.shrink(
               key: ValueKey('poster_browse_primary_info_empty'),
@@ -370,43 +363,10 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
               secondaryLabel: widget.secondaryLabel,
               metaWidgets: widget.metaWidgets,
               compact: viewportHeight < 900,
+              stableLayout: true,
               onPlay: widget.onPlay,
               onDetail: widget.onDetail,
             ),
-    );
-  }
-
-  Widget _buildPrimaryInfoTransition(
-    Widget child,
-    Animation<double> animation,
-  ) {
-    final curvedAnimation = CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeOutCubic,
-      reverseCurve: Curves.easeInCubic,
-    );
-    return FadeTransition(
-      opacity: curvedAnimation,
-      child: AnimatedBuilder(
-        animation: curvedAnimation,
-        builder: (context, child) {
-          final currentKey = ValueKey(
-            'poster_browse_primary_info_${widget.focusedItem?.card.id}',
-          );
-          final isIncoming = child?.key == currentKey;
-          final direction = isIncoming
-              ? _contentSwitchDirection
-              : -_contentSwitchDirection;
-          return FractionalTranslation(
-            translation: Offset(
-              0.08 * direction * (1 - curvedAnimation.value),
-              0,
-            ),
-            child: child,
-          );
-        },
-        child: child,
-      ),
     );
   }
 
