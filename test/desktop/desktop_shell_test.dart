@@ -255,10 +255,14 @@ void main() {
       final openingWidth = tester.getRect(browse).width;
       final openingLayoutWidth = tester.getSize(browse).width;
       expect(openingWidth, lessThan(fullWidth));
+      // 转场只混合旧画面，真实内容不允许被横向拉伸。
+      expect(openingWidth, openingLayoutWidth);
+      expect(find.byType(RawImage), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 60));
       expect(tester.getSize(browse).width, openingLayoutWidth);
       await tester.pumpAndSettle();
-      expect(openingWidth, greaterThan(tester.getSize(browse).width));
+      expect(openingWidth, tester.getSize(browse).width);
+      expect(find.byType(RawImage), findsNothing);
       final pane = find.byType(DesktopDetailPaneHost);
       final controller = tester.element(pane).read<DesktopSplitController>();
       expect(controller.paneFraction, 0.58);
@@ -293,7 +297,7 @@ void main() {
       final closingWidth = tester.getRect(browse).width;
       expect(tester.getSize(browse).width, fullWidth);
       expect(closingWidth, greaterThan(splitWidth));
-      expect(closingWidth, lessThan(fullWidth));
+      expect(closingWidth, fullWidth);
       await tester.pumpAndSettle();
       expect(find.byType(DesktopDetailPaneHost), findsNothing);
       expect(provider.enabled, isTrue);
