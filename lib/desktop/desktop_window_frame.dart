@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../theme/app_theme.dart';
-
 /// Windows 窗口外壳：透明控制区叠在页面背景上，全屏时让出完整画面。
 class DesktopWindowFrame extends StatefulWidget {
   const DesktopWindowFrame({super.key, required this.child});
@@ -60,10 +58,6 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final brightness = ThemeData.estimateBrightnessForColor(
-      colors.backgroundBase,
-    );
     final media = MediaQuery.of(context);
     final captionHeight = _fullscreen ? 0.0 : 32.0;
     // 顶部缩放区域与标题栏共用实际状态，避免插件内部缓存也因漏事件而失效。
@@ -90,33 +84,67 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
           if (!_fullscreen)
             Positioned(
               top: 0,
-              right: 0,
-              width: 46 * 3,
-              height: captionHeight,
-              // 仅承托三个窗口按钮，避免主题图标在明暗不定的背景图上消失。
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  key: const ValueKey('desktop-window-controls-backdrop'),
-                  decoration: BoxDecoration(
-                    color: colors.backgroundBase.withValues(alpha: 0.82),
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(8),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          if (!_fullscreen)
-            Positioned(
-              top: 0,
               left: 0,
               right: 0,
               height: captionHeight,
-              child: WindowCaption(
-                backgroundColor: Colors.transparent,
-                brightness: brightness,
+              child: Material(
+                key: const ValueKey('desktop-window-caption'),
+                type: MaterialType.transparency,
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: DragToMoveArea(child: SizedBox.expand()),
+                    ),
+                    _captionButton(
+                      Icons.remove,
+                      '最小化',
+                      () => windowManager.minimize(),
+                    ),
+                    _captionButton(
+                      _maximized ? Icons.filter_none : Icons.crop_square,
+                      _maximized ? '还原' : '最大化',
+                      () => _maximized
+                          ? windowManager.unmaximize()
+                          : windowManager.maximize(),
+                    ),
+                    _captionButton(
+                      Icons.close,
+                      '关闭',
+                      () => windowManager.close(),
+                    ),
+                  ],
+                ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _captionButton(IconData icon, String label, VoidCallback onPressed) {
+    return IconButton(
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        fixedSize: const Size(46, 32),
+        minimumSize: Size.zero,
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: const RoundedRectangleBorder(),
+        hoverColor: icon == Icons.close
+            ? const Color(0xffC42B1C)
+            : Colors.white24,
+      ),
+      // 描边只跟随图标笔画，不铺底块；白色笔画与黑色细边适应明暗画面。
+      icon: Icon(
+        icon,
+        semanticLabel: label,
+        size: 16,
+        color: Colors.white,
+        shadows: const [
+          Shadow(color: Colors.black87, offset: Offset(-0.65, 0)),
+          Shadow(color: Colors.black87, offset: Offset(0.65, 0)),
+          Shadow(color: Colors.black87, offset: Offset(0, -0.65)),
+          Shadow(color: Colors.black87, offset: Offset(0, 0.65)),
         ],
       ),
     );
