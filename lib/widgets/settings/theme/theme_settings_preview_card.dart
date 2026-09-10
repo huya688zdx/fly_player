@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/generated/app_localizations.dart';
 import '../../../theme/app_theme.dart';
+import '../../../theme/app_theme_l10n.dart';
 import '../../../ui/adaptive_text.dart';
+import '../../app_atmospheric_background.dart';
 import '../../common/app_ambient_page.dart';
 import 'theme_settings_helpers.dart';
 
@@ -13,12 +15,14 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
   final String themeTitle;
   final String themeSubtitle;
   final AppThemeColors colors;
+  final AppBackgroundStyle backgroundStyle;
 
   const ThemeSettingsPreviewCard({
     super.key,
     required this.themeTitle,
     required this.themeSubtitle,
     required this.colors,
+    required this.backgroundStyle,
   });
 
   @override
@@ -57,7 +61,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          themeTitle,
+          '$themeTitle · ${AppThemeL10n.backgroundStyleTitle(l10n, backgroundStyle)}',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
@@ -80,9 +84,8 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
       ],
     );
 
-    final mock = Container(
+    final controls = Container(
       decoration: BoxDecoration(
-        color: colors.backgroundBase,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -178,6 +181,24 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+
+    final mock = ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          AppAtmosphereSurface(
+            palette: AppAtmospherePalette.resolve(
+              baseColors: colors,
+              effectiveColors: colors,
+              hasDynamicTheme: false,
+            ),
+            style: backgroundStyle,
+          ),
+          controls,
         ],
       ),
     );
