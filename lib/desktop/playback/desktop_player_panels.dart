@@ -99,6 +99,8 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
 
   @override
   Widget build(BuildContext context) => SafeArea(
+    // 浮层宿主已避开窗口标题栏，内部不再重复添加顶部安全区。
+    top: false,
     child: Padding(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
       child: Column(
@@ -126,7 +128,7 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
                 : _grid
                 ? GridView.builder(
                     controller: _gridScrollController,
-                    padding: const EdgeInsets.only(right: 14),
+                    padding: EdgeInsets.zero,
                     gridDelegate:
                         const SliverGridDelegateWithMaxCrossAxisExtent(
                           maxCrossAxisExtent: 64,
@@ -147,7 +149,7 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
                   )
                 : ListView.separated(
                     controller: _listScrollController,
-                    padding: const EdgeInsets.only(right: 14),
+                    padding: EdgeInsets.zero,
                     itemCount: widget.episodes.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (_, i) => _EpisodeCard(
@@ -923,9 +925,11 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.danmakuSettingsPageBuilder,
     required this.danmakuSourcesPageBuilder,
     this.initialPage = DesktopPlaybackSettingsPage.main,
+    this.reserveCloseButtonSpace = false,
   });
 
   final MpvMediaSource source;
+  final bool reserveCloseButtonSpace;
   final Duration position;
   final Duration duration;
   final bool autoPlayEnabled;
@@ -1054,13 +1058,16 @@ class _DesktopPlaybackSettingsPanelState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return SafeArea(
+      // 设置首页及子页共用浮层内边距，不重复消费窗口标题栏安全区。
+      top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             _SettingsHeader(
               title: _pageTitle(l10n),
+              reserveCloseButtonSpace: widget.reserveCloseButtonSpace,
               onBack: _pages.length > 1 ? _pop : null,
               action: switch (_page) {
                 DesktopPlaybackSettingsPage.bookmarks => IconButton(
@@ -1088,7 +1095,7 @@ class _DesktopPlaybackSettingsPanelState
                 _ => null,
               },
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
             Expanded(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
@@ -2042,11 +2049,17 @@ class _SegmentChip extends StatelessWidget {
 }
 
 class _SettingsHeader extends StatelessWidget {
-  const _SettingsHeader({required this.title, this.onBack, this.action});
+  const _SettingsHeader({
+    required this.title,
+    this.onBack,
+    this.action,
+    this.reserveCloseButtonSpace = false,
+  });
 
   final String title;
   final VoidCallback? onBack;
   final Widget? action;
+  final bool reserveCloseButtonSpace;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -2082,7 +2095,7 @@ class _SettingsHeader extends StatelessWidget {
         ),
       ),
       if (action != null) action!,
-      const SizedBox(width: 46),
+      if (reserveCloseButtonSpace) const SizedBox(width: 46),
     ],
   );
 }
