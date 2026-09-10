@@ -27,6 +27,7 @@ import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
 import '../services/playback_client_id_store.dart';
 import '../services/playlist_view_preference_store.dart';
+import '../services/user_list_preference_store.dart';
 import '../utils/app_exception.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/private_network_http_overrides.dart';
@@ -1519,24 +1520,51 @@ class FeiniuApi {
   }
 
   // User preferences / tags
-  /// 读取某个列表页的用户展示设置。
+  UserListPreferenceStore _listPreferenceStore(
+    String ancestorGuid,
+    String key,
+  ) {
+    final scope = jsonEncode([
+      nasProvider.sourceBaseUrl,
+      nasProvider.userName,
+      key,
+      ancestorGuid,
+    ]);
+    return UserListPreferenceStore(
+      'user_list_setting_${sha256.convert(utf8.encode(scope))}',
+    );
+  }
+
+  /// 先返回本地展示设置；后台只同步本地副本，避免当前页面重新切换布局。
   Future<UserListSetting?> getUserListSetting(
     String ancestorGuid, {
     String key = _folderListSettingKey,
   }) async {
     try {
-      final decoded = await getUserDataJsonValue(key, mdbGuid: ancestorGuid);
-      if (decoded is! Map<String, dynamic>) {
-        return null;
+      final store = _listPreferenceStore(ancestorGuid, key);
+      final cached = await store.read();
+      Future<Map<String, dynamic>?> refresh() async {
+        final server = await getUserDataJsonValue(key, mdbGuid: ancestorGuid);
+        // 请求期间有新选择时，旧响应不能覆盖刚保存的本地状态。
+        if (server != null && mapEquals(await store.read(), cached)) {
+          await store.write(server);
+        }
+        return server;
       }
-      return UserListSetting.fromJson(decoded);
+
+      if (cached != null) {
+        unawaited(refresh());
+        return UserListSetting.fromJson(cached);
+      }
+      final server = await refresh();
+      return server == null ? null : UserListSetting.fromJson(server);
     } catch (e) {
       debugPrint('[API][USER_SETTING] load failed: $e');
       return null;
     }
   }
 
-  /// 保存某个列表页的用户展示设置。
+  /// 先保存列表展示设置到本地，再写入服务端；命中缓存时不重复读取 API。
   Future<bool> setUserListSetting(
     String ancestorGuid, {
     String? sortType,
@@ -1544,7 +1572,9 @@ class FeiniuApi {
     String? viewType,
     String key = _folderListSettingKey,
   }) async {
+    final store = _listPreferenceStore(ancestorGuid, key);
     final current =
+        await store.read() ??
         await getUserDataJsonValue(key, mdbGuid: ancestorGuid) ??
         <String, dynamic>{};
     final next = <String, dynamic>{...current};
@@ -1557,6 +1587,7 @@ class FeiniuApi {
     if (viewType != null) {
       next['view_type'] = viewType;
     }
+    await store.write(next);
     return setUserDataJsonValue(key, next, mdbGuid: ancestorGuid);
   }
 

@@ -162,13 +162,21 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       return;
     }
     final api = FeiniuApi(context.read<NasProvider>());
-    const localeMap = <String, dynamic>{};
-    final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
-    final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
     final setting = await api.getUserListSetting(
       '',
       key: _favoriteListSettingKey,
     );
+    if (!mounted) return;
+    if (setting != null) {
+      setState(() {
+        _sortColumn = setting.sortField;
+        _sortType = setting.sortType == 'ASC' ? 'ASC' : 'DESC';
+        _viewType = MediaCollectionViewTypeX.fromStorage(setting.viewType);
+      });
+    }
+    const localeMap = <String, dynamic>{};
+    final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
+    final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
 
     Map<String, List<dynamic>> tags = const <String, List<dynamic>>{};
     try {
@@ -188,11 +196,6 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       _genresFromApi = genresMap;
       _locateFromApi = locateMap;
       _tagOptions = tags;
-      if (setting != null) {
-        _sortColumn = setting.sortField;
-        _sortType = setting.sortType == 'ASC' ? 'ASC' : 'DESC';
-        _viewType = MediaCollectionViewTypeX.fromStorage(setting.viewType);
-      }
     });
     await _fetch(tab: _selectedTab, reset: true);
   }
