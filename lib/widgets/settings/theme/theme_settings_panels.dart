@@ -5,6 +5,7 @@ import '../../../providers/app_theme_provider.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/app_theme_l10n.dart';
 import '../../../ui/adaptive_text.dart';
+import '../../common/app_ambient_page.dart';
 import 'theme_settings_helpers.dart';
 
 class ThemeSettingsSectionTitle extends StatelessWidget {
@@ -403,7 +404,9 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.sharesBackgroundOf(context)
+            ? colors.surface.withValues(alpha: 0.16)
+            : colors.surface,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: colors.borderSubtle),
       ),
