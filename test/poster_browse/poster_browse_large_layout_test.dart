@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/media_image_ref.dart';
@@ -834,35 +835,65 @@ void main() {
     expect(tester.getTopLeft(find.byKey(firstKey)).dx, lessThan(restingLeft));
   });
 
-  testWidgets('大屏收起后从屏幕顶部空白区域横滑也能切换影视', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(1920, 1080));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      _localizedApp(const _InteractiveLargeLayoutHarness()),
-    );
+  testWidgets(
+    '大屏收起后从屏幕顶部空白区域横滑也能切换影视',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1920, 1080));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        _localizedApp(const _InteractiveLargeLayoutHarness()),
+      );
 
-    await tester.timedDrag(
-      find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
-      const Offset(0, 180),
-      const Duration(milliseconds: 300),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('动画影片一'), findsWidgets);
-    final fullSwipeSurface = find.byKey(
-      const ValueKey('poster_browse_full_horizontal_swipe_surface'),
-    );
-    expect(fullSwipeSurface, findsOneWidget);
-    expect(tester.getSize(fullSwipeSurface), const Size(1920, 1080));
+      final panelCenter = tester.getCenter(
+        find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
+      );
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: panelCenter,
+          scrollDelta: const Offset(0, 120),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('poster_browse_primary_info_animated-2')),
+        findsOneWidget,
+      );
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(
+          position: Offset(1000, 30),
+          scrollDelta: Offset(0, -120),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('poster_browse_primary_info_animated-1')),
+        findsOneWidget,
+      );
 
-    await tester.timedDragFrom(
-      const Offset(1000, 30),
-      const Offset(-120, 0),
-      const Duration(milliseconds: 300),
-    );
-    await tester.pumpAndSettle();
+      await tester.timedDrag(
+        find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
+        const Offset(0, 180),
+        const Duration(milliseconds: 300),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('动画影片一'), findsWidgets);
+      final fullSwipeSurface = find.byKey(
+        const ValueKey('poster_browse_full_horizontal_swipe_surface'),
+      );
+      expect(fullSwipeSurface, findsOneWidget);
+      expect(tester.getSize(fullSwipeSurface), const Size(1920, 1080));
 
-    expect(find.text('动画影片二'), findsWidgets);
-  });
+      await tester.timedDragFrom(
+        const Offset(1000, 30),
+        const Offset(-120, 0),
+        const Duration(milliseconds: 300),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('动画影片二'), findsWidgets);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
 }
 
 class _InteractiveLargeLayoutHarness extends StatefulWidget {

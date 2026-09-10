@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_horizontal_wheel.dart';
 import '../../media_backend/media_image_request.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_poster_card.dart';
@@ -107,7 +108,6 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
   late final AnimationController _controller;
   Animation<double>? _pageAnimation;
   double _page = 0;
-  double _dragStartPage = 0;
   double? _animationTarget;
   bool _notifyWhenSettled = false;
 
@@ -115,7 +115,6 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
   void initState() {
     super.initState();
     _page = widget.initialIndex.toDouble();
-    _dragStartPage = _page;
     _controller =
         AnimationController(
             vsync: this,
@@ -135,7 +134,6 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
       _animationTarget = null;
       _notifyWhenSettled = false;
       _page = widget.initialIndex.toDouble();
-      _dragStartPage = _page;
     }
   }
 
@@ -166,7 +164,7 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
               cardWidth: widget.cardWidth,
             );
         final cards = _visibleCards();
-        return GestureDetector(
+        final content = GestureDetector(
           behavior: HitTestBehavior.opaque,
           onHorizontalDragStart: widget.items.length > 1
               ? _handleDragStart
@@ -181,6 +179,17 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
                 .map((card) => _buildPositionedCard(card, spacing))
                 .toList(growable: false),
           ),
+        );
+        return Listener(
+          onPointerSignal: widget.items.length > 1
+              ? (event) => handleDesktopHorizontalWheel(event, (delta) {
+                  _animateTo(
+                    (_animationTarget ?? _page).roundToDouble() + delta.sign,
+                    notifyWhenSettled: true,
+                  );
+                })
+              : null,
+          child: content,
         );
       },
     );
@@ -277,7 +286,6 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
     _pageAnimation = null;
     _animationTarget = null;
     _notifyWhenSettled = false;
-    _dragStartPage = _page;
   }
 
   void _handleDragUpdate(DragUpdateDetails details, double spacing) {
@@ -290,8 +298,9 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
   void _handleDragEnd(DragEndDetails details) {
     final velocity =
         details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
+    // 快速拖动从松手位置沿速度方向吸附，不能退回拖动起点的相邻项。
     final target = velocity.abs() > 420
-        ? _dragStartPage.round() + (velocity < 0 ? 1 : -1)
+        ? (velocity < 0 ? _page.ceil() : _page.floor())
         : _page.round();
     _animateTo(target.toDouble(), notifyWhenSettled: true);
   }

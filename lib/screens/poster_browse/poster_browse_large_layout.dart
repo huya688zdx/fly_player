@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_horizontal_wheel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../media_backend/media_item_card.dart';
@@ -67,10 +68,12 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
   double _collapseProgress = 0;
   double _horizontalDragDistance = 0;
   int _contentSwitchDirection = 1;
+  int? _wheelTargetIndex;
 
   @override
   void didUpdateWidget(covariant PosterBrowseLargeLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _wheelTargetIndex = null;
     if (widget.focusedIndex != oldWidget.focusedIndex) {
       _contentSwitchDirection = widget.focusedIndex > oldWidget.focusedIndex
           ? 1
@@ -85,7 +88,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         ? const <PosterBrowseDisplayItem>[]
         : currentRow.items.map(widget.displayItemOf).toList(growable: false);
 
-    return GestureDetector(
+    final content = GestureDetector(
       key: const ValueKey('poster_browse_full_horizontal_swipe_surface'),
       behavior: HitTestBehavior.opaque,
       onHorizontalDragStart: currentItems.length > 1
@@ -219,6 +222,21 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
           },
         ),
       ),
+    );
+    return Listener(
+      onPointerSignal: currentItems.length > 1
+          ? (event) => handleDesktopHorizontalWheel(event, (delta) {
+              final current = _wheelTargetIndex ?? widget.focusedIndex;
+              final target = (current + delta.sign.toInt()).clamp(
+                0,
+                currentItems.length - 1,
+              );
+              if (target == current) return;
+              _wheelTargetIndex = target;
+              widget.onSelectItem(target);
+            })
+          : null,
+      child: content,
     );
   }
 
