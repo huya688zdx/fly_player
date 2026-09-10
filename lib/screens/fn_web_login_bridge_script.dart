@@ -66,10 +66,6 @@ class FnWebLoginBridgeScript {
         }
       };
 
-      const url = String(this.__fly_url || '');
-      if (url.indexOf('/sac/rpcproxy/v1/new-user-guide/status') !== -1) {
-        post({ type: 'XHR', url: url });
-      }
       return originalSend.apply(this, arguments);
     };
   }
@@ -85,10 +81,6 @@ class FnWebLoginBridgeScript {
         url = input.url;
       }
       url = String(url || '');
-
-      if (url.indexOf('/sac/rpcproxy/v1/new-user-guide/status') !== -1) {
-        post({ type: 'XHR', url: url });
-      }
 
       return originalFetch.apply(this, arguments).then((response) => {
         if (url.indexOf('/oauthapi/authorize') !== -1) {
@@ -107,37 +99,14 @@ class FnWebLoginBridgeScript {
     };
   }
 
-  function fetchSysConfigOnce() {
-    if (window.__flyFnConnectSysConfigRequested) return;
-    if (window.location.href.indexOf('/login') !== -1) return;
-    window.__flyFnConnectSysConfigRequested = true;
-    fetch('/v/api/v1/sys/config', { credentials: 'include' })
-      .then((response) => response.text())
-      .then((text) => {
-        post({
-          type: 'SysConfig',
-          url: '/v/api/v1/sys/config',
-          body: text || ''
-        });
-        if (String(text || '').indexOf('nas_oauth') === -1) {
-          window.__flyFnConnectSysConfigRequested = false;
-        }
-      })
-      .catch(() => {
-        window.__flyFnConnectSysConfigRequested = false;
-      });
-  }
 '''
         : '';
     final oauthSetup = probeFnConnectOauth
         ? '''
   installXhrHook();
   installFetchHook();
-  window.addEventListener('load', fetchSysConfigOnce);
-  setTimeout(fetchSysConfigOnce, 800);
 '''
         : '';
-    final oauthTick = probeFnConnectOauth ? '    fetchSysConfigOnce();\n' : '';
 
     final postExpression = useWindowsWebViewMessage
         ? 'window.chrome.webview.postMessage(JSON.stringify(payload));'
@@ -275,7 +244,7 @@ $oauthSetup
     ticks += 1;
     autoLogin();
     autoAuthorize();
-$oauthTick    reportCookie();
+    reportCookie();
     if (ticks >= 240) clearInterval(timer);
   }, 750);
 })();
