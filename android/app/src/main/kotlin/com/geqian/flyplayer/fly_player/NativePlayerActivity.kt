@@ -1134,10 +1134,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var episodePanelEpisodes: List<Map<String, Any?>> = emptyList()
     private var episodePanelSeasons: List<Map<String, Any?>> = emptyList()
     private var episodePanelLoadToken = 0
-    // 选集面板按季缓存（seasonGuid → 该季剧集）：起播后台预取填充，切季时命中即瞬时切换。
+    // 同一部剧按需缓存已访问季；同季在途请求合并，换剧后旧结果失效。
     private val seasonEpisodesCache = HashMap<String, List<Map<String, Any?>>>()
-    // 单次预取守卫：每路 source（applyLoadArgs）只在首帧后启动一次全季预取。
-    private var episodePickerPrefetchStarted = false
+    private val seasonEpisodeRequests = HashMap<String, MutableList<(List<Map<String, Any?>>) -> Unit>>()
+    private var episodeCatalogGeneration = 0
+    private var episodePickerRequestPending = false
+    private var episodePanelPositionCurrent = true
     // 已成功落地过一次完整的选集数据（季列表/视图/剧集）。此后 loadEpisodePickerData 的回包
     // 只做增量（同步当前季观看状态），不再整包覆盖，从源头规避「在途回包改回本地状态」竞态。
     private var episodePickerLoadedOnce = false
@@ -2921,6 +2923,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to previousPlayLink))
         }
         mediaTitle = resolveTitle(effectiveLoadArgs)
+        val previousSeries = loadArgsMap["seriesGuid"]?.toString().orEmpty()
+        val previousSeason = loadArgsMap["seasonGuid"]?.toString().orEmpty()
+        val sameEpisodeSeries =
+            (previousSeries.isNotEmpty() && previousSeries == effectiveLoadArgs["seriesGuid"]?.toString()) ||
+            (previousSeason.isNotEmpty() && previousSeason == effectiveLoadArgs["seasonGuid"]?.toString())
         loadArgsMap = effectiveLoadArgs
         refreshSeekThumbnails()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
@@ -2930,10 +2937,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         pendingInitialSubtitle = true
         pendingPersistedSettings = true // 换源后首帧就绪时重套已存的 mpv/画面/字幕样式设置
         refreshRateApplied = false // 换源后按新片 fps 重新匹配刷新率
-        // 换源/切集后选集预取作废：清空按季缓存、复位守卫，待新片首帧后重新预取。
-        seasonEpisodesCache.clear()
-        episodePickerPrefetchStarted = false
-        episodePickerLoadedOnce = false // 换源：新内容需重新完整落地选集数据
+        ++episodePanelLoadToken
+        episodePickerRequestPending = false
+        if (!sameEpisodeSeries) {
+            ++episodeCatalogGeneration
+            seasonEpisodesCache.clear()
+            seasonEpisodeRequests.clear()
+            episodePanelSeasons = emptyList()
+            episodePickerLoadedOnce = false
+        }
+        val currentSeason = loadArgsMap["seasonGuid"]?.toString().orEmpty()
+        val cachedEpisodes = seasonEpisodesCache[currentSeason]
+        if (!cachedEpisodes.isNullOrEmpty()) {
+            // 跨季播放采用已浏览季的列表，不能沿用入口回传的旧季列表。
+            loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", cachedEpisodes) }
+        } else if (currentSeason.isNotEmpty() && episodeList().isNotEmpty()) {
+            seasonEpisodesCache[currentSeason] = episodeList()
+        }
         episodeViewModeUserDirty = false // 换源：新内容按服务端/本地偏好重新决定视图
         lastRecordedTs = -1L
         lastProgressPaused = true
@@ -4174,6 +4194,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showEpisodePanel() {
+        episodePanelLoading = false
         episodePanelEpisodes = episodeList()
         episodePanelSelectedSeasonGuid = loadArgsMap["seasonGuid"]?.toString().orEmpty()
         episodePanelSeriesTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty()
@@ -4183,6 +4204,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         currentEpisodeRangeIndex = -1 // 每次打开按当前集重算分页
+        episodePanelPositionCurrent = true
         expandedEpisodeVersionGuid = null
         togglePanel(
             PanelPage(
@@ -4194,13 +4216,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 onSeasonSelectorClick = { anchor -> showSeasonDropdown(anchor) },
             ) { buildEpisodePanelContent() },
         )
-        // 已预取则不再显示 loading（避免跳变）；仍做一次静默刷新以更新观看状态等。
-        val prefetched = episodePickerPrefetchStarted &&
-            (episodePanelSeasons.isNotEmpty() || seasonEpisodesCache.isNotEmpty())
-        requestEpisodePickerData(
-            seasonGuid = null,
-            showLoading = !prefetched && episodePanelEpisodes.isEmpty(),
-        )
+        // 仅首次打开加载季目录；重复打开沿用本次播放会话的数据。
+        if (!episodePickerLoadedOnce && !episodePickerRequestPending) {
+            requestEpisodePickerData(seasonGuid = null, showLoading = episodePanelEpisodes.isEmpty())
+        }
     }
 
     /** 当前选中季的展示文案（无季信息时回退 loadArgs 的季号）。 */
@@ -4287,6 +4306,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
                 episodeViewModeUserDirty = true // 锁定用户选择，挡掉在途回包的覆盖
                 currentEpisodeRangeIndex = -1
+                episodePanelPositionCurrent = true
                 expandedEpisodeVersionGuid = null
                 renderTopPanel()
                 persistEpisodeViewMode(previous, episodeViewMode)
@@ -4357,10 +4377,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 就地切季：命中按季缓存则**同步**切换、零等待；未命中用轻量接口拉该季剧集（单次请求），
      * 乐观切换 + 短暂加载态，返回后落地并缓存。
      */
+    private fun isEpisodePanelVisible(): Boolean =
+        panelVisible && panelStack.size == 1 && panelStack.lastOrNull()?.onSeasonSelectorClick != null
+
     private fun switchSeason(seasonGuid: String) {
         // 作废任何在途的 loadEpisodePickerData（如打开面板时的静默刷新）：它只用 token 守卫，
         // 不 bump 的话其回调会把 selectedSeasonGuid 重置回正在播放季 → 切季后"跳回去"。
-        ++episodePanelLoadToken
+        val token = ++episodePanelLoadToken
+        episodePickerRequestPending = false
         val cached = seasonEpisodesCache[seasonGuid]
         if (cached != null && cached.isNotEmpty()) {
             episodePanelLoading = false
@@ -4373,18 +4397,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         episodePanelEpisodes = emptyList()
         currentEpisodeRangeIndex = -1
         expandedEpisodeVersionGuid = null
-        if (panelVisible && panelStack.size == 1) {
+        if (isEpisodePanelVisible()) {
             val page = panelStack.removeLast()
             panelStack.addLast(page.copy(title = episodePanelTitle()))
         }
-        if (panelVisible) renderTopPanel()
+        if (isEpisodePanelVisible()) renderTopPanel()
         dispatchSeasonEpisodes(seasonGuid) { episodes ->
-            if (episodes.isNotEmpty()) seasonEpisodesCache[seasonGuid] = episodes
             // 用户可能在等待期间又切了别的季：只在仍停留在本季时落地。
-            if (episodePanelSelectedSeasonGuid != seasonGuid) return@dispatchSeasonEpisodes
+            if (token != episodePanelLoadToken || episodePanelSelectedSeasonGuid != seasonGuid) return@dispatchSeasonEpisodes
             episodePanelLoading = false
             if (episodes.isEmpty()) {
-                if (panelVisible) renderTopPanel()
+                if (isEpisodePanelVisible()) renderTopPanel()
                 showTransientHint(localizedString(R.string.player_no_episode_info))
                 return@dispatchSeasonEpisodes
             }
@@ -4399,6 +4422,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     ) {
         episodePanelSelectedSeasonGuid = seasonGuid
         episodePanelEpisodes = episodes
+        episodePanelPositionCurrent = true
         currentEpisodeRangeIndex = -1
         expandedEpisodeVersionGuid = null
         // 仅当切到正在播放季时才回写 loadArgs 的剧集列表（保持上一集/下一集语义），
@@ -4406,11 +4430,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (seasonGuid == loadArgsMap["seasonGuid"]?.toString().orEmpty() && episodes.isNotEmpty()) {
             loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", episodes) }
         }
-        if (panelVisible && panelStack.size == 1) {
+        if (isEpisodePanelVisible()) {
             val page = panelStack.removeLast()
             panelStack.addLast(page.copy(title = episodePanelTitle()))
         }
-        if (panelVisible) renderTopPanel()
+        if (isEpisodePanelVisible()) renderTopPanel()
     }
 
     private fun nativePanelSeasonLabel(season: Map<String, Any?>): String {
@@ -4427,10 +4451,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun requestEpisodePickerData(seasonGuid: String?, showLoading: Boolean) {
+        if (episodePickerRequestPending) return
+        episodePickerRequestPending = true
         val token = ++episodePanelLoadToken
         if (showLoading) {
             episodePanelLoading = true
-            if (panelVisible) renderTopPanel()
+            if (isEpisodePanelVisible()) renderTopPanel()
         }
         val args = mutableMapOf<String, Any?>(
             "loadArgs" to JSONObject(loadArgsMap).toString(),
@@ -4441,59 +4467,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         NativePlayerReverseBridge.dispatch(
             method = "loadEpisodePickerData",
             args = args,
-            onResult = { result -> runOnUiThread { applyEpisodePickerData(result, token) } },
+            onResult = { result -> runOnUiThread {
+                if (token != episodePanelLoadToken) return@runOnUiThread
+                episodePickerRequestPending = false
+                applyEpisodePickerData(result, token)
+            } },
             onError = {
                 runOnUiThread {
                     if (token != episodePanelLoadToken) return@runOnUiThread
+                    episodePickerRequestPending = false
                     episodePanelLoading = false
                     if (episodePanelEpisodes.isEmpty()) showTransientHint(localizedString(R.string.player_no_episode_info))
-                    if (panelVisible) renderTopPanel()
+                    if (isEpisodePanelVisible()) renderTopPanel()
                 }
             },
         )
-    }
-
-    /**
-     * 起播后台预取：首帧后启动一次。
-     *
-     * 第一步用 `loadEpisodePickerData` 拉**当前季**完整数据（viewType + 季列表 + 当前季剧集）
-     * → 点开「选集」即就绪、季 chip 可用、无跳变。返回拿到季列表后，第二步用**轻量**接口
-     * `loadSeasonEpisodes`（单次 getEpisodeList）**并行**预取其它季剧集，只写缓存 → 切季近乎即时。
-     *
-     * 轻量接口避免了旧「全季预取」每季都重复拉 viewType/季列表的冗余，所以这次并行预取很快、
-     * 不再是长耗时网络风暴。
-     */
-    private fun prefetchEpisodePickerData() {
-        // 守卫 episodePickerPrefetchStarted 由排程处置位；这里只判内容是否需要预取。
-        if (episodeList().size <= 1) return // 单集/电影无需预取
-        val token = ++episodePanelLoadToken
-        val args = mutableMapOf<String, Any?>(
-            "loadArgs" to JSONObject(loadArgsMap).toString(),
-        )
-        NativePlayerReverseBridge.dispatch(
-            method = "loadEpisodePickerData",
-            args = args,
-            onResult = { result ->
-                runOnUiThread {
-                    applyEpisodePickerData(result, token)
-                    prefetchOtherSeasonsLight()
-                }
-            },
-            // 预取失败静默：用户点开时仍会按需请求。
-            onError = {},
-        )
-    }
-
-    /** 季列表已知后，用轻量接口并行预取其它未缓存季的剧集，只写缓存。 */
-    private fun prefetchOtherSeasonsLight() {
-        if (episodePanelSeasons.size <= 1) return
-        for (season in episodePanelSeasons) {
-            val guid = season["seasonGuid"]?.toString()?.takeIf { it.isNotEmpty() } ?: continue
-            if (guid in seasonEpisodesCache) continue
-            dispatchSeasonEpisodes(guid) { episodes ->
-                if (episodes.isNotEmpty()) seasonEpisodesCache[guid] = episodes
-            }
-        }
     }
 
     /** 轻量拉取某季剧集（单次 getEpisodeList），结果回到 UI 线程交给 [onLoaded]。 */
@@ -4501,22 +4489,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         seasonGuid: String,
         onLoaded: (List<Map<String, Any?>>) -> Unit,
     ) {
+        seasonEpisodeRequests[seasonGuid]?.let {
+            it.add(onLoaded)
+            return
+        }
+        val callbacks = mutableListOf(onLoaded)
+        seasonEpisodeRequests[seasonGuid] = callbacks
+        val generation = episodeCatalogGeneration
+        fun complete(episodes: List<Map<String, Any?>>) {
+            if (generation != episodeCatalogGeneration || isDestroyed) return
+            seasonEpisodeRequests.remove(seasonGuid)
+            if (episodes.isNotEmpty()) seasonEpisodesCache[seasonGuid] = episodes
+            callbacks.forEach { it(episodes) }
+        }
         NativePlayerReverseBridge.dispatch(
             method = "loadSeasonEpisodes",
             args = mapOf("seasonGuid" to seasonGuid),
             onResult = { result ->
                 runOnUiThread {
                     val map = result as? Map<*, *>
-                    onLoaded(parseNativePanelMaps(map?.get("episodes")))
+                    complete(parseNativePanelMaps(map?.get("episodes")))
                 }
             },
-            onError = { runOnUiThread { onLoaded(emptyList()) } },
+            onError = { runOnUiThread { complete(emptyList()) } },
         )
     }
 
     private fun applyEpisodePickerData(result: Any?, token: Int) {
         if (token != episodePanelLoadToken) return
         val map = result as? Map<*, *>
+        if (map == null) {
+            episodePanelLoading = false
+            if (isEpisodePanelVisible()) renderTopPanel()
+            return
+        }
         val data = nativePanelEpisodePickerData(
             selectedSeasonGuid = map?.get("selectedSeasonGuid")?.toString().orEmpty(),
             viewType = map?.get("viewType")?.toString(),
@@ -4532,12 +4538,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             applyEpisodePickerRefresh(data, wasLoading)
             return
         }
-        episodePickerLoadedOnce = true
+        episodePickerLoadedOnce = data.seasons.isNotEmpty()
         episodePanelSelectedSeasonGuid = data.selectedSeasonGuid
         episodePanelSeriesTitle = map?.get("seriesTitle")?.toString()?.takeIf { it.isNotEmpty() }
             ?: episodePanelSeriesTitle
         // 用户本次已手动切过视图：尊重本地选择，不被（可能更早发出的）回包改回。
         if (!episodeViewModeUserDirty) {
+            if (episodeViewMode != data.viewMode) episodePanelPositionCurrent = true
             episodeViewMode = data.viewMode
             persistEpisodeViewModeLocal(data.viewMode) // 与服务端偏好对齐，下次开播即时恢复
         }
@@ -4553,11 +4560,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", data.episodes) }
         }
         refreshEpisodeEntryButton()
-        if (panelVisible && panelStack.size == 1) {
+        if (isEpisodePanelVisible()) {
             val page = panelStack.removeLast()
             panelStack.addLast(page.copy(title = episodePanelTitle()))
         }
-        if (panelVisible) renderTopPanel()
+        if (isEpisodePanelVisible()) renderTopPanel()
     }
 
     /**
@@ -4571,7 +4578,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (data.episodes.isEmpty() ||
             data.selectedSeasonGuid != episodePanelSelectedSeasonGuid
         ) {
-            if (panelVisible && wasLoading) renderTopPanel()
+            if (isEpisodePanelVisible() && wasLoading) renderTopPanel()
             return
         }
         val merge = nativePanelMergeEpisodeRefresh(episodePanelEpisodes, data.episodes)
@@ -4582,7 +4589,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", merge.episodes) }
             }
         }
-        if (panelVisible && nativePanelShouldRenderEpisodeRefresh(wasLoading, merge.changed)) {
+        if (isEpisodePanelVisible() && nativePanelShouldRenderEpisodeRefresh(wasLoading, merge.changed)) {
             renderTopPanel()
         }
     }
@@ -4747,8 +4754,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildEpisodePanelContent() {
-        val episodes = episodePanelEpisodes.ifEmpty { episodeList() }
+        val episodes = episodePanelEpisodes.ifEmpty {
+            if (episodePanelSelectedSeasonGuid == loadArgsMap["seasonGuid"]?.toString().orEmpty()) episodeList()
+            else emptyList()
+        }
         val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        if (episodePanelPositionCurrent) panelScrollView.scrollTo(0, 0)
 
         // 切季/首拉进行中（已清空当前列表）显示加载态；用 episodePanelEpisodes 本身判空，
         // 不走 episodeList() 回退，避免切季时误显示"正在播放季"的旧列表。
@@ -4775,6 +4786,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     setTextColor(TEXT_DIM)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                     gravity = Gravity.CENTER
+                    setOnClickListener {
+                        if (episodePanelSelectedSeasonGuid.isNotEmpty()) switchSeason(episodePanelSelectedSeasonGuid)
+                    }
                 },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -5014,12 +5028,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // infoLayout 高度随内容自适应，行高由标题+时长+状态决定，缩略图较矮时不撑高。
             itemView.addView(infoLayout, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             listContainer.addView(itemView)
+            if (isSelected) positionCurrentEpisodeView(itemView)
             if (versionsExpanded) {
                 listContainer.addView(buildEpisodeVersionExpansion(versionEntries, durationText))
             }
             listContainer.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
         panelContent.addView(listContainer)
+    }
+
+    /** 等布局完成后让当前集进入视口；普通重绘不打断用户正在浏览的位置。 */
+    private fun positionCurrentEpisodeView(view: View) {
+        if (!episodePanelPositionCurrent) return
+        episodePanelPositionCurrent = false
+        view.post {
+            if (panelVisible && view.isAttachedToWindow) {
+                view.requestRectangleOnScreen(android.graphics.Rect(0, 0, view.width, view.height), true)
+            }
+        }
     }
 
     private fun buildEpisodeGridContent(
@@ -5102,6 +5128,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     setMargins(dp(4), dp(4), dp(4), dp(8))
                 },
             )
+            if (selected) positionCurrentEpisodeView(cell)
         }
         return grid
     }
@@ -9588,12 +9615,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (state.visualPlaybackReady && refreshRateSwitch && !refreshRateApplied) {
             refreshRateApplied = true
             applyPreferredDisplayMode("first-frame")
-        }
-        // 首帧后启动选集轻量预取（仅当前季一次请求）：略延迟让开播先稳定，但远短于旧的全季预取。
-        // 标记位在此处置位（兼作"已排程"守卫，防止后续状态回调重复 post）。
-        if (state.visualPlaybackReady && !episodePickerPrefetchStarted) {
-            episodePickerPrefetchStarted = true
-            bottomBar.postDelayed({ prefetchEpisodePickerData() }, 400L)
         }
         maybeUpdateMediaSession(state)
         updateOverlays(state)

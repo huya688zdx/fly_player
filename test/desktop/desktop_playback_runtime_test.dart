@@ -13,6 +13,8 @@ import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
 import 'package:fly_player/desktop/playback/desktop_player_controls.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/media_backend/detail/media_season_summary.dart';
+import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/models/playback_stream.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/playback/bookmarks/bookmark_store.dart';
@@ -22,6 +24,95 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
+  testWidgets('选集打开定位当前集，按需切季且旧回包不覆盖失败重试', (tester) async {
+    tester.view.physicalSize = const Size(430, 560);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final calls = <String>[];
+    final pendingSecond = Completer<List<Map<String, dynamic>>>();
+    var failThird = true;
+    String? selected;
+    List<Map<String, dynamic>> episodes(String season, int count) => [
+      for (var i = 1; i <= count; i++)
+        {
+          'itemGuid': '$season-$i',
+          'seasonGuid': season,
+          'episodeNumber': i,
+          'title': '$season 剧集 $i',
+          'duration': 1400,
+        },
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DesktopEpisodePanel(
+            title: '测试剧 · 选集',
+            emptyLabel: '暂无剧集',
+            currentItemGuid: 's1-13',
+            currentSeasonGuid: 's1',
+            episodes: episodes('s1', 30),
+            onSelected: (episode) => selected = episode['itemGuid'] as String,
+            loadSeasons: () async => [
+              for (var i = 1; i <= 3; i++)
+                MediaSeasonSummary(
+                  id: 's$i',
+                  title: '第$i季',
+                  seasonNumber: i,
+                  primaryImage: MediaImageRef.empty,
+                ),
+            ],
+            loadSeasonEpisodes: (season) async {
+              calls.add(season);
+              if (season == 's2') return pendingSecond.future;
+              if (failThird) throw StateError('模拟网络失败');
+              return episodes(season, 2);
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('第13集 · s1 剧集 13').hitTestable(), findsOneWidget);
+    expect(calls, isEmpty);
+    await tester.tap(find.byIcon(Icons.grid_view_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('13').hitTestable(), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.view_list_rounded));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('第13集 · s1 剧集 13').hitTestable(), findsOneWidget);
+    Future<void> choose(String label) async {
+      await tester.tap(find.byType(DropdownButton<String>));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text(label).last);
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    await choose('第2季');
+    // 第二季仍在请求时选择第三季，第三季失败后第二季回包不得覆盖它。
+    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('第3季').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    pendingSecond.complete(episodes('s2', 2));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('剧集加载失败，点击重试'), findsOneWidget);
+    expect(find.text('第1集 · s2 剧集 1'), findsNothing);
+    failThird = false;
+    await tester.tap(find.text('剧集加载失败，点击重试'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('第1集 · s3 剧集 1'));
+    expect(selected, 's3-1');
+    expect(calls, ['s2', 's3', 's3']);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('顶栏单行标题与工具入口对齐，书签截图只出现一次且可点击', (tester) async {
     final player = Player(platformPlayer: _ControlsPlayer());
     final calls = <String>[];
