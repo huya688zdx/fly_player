@@ -65,7 +65,6 @@ void main() {
             onAddBookmark: () => calls.add('书签'),
             onToggleDanmaku: () {},
             onAbRepeat: () => calls.add('AB'),
-            onDanmakuSettings: () => calls.add('弹幕设置'),
             onSettings: () => calls.add('设置'),
           ),
         ),
@@ -77,7 +76,8 @@ void main() {
     expect(find.text('异国日记 · S01E13'), findsNothing);
     final topY = tester.getCenter(back).dy;
     expect(tester.getCenter(title).dy, topY);
-    final tools = ['书签', '截图', '设置 A 点', '弹幕设置', '设置'];
+    expect(find.byTooltip('弹幕设置'), findsNothing);
+    final tools = ['书签', '截图', '设置 A 点', '设置'];
     var lastX = tester.getRect(title).right;
     for (final label in tools) {
       final button = find.byTooltip(label);
@@ -89,7 +89,7 @@ void main() {
       await tester.tap(button);
     }
     await tester.tap(back);
-    expect(calls, ['书签', '截图', 'AB', '弹幕设置', '设置', '返回']);
+    expect(calls, ['书签', '截图', 'AB', '设置', '返回']);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await player.dispose();
@@ -559,6 +559,12 @@ void main() {
   testWidgets('弹幕源在播放器设置面板内部打开', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(padding: const EdgeInsets.only(top: 32)),
+          child: child!,
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: SizedBox(
@@ -628,6 +634,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final panel = find.byType(DesktopPlaybackSettingsPanel);
+    final title = find.text(
+      AppLocalizations.of(tester.element(panel)).playerSettingsTitle,
+    );
+    expect(title, findsOneWidget);
+    expect(
+      tester.getTopLeft(title) - tester.getTopLeft(panel),
+      const Offset(18, 16),
+    );
     await tester.tap(find.text('弹幕源'));
     await tester.pumpAndSettle();
 
