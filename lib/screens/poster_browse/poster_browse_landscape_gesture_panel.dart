@@ -17,6 +17,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
   final ValueChanged<double>? onCollapseProgressChanged;
   final double cardWidth;
   final double itemSpacing;
+  final double trackSlideFactor;
 
   const PosterBrowseLandscapeGesturePanel({
     super.key,
@@ -30,6 +31,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
     this.onCollapseProgressChanged,
     this.cardWidth = 116,
     this.itemSpacing = 18,
+    this.trackSlideFactor = 1,
   });
 
   @override
@@ -133,7 +135,10 @@ class _PosterBrowseLandscapeGesturePanelState
                       ),
                       opacity: progress < 1 ? 1 : 0,
                       child: FractionalTranslation(
-                        translation: Offset(0, progress),
+                        translation: Offset(
+                          0,
+                          progress * widget.trackSlideFactor,
+                        ),
                         child: PosterBrowsePosterTrack(
                           items: widget.items,
                           focusedIndex: widget.focusedIndex,
