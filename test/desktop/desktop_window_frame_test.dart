@@ -29,6 +29,7 @@ void main() {
       supportedLocales: AppLocalizations.supportedLocales,
       builder: (_, child) => DesktopWindowFrame(child: child!),
       home: Scaffold(
+        backgroundColor: Colors.white,
         body: SafeArea(child: TextField(key: pageKey)),
       ),
     );
@@ -38,6 +39,15 @@ void main() {
     final caption = tester.widget<WindowCaption>(find.byType(WindowCaption));
     expect(caption.brightness, Brightness.dark);
     expect(caption.backgroundColor, Colors.transparent);
+    final backdrop = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('desktop-window-controls-backdrop')),
+    );
+    final backdropColor = (backdrop.decoration as BoxDecoration).color!;
+    final luminance = Color.alphaBlend(
+      backdropColor,
+      Colors.white,
+    ).computeLuminance();
+    expect(1.05 / (luminance + 0.05), greaterThanOrEqualTo(3));
     expect(caption.title, isNull);
     expect(find.byType(Image), findsNothing);
     expect(tester.getTopLeft(find.byType(Scaffold)).dy, 0);
