@@ -3813,7 +3813,7 @@
   "desktopPlaybackNextEpisodeTooltip": "下一集 (N)",
   "desktopPlaybackPrevEpisodeLabel": "上一集",
   "themeBackgroundStyleTitle": "背景样式",
-  "themeBackgroundStyleSubtitle": "选择背景光晕的形态，颜色随当前主题变化。",
+  "themeBackgroundStyleSubtitle": "控制首页、侧栏和详情正文的晕染形态；有海报取色时跟随取色，否则使用主题色。",
   "themeBackgroundStyleSoftMist": "柔雾晕染",
   "themeBackgroundStyleSoftMistSubtitle": "大片柔光自然交融",
   "themeBackgroundStyleEdgeGlow": "边缘微光",
@@ -3821,5 +3821,6 @@
   "themeBackgroundStyleAuroraRibbon": "极光丝带",
   "themeBackgroundStyleAuroraRibbonSubtitle": "宽幅弧光柔和交错",
   "themeBackgroundStyleCinemaLight": "影院顶光",
-  "themeBackgroundStyleCinemaLightSubtitle": "顶部光晕向下渐隐"
+  "themeBackgroundStyleCinemaLightSubtitle": "顶部光晕向下渐隐",
+  "themeBackgroundStyleDynamicPreview": "正在使用当前海报取色预览，样式同时作用于首页、侧栏和详情正文。"
 }
