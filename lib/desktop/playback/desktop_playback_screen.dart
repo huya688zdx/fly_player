@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../l10n/generated/app_localizations.dart';
+import '../../theme/app_theme.dart';
 import '../../media_backend/detail/media_season_summary.dart';
 import '../../danmaku/models/danmaku_comment.dart';
 import '../../danmaku/models/danmaku_settings.dart';
@@ -19,6 +20,7 @@ import '../../danmaku/settings/danmaku_settings_store.dart';
 import '../../media_backend/playback/media_session_reload.dart';
 import '../../playback/bookmarks/bookmark_store.dart';
 import '../../playback/playback_source.dart';
+import '../../playback/weak_network_quality_recommender.dart';
 import '../../playback/settings/mpv_settings_store.dart';
 import '../../services/native_danmaku_prefetch.dart';
 import 'desktop_danmaku_overlay.dart';
@@ -26,6 +28,7 @@ import 'desktop_mpv_runtime.dart';
 import 'desktop_playback_chapters.dart';
 import 'desktop_playback_reporter.dart';
 import 'desktop_playback_session.dart';
+import 'desktop_weak_network_monitor.dart';
 import 'desktop_player_controls.dart';
 import 'desktop_player_dialogs.dart';
 import '../desktop_floating_panel.dart';
@@ -111,6 +114,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   late final Player _player;
   late final VideoController _videoController;
+  late final DesktopWeakNetworkMonitor _weakNetwork;
   late MpvMediaSource _source;
   late final StreamSubscription<String> _errorSubscription;
   late final StreamSubscription<bool> _playingSubscription;
@@ -216,6 +220,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
   void _updateView(VoidCallback update) {
     if (!mounted) return;
     setState(update);
+    _weakNetwork.updatePlayback(
+      loading: _isLoading,
+      paused: _pausedByUser,
+      buffering: _isBuffering,
+      completed: _playbackCompleted || _errorMessage != null,
+    );
     // media_kit 的全屏控制层属于另一条路由，宿主页 setState 不会重建它。
     _viewRevision.value++;
   }
@@ -239,6 +249,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     MediaKit.ensureInitialized();
     _player = widget.session.player;
     _videoController = widget.session.videoController;
+    _weakNetwork = DesktopWeakNetworkMonitor(
+      readProperty: (name) async {
+        final platform = _player.platform;
+        return platform is NativePlayer ? platform.getProperty(name) : '0';
+      },
+    )..setSource(_source);
     widget.session.releaseSource = _reporter.release;
     _chapterLoader = DesktopPlaybackChapters(() async {
       final platform = _player.platform;
@@ -291,6 +307,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   @override
   void dispose() {
+    _weakNetwork.dispose();
     final session = widget.session;
     final retain =
         session.ready &&
@@ -915,6 +932,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   /// 优先使用章节边界，无明确片头/片尾章节时回退到设置的时长窗口。
   void _onPositionChanged(Duration position) {
+    _weakNetwork.onPosition(position);
     unawaited(_refreshSegmentedSubtitle(position));
     final kind = _computeSkipPromptKind(position);
     if (kind == _skipPromptKindNotifier.value) return;
@@ -1015,6 +1033,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     final previousSource = _source;
     final previousTracks = _player.state.track;
     _source = source;
+    _weakNetwork.setSource(source);
     _pausedByUser = !play;
     widget.session.ready = false;
     _subtitleWindowSecond = -100;
@@ -1174,7 +1193,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     if (!mounted || resolver == null) return;
     final generation = ++_sourceChangeGeneration;
     _lastDirectLinkRefreshAttempt = null;
-    final wasPlaying = _isPlaying;
+    final wasPlaying = _isPlaying || (_isBuffering && !_pausedByUser);
     _wakeControls(scheduleHide: false);
     _updateView(() {
       _isLoading = true;
@@ -1543,7 +1562,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
 
   Future<void> _restartFromBeginning() async {
     _dismissResumePrompt();
-    await _player.seek(Duration.zero);
+    await _seekTo(Duration.zero);
     if (!_isPlaying) {
       _pausedByUser = false;
       await _player.play();
@@ -1584,7 +1603,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       _autoNextSeconds = 0;
       _controlsVisible = true;
     });
-    await _player.seek(Duration.zero);
+    await _seekTo(Duration.zero);
     _pausedByUser = false;
     await _player.play();
   }
@@ -1621,11 +1640,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
     if (target < 0) target = 0;
     final duration = _player.state.duration.inMicroseconds;
     if (duration > 0 && target > duration) target = duration;
-    await _player.seek(Duration(microseconds: target));
+    await _seekTo(Duration(microseconds: target));
   }
 
-  Future<void> _seekTo(Duration position) =>
-      _player.seek(position < Duration.zero ? Duration.zero : position);
+  Future<void> _seekTo(Duration position) {
+    _weakNetwork.markSeek();
+    return _player.seek(position < Duration.zero ? Duration.zero : position);
+  }
 
   Future<void> _setVolume(double value) async {
     _wakeControls();
@@ -3303,7 +3324,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                       },
                     ),
                   ),
-                  _buildStatusLayer(),
+                  ListenableBuilder(
+                    listenable: _weakNetwork,
+                    builder: (context, _) => _buildStatusLayer(),
+                  ),
                   if (_danmakuSettings.enabled && _danmakuComments.isNotEmpty)
                     Positioned.fill(
                       child: DesktopDanmakuOverlay(
@@ -3470,6 +3494,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                   ),
                   _buildHoverOverlayLayer(),
                   _buildResumePromptLayer(),
+                  _buildWeakNetworkPromptLayer(),
                   _buildSkipPromptLayer(),
                   _buildToastLayer(),
                   if (_playbackCompleted)
@@ -3482,6 +3507,81 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
       ),
     );
   }
+
+  String get _weakNetworkDetails {
+    final speed = formatWeakNetworkSpeedLabel(_weakNetwork.bytesPerSecond);
+    final wait = _weakNetwork.estimatedResumeWait;
+    if (wait == null) {
+      return _l10n.nativePlayerCurrentSpeed.replaceAll(r'%1$s', speed);
+    }
+    return _l10n.nativePlayerCurrentSpeedResume
+        .replaceAll(r'%1$s', speed)
+        .replaceAll(
+          r'%2$d',
+          ((wait.inMilliseconds + 999) ~/ 1000).clamp(1, 9999).toString(),
+        );
+  }
+
+  Future<void> _switchWeakNetworkQuality() async {
+    final choice = _weakNetwork.recommendation;
+    if (choice == null || widget.reloadSource == null || _isLoading) return;
+    _weakNetwork.dismiss();
+    _showPlayerMessage(_l10n.playerWeakNetworkSwitching(choice.displayTier));
+    await _reloadPlaybackSource(qualityIndex: choice.sourceIndex);
+  }
+
+  Widget _buildWeakNetworkPromptLayer() => ListenableBuilder(
+    listenable: _weakNetwork,
+    builder: (context, _) {
+      final choice = _weakNetwork.recommendation;
+      final colors = context.appColors;
+      if (choice == null || widget.reloadSource == null) {
+        return const SizedBox.shrink();
+      }
+      return Positioned(
+        left: 24,
+        bottom: 186,
+        width: (MediaQuery.sizeOf(context).width - 48).clamp(0, 440).toDouble(),
+        child: DesktopFloatingPanel(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _l10n.playerWeakNetworkSuggestionTitle(choice.displayTier),
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  _weakNetworkDetails,
+                  style: TextStyle(color: colors.textSecondary, fontSize: 12),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: _weakNetwork.dismiss,
+                      child: Text(_l10n.nativePlayerText0061),
+                    ),
+                    TextButton(
+                      onPressed: () => unawaited(_switchWeakNetworkQuality()),
+                      child: Text(_l10n.nativePlayerText0060),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 
   Widget _buildResumePromptLayer() {
     return Positioned(
@@ -3885,15 +3985,31 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen> {
                 ),
               ),
               const SizedBox(width: 11),
-              Text(
-                _isLoading
-                    ? _l10n.playerLoadingOpeningSource
-                    : _l10n.playerLoadingBuffering,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isLoading
+                        ? _l10n.playerLoadingOpeningSource
+                        : _l10n.playerLoadingBuffering,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (_weakNetwork.remote) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _weakNetworkDetails,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
