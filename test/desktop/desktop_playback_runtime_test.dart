@@ -280,7 +280,7 @@ void main() {
             onToggle: () {},
             onSeek: (_) async {},
             onVolume: (_) {},
-            onMute: () {},
+            onMute: () => calls.add('静音'),
             onRate: (_) {},
             onScreenshot: () => calls.add('截图'),
             onAddBookmark: () => calls.add('书签'),
@@ -322,7 +322,9 @@ void main() {
     expect(calls.skip(5), ['弹幕', '倍速', '选集', '画质', '字幕', '音轨']);
     expect(find.text('选集'), findsNothing);
     expect(find.text('原画'), findsNothing);
-    expect(find.byType(DesktopPlayerMotionIcon), findsNWidgets(8));
+    await tester.tap(find.byTooltip('静音'));
+    expect(calls.last, '静音');
+    expect(find.byType(DesktopPlayerMotionIcon), findsNWidgets(12));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await player.dispose();
