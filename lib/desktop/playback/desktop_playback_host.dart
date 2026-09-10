@@ -133,7 +133,18 @@ final class DesktopPlaybackHost implements PlaybackHost {
     Future<List<MediaSeasonSummary>> loadSeasons() {
       return seasonsRequest ??= () async {
         try {
-          return await backend.getItemSeasons(source.seriesGuid);
+          var seriesGuid = source.seriesGuid.trim();
+          if (seriesGuid.isEmpty) {
+            seriesGuid = backend.capabilities.usesLegacyFeiniuFlow
+                ? await NativeReentrySupport.resolveSeriesGuid(
+                    FeiniuApi(effectiveNas),
+                    source.toMap(),
+                    source.seasonGuid,
+                  )
+                : (await backend.getItemDetail(source.itemGuid)).seriesId;
+          }
+          if (seriesGuid.isEmpty) throw StateError('未找到所属剧集，请重试');
+          return await backend.getItemSeasons(seriesGuid);
         } catch (_) {
           seasonsRequest = null;
           rethrow;
@@ -177,11 +188,13 @@ final class DesktopPlaybackHost implements PlaybackHost {
           : serverReporter.report,
       source: session.source,
       episodes: effectiveEpisodes,
-      loadSeasons: offline || source.seriesGuid.isEmpty ? null : loadSeasons,
+      loadSeasons: offline || source.mediaType.toLowerCase() != 'episode'
+          ? null
+          : loadSeasons,
       loadSeasonEpisodes: offline ? null : loadEpisodes,
       resolveEpisode:
           (effectiveEpisodes?.isNotEmpty != true &&
-              (offline || source.mediaType != 'episode'))
+              (offline || source.mediaType.toLowerCase() != 'episode'))
           ? null
           : (episode) async {
               final itemGuid = '${episode['itemGuid'] ?? episode['guid'] ?? ''}'

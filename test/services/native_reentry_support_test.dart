@@ -1,10 +1,49 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/media_backend/playback/media_session_reload.dart';
 import 'package:fly_player/services/native_reentry_support.dart';
 
+class _EpisodeSeriesApi implements FeiniuApi {
+  int detailRequests = 0;
+  int unexpectedRequests = 0;
+
+  @override
+  Future<Map<String, dynamic>> getItemDetail(String itemGuid) async {
+    expect(itemGuid, 'season-1');
+    detailRequests++;
+    return {'parent_guid': 'series-1'};
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    unexpectedRequests++;
+    throw StateError('不应发送额外请求：${invocation.memberName}');
+  }
+}
+
 void main() {
+  test('播放信息缺少剧集 ID 时从当前季回查，不重复请求播放信息', () async {
+    final api = _EpisodeSeriesApi();
+    expect(
+      await NativeReentrySupport.resolveSeriesGuid(api, {
+        'seriesGuid': '',
+        'itemGuid': 'episode-2',
+      }, 'season-1'),
+      'series-1',
+    );
+    expect(api.detailRequests, 1);
+    expect(
+      await NativeReentrySupport.resolveSeriesGuid(api, {
+        'seriesGuid': 'series-1',
+      }, 'season-1'),
+      'series-1',
+    );
+    expect(api.detailRequests, 1);
+    expect(api.unexpectedRequests, 0);
+  });
+
   group('NativeReentrySupport.buildNativeEpisodeImageFields', () {
     test('根海报字段与选集字段共用同一同源策略', () {
       final fields = NativeReentrySupport.buildNativeImageFields(
