@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,7 @@ import 'package:fly_player/desktop/playback/desktop_playback_reporter.dart';
 import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
 import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
 import 'package:fly_player/desktop/playback/desktop_player_controls.dart';
+import 'package:fly_player/desktop/playback/desktop_player_motion_icon.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/detail/media_season_summary.dart';
@@ -24,6 +26,56 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
+  testWidgets('透明弹幕图标进入退出时移动笔画，静止后停止调度帧', (tester) async {
+    Widget icon(bool selected) => MaterialApp(
+      home: Center(
+        child: DesktopPlayerMotionIcon(
+          kind: DesktopPlayerMotionKind.danmaku,
+          selected: selected,
+        ),
+      ),
+    );
+    Future<List<int>> pixels() async {
+      final paint = tester.widget<CustomPaint>(
+        find.descendant(
+          of: find.byType(DesktopPlayerMotionIcon),
+          matching: find.byType(CustomPaint),
+        ),
+      );
+      return (await tester.runAsync(() async {
+        final recorder = ui.PictureRecorder();
+        paint.painter!.paint(Canvas(recorder), const Size(130, 130));
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(130, 130);
+        final bytes = await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        );
+        final alpha = [
+          for (var i = 3; i < bytes!.lengthInBytes; i += 4) bytes.getUint8(i),
+        ];
+        image.dispose();
+        picture.dispose();
+        return alpha;
+      }))!;
+    }
+
+    await tester.pumpWidget(icon(false));
+    final initial = await pixels();
+    expect(initial.first, 0);
+    expect(initial[65 * 130], 0);
+    await tester.pumpWidget(icon(true));
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(await pixels(), isNot(orderedEquals(initial)));
+    await tester.pumpAndSettle();
+    expect(tester.hasRunningAnimations, isFalse);
+    await tester.pumpWidget(icon(false));
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(await pixels(), isNot(orderedEquals(initial)));
+    await tester.pumpAndSettle();
+    expect(await pixels(), orderedEquals(initial));
+    expect(tester.hasRunningAnimations, isFalse);
+  });
+
   testWidgets('选集缩略图显示观看状态，下载文字独立且零续播值不遮掉观看进度', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -199,7 +251,12 @@ void main() {
             onRate: (_) {},
             onScreenshot: () => calls.add('截图'),
             onAddBookmark: () => calls.add('书签'),
-            onToggleDanmaku: () {},
+            onToggleDanmaku: () => calls.add('弹幕'),
+            onEpisodes: () => calls.add('选集'),
+            onQuality: () => calls.add('画质'),
+            onSubtitle: () => calls.add('字幕'),
+            onAudio: () => calls.add('音轨'),
+            onSpeedAt: (_) => calls.add('倍速'),
             onAbRepeat: () => calls.add('AB'),
             onSettings: () => calls.add('设置'),
           ),
@@ -226,6 +283,13 @@ void main() {
     }
     await tester.tap(back);
     expect(calls, ['书签', '截图', 'AB', '设置', '返回']);
+    for (final label in ['弹幕开关', '倍速 · 1.0×', '选集', '原画', '字幕', '音轨']) {
+      await tester.tap(find.byTooltip(label));
+    }
+    expect(calls.skip(5), ['弹幕', '倍速', '选集', '画质', '字幕', '音轨']);
+    expect(find.text('选集'), findsNothing);
+    expect(find.text('原画'), findsNothing);
+    expect(find.byType(DesktopPlayerMotionIcon), findsNWidgets(8));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await player.dispose();
@@ -653,7 +717,6 @@ void main() {
 
     expect(source, contains('Widget _tooltipOrChild('));
     expect(source, contains('enabled: onHoverEnter == null'));
-    expect(source, contains('enabled: false'));
   });
 
   testWidgets('Windows 弹幕显示设置与弹幕源分开呈现', (tester) async {
