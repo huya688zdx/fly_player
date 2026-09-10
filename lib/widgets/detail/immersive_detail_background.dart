@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../media_backend/media_image_request.dart';
+import '../../providers/app_theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/route_transition_gate.dart';
+import '../app_atmospheric_background.dart';
 
 class ImmersiveDetailBackground extends StatefulWidget {
   final MediaImageRequest images;
@@ -169,6 +172,11 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final colors = context.appColors;
     final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
     final ambientTint = widget.ambientTintOverride;
+    final backgroundStyle = context
+        .select<AppThemeProvider?, AppBackgroundStyle>(
+          (provider) =>
+              provider?.backgroundStyle ?? AppBackgroundStyle.softMist,
+        );
 
     final mediaSize = MediaQuery.of(context).size;
     final screenWidth = mediaSize.width;
@@ -241,35 +249,26 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     return RepaintBoundary(
       child: Stack(
         children: [
-          Positioned.fill(child: ColoredBox(color: colors.backgroundBase)),
-          if (ambientTint != null)
-            Positioned.fill(
+          Positioned.fill(
+            child: RepaintBoundary(
               child: IgnorePointer(
-                child: DecoratedBox(
-                  key: const ValueKey<String>('detail-background-ambient-wash'),
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      center: const Alignment(-0.35, -0.72),
-                      radius: 1.52,
-                      colors: <Color>[
-                        ambientTint.withValues(
-                          alpha: isLightSurface ? 0.14 : 0.22,
+                child: ambientTint == null
+                    ? ColoredBox(color: colors.backgroundBase)
+                    : AppAtmosphereSurface(
+                        key: const ValueKey<String>(
+                          'detail-background-ambient-wash',
                         ),
-                        ambientTint.withValues(
-                          alpha: isLightSurface ? 0.07 : 0.11,
+                        palette: AppAtmospherePalette.resolve(
+                          // 正文沿用详情底色，海报交接层仍与原底色衔接。
+                          baseColors: colors,
+                          effectiveColors: colors.copyWith(accent: ambientTint),
+                          hasDynamicTheme: true,
                         ),
-                        // 页面下半部仍保留微弱色相，避免正文退回固定深蓝底；
-                        // 强度足够辨认取色差异，同时不影响正文对比度。
-                        ambientTint.withValues(
-                          alpha: isLightSurface ? 0.025 : 0.045,
-                        ),
-                      ],
-                      stops: const <double>[0, 0.54, 1],
-                    ),
-                  ),
-                ),
+                        style: backgroundStyle,
+                      ),
               ),
             ),
+          ),
 
           Positioned(
             key: const ValueKey<String>('detail-hero-image-region'),

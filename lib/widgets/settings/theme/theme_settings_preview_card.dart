@@ -16,6 +16,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
   final String themeSubtitle;
   final AppThemeColors colors;
   final AppBackgroundStyle backgroundStyle;
+  final AppAtmospherePalette atmosphere;
 
   const ThemeSettingsPreviewCard({
     super.key,
@@ -23,6 +24,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
     required this.themeSubtitle,
     required this.colors,
     required this.backgroundStyle,
+    required this.atmosphere,
   });
 
   @override
@@ -190,14 +192,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          AppAtmosphereSurface(
-            palette: AppAtmospherePalette.resolve(
-              baseColors: colors,
-              effectiveColors: colors,
-              hasDynamicTheme: false,
-            ),
-            style: backgroundStyle,
-          ),
+          AppAtmosphereSurface(palette: atmosphere, style: backgroundStyle),
           controls,
         ],
       ),

@@ -7,12 +7,13 @@ import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/screens/theme_settings_screen.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/theme/dynamic_theme_seed_extractor.dart';
 import 'package:fly_player/widgets/common/app_ambient_page.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
 import 'package:fly_player/widgets/settings/theme/theme_settings_preview_card.dart';
 
 void main() {
-  testWidgets('背景样式点击即生效，换配色和重新加载后保留选择', (tester) async {
+  testWidgets('背景样式保存独立选择，预览跟随当前海报取色', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     tester.view.physicalSize = const Size(404, 850);
     tester.view.devicePixelRatio = 1;
@@ -65,6 +66,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(provider.backgroundStyle, AppBackgroundStyle.auroraRibbon);
     expect(provider.preset, AppThemePreset.forest);
+    await tester.runAsync(() async {
+      await provider.setDynamicThemeMode(AppDynamicThemeMode.detailsAndPeople);
+      await provider.setRuntimeDynamicTheme(
+        pageKey: 'test:poster',
+        seed: const DynamicThemeSeed(
+          backgroundSeed: Color(0xFF683344),
+          accentSeed: Color(0xFFD85867),
+          selectionSeed: Color(0xFF4B7FD8),
+          linkSeed: Color(0xFFD49A32),
+          preferLightSurface: false,
+        ),
+        broadcastToMain: false,
+      );
+    });
+    await tester.pumpAndSettle();
+    final optionSurface = tester.widget<AppAtmosphereSurface>(
+      find.descendant(of: option, matching: find.byType(AppAtmosphereSurface)),
+    );
+    expect(optionSurface.palette.hasDynamicTheme, isTrue);
+    expect(
+      optionSurface.palette.accentGlow.withValues(alpha: 1),
+      provider.effectiveThemeColors.accent,
+    );
     await tester.scrollUntilVisible(
       find.byType(ThemeSettingsPreviewCard),
       -300,
@@ -76,8 +100,10 @@ void main() {
     expect(preview.backgroundStyle, AppBackgroundStyle.auroraRibbon);
     expect(
       preview.colors.toSignatureValues(),
-      provider.selectedThemeBaseColors.toSignatureValues(),
+      provider.effectiveThemeColors.toSignatureValues(),
     );
+    expect(preview.atmosphere.hasDynamicTheme, isTrue);
+    expect(preview.atmosphere.accentGlow, optionSurface.palette.accentGlow);
     expect(tester.takeException(), isNull);
   });
 
