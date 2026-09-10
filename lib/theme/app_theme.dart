@@ -3,6 +3,16 @@ import 'package:flutter/services.dart';
 
 enum AppThemePreset { midnight, ocean, forest, graphite, sunset, aurora, latte }
 
+enum AppBackgroundStyle { softMist, edgeGlow, auroraRibbon, cinemaLight }
+
+extension AppBackgroundStyleX on AppBackgroundStyle {
+  static AppBackgroundStyle fromStorageValue(String? value) =>
+      AppBackgroundStyle.values.firstWhere(
+        (style) => style.name == value,
+        orElse: () => AppBackgroundStyle.softMist,
+      );
+}
+
 extension AppThemePresetX on AppThemePreset {
   String get storageValue => switch (this) {
     AppThemePreset.midnight => 'midnight',

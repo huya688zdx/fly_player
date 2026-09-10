@@ -10,6 +10,7 @@ class ThemeSettingsPresetCard extends StatelessWidget {
   final AppThemeColors previewColors;
   final bool selected;
   final VoidCallback onTap;
+  final Widget? preview;
 
   const ThemeSettingsPresetCard({
     super.key,
@@ -18,6 +19,7 @@ class ThemeSettingsPresetCard extends StatelessWidget {
     required this.previewColors,
     required this.selected,
     required this.onTap,
+    this.preview,
   });
 
   @override
@@ -47,65 +49,66 @@ class ThemeSettingsPresetCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Container(
-              height: 84,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: <Color>[
-                    previewColors.surfaceStrong,
-                    previewColors.surface,
-                    previewColors.backgroundBase,
-                  ],
-                ),
-                border: Border.all(color: previewColors.borderSubtle),
-              ),
-              child: Stack(
-                children: <Widget>[
-                  Positioned(
-                    top: 12,
-                    left: 12,
-                    child: Container(
-                      width: 64,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: previewColors.textPrimary.withValues(
-                          alpha: 0.88,
+            preview ??
+                Container(
+                  height: 84,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: <Color>[
+                        previewColors.surfaceStrong,
+                        previewColors.surface,
+                        previewColors.backgroundBase,
+                      ],
+                    ),
+                    border: Border.all(color: previewColors.borderSubtle),
+                  ),
+                  child: Stack(
+                    children: <Widget>[
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        child: Container(
+                          width: 64,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: previewColors.textPrimary.withValues(
+                              alpha: 0.88,
+                            ),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
                         ),
-                        borderRadius: BorderRadius.circular(999),
                       ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 12,
-                    bottom: 12,
-                    child: Container(
-                      width: 58,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: previewColors.selectionSoft,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: previewColors.selection),
+                      Positioned(
+                        left: 12,
+                        bottom: 12,
+                        child: Container(
+                          width: 58,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: previewColors.selectionSoft,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: previewColors.selection),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 12,
-                    bottom: 12,
-                    child: Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: previewColors.accent,
-                        borderRadius: BorderRadius.circular(12),
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: previewColors.accent,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                ),
             const SizedBox(height: 12),
             Row(
               children: <Widget>[
