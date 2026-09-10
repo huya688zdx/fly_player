@@ -45,6 +45,7 @@ class DetailRoutePayloadStore {
     required String seriesTitle,
     required String backdropPath,
     required Map<String, dynamic> seasonItem,
+    String initialEpisodeGuid = '',
   }) {
     final normalizedParentGuid = parentGuid.trim();
     final normalizedSeasonGuid = seasonItem['guid']?.toString().trim() ?? '';
@@ -60,6 +61,8 @@ class DetailRoutePayloadStore {
         'seriesTitle': seriesTitle.trim(),
         'backdropPath': backdropPath.trim(),
         if (normalizedSeasonGuid.isNotEmpty) 'seasonGuid': normalizedSeasonGuid,
+        if (initialEpisodeGuid.trim().isNotEmpty)
+          'initialEpisodeGuid': initialEpisodeGuid.trim(),
         if (payloadToken != null) payloadTokenKey: payloadToken,
       },
     ).toString();
