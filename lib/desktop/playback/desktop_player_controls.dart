@@ -591,9 +591,12 @@ class _BigPlayButton extends StatelessWidget {
             child: InkWell(
               onTap: onPressed,
               customBorder: const CircleBorder(),
-              child: const Icon(
+              child: Icon(
                 Icons.play_arrow_rounded,
-                color: Colors.white,
+                // 浅色悬停背景使用黑色图标，避免白色强调色吞掉播放符号。
+                color: hovered && accent.computeLuminance() > 0.179
+                    ? Colors.black
+                    : Colors.white,
                 size: 34,
               ),
             ),
