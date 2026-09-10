@@ -139,61 +139,44 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
 
             return Padding(
               padding: EdgeInsets.fromLTRB(28, topInset, 28, bottomInset),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Stack(
                 children: [
-                  _BackButton(onPressed: widget.onBack),
-                  Expanded(
-                    child: showMediaInfo && collapseProgress < 0.999
-                        ? IgnorePointer(
-                            ignoring: collapseProgress > 0.5,
-                            child: Opacity(
-                              key: const ValueKey(
-                                'poster_browse_primary_collapse_opacity',
-                              ),
-                              opacity: 1 - collapseProgress,
-                              child: FractionalTranslation(
-                                translation: Offset(0, 0.1 * collapseProgress),
-                                child: Padding(
-                                  key: const ValueKey(
-                                    'poster_browse_primary_media_info',
-                                  ),
-                                  padding: const EdgeInsets.only(
-                                    left: 36,
-                                    right: 36,
-                                    top: 24,
-                                  ),
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        maxWidth: 560,
-                                      ),
-                                      child: _buildAnimatedPrimaryMediaInfo(
-                                        viewportHeight,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                  if (collapseProgress < 0.999)
-                    ClipRect(
+                  if (showMediaInfo)
+                    Positioned(
+                      key: const ValueKey('poster_browse_primary_media_info'),
+                      left: 36,
+                      right: 36,
+                      top: 48 + 24,
+                      // 同一份信息随进度移到左下方，不再叠放淡入的副本。
+                      bottom:
+                          (expandedTrackHeight + selectorSpacing + 48) *
+                              (1 - collapseProgress) +
+                          34 * collapseProgress,
                       child: Align(
-                        alignment: Alignment.bottomCenter,
-                        heightFactor: 1 - collapseProgress,
-                        child: IgnorePointer(
-                          ignoring: collapseProgress > 0.5,
-                          child: Opacity(
-                            key: const ValueKey(
-                              'poster_browse_row_selector_collapse_opacity',
+                        alignment: Alignment(-1, collapseProgress),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 560),
+                          child: _buildAnimatedPrimaryMediaInfo(viewportHeight),
+                        ),
+                      ),
+                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _BackButton(onPressed: widget.onBack),
+                      const Spacer(),
+                      if (collapseProgress < 0.999)
+                        IgnorePointer(
+                          ignoring: collapseProgress > 0,
+                          child: Transform.translate(
+                            offset: Offset(
+                              0,
+                              (trackHeight + selectorSpacing + 48) *
+                                  collapseProgress,
                             ),
-                            opacity: 1 - collapseProgress,
-                            child: FractionalTranslation(
-                              translation: Offset(0, 0.35 * collapseProgress),
+                            child: Align(
+                              alignment: Alignment.bottomLeft,
+                              heightFactor: 1 - collapseProgress,
                               child: _RowSelector(
                                 rows: widget.rows,
                                 selectedRow: widget.selectedRow,
@@ -202,19 +185,20 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
                             ),
                           ),
                         ),
+                      SizedBox(
+                        height: selectorSpacing * (1 - collapseProgress),
                       ),
-                    )
-                  else
-                    const SizedBox.shrink(),
-                  SizedBox(height: selectorSpacing * (1 - collapseProgress)),
-                  SizedBox(
-                    height: trackHeight,
-                    child: _buildTrackArea(
-                      context,
-                      currentRow,
-                      currentItems,
-                      cardWidth,
-                    ),
+                      SizedBox(
+                        height: trackHeight,
+                        child: _buildTrackArea(
+                          context,
+                          currentRow,
+                          currentItems,
+                          cardWidth,
+                          showMediaInfo: showMediaInfo,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -254,8 +238,9 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
     BuildContext context,
     PosterBrowseRow? currentRow,
     List<PosterBrowseDisplayItem> currentItems,
-    double cardWidth,
-  ) {
+    double cardWidth, {
+    required bool showMediaInfo,
+  }) {
     if (currentItems.isNotEmpty) {
       return PosterBrowseLandscapeGesturePanel(
         items: currentItems,
@@ -266,7 +251,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         onItemTap: widget.onSelectItem,
         onCollapseProgressChanged: _handleCollapseProgressChanged,
         cardWidth: cardWidth,
-        collapsedContent: widget.focusedItem == null
+        collapsedContent: showMediaInfo || widget.focusedItem == null
             ? const SizedBox.shrink()
             : Padding(
                 key: ValueKey(
