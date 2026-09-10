@@ -90,6 +90,8 @@ class DesktopPlaybackReporter {
     );
   }
 
+  Future<void> flushServer() => _serverPending;
+
   Future<void> dispose() async {
     await _localPending;
     try {
