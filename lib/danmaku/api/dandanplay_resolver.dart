@@ -239,14 +239,16 @@ class DanDanPlayResolver {
     return title.trim();
   }
 
-  /// 手动搜索不丢弃其他季度，只把当前季度放到前面，方便用户核对并纠正自动结果。
+  /// 手动搜索保留全集，依次优先展示当前集、当前季，方便纠正自动结果。
   static List<DanDanPlayEpisodeSearchItem> sortCandidatesForSeason(
     List<DanDanPlayEpisodeSearchItem> items, {
     required int seasonNumber,
+    int currentEpisodeNumber = 0,
   }) {
     if (seasonNumber <= 0 || items.length < 2) {
       return List<DanDanPlayEpisodeSearchItem>.of(items);
     }
+    final current = <DanDanPlayEpisodeSearchItem>[];
     final matched = <DanDanPlayEpisodeSearchItem>[];
     final remaining = <DanDanPlayEpisodeSearchItem>[];
     for (final item in items) {
@@ -254,9 +256,15 @@ class DanDanPlayResolver {
         item,
         seasonNumber: seasonNumber,
       );
-      (isRequestedSeason ? matched : remaining).add(item);
+      if (isRequestedSeason &&
+          currentEpisodeNumber > 0 &&
+          item.episodeNumber == currentEpisodeNumber) {
+        current.add(item);
+      } else {
+        (isRequestedSeason ? matched : remaining).add(item);
+      }
     }
-    return <DanDanPlayEpisodeSearchItem>[...matched, ...remaining];
+    return <DanDanPlayEpisodeSearchItem>[...current, ...matched, ...remaining];
   }
 
   /// 当前媒体缺少季度信息时不猜测；有季度信息时兼容未标季名的第一季。

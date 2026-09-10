@@ -359,6 +359,7 @@ class NativeDanmakuPrefetch {
   static Future<List<Map<String, dynamic>>> searchCandidates({
     required String keyword,
     int episodeNumber = 0,
+    int currentEpisodeNumber = 0,
     int seasonNumber = 0,
     String tmdbId = '',
   }) async {
@@ -377,6 +378,7 @@ class NativeDanmakuPrefetch {
       final sortedItems = DanDanPlayResolver.sortCandidatesForSeason(
         items,
         seasonNumber: seasonNumber,
+        currentEpisodeNumber: currentEpisodeNumber,
       );
       return <Map<String, dynamic>>[
         for (final item in sortedItems)
@@ -385,6 +387,13 @@ class NativeDanmakuPrefetch {
             'animeTitle': item.animeTitle,
             'episodeTitle': item.episodeTitle,
             'episodeNumber': item.episodeNumber,
+            'matchesCurrentEpisode':
+                currentEpisodeNumber > 0 &&
+                item.episodeNumber == currentEpisodeNumber &&
+                DanDanPlayResolver.candidateMatchesSeason(
+                  item,
+                  seasonNumber: seasonNumber,
+                ),
             'matchesCurrentSeason': DanDanPlayResolver.candidateMatchesSeason(
               item,
               seasonNumber: seasonNumber,
