@@ -153,16 +153,23 @@ class PlayDetailTrackSelector {
   }) {
     final fallbackLabel = l10n.trackAudioNone;
     for (final track in audioTracks) {
-      if (track.guid == selectedAudioGuid) return audioOptionTitle(track);
+      if (track.guid == selectedAudioGuid) {
+        return audioOptionTitle(track, l10n: l10n);
+      }
     }
-    if (audioTracks.isNotEmpty) return audioOptionTitle(audioTracks.first);
+    if (audioTracks.isNotEmpty) {
+      return audioOptionTitle(audioTracks.first, l10n: l10n);
+    }
     if (selectedOption != null) {
       return audioTrackLabel(l10n, selectedOption.audioLanguage);
     }
     return fallbackLabel;
   }
 
-  static String audioOptionTitle(AudioTrackOption track) {
+  static String audioOptionTitle(
+    AudioTrackOption track, {
+    required AppLocalizations l10n,
+  }) {
     final mapped = MediaLanguageMapper.languageName(track.language).trim();
     if (mapped.isNotEmpty) return mapped;
     final raw = track.language.trim();
@@ -171,7 +178,7 @@ class PlayDetailTrackSelector {
         normalized == 'und' ||
         normalized == 'unknown' ||
         normalized == 'zz-unknow') {
-      return '';
+      return l10n.mediaInfoUnknown;
     }
     return raw;
   }

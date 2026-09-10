@@ -63,12 +63,13 @@ class PlayDetailSheetController {
   /// 构建音轨选项条目。
   static List<TrackOptionSheetItem> audioItems({
     required List<AudioTrackOption> audioTracks,
+    required AppLocalizations l10n,
   }) {
     return audioTracks
         .map(
           (e) => TrackOptionSheetItem(
             id: e.guid,
-            title: PlayDetailTrackSelector.audioOptionTitle(e),
+            title: PlayDetailTrackSelector.audioOptionTitle(e, l10n: l10n),
             subtitle: e.detailLabel,
           ),
         )
@@ -138,7 +139,10 @@ class PlayDetailSheetController {
   }) async {
     if (audioTracks.isEmpty) return null;
 
-    final items = audioItems(audioTracks: audioTracks);
+    final items = audioItems(
+      audioTracks: audioTracks,
+      l10n: AppLocalizations.of(context),
+    );
     return TrackOptionSheet.show(
       context,
       title: AppLocalizations.of(context).playerAudioSelectTitle,
