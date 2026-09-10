@@ -2794,11 +2794,13 @@ class _EpisodeCard extends StatelessWidget {
         downloaded =
             episode['downloaded'] == true || episode['downloaded'] == 1;
     final duration = int.tryParse('${episode['duration'] ?? 0}') ?? 0;
-    final watchedSeconds =
-        int.tryParse(
-          '${episode['ts'] ?? episode['watchedTs'] ?? episode['watchedSeconds'] ?? episode['playedSeconds'] ?? 0}',
-        ) ??
-        0;
+    final resumeSeconds = int.tryParse('${episode['ts'] ?? 0}') ?? 0;
+    final watchedSeconds = resumeSeconds > 0
+        ? resumeSeconds
+        : int.tryParse(
+                '${episode['watchedTs'] ?? episode['watchedSeconds'] ?? episode['playedSeconds'] ?? 0}',
+              ) ??
+              0;
     final progress = duration > 0
         ? (watchedSeconds / duration).clamp(0, 1).toDouble()
         : 0.0;
@@ -2807,6 +2809,8 @@ class _EpisodeCard extends StatelessWidget {
       grid,
       headers: headers,
       current: current,
+      watched: watched,
+      progress: progress,
     );
     final content = grid
         ? Column(
@@ -2824,13 +2828,6 @@ class _EpisodeCard extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              if (progress > 0)
-                LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 2,
-                  color: const Color(0xFF63A0FF),
-                  backgroundColor: Colors.white12,
-                ),
             ],
           )
         : Row(
@@ -2861,28 +2858,30 @@ class _EpisodeCard extends StatelessWidget {
                           fontSize: 11,
                         ),
                       ),
-                    if (progress > 0)
-                      LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 2,
-                        color: const Color(0xFF63A0FF),
-                        backgroundColor: Colors.white12,
+                    if (downloaded) ...[
+                      const SizedBox(height: 4),
+                      const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.download_rounded,
+                            color: Colors.white70,
+                            size: 13,
+                          ),
+                          SizedBox(width: 3),
+                          Text(
+                            '已下载',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
                       ),
+                    ],
                   ],
                 ),
               ),
-              if (watched)
-                const Icon(
-                  Icons.check_circle_rounded,
-                  color: Color(0xFF63A0FF),
-                  size: 17,
-                ),
-              if (downloaded)
-                const Icon(
-                  Icons.download_done_rounded,
-                  color: Colors.white54,
-                  size: 17,
-                ),
             ],
           );
     return Opacity(
@@ -2921,11 +2920,15 @@ class DesktopEpisodePoster extends StatelessWidget {
     super.key,
     required this.headers,
     required this.current,
+    this.watched = false,
+    this.progress = 0,
   });
   final String path;
   final bool grid;
   final Map<String, String> headers;
   final bool current;
+  final bool watched;
+  final double progress;
   @override
   Widget build(BuildContext c) {
     final uri = Uri.tryParse(path);
@@ -2956,6 +2959,36 @@ class DesktopEpisodePoster extends StatelessWidget {
               const ColoredBox(
                 color: Color(0x42000000),
                 child: Center(child: _NowPlayingIndicator()),
+              ),
+            if (watched)
+              Positioned(
+                right: 5,
+                bottom: 5,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xCC000000),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    child: Text(
+                      '已观看',
+                      style: TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                  ),
+                ),
+              )
+            else if (progress > 0)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 3,
+                  color: const Color(0xFF63A0FF),
+                  backgroundColor: Colors.white24,
+                ),
               ),
           ],
         ),
