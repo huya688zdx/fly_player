@@ -251,6 +251,7 @@ class DesktopHoverOptionsPanel extends StatelessWidget {
     required this.onSelected,
     this.offLabel,
     this.onOff,
+    this.offSelected = false,
     this.actions = const <DesktopPanelHeaderAction>[],
   });
 
@@ -260,6 +261,7 @@ class DesktopHoverOptionsPanel extends StatelessWidget {
   final ValueChanged<DesktopPlayerPanelOption> onSelected;
   final String? offLabel;
   final VoidCallback? onOff;
+  final bool offSelected;
 
   /// 标题右侧的文字动作组（对齐安卓 panelHeaderTextButton，如音轨「调节」、字幕「样式/导入」）。
   final List<DesktopPanelHeaderAction> actions;
@@ -313,7 +315,8 @@ class DesktopHoverOptionsPanel extends StatelessWidget {
                   if (options.isNotEmpty && onOff != null && offLabel != null)
                     _DesktopHoverOptionRow(
                       title: offLabel!,
-                      leading: Icons.block_rounded,
+                      selected: offSelected,
+                      leading: offSelected ? null : Icons.block_rounded,
                       onTap: onOff!,
                     ),
                   if (options.isEmpty && emptyLabel.trim().isNotEmpty)

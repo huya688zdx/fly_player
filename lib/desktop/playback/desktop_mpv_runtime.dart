@@ -74,7 +74,12 @@ abstract final class DesktopMpvRuntime {
   static String audioTrackTitle(AudioTrack track, String fallback) {
     final title = track.title?.trim() ?? '';
     if (title.isNotEmpty) {
-      final mapped = MediaLanguageMapper.languageName(title).trim();
+      // 常见的“Japanese Audio”是语言标签；保留带评论音轨等说明的自定义标题。
+      final language = title.replaceFirst(
+        RegExp(r'\s+audio$', caseSensitive: false),
+        '',
+      );
+      final mapped = MediaLanguageMapper.languageName(language).trim();
       return mapped.isNotEmpty ? mapped : title;
     }
     final language = track.language?.trim() ?? '';
