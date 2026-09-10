@@ -115,7 +115,8 @@ class DanDanPlayApi {
           if (anime.trim().isNotEmpty) 'anime': anime.trim(),
           if (episode != null) 'episode': episode,
           if (tmdbId != null) 'tmdbId': tmdbId,
-          'v2': true,
+          // 新版搜索会漏掉部分中文剧场版名称，使用官方默认引擎。
+          'v2': false,
         },
         options: Options(headers: _buildHeaders(secret, path)),
       ),
