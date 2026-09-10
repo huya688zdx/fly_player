@@ -50,12 +50,16 @@ class SettingsSearchScreen extends StatefulWidget {
   final List<SettingsSearchEntry> entries;
 
   final bool asPanel;
+  final TextEditingController? controller;
+  final VoidCallback? onClose;
 
   const SettingsSearchScreen({
     super.key,
     required this.entries,
     this.asPanel = false,
-  });
+    this.controller,
+    this.onClose,
+  }) : assert(!asPanel || (controller != null && onClose != null));
 
   @override
   State<SettingsSearchScreen> createState() => _SettingsSearchScreenState();
@@ -64,7 +68,7 @@ class SettingsSearchScreen extends StatefulWidget {
 class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
   static const int _defaultVisibleCount = 6;
 
-  final TextEditingController _controller = TextEditingController();
+  late final TextEditingController _controller;
   final SettingsSearchStore _store = const SettingsSearchStore();
 
   String _query = '';
@@ -73,13 +77,23 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
   @override
   void initState() {
     super.initState();
+    _controller = widget.controller ?? TextEditingController();
+    _query = _controller.text;
+    _controller.addListener(_handleQueryChanged);
     unawaited(_loadUsage());
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller.removeListener(_handleQueryChanged);
+    if (widget.controller == null) _controller.dispose();
     super.dispose();
+  }
+
+  void _handleQueryChanged() {
+    if (_query != _controller.text) {
+      setState(() => _query = _controller.text);
+    }
   }
 
   Future<void> _loadUsage() async {
@@ -91,7 +105,11 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
   Future<void> _handleSelect(SettingsSearchEntry entry) async {
     unawaited(_store.recordUse(entry.id));
     if (!mounted) return;
-    Navigator.of(context).pop();
+    if (widget.onClose != null) {
+      widget.onClose!();
+    } else {
+      Navigator.of(context).pop();
+    }
     await entry.onSelect();
   }
 
@@ -145,7 +163,6 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
             child: TextField(
               controller: _controller,
               autofocus: true,
-              onChanged: (value) => setState(() => _query = value),
               style: TextStyle(
                 color: colors.textPrimary,
                 fontSize: AdaptiveText.roleSize(15),
@@ -166,7 +183,6 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
             IconButton(
               onPressed: () {
                 _controller.clear();
-                setState(() => _query = '');
               },
               icon: Icon(
                 Icons.close_rounded,
@@ -220,29 +236,7 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
             ),
     );
     if (widget.asPanel) {
-      return DesktopFloatingPanel(
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 8, 0),
-              child: Row(
-                children: <Widget>[
-                  Expanded(child: searchField),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    tooltip: MaterialLocalizations.of(
-                      context,
-                    ).closeButtonTooltip,
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(child: body),
-          ],
-        ),
-      );
+      return DesktopFloatingPanel(child: body);
     }
     return AppAmbientPage(
       child: Scaffold(
