@@ -19,8 +19,7 @@ Widget _tooltipOrChild({
 }
 
 /// 桌面播放器控制层（对齐 design/desktop 原型 .pl-top / .pl-bottom）：
-/// 顶栏只留返回 + 标题与一个设置齿轮；弹幕开关 / 倍速 / 选集 / 清晰度
-/// 以文字与徽标按钮放底栏，后接字幕 / 音轨 / 书签 / 截图 / 全屏图标。
+/// 顶栏放返回、单行标题和工具；底栏保留播放、进度及选轨等操作。
 ///
 /// 只消费 media_kit 的中立状态，不依赖 Android PlatformView 或 MethodChannel。
 class DesktopPlayerControls extends StatefulWidget {
@@ -31,7 +30,6 @@ class DesktopPlayerControls extends StatefulWidget {
     this.chapters = const [],
     required this.videoState,
     required this.title,
-    required this.subtitle,
     required this.resolution,
     required this.playing,
     required this.loading,
@@ -61,6 +59,10 @@ class DesktopPlayerControls extends StatefulWidget {
     required this.onScreenshot,
     required this.onToggleDanmaku,
     required this.onSettings,
+    required this.abRepeatLabel,
+    required this.abRepeatTooltip,
+    required this.onAbRepeat,
+    required this.onDanmakuSettings,
     this.onNext,
     this.onPrevious,
     this.onEpisodes,
@@ -90,7 +92,6 @@ class DesktopPlayerControls extends StatefulWidget {
   final List<DesktopPlayerChapter> chapters;
   final VideoState videoState;
   final String title;
-  final String subtitle;
   final String resolution;
   final bool playing;
   final bool loading;
@@ -128,6 +129,10 @@ class DesktopPlayerControls extends StatefulWidget {
   final VoidCallback onScreenshot;
   final VoidCallback onToggleDanmaku;
   final VoidCallback onSettings;
+  final String abRepeatLabel;
+  final String abRepeatTooltip;
+  final VoidCallback onAbRepeat;
+  final VoidCallback onDanmakuSettings;
   final VoidCallback? onNext;
   final VoidCallback? onPrevious;
   final VoidCallback? onEpisodes;
@@ -213,7 +218,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
   }
 
   // ---------------------------------------------------------------------------
-  // 顶栏（.pl-top）：返回 + 标题块 | 设置齿轮
+  // 顶栏：返回 + 单行标题 | 书签 / 截图 / AB / 弹幕设置 / 设置
   // ---------------------------------------------------------------------------
 
   Widget _buildTopBar() {
@@ -223,48 +228,53 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        _DarkIconButton(
+        _CtrlIconButton(
           icon: Icons.arrow_back_rounded,
           tooltip: MaterialLocalizations.of(context).backButtonTooltip,
           onPressed: widget.onBack,
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 8),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _MarqueeText(
-                text: title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.1,
-                  shadows: <Shadow>[
-                    Shadow(color: Color(0xA8000000), blurRadius: 10),
-                  ],
-                ),
-              ),
-              if (widget.subtitle.trim().isNotEmpty) ...<Widget>[
-                const SizedBox(height: 3),
-                Text(
-                  widget.subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.62),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.2,
-                  ),
-                ),
+          child: _MarqueeText(
+            text: title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.1,
+              shadows: <Shadow>[
+                Shadow(color: Color(0xA8000000), blurRadius: 10),
               ],
-            ],
+            ),
           ),
         ),
         const SizedBox(width: 14),
-        _GearButton(
+        if (widget.onAddBookmark != null && widget.bookmarkTooltip.isNotEmpty)
+          _CtrlIconButton(
+            icon: Icons.bookmark_add_outlined,
+            tooltip: widget.bookmarkTooltip,
+            onPressed: widget.onAddBookmark!,
+          ),
+        _CtrlIconButton(
+          icon: Icons.photo_camera_outlined,
+          tooltip: widget.screenshotLabel,
+          onPressed: widget.onScreenshot,
+        ),
+        Tooltip(
+          message: widget.abRepeatTooltip,
+          child: _CtrlTextButton(
+            label: widget.abRepeatLabel,
+            active: widget.abRepeatLabel != 'AB',
+            onPressed: widget.onAbRepeat,
+          ),
+        ),
+        _CtrlIconButton(
+          icon: Icons.tune_rounded,
+          tooltip: '弹幕设置',
+          onPressed: widget.onDanmakuSettings,
+        ),
+        _CtrlIconButton(
+          icon: Icons.settings_outlined,
           tooltip: widget.settingsTooltip,
           onPressed: widget.onSettings,
           onAnchor: widget.onSettingsAt,
@@ -478,19 +488,6 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
           onHoverEnter: widget.onHoverAudio,
           onHoverExit: widget.onHoverExit,
         ),
-      if (widget.onAddBookmark != null &&
-          widget.bookmarkTooltip.isNotEmpty &&
-          !compact)
-        _CtrlIconButton(
-          icon: Icons.bookmark_add_outlined,
-          tooltip: widget.bookmarkTooltip,
-          onPressed: widget.onAddBookmark!,
-        ),
-      _CtrlIconButton(
-        icon: Icons.photo_camera_outlined,
-        tooltip: widget.screenshotLabel,
-        onPressed: widget.onScreenshot,
-      ),
       _CtrlIconButton(
         icon: widget.videoState.isFullscreen()
             ? Icons.fullscreen_exit_rounded
@@ -566,100 +563,6 @@ class _ChromeAtmosphere extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 返回按钮（.icon-btn.dark）：暗色玻璃圆角方钮。
-class _DarkIconButton extends StatelessWidget {
-  const _DarkIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return _tooltipOrChild(
-      message: tooltip,
-      enabled: true,
-      child: _HoverSurface(
-        builder: (hovered) => SizedBox.square(
-          dimension: 36,
-          child: Material(
-            color: hovered ? const Color(0xB3060B14) : const Color(0x99020810),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(11),
-              side: BorderSide(
-                color: Colors.white.withValues(alpha: hovered ? 0.24 : 0.14),
-              ),
-            ),
-            child: InkWell(
-              onTap: onPressed,
-              borderRadius: BorderRadius.circular(11),
-              child: Icon(icon, color: Colors.white, size: 20),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 顶栏设置齿轮（.pl-tbtn.sq）：顶栏右侧唯一按钮，打开设置抽屉。
-class _GearButton extends StatelessWidget {
-  const _GearButton({
-    required this.tooltip,
-    required this.onPressed,
-    this.onAnchor,
-    this.onHoverEnter,
-    this.onHoverExit,
-  });
-
-  final String tooltip;
-  final VoidCallback onPressed;
-  final ValueChanged<Rect>? onAnchor;
-  final ValueChanged<Rect>? onHoverEnter;
-  final VoidCallback? onHoverExit;
-
-  @override
-  Widget build(BuildContext context) {
-    return _tooltipOrChild(
-      message: tooltip,
-      enabled: onHoverEnter == null,
-      child: _HoverSurface(
-        onEnter: onHoverEnter,
-        onExit: onHoverExit,
-        builder: (hovered) => SizedBox.square(
-          dimension: 32,
-          child: Material(
-            color: hovered
-                ? Colors.white.withValues(alpha: 0.24)
-                : Colors.white.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-            child: InkWell(
-              onTap: () {
-                final object = context.findRenderObject();
-                if (onAnchor != null && object is RenderBox && object.hasSize) {
-                  onAnchor!(object.localToGlobal(Offset.zero) & object.size);
-                } else {
-                  onPressed();
-                }
-              },
-              borderRadius: BorderRadius.circular(10),
-              child: const Icon(
-                Icons.settings_outlined,
-                color: Colors.white,
-                size: 16,
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -791,12 +694,14 @@ class _CtrlTextButton extends StatelessWidget {
   const _CtrlTextButton({
     required this.label,
     required this.onPressed,
+    this.active = false,
     this.onAnchor,
     this.onHoverEnter,
     this.onHoverExit,
   });
 
   final String label;
+  final bool active;
   final VoidCallback onPressed;
   final ValueChanged<Rect>? onAnchor;
   final ValueChanged<Rect>? onHoverEnter;
@@ -835,7 +740,9 @@ class _CtrlTextButton extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.85),
+                color: active
+                    ? context.appColors.accent
+                    : Colors.white.withValues(alpha: 0.85),
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.2,
