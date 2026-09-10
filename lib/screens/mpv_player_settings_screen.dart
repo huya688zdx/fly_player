@@ -147,7 +147,7 @@ class _MpvDisplayCategories {
         description: l10n.mpvCompatibilityCategoryDescription,
         keys: const <String>[MpvSettingsCatalog.compatibilityKey],
       ),
-    ];
+    ].where((category) => category.entries.isNotEmpty).toList(growable: false);
   }
 
   static MpvSettingCategory? bySection(BuildContext context, String section) {
@@ -179,6 +179,7 @@ class _MpvDisplayCategories {
       subtitle: subtitle,
       description: description,
       entries: keys
+          .where(MpvSettingsCatalog.isSettingAvailable)
           .map((key) => _mpvSettingCategoryEntry(context, key))
           .toList(growable: false),
     );

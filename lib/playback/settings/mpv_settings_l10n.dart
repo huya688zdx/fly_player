@@ -254,12 +254,17 @@ class MpvSettingsL10n {
 
   static List<MpvSettingDefinition> definitions(AppLocalizations l10n) =>
       MpvSettingsCatalog.definitions
+          .where(
+            (definition) =>
+                MpvSettingsCatalog.isSettingAvailable(definition.key),
+          )
           .map((definition) => definitionText(l10n, definition))
           .toList(growable: false);
 
   static List<MpvSettingCategory> categories(AppLocalizations l10n) =>
       MpvSettingsCatalog.categories
           .map((category) => categoryText(l10n, category))
+          .where((category) => category.entries.isNotEmpty)
           .toList(growable: false);
 
   static MpvSettingCategory categoryText(
@@ -280,6 +285,7 @@ class MpvSettingsL10n {
         fallback: category.description,
       ),
       entries: category.entries
+          .where((entry) => MpvSettingsCatalog.isSettingAvailable(entry.key))
           .map((entry) {
             final definition = definitionByKey(l10n, entry.key);
             if (definition == null) return entry;
@@ -316,6 +322,7 @@ class MpvSettingsL10n {
     AppLocalizations l10n,
     String key,
   ) {
+    if (!MpvSettingsCatalog.isSettingAvailable(key)) return null;
     final definition = MpvSettingsCatalog.definitionByKey(key);
     if (definition == null) return null;
     return definitionText(l10n, definition);
@@ -344,6 +351,12 @@ class MpvSettingsL10n {
         fallback: definition.helperLabel,
       ),
       options: definition.options
+          .where(
+            (option) => MpvSettingsCatalog.isOptionAvailable(
+              definition.key,
+              option.value,
+            ),
+          )
           .map((option) => optionText(l10n, definition.key, option))
           .toList(growable: false),
     );
