@@ -495,6 +495,8 @@
     <string name="player_text_0255">弹幕加载失败</string>
     <string name="player_text_0256">本地文件</string>
     <string name="player_text_0257">作品名或 TMDB:编号（如 TMDB:100049）</string>
+    <string name="player_danmaku_fill_title">填入当前片名</string>
+    <string name="player_danmaku_fill_tmdb">填入当前 TMDB</string>
     <string name="player_text_0258">搜索</string>
     <string name="player_text_0259">请输入关键词</string>
     <string name="player_text_0260">结果</string>
