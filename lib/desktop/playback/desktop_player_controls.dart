@@ -324,9 +324,8 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                     Row(
                       children: <Widget>[
                         _CtrlIconButton(
-                          icon: widget.playing
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
+                          motion: DesktopPlayerMotionKind.playPause,
+                          motionLabel: widget.playing ? 'pause' : 'play',
                           tooltip: widget.playing
                               ? widget.pauseTooltip
                               : widget.playTooltip,
@@ -337,7 +336,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                         if (widget.onPrevious != null) ...<Widget>[
                           const SizedBox(width: 2),
                           _CtrlIconButton(
-                            icon: Icons.skip_previous_rounded,
+                            motion: DesktopPlayerMotionKind.previous,
                             tooltip: widget.prevTooltip,
                             onPressed: widget.onPrevious!,
                             onHoverEnter: widget.onHoverPrevious,
@@ -347,7 +346,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                         if (widget.onNext != null) ...<Widget>[
                           const SizedBox(width: 2),
                           _CtrlIconButton(
-                            icon: Icons.skip_next_rounded,
+                            motion: DesktopPlayerMotionKind.next,
                             tooltip: widget.episodeLabel,
                             onPressed: widget.onNext!,
                             onHoverEnter: widget.onHoverNext,
