@@ -175,6 +175,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                 desktopTapDropdownWrapper(
                   dropdownKey: _sortDropdownKey,
                   spec: _sortDropdownSpec,
+                  pageScrollController: _tabScrollControllers[tab],
                   child: InkWell(
                     onTap: _onSortTriggerTap,
                     borderRadius: BorderRadius.circular(8),
@@ -227,6 +228,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           desktopTapDropdownWrapper(
             dropdownKey: _layoutDropdownKey,
             spec: _layoutDropdownSpec,
+            pageScrollController: _tabScrollControllers[tab],
             child: _FavoriteToolButton(
               icon: Icons.grid_view_rounded,
               active: _viewType != MediaCollectionViewType.list,

@@ -8,6 +8,13 @@ import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/track_option_sheet.dart';
 
 void main() {
+  Future<void> wheel(WidgetTester tester, Offset position, double dy) async {
+    await tester.sendEventToBinding(
+      PointerScrollEvent(position: position, scrollDelta: Offset(0, dy)),
+    );
+    await tester.pump();
+  }
+
   Future<TestGesture> hoverPointer(WidgetTester tester, Offset location) async {
     final gesture = await tester.createGesture(
       kind: PointerDeviceKind.mouse,
@@ -22,22 +29,29 @@ void main() {
     WidgetTester tester, {
     DesktopHoverDropdownSpec? spec,
     ValueChanged<bool>? onOpenChanged,
+    ScrollController? scrollController,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppThemeBuilder.build(AppThemePreset.latte),
         home: Scaffold(
-          body: Align(
-            alignment: Alignment.topLeft,
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: DesktopHoverDropdown(
-                spec: spec,
-                onOpenChanged: onOpenChanged,
-                child: const SizedBox(
-                  width: 120,
-                  height: 24,
-                  child: Text('触发件'),
+          body: SingleChildScrollView(
+            controller: scrollController,
+            child: SizedBox(
+              height: 1200,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: DesktopHoverDropdown(
+                    spec: spec,
+                    onOpenChanged: onOpenChanged,
+                    child: const SizedBox(
+                      width: 120,
+                      height: 24,
+                      child: Text('触发件'),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -48,9 +62,13 @@ void main() {
     await tester.pump();
   }
 
-  DesktopHoverDropdownSpec buildSpec({ValueChanged<String>? onSelected}) {
+  DesktopHoverDropdownSpec buildSpec({
+    ValueChanged<String>? onSelected,
+    double maxHeight = 380,
+  }) {
     return DesktopHoverDropdownSpec.single(
       title: '选择字幕',
+      maxHeight: maxHeight,
       selectedId: 'sub-1',
       onSelected: onSelected ?? (_) {},
       items: const [
@@ -106,6 +124,38 @@ void main() {
     await gesture.removePointer();
   });
 
+  testWidgets('悬停短菜单不阻断页面滚轮，长菜单优先滚动选项', (tester) async {
+    final page = ScrollController();
+    addTearDown(page.dispose);
+    await pumpScaffold(tester, spec: buildSpec(), scrollController: page);
+    await hoverPointer(tester, const Offset(60, 36));
+    await tester.pumpAndSettle();
+
+    await wheel(tester, const Offset(600, 300), 10);
+    expect(page.offset, 10);
+    await wheel(tester, tester.getCenter(find.text('日语')), 10);
+    expect(page.offset, 20);
+    await wheel(tester, tester.getCenter(find.text('日语')), -10);
+    expect(page.offset, 10);
+
+    page.jumpTo(0);
+    await pumpScaffold(
+      tester,
+      scrollController: page,
+      spec: buildSpec(maxHeight: 50),
+    );
+    await tester.pumpAndSettle();
+    final options = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await wheel(tester, tester.getCenter(find.text('法语-默认')), 30);
+    expect(options.position.pixels, 30);
+    expect(page.offset, 0);
+  });
+
   testWidgets('指针移出触发件（未进入面板）后自动收起', (tester) async {
     await pumpScaffold(tester, spec: buildSpec());
 
@@ -159,27 +209,40 @@ void main() {
   testWidgets('点击模式：触发件开合、点选外部关闭、点选条目上抛', (tester) async {
     final dropdownKey = GlobalKey<DesktopHoverDropdownState>();
     final selected = <String>[];
+    final page = ScrollController();
+    addTearDown(page.dispose);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: Align(
-            alignment: Alignment.topLeft,
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: DesktopHoverDropdown(
-                key: dropdownKey,
-                activation: DesktopDropdownActivation.tap,
-                spec: buildSpec(onSelected: selected.add),
-                child: GestureDetector(
-                  onTap: () => dropdownKey.currentState?.toggle(),
-                  child: const SizedBox(
-                    width: 120,
-                    height: 24,
-                    child: Text('触发件'),
+          body: Column(
+            children: [
+              Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: DesktopHoverDropdown(
+                    key: dropdownKey,
+                    activation: DesktopDropdownActivation.tap,
+                    spec: buildSpec(onSelected: selected.add),
+                    pageScrollController: page,
+                    child: GestureDetector(
+                      onTap: () => dropdownKey.currentState?.toggle(),
+                      child: const SizedBox(
+                        width: 120,
+                        height: 24,
+                        child: Text('触发件'),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+              Expanded(
+                child: ListView(
+                  controller: page,
+                  children: const [SizedBox(height: 1200)],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -197,7 +260,13 @@ void main() {
     expect(find.text('选择字幕'), findsOneWidget);
     expect(find.text('法语-默认'), findsOneWidget);
 
-    // 点击面板外（屏障）关闭。
+    await wheel(tester, const Offset(600, 300), 10);
+    expect(page.offset, 10);
+
+    await wheel(tester, tester.getCenter(find.text('日语')), 10);
+    expect(page.offset, 20);
+
+    // 点击面板外关闭。
     await tester.tapAt(const Offset(600, 500));
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
