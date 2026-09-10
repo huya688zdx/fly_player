@@ -1,6 +1,7 @@
 package com.geqian.flyplayer.fly_player
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
@@ -64,6 +65,7 @@ import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.lang.ref.WeakReference
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.Locale
@@ -1013,6 +1015,32 @@ internal fun nativePanelEpisodePickerData(
 class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     companion object {
+        private var retainedPlayer = WeakReference<NativePlayerActivity>(null)
+
+        fun resumeRetained(scope: String, itemGuid: String, mediaGuid: String?, audioGuid: String?, subtitleGuid: String?, positionMs: Long?): Boolean {
+            val player = retainedPlayer.get() ?: return false
+            if (!player.playbackParked || player.isFinishing || player.isDestroyed ||
+                scope.isEmpty() || scope != player.playbackSessionScope ||
+                itemGuid.isEmpty() || itemGuid != player.loadArgsMap["itemGuid"]?.toString() ||
+                (!mediaGuid.isNullOrEmpty() && mediaGuid != player.loadArgsMap["mediaGuid"]?.toString()) ||
+                (audioGuid != null && audioGuid != player.selectedAudioGuid) ||
+                (subtitleGuid != null && subtitleGuid != player.selectedSubtitleGuid) ||
+                player.playerSurface.state.error != null) return false
+            val task = (player.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+                .appTasks.firstOrNull { it.taskInfo.taskId == player.taskId } ?: return false
+            return runCatching {
+                player.warmResumePositionMs = positionMs
+                player.warmResumePending = true
+                task.moveToFront()
+                Log.d(TAG, "恢复保留会话，不重新解析或 loadfile")
+                true
+            }.getOrDefault(false)
+        }
+
+        fun releaseRetained() {
+            retainedPlayer.get()?.takeIf { it.playbackParked }?.finishAndRemoveTask()
+        }
+
         const val TAG = "NativePlayerActivity"
         const val EXTRA_LOAD_ARGS = "loadArgs"
         const val EXTRA_DANMAKU_PAYLOAD = "danmakuPayload"
@@ -1192,6 +1220,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // playerSurface.release() 仍可能投递最后一次状态回调。销毁开始后必须拒绝这些回调，
     // 否则它会重新启动已停止的前台媒体服务，把通知栏播放卡片“复活”。
     private var activityDestroying = false
+    private var playbackParked = false
+    private var playbackSessionScope = ""
+    private var warmResumePending = false
+    private var warmResumePositionMs: Long? = null
     // 仅在播放态/标题/可切集变化时刷新会话/通知，避免每帧重建前台通知；进度按 ~1s 节流刷新。
     private var lastMediaPlaying: Boolean? = null
     private var lastMediaTitle: String = ""
@@ -2666,11 +2698,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        retainedPlayer = WeakReference(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Manifest 已去掉 screenOrientation（为分屏 resize 让路），全屏态用运行时锁横屏维持原观感。
         applyFullscreenOrientation()
 
         val loadArgs = parseJsonExtra(EXTRA_LOAD_ARGS) ?: simpleUrlLoadArgs()
+        playbackSessionScope = loadArgs?.get("playbackSessionScope")?.toString().orEmpty()
         if (loadArgs == null || (loadArgs["url"]?.toString().isNullOrEmpty())) {
             Log.e(TAG, "missing or invalid loadArgs; finishing")
             // 通知点击只负责把仍存活的播放器置顶；若播放器已退出，残留通知可能会新建一个
@@ -2759,6 +2793,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      */
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
+        val wasParked = playbackParked
+        playbackParked = false
+        warmResumePending = false
         if (intent != null) setIntent(intent)
         val loadArgs = parseJsonExtra(EXTRA_LOAD_ARGS) ?: simpleUrlLoadArgs()
         if (loadArgs == null || loadArgs["url"]?.toString().isNullOrEmpty()) {
@@ -2768,11 +2805,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 副栏点到「正在播放的同一集」时不重载（自己播自己）。换别的集才换源。
         val newGuid = loadArgs["itemGuid"]?.toString().orEmpty()
         val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
-        if (newGuid.isNotEmpty() && newGuid == currentGuid) {
+        if (!wasParked && newGuid.isNotEmpty() && newGuid == currentGuid &&
+            loadArgs["mediaGuid"] == loadArgsMap["mediaGuid"] &&
+            loadArgs["playbackSessionScope"]?.toString().orEmpty() == playbackSessionScope) {
             Log.d(TAG, "onNewIntent same item=$newGuid already playing; skip reload")
             setControlsVisible(true)
             return
         }
+        playbackSessionScope = loadArgs["playbackSessionScope"]?.toString().orEmpty()
+        NativeMediaCommandCoordinator.attach(this)
         // 同 onCreate：弹幕文件解析放后台线程，避免大文件阻塞主线程。
         resolveDanmakuPayloadAsync(EXTRA_DANMAKU_PAYLOAD, EXTRA_DANMAKU_FILE) { danmakuPayload ->
             applyLoadArgs(loadArgs, danmakuPayload)
@@ -2782,6 +2823,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onResume() {
         super.onResume()
+        if (warmResumePending || playbackParked) {
+            warmResumePending = false
+            playbackParked = false
+            NativeMediaCommandCoordinator.attach(this)
+            warmResumePositionMs?.let { playerSurface.seek(it) }
+            warmResumePositionMs = null
+            playWithFocus()
+            setControlsVisible(true)
+        }
         // 从 PiP 展开回全屏：不算「关闭小窗」，继续播放。
         pipExitAwaitingResume = false
         // 前台恢复（从设置页/Flutter 播放器等返回）时主动拉一次 Flutter 全局 MPV 设置，
@@ -3913,9 +3963,33 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
         ) {
             enterPip()
-        } else {
+        } else if (!parkPlayback()) {
             finish()
         }
+    }
+
+    private fun parkPlayback(): Boolean {
+        if (!isTaskRoot || playbackSessionScope.isEmpty() ||
+            !this::playerSurface.isInitialized || playerSurface.state.durationMs <= 0 ||
+            playerSurface.state.error != null || completionActive || inPipMode) return false
+        playbackParked = true
+        playerSurface.pause()
+        stopPeriodicReport()
+        cancelAutoNext()
+        reportProgress()
+        NativeMediaCommandCoordinator.detach(this)
+        if (mediaSessionStarted) {
+            NativePlaybackMediaService.stop(this)
+            mediaSessionStarted = false
+        }
+        audioFocus.abandon()
+        updatePipParams()
+        if (!moveTaskToBack(true)) {
+            playbackParked = false
+            return false
+        }
+        Log.d(TAG, "已暂停并保留最近播放会话")
+        return true
     }
 
     private fun toggleAudioMode() {
@@ -9399,7 +9473,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun applyState(state: MpvPlayerState) {
-        if (!nativePanelShouldApplyPlaybackState(activityDestroying)) return
+        if (!nativePanelShouldApplyPlaybackState(activityDestroying) || playbackParked) return
         val ended = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
         if (state.loadNonce == (loadArgsMap["loadNonce"] as? Number)?.toInt()) {
             if ((!lastProgressPaused && state.paused) || (!lastProgressEnded && ended)) {
@@ -9482,6 +9556,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 首帧就绪后才首次启动（startForegroundService 必须在前台发起，此时 Activity 仍可见）。
      */
     private fun maybeUpdateMediaSession(state: MpvPlayerState) {
+        if (playbackParked || activityDestroying) return
         if (!mediaSessionStarted && !state.visualPlaybackReady) return
         if (!this::audioFocus.isInitialized) return
         val title = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
@@ -10001,7 +10076,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             builder.setActions(pipRemoteActions())
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(pipAutoEnter && !playerSurface.state.paused)
+            builder.setAutoEnterEnabled(!playbackParked && pipAutoEnter && !playerSurface.state.paused)
         }
         return builder.build()
     }
@@ -10014,6 +10089,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (playbackParked) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
         if (!this::playerSurface.isInitialized) return
         if (nativePanelShouldAutoEnterPip(
@@ -10195,7 +10271,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val durationSec = state.durationMs / 1000
         if (durationSec <= 0L) return
         val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
-        val paused = state.paused
+        val paused = playbackParked || state.paused
         // 同秒去重只对播放态生效；暂停时放行为心跳，供 Flutter 统计端区分「暂停」与
         // 「已退出」。pausedHeartbeat 标记重复帧，服务端回写（飞牛/Emby）按它跳过。
         val pausedHeartbeat = !force && paused && ts == lastRecordedTs
@@ -10219,6 +10295,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
+        if (retainedPlayer.get() === this) retainedPlayer.clear()
         val playLink = loadArgsMap["playLink"]?.toString().orEmpty()
         if (playLink.isNotEmpty()) {
             NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to playLink))
