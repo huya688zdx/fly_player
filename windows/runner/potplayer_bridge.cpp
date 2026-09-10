@@ -1,6 +1,9 @@
 ﻿#include "potplayer_bridge.h"
 
+#include <shlobj.h>
+
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -108,7 +111,8 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
              std::unique_ptr<flutter::MethodResult<Value>> result) {
         const auto& method = call.method_name();
         if (method != "snapshot" && method != "activate" && method != "close" &&
-            method != "configure" && method != "launch") {
+            method != "configure" && method != "launch" &&
+            method != "subtitle") {
           result->NotImplemented();
           return;
         }
@@ -123,6 +127,14 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
         }
         Request request;
         request.method = method;
+        if (method == "subtitle") {
+          request.subtitle_path = WideString(ReadString(*args, "path"));
+          request.media_url = ReadString(*args, "mediaUrl");
+          if (request.subtitle_path.empty() || request.media_url.empty()) {
+            result->Error("invalid_subtitle", "字幕文件或媒体标识为空");
+            return;
+          }
+        }
         if (method == "launch") {
           request.executable = WideString(ReadString(*args, "executable"));
           const auto url = WideString(ReadString(*args, "url"));
@@ -174,6 +186,12 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
         }
         request.pid = static_cast<DWORD>(pid);
         request.position_ms = ReadInteger(*args, "positionMs", -1);
+        const auto focus = args->find(Value("focus"));
+        if (focus != args->end()) {
+          if (const auto* value = std::get_if<bool>(&focus->second)) {
+            request.focus = *value;
+          }
+        }
         const auto paused = args->find(Value("paused"));
         if (paused != args->end()) {
           if (const auto* value = std::get_if<bool>(&paused->second)) {
@@ -231,8 +249,7 @@ void PotPlayerBridge::Run() {
     if (completion.error.empty()) {
       completion.result->Success(completion.value);
     } else {
-      completion.result->Error(completion.error,
-                               "无法读取外部播放器状态，请稍后重试");
+      completion.result->Error(completion.error, completion.error_message);
     }
   }
   if (receiver) DestroyWindow(receiver);
@@ -242,6 +259,17 @@ PotPlayerBridge::Completion PotPlayerBridge::Execute(Request request,
                                                      HWND receiver) {
   Completion completion;
   completion.result = std::move(request.result);
+  completion.error_message = "无法读取外部播放器状态，请稍后重试";
+  if (request.method == "subtitle") {
+    completion.error_message = "无法加载外部播放器字幕，请稍后重试";
+    const DWORD attributes = GetFileAttributesW(request.subtitle_path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES ||
+        (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+      completion.error = "potplayer_subtitle_missing";
+      completion.error_message = "字幕文件不存在或不可访问";
+      return completion;
+    }
+  }
   if (request.method == "launch") {
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
@@ -261,6 +289,11 @@ PotPlayerBridge::Completion PotPlayerBridge::Execute(Request request,
   }
   const HWND window = FindPlayerWindow(request.pid);
   if (!window) {
+    if (request.method == "subtitle") {
+      completion.error = "potplayer_not_running";
+      completion.error_message = "外部播放器已关闭";
+      return completion;
+    }
     completion.value = request.method == "snapshot"
                            ? Value(Map{{Value("alive"), Value(false)}})
                            : Value(false);
@@ -271,12 +304,16 @@ PotPlayerBridge::Completion PotPlayerBridge::Execute(Request request,
     return completion;
   }
   if (request.method == "activate") {
+    bool sent = true;
     if (request.position_ms >= 0) {
-      PostMessageW(window, WM_USER, kSetPosition,
-                   static_cast<LPARAM>(request.position_ms));
+      sent = PostMessageW(window, WM_USER, kSetPosition,
+                           static_cast<LPARAM>(request.position_ms)) != FALSE;
     }
-    ShowWindowAsync(window, SW_RESTORE);
-    completion.value = Value(SetForegroundWindow(window) != FALSE);
+    if (request.focus) {
+      ShowWindowAsync(window, SW_RESTORE);
+      sent = (SetForegroundWindow(window) != FALSE) && sent;
+    }
+    completion.value = Value(sent);
     return completion;
   }
   if (request.method == "configure") {
@@ -308,6 +345,41 @@ PotPlayerBridge::Completion PotPlayerBridge::Execute(Request request,
     return completion;
   }
   const std::string initial_file = current_file_;
+  if (request.method == "subtitle") {
+    expected_pid_ = 0;
+    if (!received_file_) {
+      completion.error = "potplayer_file_unavailable";
+      return completion;
+    }
+    if (current_file_ != request.media_url) {
+      completion.error = "potplayer_file_changed";
+      completion.error_message = "播放内容已切换，已取消加载该字幕";
+      return completion;
+    }
+    const SIZE_T size = sizeof(DROPFILES) +
+                        (request.subtitle_path.size() + 2) * sizeof(wchar_t);
+    HGLOBAL block = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, size);
+    auto* drop = block ? static_cast<DROPFILES*>(GlobalLock(block)) : nullptr;
+    if (!drop) {
+      if (block) GlobalFree(block);
+      completion.error = "potplayer_subtitle_failed";
+      return completion;
+    }
+    drop->pFiles = sizeof(DROPFILES);
+    drop->fWide = TRUE;
+    memcpy(reinterpret_cast<char*>(drop) + sizeof(DROPFILES),
+           request.subtitle_path.data(),
+           request.subtitle_path.size() * sizeof(wchar_t));
+    GlobalUnlock(block);
+    // 投递成功后由播放器通过 DragFinish 释放，路径列表保留双零结尾。
+    if (!PostMessageW(window, WM_DROPFILES, reinterpret_cast<WPARAM>(block), 0)) {
+      GlobalFree(block);
+      completion.error = "potplayer_subtitle_failed";
+      return completion;
+    }
+    completion.value = Value(true);
+    return completion;
+  }
   const bool received_initial_file = received_file_;
   received_file_ = false;
   // 前后文件身份必须一致，避免切换媒体时混用两部影片的进度。

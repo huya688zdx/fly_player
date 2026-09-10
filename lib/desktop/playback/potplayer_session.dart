@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// 只跟踪本次启动的进程和媒体，播放器内部换片后结束原条目的回报。
+/// 跟踪本次启动的进程；列表内切集先交接媒体身份，再接受新影片的真实采样。
 class PotPlayerSession with WidgetsBindingObserver {
   PotPlayerSession({
     required this.pid,
@@ -14,16 +15,18 @@ class PotPlayerSession with WidgetsBindingObserver {
     required this.onProgress,
     required this.onFinished,
     required this.onError,
+    this.onMediaChanged,
   });
 
   static const channel = MethodChannel('fly_player/potplayer');
   final int pid;
-  final String mediaUrl;
+  String mediaUrl;
   final bool Function() isCurrentSession;
   final void Function(Duration position, Duration duration, bool paused)
   onProgress;
   final Future<void> Function() onFinished;
   final void Function(String message) onError;
+  final Future<Duration?> Function(String mediaUrl)? onMediaChanged;
   Timer? _timer;
   bool _polling = false;
   bool _finished = false;
@@ -32,6 +35,8 @@ class PotPlayerSession with WidgetsBindingObserver {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   bool _paused = false;
+  Duration? _pendingPosition;
+  DateTime? _seekRequestedAt;
   Future<void>? _finishing;
 
   bool get finished => _finished;
@@ -70,8 +75,12 @@ class PotPlayerSession with WidgetsBindingObserver {
           }
           final positionMs = (state['positionMs'] as num?)?.toInt() ?? 0;
           // 续播命令是异步的，不能先把加载阶段的零位置回写到 NAS。
-          if (initialPosition > const Duration(seconds: 3) &&
-              positionMs < initialPosition.inMilliseconds - 3000) {
+          final targetMs = initialPosition.inMilliseconds;
+          final minimumPositionMs = math.max(
+            math.min(targetMs, 1000),
+            targetMs - 3000,
+          );
+          if (targetMs > 0 && positionMs < minimumPositionMs) {
             await Future<void>.delayed(const Duration(milliseconds: 300));
             continue;
           }
@@ -134,22 +143,107 @@ class PotPlayerSession with WidgetsBindingObserver {
       }
       final state = await _snapshot();
       if (_finished) return;
+      if (!isCurrentSession()) {
+        await finish(reportFinal: false);
+        return;
+      }
       if (state['alive'] != true) {
         await finish();
         return;
       }
       final file = '${state['file'] ?? ''}';
       if (file.isNotEmpty && !sameMedia(file, mediaUrl)) {
-        onError('PotPlayer 已切换到其他媒体，已结束原影片的进度回报');
-        await finish();
+        final changeMedia = onMediaChanged;
+        if (changeMedia == null) {
+          onError('PotPlayer 已切换到其他媒体，已结束原影片的进度回报');
+          await finish();
+          return;
+        }
+        if (!{1, 2}.contains(state['state']) ||
+            ((state['durationMs'] as num?)?.toInt() ?? 0) <= 0) {
+          return;
+        }
+        if (_duration > Duration.zero) {
+          onProgress(_position, _duration, true);
+        }
+        // 回调会替换业务媒体，等待期间也不能再向新身份发送旧采样。
+        _position = Duration.zero;
+        _duration = Duration.zero;
+        _paused = true;
+        _pendingPosition = null;
+        _seekRequestedAt = null;
+        Duration? position;
+        try {
+          position = await changeMedia(file);
+        } catch (_) {
+          onError('切换列表影片失败，已停止进度回报，请重新打开播放');
+          await finish(reportFinal: false);
+          return;
+        }
+        if (_finished) return;
+        if (!isCurrentSession()) {
+          await finish(reportFinal: false);
+          return;
+        }
+        if (position == null) {
+          onError('PotPlayer 已切换到列表外的媒体，已结束进度回报');
+          await finish(reportFinal: false);
+          return;
+        }
+        mediaUrl = file;
+        _pendingPosition = position < Duration.zero ? Duration.zero : position;
+        // 下一轮重新核对实际文件；回调等待期间可能已经连续切到另一集。
         return;
       }
       if (state['state'] == 0 && _ready) {
         // 停止时播放器可能已经把位置归零，保留最后一个有效采样。
+        if (onMediaChanged != null) {
+          if (!_paused && _duration > Duration.zero) {
+            _paused = true;
+            onProgress(_position, _duration, true);
+          }
+          _seekRequestedAt = null;
+          return;
+        }
         await finish();
         return;
       }
       if (!_matches(state) || !{1, 2}.contains(state['state'])) return;
+      final pendingPosition = _pendingPosition;
+      if (pendingPosition != null) {
+        final durationMs = (state['durationMs'] as num?)?.toInt() ?? 0;
+        if (durationMs <= 0) return;
+        final targetMs = pendingPosition.inMilliseconds.clamp(0, durationMs);
+        final requestedAt = _seekRequestedAt;
+        if (requestedAt == null) {
+          await channel.invokeMethod<void>('activate', {
+            'pid': pid,
+            'positionMs': targetMs,
+            'focus': false,
+          });
+          // PotPlayer 切集加载后可能暂停，续播定位后明确恢复播放。
+          await channel.invokeMethod<void>('configure', {
+            'pid': pid,
+            'paused': false,
+          });
+          _seekRequestedAt = DateTime.now();
+          return;
+        }
+        final elapsed = DateTime.now().difference(requestedAt);
+        final positionMs = (state['positionMs'] as num?)?.toInt() ?? -1;
+        // 容纳关键帧误差与最高 12 倍速的真实走时，不把加载零位当成续播就绪。
+        if (positionMs < 0 ||
+            positionMs < targetMs - 3000 ||
+            positionMs > targetMs + 3000 + elapsed.inMilliseconds * 12) {
+          if (elapsed >= const Duration(seconds: 25)) {
+            onError('未能确认切集后的续播位置，已停止进度回报，请重新打开播放');
+            await finish(reportFinal: false);
+          }
+          return;
+        }
+        _pendingPosition = null;
+        _seekRequestedAt = null;
+      }
       _failures = 0;
       _accept(state);
     } on PlatformException {
@@ -165,6 +259,11 @@ class PotPlayerSession with WidgetsBindingObserver {
     if (_finished || !isCurrentSession()) return false;
     final state = await _snapshot();
     if (!_matches(state) || !{1, 2}.contains(state['state'])) return false;
+    if (position != null && onMediaChanged != null) {
+      // 切集等待续播时，详情页的「从头播放」以本次明确选择为准。
+      _pendingPosition = position;
+      _seekRequestedAt = DateTime.now();
+    }
     await channel.invokeMethod<void>('activate', {
       'pid': pid,
       if (position != null) 'positionMs': position.inMilliseconds,
