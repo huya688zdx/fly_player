@@ -10,7 +10,16 @@ void main() {
   testWidgets('标题栏跟随主题，全屏往返保留页面状态与可用尺寸', (tester) async {
     const channel = MethodChannel('window_manager');
     final messenger = tester.binding.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(channel, (_) async => false);
+    var fullscreen = false;
+    var maximized = false;
+    messenger.setMockMethodCallHandler(
+      channel,
+      (call) async => switch (call.method) {
+        'isFullScreen' => fullscreen,
+        'isMaximized' => maximized,
+        _ => false,
+      },
+    );
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final pageKey = GlobalKey();
 
@@ -52,16 +61,40 @@ void main() {
     }
 
     final pageElement = pageKey.currentContext;
+    fullscreen = true;
     await event(kWindowEventEnterFullScreen);
     expect(find.byType(WindowCaption), findsNothing);
     expect(tester.getTopLeft(find.byType(Scaffold)).dy, 0);
     expect(pageKey.currentContext, same(pageElement));
     expect(find.text('保留页面'), findsOneWidget);
+    // 最大化窗口退出播放全屏时，原生插件可能只改变尺寸而漏发退出事件。
+    fullscreen = false;
+    maximized = true;
+    tester.binding.handleMetricsChanged();
+    await tester.pumpAndSettle();
+    expect(find.byType(WindowCaption), findsOneWidget);
+    expect(tester.getTopLeft(find.byType(Scaffold)).dy, 36);
+    expect(pageKey.currentContext, same(pageElement));
+    expect(
+      tester
+          .widget<DragToResizeArea>(find.byType(DragToResizeArea))
+          .enableResizeEdges,
+      isEmpty,
+    );
+    maximized = false;
+    tester.binding.handleMetricsChanged();
+    await tester.pumpAndSettle();
     await event(kWindowEventLeaveFullScreen);
     expect(find.byType(WindowCaption), findsOneWidget);
     expect(tester.getTopLeft(find.byType(Scaffold)).dy, 36);
     expect(pageKey.currentContext, same(pageElement));
     expect(find.text('保留页面'), findsOneWidget);
+    expect(
+      tester
+          .widget<DragToResizeArea>(find.byType(DragToResizeArea))
+          .enableResizeEdges,
+      contains(ResizeEdge.top),
+    );
     expect(tester.takeException(), isNull);
   });
 }
