@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show File;
 
 import 'package:flutter/material.dart';
+import '../../media_backend/detail/media_season_summary.dart';
 
 import '../../danmaku/models/danmaku_settings.dart';
 import '../../l10n/generated/app_localizations.dart';
@@ -77,9 +78,15 @@ class DesktopEpisodePanel extends StatefulWidget {
     required this.onSelected,
     this.currentItemGuid = '',
     this.seriesTitle = '',
+    this.currentSeasonGuid = '',
+    this.loadSeasons,
+    this.loadSeasonEpisodes,
   });
   final String title, emptyLabel, currentItemGuid, seriesTitle;
   final List<Map<String, dynamic>> episodes;
+  final String currentSeasonGuid;
+  final Future<List<MediaSeasonSummary>> Function()? loadSeasons;
+  final Future<List<Map<String, dynamic>>> Function(String)? loadSeasonEpisodes;
   final ValueChanged<Map<String, dynamic>>? onSelected;
   @override
   State<DesktopEpisodePanel> createState() => _DesktopEpisodePanelState();
@@ -89,6 +96,94 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
   bool _grid = false;
   final ScrollController _listScrollController = ScrollController();
   final ScrollController _gridScrollController = ScrollController();
+  late List<Map<String, dynamic>> _episodes = widget.episodes;
+  late String _seasonGuid = widget.currentSeasonGuid;
+  List<MediaSeasonSummary> _seasons = const [];
+  bool _loading = false;
+  bool _positionCurrent = true;
+  String? _loadError;
+  int _loadGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSeasons();
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopEpisodePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentItemGuid != widget.currentItemGuid) {
+      _loadGeneration++;
+      _seasonGuid = widget.currentSeasonGuid;
+      _episodes = widget.episodes;
+      _loading = false;
+      _loadError = null;
+      _positionCurrent = true;
+    }
+  }
+
+  Future<void> _loadSeasons() async {
+    final load = widget.loadSeasons;
+    if (load == null) return;
+    try {
+      final seasons = await load();
+      if (!mounted) return;
+      setState(() {
+        _seasons = seasons;
+        _loadError = null;
+      });
+      if (_episodes.isEmpty && _seasonGuid.isNotEmpty) {
+        await _selectSeason(_seasonGuid);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadError = '季列表加载失败，点击重试');
+    }
+  }
+
+  Future<void> _selectSeason(String guid) async {
+    final load = widget.loadSeasonEpisodes;
+    if (load == null) return;
+    final generation = ++_loadGeneration;
+    setState(() {
+      _seasonGuid = guid;
+      _loading = true;
+      _loadError = null;
+      _episodes = const [];
+    });
+    try {
+      final episodes = await load(guid);
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _episodes = episodes;
+        _loading = false;
+        _positionCurrent = true;
+      });
+    } catch (_) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _loading = false;
+        _loadError = '剧集加载失败，点击重试';
+      });
+    }
+  }
+
+  void _positionCurrentEpisode(BoxConstraints constraints) {
+    if (!_positionCurrent || _episodes.isEmpty) return;
+    _positionCurrent = false;
+    final index = _episodes.indexWhere(_isCurrent);
+    final columns = (constraints.maxWidth / 72).ceil().clamp(1, 1000);
+    final extent = _grid ? (constraints.maxWidth + 8) / columns : 92.0;
+    final row = _grid ? index ~/ columns : index;
+    final controller = _grid ? _gridScrollController : _listScrollController;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !controller.hasClients) return;
+      final target = index < 0
+          ? 0.0
+          : row * extent - (controller.position.viewportDimension - extent) / 2;
+      controller.jumpTo(target.clamp(0.0, controller.position.maxScrollExtent));
+    });
+  }
 
   @override
   void dispose() {
@@ -112,16 +207,58 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
               _ViewToggle(
                 Icons.view_list_rounded,
                 !_grid,
-                () => setState(() => _grid = false),
+                () => setState(() {
+                  _grid = false;
+                  _positionCurrent = true;
+                }),
               ),
               _ViewToggle(
                 Icons.grid_view_rounded,
                 _grid,
-                () => setState(() => _grid = true),
+                () => setState(() {
+                  _grid = true;
+                  _positionCurrent = true;
+                }),
               ),
             ],
           ),
           const SizedBox(height: 12),
+          if (_seasons.length > 1)
+            DropdownButton<String>(
+              value: _seasons.any((season) => season.id == _seasonGuid)
+                  ? _seasonGuid
+                  : null,
+              hint: const Text('选择季度'),
+              isExpanded: true,
+              dropdownColor: const Color(0xFF20262D),
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              underline: const SizedBox.shrink(),
+              items: [
+                for (final season in _seasons)
+                  DropdownMenuItem(
+                    value: season.id,
+                    child: Text(
+                      season.title.trim().isNotEmpty
+                          ? season.title
+                          : season.seasonNumber == 0
+                          ? '特别篇'
+                          : '第${season.seasonNumber}季',
+                    ),
+                  ),
+              ],
+              onChanged: (guid) {
+                if (guid != null && guid != _seasonGuid) {
+                  unawaited(_selectSeason(guid));
+                }
+              },
+            ),
+          if (_loadError != null)
+            TextButton(
+              onPressed: () => unawaited(
+                _seasons.isEmpty ? _loadSeasons() : _selectSeason(_seasonGuid),
+              ),
+              child: Text(_loadError!),
+            ),
           Expanded(
             child: TweenAnimationBuilder<double>(
               key: ValueKey<bool>(_grid),
@@ -135,45 +272,55 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
                   child: child,
                 ),
               ),
-              child: widget.episodes.isEmpty
-                  ? _EmptyPanel(widget.emptyLabel)
-                  : _grid
-                  ? GridView.builder(
-                      controller: _gridScrollController,
-                      padding: EdgeInsets.zero,
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 64,
-                            childAspectRatio: 1,
-                            crossAxisSpacing: 8,
-                            mainAxisSpacing: 8,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  _positionCurrentEpisode(constraints);
+                  return _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _episodes.isEmpty
+                      ? _EmptyPanel(widget.emptyLabel)
+                      : _grid
+                      ? GridView.builder(
+                          controller: _gridScrollController,
+                          padding: EdgeInsets.zero,
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 64,
+                                childAspectRatio: 1,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                              ),
+                          itemCount: _episodes.length,
+                          itemBuilder: (_, i) => _EpisodeNumberTile(
+                            episode: _episodes[i],
+                            fallbackNumber: i + 1,
+                            current: _isCurrent(_episodes[i]),
+                            enabled: widget.onSelected != null,
+                            onTap: widget.onSelected == null
+                                ? null
+                                : () => widget.onSelected!(_episodes[i]),
                           ),
-                      itemCount: widget.episodes.length,
-                      itemBuilder: (_, i) => _EpisodeNumberTile(
-                        episode: widget.episodes[i],
-                        fallbackNumber: i + 1,
-                        current: _isCurrent(widget.episodes[i]),
-                        enabled: widget.onSelected != null,
-                        onTap: widget.onSelected == null
-                            ? null
-                            : () => widget.onSelected!(widget.episodes[i]),
-                      ),
-                    )
-                  : ListView.separated(
-                      controller: _listScrollController,
-                      padding: EdgeInsets.zero,
-                      itemCount: widget.episodes.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (_, i) => _EpisodeCard(
-                        widget.episodes[i],
-                        _isCurrent(widget.episodes[i]),
-                        widget.onSelected != null,
-                        false,
-                        widget.onSelected == null
-                            ? null
-                            : () => widget.onSelected!(widget.episodes[i]),
-                      ),
-                    ),
+                        )
+                      : ListView.builder(
+                          controller: _listScrollController,
+                          padding: EdgeInsets.zero,
+                          itemCount: _episodes.length,
+                          itemExtent: 92,
+                          itemBuilder: (_, i) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _EpisodeCard(
+                              _episodes[i],
+                              _isCurrent(_episodes[i]),
+                              widget.onSelected != null,
+                              false,
+                              widget.onSelected == null
+                                  ? null
+                                  : () => widget.onSelected!(_episodes[i]),
+                            ),
+                          ),
+                        );
+                },
+              ),
             ),
           ),
         ],

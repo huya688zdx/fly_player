@@ -11,6 +11,7 @@ import '../../controllers/item_playback_launcher.dart';
 import '../../controllers/local_download_source_resolver.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_backend.dart';
+import '../../media_backend/detail/media_season_summary.dart';
 import '../../models/play_info.dart';
 import '../../providers/media_backend_provider.dart';
 import '../../playback/playback_host.dart';
@@ -105,6 +106,41 @@ final class DesktopPlaybackHost implements PlaybackHost {
             backend: backend,
           );
     if (!context.mounted) return false;
+    // 缓存与本次播放会话同寿命；重开面板、同季重复点击共用在途请求。
+    final seasonEpisodes = <String, Future<List<Map<String, dynamic>>>>{
+      if (effectiveEpisodes?.isNotEmpty == true)
+        source.seasonGuid: Future.value(effectiveEpisodes),
+    };
+    Future<List<Map<String, dynamic>>> loadEpisodes(String seasonGuid) {
+      return seasonEpisodes.putIfAbsent(seasonGuid, () async {
+        final result = await _loadSeasonEpisodes(
+          source: source,
+          seasonGuid: seasonGuid,
+          nas: effectiveNas,
+          backend: backend,
+        );
+        if (result == null || result.isEmpty) {
+          seasonEpisodes.remove(seasonGuid);
+          throw StateError('加载该季剧集失败，请重试');
+        }
+        return [
+          for (final episode in result) {...episode, 'seasonGuid': seasonGuid},
+        ];
+      });
+    }
+
+    Future<List<MediaSeasonSummary>>? seasonsRequest;
+    Future<List<MediaSeasonSummary>> loadSeasons() {
+      return seasonsRequest ??= () async {
+        try {
+          return await backend.getItemSeasons(source.seriesGuid);
+        } catch (_) {
+          seasonsRequest = null;
+          rethrow;
+        }
+      }();
+    }
+
     final subtitles = backend.capabilities.usesLegacyFeiniuFlow
         ? FeiniuSegmentedSubtitle(FeiniuApi(effectiveNas))
         : null;
@@ -141,12 +177,21 @@ final class DesktopPlaybackHost implements PlaybackHost {
           : serverReporter.report,
       source: session.source,
       episodes: effectiveEpisodes,
-      resolveEpisode: effectiveEpisodes == null || effectiveEpisodes.isEmpty
+      loadSeasons: offline || source.seriesGuid.isEmpty ? null : loadSeasons,
+      loadSeasonEpisodes: offline ? null : loadEpisodes,
+      resolveEpisode:
+          (effectiveEpisodes?.isNotEmpty != true &&
+              (offline || source.mediaType != 'episode'))
           ? null
           : (episode) async {
               final itemGuid = '${episode['itemGuid'] ?? episode['guid'] ?? ''}'
                   .trim();
               if (itemGuid.isEmpty) return null;
+              final seasonGuid =
+                  '${episode['seasonGuid'] ?? source.seasonGuid}';
+              final selectedEpisodes = offline
+                  ? effectiveEpisodes!
+                  : await loadEpisodes(seasonGuid);
               final resolved = await const ItemPlaybackLauncher()
                   .resolveForNative(
                     effectiveNas,
@@ -154,7 +199,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
                     itemGuid: itemGuid,
                     fallbackTitle:
                         '${episode['title'] ?? episode['shortLabel'] ?? ''}',
-                    episodes: effectiveEpisodes,
+                    episodes: selectedEpisodes,
                     allowNetwork: !offline,
                     l10n: l10n,
                   );
@@ -165,6 +210,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
                   jsonDecode(raw) as Map<String, dynamic>,
                 ),
                 danmakuFilePath: resolved?['danmakuFile']?.toString().trim(),
+                episodes: selectedEpisodes,
               );
             },
       reloadSource: (current, intent) async {
@@ -196,9 +242,10 @@ final class DesktopPlaybackHost implements PlaybackHost {
     required MpvMediaSource source,
     required NasProvider nas,
     required MediaBackend backend,
+    String? seasonGuid,
   }) async {
     if (source.mediaType.trim().toLowerCase() != 'episode') return null;
-    final seasonGuid = source.seasonGuid.trim();
+    seasonGuid = (seasonGuid ?? source.seasonGuid).trim();
     if (seasonGuid.isEmpty) return null;
     try {
       if (backend.capabilities.usesLegacyFeiniuFlow) {
