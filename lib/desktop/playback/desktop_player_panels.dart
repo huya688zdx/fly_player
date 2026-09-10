@@ -224,33 +224,54 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
           ),
           const SizedBox(height: 12),
           if (_seasons.length > 1)
-            DropdownButton<String>(
-              value: _seasons.any((season) => season.id == _seasonGuid)
-                  ? _seasonGuid
-                  : null,
-              hint: const Text('选择季度'),
-              isExpanded: true,
-              dropdownColor: const Color(0xFF20262D),
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              underline: const SizedBox.shrink(),
-              items: [
-                for (final season in _seasons)
-                  DropdownMenuItem(
-                    value: season.id,
-                    child: Text(
-                      season.title.trim().isNotEmpty
-                          ? season.title
-                          : season.seasonNumber == 0
-                          ? '特别篇'
-                          : '第${season.seasonNumber}季',
-                    ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              // 选季留在悬停面板内，避免独立菜单路由触发外层移出关闭。
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 76),
+                child: SingleChildScrollView(
+                  primary: false,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final season in _seasons)
+                        ChoiceChip(
+                          label: Text(
+                            season.seasonNumber == 0
+                                ? '特别篇'
+                                : '第${season.seasonNumber}季',
+                          ),
+                          selected: season.id == _seasonGuid,
+                          showCheckmark: false,
+                          selectedColor: const Color(0x2963A0FF),
+                          backgroundColor: const Color(0x0DFFFFFF),
+                          side: BorderSide(
+                            color: season.id == _seasonGuid
+                                ? const Color(0x8063A0FF)
+                                : const Color(0x20FFFFFF),
+                          ),
+                          labelStyle: TextStyle(
+                            color: season.id == _seasonGuid
+                                ? const Color(0xFF9BC3FF)
+                                : Colors.white70,
+                            fontSize: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          onSelected: (_) {
+                            if (season.id != _seasonGuid) {
+                              unawaited(_selectSeason(season.id));
+                            }
+                          },
+                        ),
+                    ],
                   ),
-              ],
-              onChanged: (guid) {
-                if (guid != null && guid != _seasonGuid) {
-                  unawaited(_selectSeason(guid));
-                }
-              },
+                ),
+              ),
             ),
           if (_loadError != null)
             TextButton(
