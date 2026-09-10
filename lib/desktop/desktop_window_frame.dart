@@ -90,6 +90,25 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
           if (!_fullscreen)
             Positioned(
               top: 0,
+              right: 0,
+              width: 46 * 3,
+              height: captionHeight,
+              // 仅承托三个窗口按钮，避免主题图标在明暗不定的背景图上消失。
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  key: const ValueKey('desktop-window-controls-backdrop'),
+                  decoration: BoxDecoration(
+                    color: colors.backgroundBase.withValues(alpha: 0.82),
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (!_fullscreen)
+            Positioned(
+              top: 0,
               left: 0,
               right: 0,
               height: captionHeight,
