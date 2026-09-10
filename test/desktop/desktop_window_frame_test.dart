@@ -7,7 +7,7 @@ import 'package:fly_player/theme/app_theme.dart';
 import 'package:window_manager/window_manager.dart';
 
 void main() {
-  testWidgets('标题栏跟随主题，全屏往返保留页面状态与可用尺寸', (tester) async {
+  testWidgets('透明窗口控制区不含标识，全屏往返保留页面状态与安全区', (tester) async {
     const channel = MethodChannel('window_manager');
     final messenger = tester.binding.defaultBinaryMessenger;
     var fullscreen = false;
@@ -28,18 +28,20 @@ void main() {
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       builder: (_, child) => DesktopWindowFrame(child: child!),
-      home: Scaffold(body: TextField(key: pageKey)),
+      home: Scaffold(
+        body: SafeArea(child: TextField(key: pageKey)),
+      ),
     );
 
     await tester.pumpWidget(host(AppThemePreset.midnight));
     await tester.pumpAndSettle();
     final caption = tester.widget<WindowCaption>(find.byType(WindowCaption));
     expect(caption.brightness, Brightness.dark);
-    expect(
-      caption.backgroundColor,
-      pageKey.currentContext!.appColors.backgroundBase,
-    );
-    expect(tester.getTopLeft(find.byType(Scaffold)).dy, 36);
+    expect(caption.backgroundColor, Colors.transparent);
+    expect(caption.title, isNull);
+    expect(find.byType(Image), findsNothing);
+    expect(tester.getTopLeft(find.byType(Scaffold)).dy, 0);
+    expect(tester.getTopLeft(find.byType(TextField)).dy, 32);
     await tester.enterText(find.byType(TextField), '保留页面');
 
     await tester.pumpWidget(host(AppThemePreset.latte));
@@ -65,6 +67,7 @@ void main() {
     await event(kWindowEventEnterFullScreen);
     expect(find.byType(WindowCaption), findsNothing);
     expect(tester.getTopLeft(find.byType(Scaffold)).dy, 0);
+    expect(tester.getTopLeft(find.byType(TextField)).dy, 0);
     expect(pageKey.currentContext, same(pageElement));
     expect(find.text('保留页面'), findsOneWidget);
     // 最大化窗口退出播放全屏时，原生插件可能只改变尺寸而漏发退出事件。
@@ -73,7 +76,7 @@ void main() {
     tester.binding.handleMetricsChanged();
     await tester.pumpAndSettle();
     expect(find.byType(WindowCaption), findsOneWidget);
-    expect(tester.getTopLeft(find.byType(Scaffold)).dy, 36);
+    expect(tester.getTopLeft(find.byType(TextField)).dy, 32);
     expect(pageKey.currentContext, same(pageElement));
     expect(
       tester
@@ -86,7 +89,7 @@ void main() {
     await tester.pumpAndSettle();
     await event(kWindowEventLeaveFullScreen);
     expect(find.byType(WindowCaption), findsOneWidget);
-    expect(tester.getTopLeft(find.byType(Scaffold)).dy, 36);
+    expect(tester.getTopLeft(find.byType(TextField)).dy, 32);
     expect(pageKey.currentContext, same(pageElement));
     expect(find.text('保留页面'), findsOneWidget);
     expect(

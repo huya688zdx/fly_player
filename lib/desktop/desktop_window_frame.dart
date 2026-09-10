@@ -3,10 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
-import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 
-/// Windows 窗口外壳：标题栏跟随应用配色，全屏时让出完整画面。
+/// Windows 窗口外壳：透明控制区叠在页面背景上，全屏时让出完整画面。
 class DesktopWindowFrame extends StatefulWidget {
   const DesktopWindowFrame({super.key, required this.child});
 
@@ -65,47 +64,40 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
     final brightness = ThemeData.estimateBrightnessForColor(
       colors.backgroundBase,
     );
+    final media = MediaQuery.of(context);
+    final captionHeight = _fullscreen ? 0.0 : 32.0;
     // 顶部缩放区域与标题栏共用实际状态，避免插件内部缓存也因漏事件而失效。
     return DragToResizeArea(
       enableResizeEdges: (_fullscreen || _maximized)
           ? const []
           : const [ResizeEdge.topLeft, ResizeEdge.top, ResizeEdge.topRight],
-      child: Column(
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          if (!_fullscreen)
-            SizedBox(
-              height: 36,
-              child: WindowCaption(
-                backgroundColor: colors.backgroundBase,
-                brightness: brightness,
-                title: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Image.asset('lib/img/app_logo.png', width: 22, height: 22),
-                    const SizedBox(width: 9),
-                    Text(
-                      AppLocalizations.of(context).appTitle,
-                      style: TextStyle(
-                        color: colors.textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+          // 页面背景铺满窗口，内容通过系统安全区避开顶部窗口操作。
+          // 导航器始终位于同一位置，全屏切换不会重建页面和播放器。
+          MediaQuery(
+            data: media.copyWith(
+              padding: media.padding.copyWith(
+                top: media.padding.top + captionHeight,
+              ),
+              viewPadding: media.viewPadding.copyWith(
+                top: media.viewPadding.top + captionHeight,
               ),
             ),
-          // 保持导航器所在的结构稳定，切换全屏不会重建页面和播放器。
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) => MediaQuery(
-                data: MediaQuery.of(
-                  context,
-                ).copyWith(size: constraints.biggest),
-                child: widget.child,
-              ),
-            ),
+            child: widget.child,
           ),
+          if (!_fullscreen)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: captionHeight,
+              child: WindowCaption(
+                backgroundColor: Colors.transparent,
+                brightness: brightness,
+              ),
+            ),
         ],
       ),
     );
