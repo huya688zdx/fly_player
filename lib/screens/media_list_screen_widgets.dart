@@ -440,8 +440,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             final item = itemsById[card.id];
             if (item != null) unawaited(_playContinueItem(item));
           },
-          // 桌面档右键已接管同一组动作，长按只在触屏档保留。
-          onLongPress: layout.isDesktopTier
+          // PC 窄窗口也使用右键，长按只在触屏端保留。
+          onLongPress:
+              DesktopEnvironment.isDesktopPlatform || layout.isDesktopTier
               ? null
               : (card) {
                   final item = itemsById[card.id];
@@ -500,7 +501,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         final item = itemsById[card.id];
         if (item != null) _openItemDetail(item);
       },
-      onLongPress: layout.isDesktopTier
+      onLongPress: DesktopEnvironment.isDesktopPlatform || layout.isDesktopTier
           ? null
           : (card) {
               final item = itemsById[card.id];
@@ -832,7 +833,8 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                     item,
                     heroTag: '${heroTagPrefix}_${item.guid}_$index',
                   ),
-                  onLongPress: desktopRow
+                  onLongPress:
+                      DesktopEnvironment.isDesktopPlatform || desktopRow
                       ? null
                       : () => _showPosterItemActions(item),
                 ),
@@ -844,16 +846,18 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     );
   }
 
-  /// 桌面档卡片外壳：悬停浮起（HoverLift）+ 右键回调；非桌面档原样透出。
+  /// PC 各窗口尺寸保留右键，悬停缩放沿用原布局档。
   Widget _withDesktopCardInteractions({
     required MediaLayoutProfile layout,
     required ValueChanged<Offset> onSecondaryTapUp,
     required Widget child,
   }) {
-    if (!layout.isDesktopTier) return child;
+    if (!layout.isDesktopTier && !DesktopEnvironment.isDesktopPlatform) {
+      return child;
+    }
     return GestureDetector(
       onSecondaryTapUp: (details) => onSecondaryTapUp(details.globalPosition),
-      child: HoverLift(child: child),
+      child: HoverLift(enabled: layout.isDesktopTier, child: child),
     );
   }
 

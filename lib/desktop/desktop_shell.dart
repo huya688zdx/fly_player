@@ -22,7 +22,6 @@ import '../ui/player_pane_host_scope.dart';
 import '../widgets/app_atmospheric_background.dart';
 import 'desktop_detail_pane_host.dart';
 import 'desktop_breakpoints.dart';
-import 'desktop_hover_region.dart';
 import 'desktop_search_overlay.dart';
 import 'desktop_side_bar.dart';
 import 'desktop_split_controller.dart';
@@ -432,175 +431,165 @@ class _DesktopShellState extends State<DesktopShell>
                   effectiveColors: colors,
                   hasDynamicTheme: context.hasRuntimeAppColors,
                 ),
-                // 指针位置采集：DesktopHoverRegion 悬停自愈校验依赖真实指针位置
-                // （指针静止而内容移动时 MouseRegion exit 不派发）。
-                child: DesktopPointerPositionTracker(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      DesktopSideBar(
-                        selectedTabIndex: _selectedTab,
-                        contentRoutePath: _contentRoutePath,
-                        onTabSelected: (index) {
-                          if (index == 0) {
-                            _openContentHome();
-                          } else {
-                            _selectTab(index);
-                          }
-                        },
-                        catalogs: _sidebarCatalogs,
-                        favoriteCount: _sidebarFavorite,
-                        totalItems: _sidebarTotal,
-                        movieCount: _sidebarMovie,
-                        tvCount: _sidebarTv,
-                        otherCount: _sidebarOther,
-                        onOpenFavorites: (context) =>
-                            _openContentRoute('/screen/favorites'),
-                        onOpenDownloads: (context) =>
-                            _openContentRoute('/screen/downloads'),
-                        onOpenExternalPlayback: (context) {
-                          unawaited(_paneHostProxy.closePane());
-                          _openContentRoute('/screen/external-playback');
-                        },
-                        onOpenCatalog: (context, catalog) =>
-                            _openSidebarCatalog(context, catalog),
-                        onOpenAllItems: (context) => _openSidebarCategory(
-                          context,
-                          name: AppLocalizations.of(context).mediaAllItemsTitle,
-                        ),
-                        onOpenByType: (context, name, typeTags) =>
-                            _openSidebarCategory(
-                              context,
-                              name: name,
-                              typeTags: typeTags,
-                            ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    DesktopSideBar(
+                      selectedTabIndex: _selectedTab,
+                      contentRoutePath: _contentRoutePath,
+                      onTabSelected: (index) {
+                        if (index == 0) {
+                          _openContentHome();
+                        } else {
+                          _selectTab(index);
+                        }
+                      },
+                      catalogs: _sidebarCatalogs,
+                      favoriteCount: _sidebarFavorite,
+                      totalItems: _sidebarTotal,
+                      movieCount: _sidebarMovie,
+                      tvCount: _sidebarTv,
+                      otherCount: _sidebarOther,
+                      onOpenFavorites: (context) =>
+                          _openContentRoute('/screen/favorites'),
+                      onOpenDownloads: (context) =>
+                          _openContentRoute('/screen/downloads'),
+                      onOpenExternalPlayback: (context) {
+                        unawaited(_paneHostProxy.closePane());
+                        _openContentRoute('/screen/external-playback');
+                      },
+                      onOpenCatalog: (context, catalog) =>
+                          _openSidebarCatalog(context, catalog),
+                      onOpenAllItems: (context) => _openSidebarCategory(
+                        context,
+                        name: AppLocalizations.of(context).mediaAllItemsTitle,
                       ),
-                      VerticalDivider(
-                        width: 1,
-                        thickness: 1,
-                        color: dividerColor,
-                      ),
-                      Expanded(
-                        child: ListenableBuilder(
-                          listenable: _splitController,
-                          builder: (context, _) {
-                            return LayoutBuilder(
-                              builder: (context, constraints) {
-                                _paneHasRoom =
-                                    MediaQuery.sizeOf(context).width >=
-                                        DesktopBreakpoints.splitMinWidth &&
-                                    constraints.maxWidth *
-                                            _splitController.paneFraction >=
-                                        DesktopBreakpoints.paneMinWidth;
-                                final visible = _splitController.paneVisible;
-                                final paneWidth = _paneHasRoom
-                                    ? (constraints.maxWidth - 1) *
-                                          _splitController.paneFraction
-                                    : constraints.maxWidth;
-                                final alignment = _splitController.primaryOnLeft
-                                    ? Alignment.topLeft
-                                    : Alignment.topRight;
-                                return RepaintBoundary(
-                                  key: _surfaceKey,
-                                  child: AnimatedBuilder(
-                                    animation: _layoutTransition,
-                                    child: Row(
-                                      textDirection:
-                                          _splitController.primaryOnLeft
-                                          ? TextDirection.ltr
-                                          : TextDirection.rtl,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Offstage(
-                                          offstage: visible && !_paneHasRoom,
-                                          child: SizedBox(
-                                            width: visible && _paneHasRoom
-                                                ? constraints.maxWidth -
-                                                      paneWidth -
-                                                      1
-                                                : constraints.maxWidth,
-                                            child: ClipRect(
-                                              child: _buildTabStack(),
+                      onOpenByType: (context, name, typeTags) =>
+                          _openSidebarCategory(
+                            context,
+                            name: name,
+                            typeTags: typeTags,
+                          ),
+                    ),
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: dividerColor,
+                    ),
+                    Expanded(
+                      child: ListenableBuilder(
+                        listenable: _splitController,
+                        builder: (context, _) {
+                          return LayoutBuilder(
+                            builder: (context, constraints) {
+                              _paneHasRoom =
+                                  MediaQuery.sizeOf(context).width >=
+                                      DesktopBreakpoints.splitMinWidth &&
+                                  constraints.maxWidth *
+                                          _splitController.paneFraction >=
+                                      DesktopBreakpoints.paneMinWidth;
+                              final visible = _splitController.paneVisible;
+                              final paneWidth = _paneHasRoom
+                                  ? (constraints.maxWidth - 1) *
+                                        _splitController.paneFraction
+                                  : constraints.maxWidth;
+                              final alignment = _splitController.primaryOnLeft
+                                  ? Alignment.topLeft
+                                  : Alignment.topRight;
+                              return RepaintBoundary(
+                                key: _surfaceKey,
+                                child: AnimatedBuilder(
+                                  animation: _layoutTransition,
+                                  child: Row(
+                                    textDirection:
+                                        _splitController.primaryOnLeft
+                                        ? TextDirection.ltr
+                                        : TextDirection.rtl,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Offstage(
+                                        offstage: visible && !_paneHasRoom,
+                                        child: SizedBox(
+                                          width: visible && _paneHasRoom
+                                              ? constraints.maxWidth -
+                                                    paneWidth -
+                                                    1
+                                              : constraints.maxWidth,
+                                          child: ClipRect(
+                                            child: _buildTabStack(),
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: visible && _paneHasRoom ? 1 : 0,
+                                        child: ColoredBox(color: dividerColor),
+                                      ),
+                                      Offstage(
+                                        offstage: !visible,
+                                        child: SizedBox(
+                                          width: paneWidth,
+                                          child: ClipRect(
+                                            child: AnimatedBuilder(
+                                              animation: _layoutTransition,
+                                              child: _buildDetailPane(context),
+                                              builder: (context, pane) =>
+                                                  Transform.translate(
+                                                    offset: Offset(
+                                                      (_splitController
+                                                                  .primaryOnLeft
+                                                              ? 24
+                                                              : -24) *
+                                                          (1 -
+                                                              Curves
+                                                                  .easeOutCubic
+                                                                  .transform(
+                                                                    _layoutTransition
+                                                                        .value,
+                                                                  )),
+                                                      0,
+                                                    ),
+                                                    child: pane,
+                                                  ),
                                             ),
                                           ),
                                         ),
-                                        SizedBox(
-                                          width: visible && _paneHasRoom
-                                              ? 1
-                                              : 0,
-                                          child: ColoredBox(
-                                            color: dividerColor,
-                                          ),
-                                        ),
-                                        Offstage(
-                                          offstage: !visible,
-                                          child: SizedBox(
-                                            width: paneWidth,
-                                            child: ClipRect(
-                                              child: AnimatedBuilder(
-                                                animation: _layoutTransition,
-                                                child: _buildDetailPane(
-                                                  context,
+                                      ),
+                                    ],
+                                  ),
+                                  builder: (context, layout) => ClipRect(
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        layout!,
+                                        if (_previousSurface != null &&
+                                            _previousSurfaceSize ==
+                                                constraints.biggest)
+                                          Positioned.fill(
+                                            child: IgnorePointer(
+                                              child: RawImage(
+                                                image: _previousSurface,
+                                                alignment: alignment,
+                                                fit: BoxFit.fill,
+                                                opacity: ReverseAnimation(
+                                                  _layoutTransition,
                                                 ),
-                                                builder: (context, pane) =>
-                                                    Transform.translate(
-                                                      offset: Offset(
-                                                        (_splitController
-                                                                    .primaryOnLeft
-                                                                ? 24
-                                                                : -24) *
-                                                            (1 -
-                                                                Curves
-                                                                    .easeOutCubic
-                                                                    .transform(
-                                                                      _layoutTransition
-                                                                          .value,
-                                                                    )),
-                                                        0,
-                                                      ),
-                                                      child: pane,
-                                                    ),
+                                                filterQuality:
+                                                    FilterQuality.none,
                                               ),
                                             ),
                                           ),
-                                        ),
                                       ],
                                     ),
-                                    builder: (context, layout) => ClipRect(
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          layout!,
-                                          if (_previousSurface != null &&
-                                              _previousSurfaceSize ==
-                                                  constraints.biggest)
-                                            Positioned.fill(
-                                              child: IgnorePointer(
-                                                child: RawImage(
-                                                  image: _previousSurface,
-                                                  alignment: alignment,
-                                                  fit: BoxFit.fill,
-                                                  opacity: ReverseAnimation(
-                                                    _layoutTransition,
-                                                  ),
-                                                  filterQuality:
-                                                      FilterQuality.none,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
                                   ),
-                                );
-                              },
-                            );
-                          },
-                        ),
+                                ),
+                              );
+                            },
+                          );
+                        },
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
