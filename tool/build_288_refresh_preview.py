@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import cv2
@@ -12,37 +13,22 @@ GENERATED_ROOT = Path(
     r"C:\Users\25131.GUOJUN.000\.codex\generated_images"
     r"\01a042f6-5aef-7ee2-b59a-80c14ef74a8e"
 )
-OUTPUT_ANIMATION = GENERATED_ROOT / "refresh_story_single_character_288poses_preview.png"
-OUTPUT_CONTACT = GENERATED_ROOT / "refresh_story_single_character_288poses_contact.png"
-ASSET_ANIMATION = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading.webp"
-ASSET_STATIC = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_static.png"
-HUMAN_TO_BALL_ATLAS = (
-    PROJECT_ROOT
-    / "assets"
-    / "refresh"
-    / "shoujo_bird_human_to_ball_01_16.png"
-)
-HUMAN_TO_BALL_INBETWEEN_ATLAS = (
-    PROJECT_ROOT
-    / "assets"
-    / "refresh"
-    / "shoujo_bird_human_to_ball_inbetweens_01_16.png"
+OUTPUT_ANIMATION = GENERATED_ROOT / "refresh_reworked_preview.png"
+OUTPUT_CONTACT = GENERATED_ROOT / "refresh_reworked_contact.png"
+OUTPUT_VIDEO = GENERATED_ROOT / "refresh_reworked_preview.mp4"
+ASSET_ANIMATION = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_reworked.webp"
+ASSET_STATIC = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_reworked_static.png"
+ASSET_ROOT = PROJECT_ROOT / "assets" / "refresh"
+NATURAL_TRANSITION_ATLAS = (
+    PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_natural_transition_01_24.png"
 )
 SOURCE_VIDEO = Path(r"F:\mp\bili_video_d_1787919698203.mp4")
 SOURCE_VIDEO_2 = Path(r"F:\mp\bili_video_d_1787920057392.mp4")
-SOURCE_VIDEO_FIRST_FRAME = 360
+SOURCE_VIDEO_FIRST_FRAME = 472
 SOURCE_VIDEO_2_FIRST_FRAME = 247
-SOURCE_VIDEO_FRAME_COUNT = 300
 SOURCE_CROP = (510, 0, 1410, 900)
 
-BASE_ATLASES = [
-    PROJECT_ROOT / "assets" / "refresh" / f"shoujo_bird_frames_{start:02d}_{start + 7:02d}.png"
-    for start in range(1, 73, 8)
-]
-
 FRAME_SIZE = 512
-GRID_COLUMNS = 4
-GRID_ROWS = 2
 
 
 def alpha_bbox(image: Image.Image) -> tuple[int, int, int, int]:
@@ -57,51 +43,15 @@ def alpha_area(image: Image.Image) -> int:
     return int(np.count_nonzero(alpha > 24))
 
 
-def load_base_frames() -> list[Image.Image]:
-    frames: list[Image.Image] = []
-    for atlas_path in BASE_ATLASES:
-        atlas = Image.open(atlas_path).convert("RGBA")
-        if atlas.size != (FRAME_SIZE * GRID_COLUMNS, FRAME_SIZE * GRID_ROWS):
-            raise ValueError(f"基础图集尺寸异常：{atlas_path} {atlas.size}")
-        for row in range(GRID_ROWS):
-            for column in range(GRID_COLUMNS):
-                left = column * FRAME_SIZE
-                top = row * FRAME_SIZE
-                frames.append(atlas.crop((left, top, left + FRAME_SIZE, top + FRAME_SIZE)))
-    if len(frames) != 72:
-        raise ValueError(f"基础姿势数量应为 72，实际为 {len(frames)}")
-    return frames
-
-
-def external_foreground_mask(rgb: np.ndarray) -> np.ndarray:
-    minimum = rgb.min(axis=2)
-    maximum = rgb.max(axis=2)
-    neutral_light = (minimum > 226) & ((maximum - minimum) < 32)
-
-    traversable = neutral_light.astype(np.uint8)
-    padded = cv2.copyMakeBorder(traversable, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=1)
-    flood = np.zeros((padded.shape[0] + 2, padded.shape[1] + 2), dtype=np.uint8)
-    cv2.floodFill(padded, flood, (0, 0), 2)
-    outside = padded[1:-1, 1:-1] == 2
-
-    foreground = (~outside).astype(np.uint8)
-    count, labels, stats, _ = cv2.connectedComponentsWithStats(foreground, 8)
-    cleaned = np.zeros_like(foreground)
-    for label in range(1, count):
-        if stats[label, cv2.CC_STAT_AREA] >= 20:
-            cleaned[labels == label] = 1
-    return cleaned
-
-
 def extract_grid_subjects(
     path: Path,
     columns: int,
     rows: int,
     minimum_component_area: int = 20,
 ) -> list[Image.Image]:
-    source = Image.open(path).convert("RGB")
-    rgb = np.asarray(source)
-    mask = external_foreground_mask(rgb)
+    source = Image.open(path).convert("RGBA")
+    source_rgba = np.asarray(source)
+    mask = (source_rgba[:, :, 3] > 24).astype(np.uint8)
     count, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
 
     width, height = source.size
@@ -126,10 +76,10 @@ def extract_grid_subjects(
         )
         grouped_masks[target_index][labels == label] = 255
 
-    rgba = np.dstack((rgb, np.zeros((height, width), dtype=np.uint8)))
+    rgba = source_rgba.copy()
     subjects: list[Image.Image] = []
     for index, subject_mask in enumerate(grouped_masks):
-        rgba[:, :, 3] = subject_mask
+        rgba[:, :, 3] = np.where(subject_mask > 0, source_rgba[:, :, 3], 0)
         subject = Image.fromarray(rgba.copy(), "RGBA")
         bbox = alpha_bbox(subject)
         cropped = subject.crop(bbox)
@@ -139,34 +89,36 @@ def extract_grid_subjects(
     return subjects
 
 
-def bbox_center(frame: Image.Image) -> tuple[float, float]:
-    left, top, right, bottom = alpha_bbox(frame)
-    return ((left + right) / 2, (top + bottom) / 2)
+def ball_geometry(subject: Image.Image) -> tuple[float, float, float]:
+    red, green, blue, alpha = np.moveaxis(np.asarray(subject).astype(np.int16), 2, 0)
+    # 只测量浅色球体，羽翼张合不能影响主体的比例和锚点。
+    chroma = np.maximum.reduce([red, green, blue]) - np.minimum.reduce([red, green, blue])
+    mask = (alpha > 220) & (red > 185) & (green > 200) & (chroma < 45)
+    _, _, stats, centers = cv2.connectedComponentsWithStats(mask.astype(np.uint8), 8)
+    label = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    return (*centers[label], float(stats[label, cv2.CC_STAT_WIDTH]))
 
 
-def smootherstep(value: float) -> float:
-    return value**3 * (value * (value * 6 - 15) + 10)
-
-
-def render_transition_pose(subject: Image.Image, progress: float) -> Image.Image:
-    target_area = 28600 + (19700 - 28600) * smootherstep(progress)
-    target_center = (256.0, 300.0 + (243.5 - 300.0) * smootherstep(progress))
-    cropped = subject.crop(alpha_bbox(subject))
-    scale = float(np.sqrt(target_area / max(alpha_area(cropped), 1)))
-    scale = min(scale, 448 / max(cropped.size))
-    resized = cropped.resize(
-        (max(1, round(cropped.width * scale)), max(1, round(cropped.height * scale))),
+def place_subject(
+    subject: Image.Image,
+    scale: tuple[float, float],
+    anchor: tuple[float, float],
+    target: tuple[float, float],
+) -> Image.Image:
+    resized = subject.resize(
+        (round(subject.width * scale[0]), round(subject.height * scale[1])),
         Image.Resampling.LANCZOS,
     )
-    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (0, 0, 0, 0))
-    canvas.alpha_composite(
-        resized,
-        (
-            round(target_center[0] - resized.width / 2),
-            round(target_center[1] - resized.height / 2),
-        ),
-    )
+    canvas = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE))
+    canvas.alpha_composite(resized, (
+        round(target[0] - anchor[0] * scale[0]),
+        round(target[1] - anchor[1] * scale[1]),
+    ))
     return canvas
+
+
+def render_human_pose(subject: Image.Image) -> Image.Image:
+    return place_subject(subject, (1.36, 1.36), (subject.width / 2, subject.height), (256, 464))
 
 
 def original_video_subject(
@@ -178,15 +130,16 @@ def original_video_subject(
     blue_delta = blue.astype(np.int16) - red.astype(np.int16)
     green_delta = green.astype(np.int16) - red.astype(np.int16)
 
-    # 只保留原画中的蓝青色角色/翅膀，以及成鸟后偏暖的身体；
-    # 白色背景与上方白色人形不会进入种子蒙版。
+    # 蓝青色与暖色只用于定位角色，不能直接充当完整轮廓：
+    # 球体变色期间的近白身体、浅色翼尖和线稿不一定满足色差阈值。
     blue_seed = (blue_delta > 7) & (green_delta > 1) & (blue > 120)
     warm_body_seed = (
         (red.astype(np.int16) - blue.astype(np.int16) > 10)
         & (green.astype(np.int16) - blue.astype(np.int16) > 5)
         & (red > 150)
     )
-    seed = (blue_seed | warm_body_seed).astype(np.uint8)
+    color_seed = blue_seed | warm_body_seed
+    seed = (color_seed | (np.min(crop, axis=2) < 246)).astype(np.uint8)
 
     component_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
         seed,
@@ -205,6 +158,9 @@ def original_video_subject(
         if np.linalg.norm(centroids[label] - crop_center) > 500:
             continue
         if area / max(width * height, 1) < 0.025:
+            continue
+        # 沿原画的连通轮廓保留浅色身体，排除没有角色色块的背景压缩噪点。
+        if not np.any(color_seed[labels == label]):
             continue
         selected[labels == label] = 255
 
@@ -230,17 +186,43 @@ def original_video_subject(
     if np.count_nonzero(selected) < 2:
         raise ValueError("原视频主体蒙版为空")
 
-    # 将紧邻色块的深色线稿一并收进蒙版，不扩张到远处背景。
-    near_subject = cv2.dilate(selected, np.ones((3, 3), np.uint8), iterations=2)
-    not_white = np.min(crop, axis=2) < 244
-    alpha = np.where((selected > 0) | ((near_subject > 0) & not_white), 255, 0)
+    # 连续细线仍保留，孤立的单点毛刺不作为主体轮廓。
+    kernel = np.ones((3, 3), np.uint8)
+    support = (cv2.GaussianBlur(selected, (5, 5), 1.0) > 72).astype(np.uint8)
+    support = cv2.morphologyEx(support, cv2.MORPH_CLOSE, kernel)
+    core = cv2.erode(support, kernel, iterations=2)
+    if not np.any(core):
+        core = support.copy()
 
-    alpha = cv2.GaussianBlur(alpha.astype(np.uint8), (3, 3), 0)
+    # 内部保持不透明；边缘用邻近主体颜色估计覆盖率，避免二值阈值咬掉细节。
+    _, nearest = cv2.distanceTransformWithLabels(
+        1 - core, cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_PIXEL,
+    )
+    palette = np.zeros((int(nearest.max()) + 1, 3), np.float32)
+    reference = cv2.erode(crop, kernel).astype(np.float32)
+    palette[nearest[core > 0]] = reference[core > 0]
+    foreground = palette[nearest]
+    background = np.median(crop.reshape(-1, 3), axis=0).astype(np.float32)
+    delta = crop.astype(np.float32) - background
+    color_delta = foreground - background
+    alpha = np.clip(
+        np.sum(delta * color_delta, axis=2)
+        / np.maximum(np.sum(color_delta**2, axis=2), 1), 0, 1,
+    )
+    alpha[cv2.dilate(support, kernel) == 0] = 0
+    alpha[core > 0] = 1
+    alpha[alpha < 0.10] = 0
 
-    rgba = cv2.cvtColor(crop, cv2.COLOR_BGR2RGBA)
-    rgba[:, :, 3] = alpha
+    # 从半透明边缘颜色中扣除原片白底，叠到深色页面时才不会出现白色毛边。
+    rgb = np.clip(
+        (crop.astype(np.float32) - (1 - alpha[:, :, None]) * background)
+        / np.maximum(alpha[:, :, None], 0.01), 0, 255,
+    ).astype(np.uint8)
+    rgba = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGBA)
+    rgba[:, :, 3] = np.round(alpha * 255).astype(np.uint8)
     subject = Image.fromarray(rgba, "RGBA")
     return subject.resize((FRAME_SIZE, FRAME_SIZE), Image.Resampling.LANCZOS)
+
 
 
 def load_video_range(
@@ -272,59 +254,60 @@ def load_video_range(
     return decoded_frames
 
 
-def load_original_video_frames() -> list[Image.Image]:
-    first_video = load_video_range(
-        SOURCE_VIDEO,
-        SOURCE_VIDEO_FIRST_FRAME,
+def build_frames() -> tuple[list[Image.Image], list[str]]:
+    subjects = extract_grid_subjects(
+        NATURAL_TRANSITION_ATLAS, columns=6, rows=4, minimum_component_area=80,
     )
-    second_video = load_video_range(
-        SOURCE_VIDEO_2,
-        SOURCE_VIDEO_2_FIRST_FRAME,
-        last_frame_exclusive=360,
-    )
-    frames = [*first_video, *second_video]
-    if len(frames) != SOURCE_VIDEO_FRAME_COUNT:
-        raise ValueError(
-            f"两段原视频连续帧应为 {SOURCE_VIDEO_FRAME_COUNT}，实际为 {len(frames)}"
-        )
-    return frames
+    arms = extract_grid_subjects(ASSET_ROOT / "shoujo_bird_arms_04_reworked.png", 2, 2, 80)
+    closure = extract_grid_subjects(ASSET_ROOT / "shoujo_bird_closure_08_reworked.png", 4, 2, 80)
+    growth_atlas = Image.open(ASSET_ROOT / "shoujo_bird_wing_unfold_00_04.png").convert("RGBA")
+    first_video = load_video_range(SOURCE_VIDEO, SOURCE_VIDEO_FIRST_FRAME, 547)
+    second_video = load_video_range(SOURCE_VIDEO_2, SOURCE_VIDEO_2_FIRST_FRAME, 360)
+    frames: list[Image.Image] = []
+    phases: list[str] = []
 
+    def hold(frame: Image.Image, ticks: int, phase: str) -> None:
+        # 重复条目只表达有意持帧；姿势均来自已绘制图或原视频。
+        frames.extend([frame] * ticks)
+        phases.extend([phase] * ticks)
 
-def build_frames() -> list[Image.Image]:
-    base_frames = load_base_frames()
-    human_to_ball = extract_grid_subjects(
-        HUMAN_TO_BALL_ATLAS,
-        columns=4,
-        rows=4,
-        minimum_component_area=80,
-    )
-    human_inbetweens = extract_grid_subjects(
-        HUMAN_TO_BALL_INBETWEEN_ATLAS,
-        columns=4,
-        rows=4,
-        minimum_component_area=80,
-    )
+    human_holds = [9, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5]
+    for index in range(11):
+        hold(render_human_pose(subjects[index]), human_holds[index], f"human_{index}")
+        if index in (3, 5):
+            # 新图集最后一格已接近原抱臂端点，沿用原端点，避免重复换样。
+            for added in ((0, 1) if index == 3 else (2,)):
+                subject = arms[added]
+                height = (350, 350, 342, 334)[added]
+                scale = height / subject.height
+                frame = place_subject(subject, (scale, scale), (subject.width / 2, subject.height), (256, 464))
+                hold(frame, 3, f"human_arm_{added}")
 
-    # 前段只使用真实绘制姿势；前 12 个中割姿势与主姿势交错，
-    # 后四格按主姿势单向压成圆球，不再经过光流或液体溶解效果。
-    human_sources = [*base_frames[:10]]
-    for index, pose in enumerate(human_to_ball):
-        human_sources.append(pose)
-        if index < 12:
-            human_sources.append(human_inbetweens[index])
+    # 遮住鞋尖、解除支撑、闭合之后再收小；每个形态已有独立画稿。
+    heights = [204, 200, 195, 185, 185, 180, 130, 94]
+    bottoms = [464, 464, 458, 452, 447, 440, 403, 376]
+    for index, subject in enumerate(closure):
+        scale = heights[index] / subject.height
+        frame = place_subject(subject, (scale, scale), (subject.width / 2, subject.height), (252, bottoms[index]))
+        hold(frame, 6 if index == 5 else 4, f"closure_{index}")
+    # 裸茧和四张展开姿势已在共同画布中定位，保留画出的折翼和身体反应。
+    # 不再逐帧拟合身体宽高，也不按翼展重缩放。
+    for index, ticks in enumerate([2, 3, 2, 2, 2]):
+        frame = growth_atlas.crop((index * FRAME_SIZE, 0, (index + 1) * FRAME_SIZE, FRAME_SIZE))
+        hold(frame, ticks, f"growth_{index}")
 
-    human_frames = [
-        render_transition_pose(
-            frame,
-            index / max(len(human_sources) - 1, 1),
-        )
-        for index, frame in enumerate(human_sources)
-    ]
-    frames = [*human_frames, *load_original_video_frames()]
+    # 连续原片只播放一次；60FPS源时间按30FPS取样，入口不额外持帧。
+    for offset in range(0, len(first_video), 2):
+        hold(first_video[offset], 1, f"video1_{SOURCE_VIDEO_FIRST_FRAME + offset}")
+    for source_index in [*range(247, 277, 2), 276]:
+        phase = "ring" if source_index < 262 else "point"
+        hold(second_video[source_index - 247], 1, phase)
 
-    if not 320 <= len(frames) <= 360:
-        raise ValueError(f"输出姿势数量应约为 340，实际为 {len(frames)}")
-    return frames
+    # 展开到飞远完整沿用原片，以30FPS慢放原始60FPS帧序。
+    # 保留原片的小身体、翼形和远去轨迹，不额外放大或重绘鸟的轮廓。
+    for source_index in range(277, 360):
+        hold(second_video[source_index - 247], 1, f"video2_{source_index}")
+    return frames, phases
 
 
 def save_contact_sheet(frames: list[Image.Image]) -> None:
@@ -344,13 +327,9 @@ def save_contact_sheet(frames: list[Image.Image]) -> None:
 
 
 def frame_durations(frames: list[Image.Image]) -> list[int]:
-    human_frame_count = len(frames) - SOURCE_VIDEO_FRAME_COUNT
-    # 手绘人物段按 12.5 张有效画/秒展示；原视频连续帧按 25 FPS 展示，
-    # 整体比 60 FPS 原片更慢，但不制造任何补间帧。
-    durations = [80] * human_frame_count + [40] * SOURCE_VIDEO_FRAME_COUNT
-    durations[0] = 160
-    durations[-1] = 320
-    return durations
+    # 累计量化到33/34毫秒，避免固定33毫秒产生总时长漂移。
+    boundaries = [round(index * 1000 / 30) for index in range(len(frames) + 1)]
+    return [end - start for start, end in zip(boundaries, boundaries[1:])]
 
 
 def save_animation(frames: list[Image.Image]) -> None:
@@ -361,7 +340,8 @@ def save_animation(frames: list[Image.Image]) -> None:
         append_images=frames[1:],
         duration=durations,
         loop=0,
-        disposal=2,
+        # 保留上一帧，再以 SOURCE 覆盖差分区域；回退到更早画面会丢失主体。
+        disposal=0,
         blend=0,
         optimize=False,
     )
@@ -374,19 +354,45 @@ def save_animation(frames: list[Image.Image]) -> None:
         lossless=True,
         method=6,
     )
-    frames[-40].save(ASSET_STATIC, optimize=True)
+    frames[-45].save(ASSET_STATIC, optimize=True)
+
+
+def save_mp4_preview(frames: list[Image.Image]) -> None:
+    # 通用MP4预览采用浅灰底；透明WebP仍作为App素材输出。
+    writer = cv2.VideoWriter(
+        str(OUTPUT_VIDEO), cv2.VideoWriter_fourcc(*"mp4v"), 30,
+        (FRAME_SIZE, FRAME_SIZE),
+    )
+    if not writer.isOpened():
+        raise RuntimeError(f"无法创建MP4预览：{OUTPUT_VIDEO}")
+    background = Image.new("RGBA", (FRAME_SIZE, FRAME_SIZE), (244, 246, 249, 255))
+    try:
+        for frame in frames:
+            rgb = np.asarray(Image.alpha_composite(background, frame).convert("RGB"))
+            writer.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    finally:
+        writer.release()
 
 
 def main() -> None:
-    frames = build_frames()
+    frames, phases = build_frames()
     save_contact_sheet(frames)
     save_animation(frames)
+    save_mp4_preview(frames)
     print(f"frames={len(frames)}")
     print(f"duration_ms={sum(frame_durations(frames))}")
     print(OUTPUT_ANIMATION)
     print(OUTPUT_CONTACT)
     print(ASSET_ANIMATION)
     print(ASSET_STATIC)
+    print(OUTPUT_VIDEO)
+    with (GENERATED_ROOT / "refresh_reworked_timeline.csv").open("w", encoding="utf-8-sig", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(["时间轴序号_从1开始", "开始毫秒", "时长毫秒", "动作来源"])
+        elapsed = 0
+        for index, (phase, duration) in enumerate(zip(phases, frame_durations(frames))):
+            writer.writerow([index + 1, elapsed, duration, phase])
+            elapsed += duration
 
 
 if __name__ == "__main__":

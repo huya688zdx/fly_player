@@ -416,11 +416,16 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
     Widget page, {
     required bool animated,
     bool keepReverseAnimation = false,
+    RouteSettings? routeSettings,
   }) {
     if (animated) {
-      return AppTransitions.leftToRightPageTurnRoute<void>(page);
+      return AppTransitions.leftToRightPageTurnRoute<void>(
+        page,
+        settings: routeSettings,
+      );
     }
     return PageRouteBuilder<void>(
+      settings: routeSettings,
       pageBuilder: (_, __, ___) => page,
       transitionDuration: Duration.zero,
       reverseTransitionDuration: keepReverseAnimation
@@ -499,6 +504,7 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
             ),
             animated: false,
             keepReverseAnimation: true,
+            routeSettings: ModalRoute.of(context)?.settings,
           ),
         );
         break;
@@ -511,6 +517,7 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
             ),
             animated: false,
             keepReverseAnimation: true,
+            routeSettings: ModalRoute.of(context)?.settings,
           ),
         );
         break;
@@ -520,6 +527,7 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
             const ScreenshotPreviewScreen(),
             animated: false,
             keepReverseAnimation: true,
+            routeSettings: ModalRoute.of(context)?.settings,
           ),
         );
         break;
@@ -529,6 +537,7 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
             _ScreenshotCustomDirectoryScreen(store: _store),
             animated: false,
             keepReverseAnimation: true,
+            routeSettings: ModalRoute.of(context)?.settings,
           ),
         );
         break;

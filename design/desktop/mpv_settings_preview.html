@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MPV播放器设置 · 双端重构参考</title>
+<style>
+  :root{
+    --bg:#050b16; --border-subtle:rgba(255,255,255,.08);
+    --surface:#0c1526; --surface-subtle:#101b30; --surface-strong:#15233c;
+    --text-primary:#e8eef8; --text-secondary:#8fa3bf; --text-muted:#5c7291;
+    --accent:#4d8dff; --accent-strong:#79abff; --accent-soft:rgba(77,141,255,.14); --accent-border:rgba(77,141,255,.45);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    background:var(--bg); color:var(--text-primary);
+    padding:34px clamp(16px,3vw,48px) 70px;
+  }
+  .wrap{ max-width:1560px; margin:0 auto; }
+  .page-head h1{ font-size:19px; font-weight:700; }
+  .page-head p{ font-size:12.5px; color:var(--text-secondary); margin-top:6px; line-height:1.7; max-width:900px; }
+  .issues{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .issues span{ font-size:11.5px; color:var(--text-secondary); background:var(--surface); border:1px solid var(--border-subtle); border-radius:99px; padding:5px 12px; }
+  .issues span b{ color:#ff8f8f; font-weight:700; margin-right:5px; }
+  .layout{ display:flex; gap:28px; align-items:flex-start; margin-top:26px; flex-wrap:wrap; }
+  .desktop-col{ flex:1 1 980px; min-width:820px; }
+  .mobile-col{ flex:0 0 auto; display:flex; gap:22px; }
+  .col-tag{ display:flex; align-items:baseline; gap:10px; margin:0 2px 10px; }
+  .col-tag b{ font-size:14px; } .col-tag span{ font-size:12px; color:var(--text-muted); }
+
+  .win{
+    display:flex; width:100%; height:920px; overflow:hidden;
+    border:1px solid var(--border-subtle); border-radius:14px; background:var(--bg);
+  }
+  .sidebar{
+    flex:0 0 250px; background:#081222; border-right:1px solid var(--border-subtle);
+    padding:22px 14px; font-size:13.5px;
+  }
+  .sidebar .logo{ font-weight:700; font-size:15px; }
+  .sidebar .logo small{ display:block; font-size:9px; letter-spacing:2.2px; color:var(--text-muted); margin-top:3px; }
+  .nav{ margin-top:20px; display:flex; flex-direction:column; gap:2px; }
+  .nav a{ display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; color:var(--text-secondary); text-decoration:none; }
+  .nav a svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8; }
+  .nav a.active{ background:var(--accent-soft); color:var(--text-primary); box-shadow:inset 2.5px 0 0 var(--accent); }
+  .area{ flex:1; min-width:0; overflow:auto; position:relative; }
+  .area::after{ content:""; position:sticky; display:block; }
+
+  .appbar{ display:flex; align-items:center; gap:12px; padding:14px 40px 6px; position:sticky; top:0; z-index:6;
+    background:linear-gradient(180deg, var(--bg) 78%, transparent); }
+  .back{ width:32px; height:32px; border-radius:9px; flex:0 0 32px; background:var(--surface); border:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:center; }
+  .back svg{ width:15px; height:15px; stroke:var(--text-primary); fill:none; stroke-width:2.2; }
+  .appbar h2{ font-size:18px; font-weight:700; }
+  .appbar .restore{ margin-left:auto; font-size:12.5px; font-weight:600; color:var(--accent-strong); cursor:pointer; }
+
+  .content{ max-width:1000px; padding:10px 40px 40px; }
+
+  /* ① 当前方案 · 一行状态条 */
+  .scheme{ display:flex; align-items:center; gap:14px; background:linear-gradient(120deg, var(--surface-subtle), var(--surface) 62%);
+    border:1px solid var(--border-subtle); border-radius:14px; padding:13px 18px 13px 14px; margin-top:8px; position:relative; }
+  .scheme .ic{ width:40px; height:40px; flex:0 0 40px; border-radius:11px; background:var(--accent-soft); display:flex; align-items:center; justify-content:center; }
+  .scheme .ic svg{ width:19px; height:19px; stroke:var(--accent-strong); fill:none; stroke-width:2; }
+  .scheme .tx{ min-width:0; flex:1; }
+  .scheme .tx .l1{ display:flex; align-items:baseline; gap:8px; }
+  .scheme .tx .l1 em{ font-style:normal; font-size:11.5px; color:var(--text-muted); }
+  .scheme .tx .l1 b{ font-size:15px; font-weight:800; color:var(--accent-strong); }
+  .scheme .tx .l2{ font-size:12px; color:var(--text-secondary); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .scheme .pill{ flex:0 0 auto; font-size:11px; font-weight:700; padding:4px 11px; border-radius:99px; }
+  .scheme .pill.hot{ color:var(--accent-strong); background:var(--accent-soft); }
+  .scheme .pill.calm{ color:var(--text-muted); background:var(--surface-strong); }
+
+  /* 区块标题 */
+  .sec{ display:flex; align-items:baseline; gap:10px; margin:24px 0 11px; }
+  .sec b{ font-size:14.5px; font-weight:700; }
+  .sec span{ font-size:11.5px; color:var(--text-muted); }
+
+  /* ② 预设紧凑卡(wrap) */
+  .chips{ display:flex; flex-wrap:wrap; gap:9px; }
+  .chip{
+    width:196px; border-radius:12px; background:var(--surface); border:1px solid var(--border-subtle);
+    padding:10px 12px 11px; cursor:pointer; transition:background .15s; position:relative;
+  }
+  .chip:hover{ background:var(--surface-subtle); }
+  .chip.on{ background:var(--accent-soft); }
+  .chip .r{ display:flex; align-items:center; gap:7px; }
+  .chip .r b{ font-size:13.5px; font-weight:700; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip.on .r b{ color:var(--accent-strong); }
+  .chip .ck{ width:15px; height:15px; flex:0 0 15px; border-radius:50%; border:1.5px solid var(--text-muted); }
+  .chip.on .ck{ border-color:var(--accent); background:var(--accent); position:relative; }
+  .chip.on .ck::after{ content:""; position:absolute; inset:3px; border-radius:50%; background:var(--bg); }
+  .chip .more{ flex:0 0 auto; font-size:13px; color:var(--text-muted); letter-spacing:1px; padding:0 1px; }
+  .chip .d{ font-size:11px; color:var(--text-secondary); line-height:1.5; margin-top:5px;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:33px; }
+  .chip.ghost{ background:transparent; border:1.5px dashed rgba(255,255,255,.16); display:flex; align-items:center; justify-content:center; gap:7px; min-height:76px; }
+  .chip.ghost:hover{ border-color:var(--accent-border); }
+  .chip.ghost svg{ width:14px; height:14px; stroke:var(--text-secondary); fill:none; stroke-width:2.2; }
+  .chip.ghost span{ font-size:12.5px; font-weight:600; color:var(--text-secondary); }
+
+  /* ③ 深入调节 grid */
+  .tune-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .tune{
+    background:var(--surface); border:1px solid var(--border-subtle); border-radius:13px;
+    padding:13px 14px 12px; cursor:pointer; transition:background .15s; display:flex; flex-direction:column;
+  }
+  .tune:hover{ background:var(--surface-subtle); }
+  .tune .top{ display:flex; align-items:center; gap:10px; }
+  .tune .ic{ width:34px; height:34px; flex:0 0 34px; border-radius:10px; background:var(--surface-strong); display:flex; align-items:center; justify-content:center; }
+  .tune .ic svg{ width:16px; height:16px; stroke:var(--text-primary); fill:none; stroke-width:1.9; }
+  .tune .top b{ font-size:13.5px; font-weight:700; flex:1; }
+  .tune .top svg.go{ width:14px; height:14px; stroke:var(--text-muted); fill:none; stroke-width:2.2; }
+  .tune .d{ font-size:11px; color:var(--text-secondary); line-height:1.55; margin-top:8px; flex:1;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .tune .st{ margin-top:10px; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:99px; align-self:flex-start; }
+  .tune .st.hot{ color:var(--accent-strong); background:var(--accent-soft); }
+  .tune .st.calm{ color:var(--text-muted); background:var(--surface-strong); }
+
+  /* ④ 自定义管理 · 细长入口 */
+  .mgmt{ display:flex; align-items:center; gap:13px; background:var(--surface); border:1px solid var(--border-subtle);
+    border-radius:13px; padding:12px 16px 12px 14px; margin-top:24px; cursor:pointer; }
+  .mgmt:hover{ background:var(--surface-subtle); }
+  .mgmt .ic{ width:34px; height:34px; flex:0 0 34px; border-radius:10px; background:var(--surface-strong); display:flex; align-items:center; justify-content:center; }
+  .mgmt .ic svg{ width:16px; height:16px; stroke:var(--text-primary); fill:none; stroke-width:1.9; }
+  .mgmt .tx{ flex:1; min-width:0; }
+  .mgmt .tx b{ font-size:13.5px; font-weight:700; }
+  .mgmt .tx span{ display:block; font-size:11.5px; color:var(--text-secondary); margin-top:2px; }
+  .mgmt svg.go{ width:15px; height:15px; stroke:var(--text-muted); fill:none; stroke-width:2.2; flex:0 0 15px; }
+
+  .anno{ position:absolute; right:14px; display:flex; align-items:center; gap:6px; font-size:10.5px; color:#ffd28f; }
+  .anno i{ font-style:normal; width:16px; height:16px; border-radius:50%; background:#3a2c12; border:1px solid #ffb84d; color:#ffd28f;
+    display:flex; align-items:center; justify-content:center; font-size:9.5px; font-weight:700; }
+
+  /* ============ 手机 ============ */
+  .phone{
+    width:375px; height:812px; overflow:hidden; border:1px solid var(--border-subtle); border-radius:30px;
+    background:var(--bg); display:flex; flex-direction:column; position:relative;
+  }
+  .phone .notch{ height:34px; flex:0 0 34px; display:flex; align-items:center; justify-content:center; }
+  .phone .notch i{ width:110px; height:22px; border-radius:99px; background:#0d1728; }
+  .phone .appbar{ padding:6px 18px 8px; display:flex; align-items:center; gap:11px; position:sticky; top:0;
+    background:linear-gradient(180deg, var(--bg) 80%, transparent); z-index:5; }
+  .phone .appbar h2{ font-size:17px; font-weight:700; }
+  .phone .appbar .restore{ margin-left:auto; font-size:12px; color:var(--accent-strong); }
+  .phone .body{ flex:1; overflow:auto; padding:6px 18px 30px; }
+  .phone .scheme{ padding:12px 14px; }
+  .phone .sec{ margin:20px 0 10px; }
+  .hscroll{ display:flex; gap:9px; overflow-x:auto; padding-bottom:6px; margin:0 -18px; padding-left:18px; padding-right:18px; }
+  .hscroll::-webkit-scrollbar{ display:none; }
+  .hscroll .chip{ flex:0 0 178px; }
+  .phone .tune-grid{ grid-template-columns:1fr 1fr; }
+  .phone .chip.ghost{ min-height:76px; flex:0 0 150px; }
+  .phone .list{ background:var(--surface); border:1px solid var(--border-subtle); border-radius:13px; padding:2px 14px; }
+  .row{ display:flex; align-items:center; gap:12px; padding:12.5px 0; }
+  .row + .row{ border-top:1px solid var(--border-subtle); }
+  .row .tx{ flex:1; min-width:0; }
+  .row .tx b{ font-size:13.5px; font-weight:600; display:block; }
+  .row .tx span{ display:block; font-size:11px; color:var(--text-secondary); margin-top:2.5px; line-height:1.45; }
+  .row .val{ flex:0 0 auto; max-width:120px; font-size:12px; font-weight:600; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .val.hot{ color:var(--accent-strong); }
+  .row svg.go{ width:14px; height:14px; stroke:var(--text-muted); fill:none; stroke-width:2.2; flex:0 0 14px; }
+  .phone .homebar{ height:22px; flex:0 0 22px; display:flex; align-items:center; justify-content:center; }
+  .phone .homebar i{ width:120px; height:4.5px; border-radius:99px; background:rgba(255,255,255,.22); }
+
+  .legend{ margin-top:30px; display:grid; grid-template-columns:repeat(2,1fr); gap:12px 26px; max-width:1100px; }
+  .legend div{ font-size:12.5px; color:var(--text-secondary); line-height:1.7; }
+  .legend b{ color:#ffd28f; font-weight:700; margin-right:6px; }
+  .legend code{ font-size:11px; color:var(--text-muted); background:var(--surface); border:1px solid var(--border-subtle); border-radius:5px; padding:1px 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-head">
+    <h1>MPV播放器设置 · 重构参考(双端)</h1>
+    <p>目标:压掉巨型信息卡、消灭重复状态、把藏在三级之下的单项设置一级直达;预设改为紧凑卡并与"已保存/保存当前"合并;PC 与手机同一套结构,代码同步拆分重构。配色全部走通用取色,选中态只换底色和文字色、不加框。</p>
+    <div class="issues">
+      <span><b>现状1</b>"当前方案"大卡无任何操作,占 130px 高</span>
+      <span><b>现状2</b>状态重复 3 次,还出现"当前自定义 / 当前自定义"叠字</span>
+      <span><b>现状3</b>改一项设置要点 4 层:自定义管理→画质自定义→视频滤镜→插帧</span>
+      <span><b>现状4</b>预设卡 260×152 空一大截,"暂无已保存"整块提示更占地</span>
+      <span><b>现状5</b>二级页在宽窗不满栅格宽度,卡片被拉到 1500px+ 宽</span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="desktop-col">
+      <div class="col-tag"><b>PC 宽窗 · 主页面</b><span>内容对齐设置栅格宽度,右侧留白</span></div>
+      <div class="win">
+        <div class="sidebar">
+          <div class="logo">飞翔播放器<small>FLY PLAYER</small></div>
+          <div class="nav">
+            <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/></svg>影视</a>
+            <a href="#" class="active"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12"/></svg>设置</a>
+          </div>
+        </div>
+        <div class="area">
+          <div class="appbar">
+            <div class="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div>
+            <h2>MPV播放器设置</h2>
+            <span class="restore">恢复默认</span>
+          </div>
+          <div class="content">
+
+            <div class="scheme">
+              <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/></svg></div>
+              <div class="tx">
+                <div class="l1"><em>当前方案</em><b>动画清晰</b></div>
+                <div class="l2">已调整 2 项:插帧 自动 / EQ 均衡器 高级自定义</div>
+              </div>
+              <span class="pill hot">已调 2 项</span>
+              <div class="anno" style="top:-11px;"><i>1</i>大卡压成一行,状态只出现一次</div>
+            </div>
+
+            <div class="sec"><b>画质快速预设</b><span>点按即应用 · 内置与已保存合并</span></div>
+            <div class="chips">
+              <div class="chip"><div class="r"><b>默认</b><span class="ck"></span></div><div class="d">关闭额外画质增强,优先保证兼容性和稳定性。</div></div>
+              <div class="chip on"><div class="r"><b>动画清晰</b><span class="ck"></span></div><div class="d">通过轻微对比度和饱和度调整突出线条感,不再默认带入重滤镜。</div></div>
+              <div class="chip"><div class="r"><b>影院柔和</b><span class="ck"></span></div><div class="d">用较轻的亮暗和饱和调整偏向影院观感,避免额外画面计算。</div></div>
+              <div class="chip"><div class="r"><b>流畅优先</b><span class="ck"></span></div><div class="d">偏向稳定和响应的轻量流畅方案,不再默认带入插帧。</div></div>
+              <div class="chip"><div class="r"><b>我的影院</b><span class="more">⋯</span></div><div class="d">已保存的独立预设,可随时再次应用。</div></div>
+              <div class="chip ghost"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>保存当前画质</span></div>
+              <div class="anno" style="top:-11px;"><i>2</i>预设卡瘦身 152→76,已保存/暂无提示并入</div>
+            </div>
+
+            <div class="sec"><b>音频快速预设</b><span>同上结构</span></div>
+            <div class="chips">
+              <div class="chip"><div class="r"><b>默认</b><span class="ck"></span></div><div class="d">关闭额外音频增强,保留基础播放参数。</div></div>
+              <div class="chip"><div class="r"><b>原声保真</b><span class="ck"></span></div><div class="d">打开高保真,旁路 EQ 和增强,适合耳机和高质量片源。</div></div>
+              <div class="chip on"><div class="r"><b>通用增强</b><span class="ck"></span></div><div class="d">轻度提亮人声和低频,适合大多数普通剧集、综艺和日常看片。</div></div>
+              <div class="chip"><div class="r"><b>人声清晰</b><span class="ck"></span></div><div class="d">抬前对白和中高频细节,适合台词偏轻的片源。</div></div>
+              <div class="chip"><div class="r"><b>外放清晰</b><span class="ck"></span></div><div class="d">针对手机和平板外放,压住爆点、把对白往前推。</div></div>
+              <div class="chip"><div class="r"><b>影院低频</b><span class="ck"></span></div><div class="d">增强低频氛围和厚度,适合动作片、配乐片和外放。</div></div>
+              <div class="chip"><div class="r"><b>耳机沉浸</b><span class="ck"></span></div><div class="d">保留动态感,补一点氛围和厚度,适合耳机听电影。</div></div>
+              <div class="chip"><div class="r"><b>夜间均衡</b><span class="ck"></span></div><div class="d">压低爆点、抬前对白,适合深夜外放和追剧。</div></div>
+              <div class="chip ghost"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>保存当前音频</span></div>
+            </div>
+
+            <div class="sec"><b>深入调节</b><span>单项设置一级直达</span></div>
+            <div class="tune-grid">
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 8l9-5 9 5-9 5-9-5zM3 8v8l9 5 9-5V8"/></svg></div><b>画面调节</b><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+                <div class="d">去胶片颗粒、锐化、降噪、缩放算法、HDR 与插帧。</div>
+                <span class="st hot">已调 2 项</span>
+              </div>
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 12h3l2-6 4 12 2-6h5"/></svg></div><b>音频调节</b><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+                <div class="d">音量增益、高保真、动态范围、EQ 与声道混合。</div>
+                <span class="st hot">EQ 高级自定义</span>
+              </div>
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v12M12 21v-2M5.6 5.6l8.5 8.5M9.9 9.9L18.4 18.4M3 12h2M19 12h2"/></svg></div><b>播放与缓存</b><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+                <div class="d">同步模式、缓存策略与缓存大小。</div>
+                <span class="st calm">默认</span>
+              </div>
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg></div><b>兼容与诊断</b><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+                <div class="d">兼容模式与诊断信息。</div>
+                <span class="st calm">默认</span>
+              </div>
+              <div class="anno" style="top:-11px; right:0;"><i>3</i>新增入口区:原来要钻 4 层,这里一步到位</div>
+            </div>
+
+            <div class="mgmt">
+              <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/></svg></div>
+              <div class="tx"><b>自定义管理</b><span>即时调节、画质/音频自定义与预设管理</span></div>
+              <svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+              <div class="anno" style="top:-11px;"><i>4</i>压成一条入口</div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-col">
+      <div>
+        <div class="col-tag"><b>手机 · 主页面</b><span>同一结构,预设横滑</span></div>
+        <div class="phone">
+          <div class="notch"><i></i></div>
+          <div class="appbar">
+            <div class="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div>
+            <h2>MPV播放器设置</h2>
+            <span class="restore">恢复默认</span>
+          </div>
+          <div class="body">
+            <div class="scheme">
+              <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/></svg></div>
+              <div class="tx">
+                <div class="l1"><em>当前方案</em><b>动画清晰</b></div>
+                <div class="l2">已调整 2 项:插帧 自动 / EQ 均衡器 高级自定义</div>
+              </div>
+            </div>
+            <div class="sec"><b>画质快速预设</b></div>
+            <div class="hscroll">
+              <div class="chip"><div class="r"><b>默认</b><span class="ck"></span></div><div class="d">关闭额外画质增强,优先保证兼容性和稳定性。</div></div>
+              <div class="chip on"><div class="r"><b>动画清晰</b><span class="ck"></span></div><div class="d">通过轻微对比度和饱和度调整突出线条感。</div></div>
+              <div class="chip"><div class="r"><b>影院柔和</b><span class="ck"></span></div><div class="d">用较轻的亮暗和饱和调整偏向影院观感。</div></div>
+              <div class="chip"><div class="r"><b>我的影院</b><span class="more">⋯</span></div><div class="d">已保存的独立预设,可随时再次应用。</div></div>
+              <div class="chip ghost"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>保存当前</span></div>
+            </div>
+            <div class="sec"><b>音频快速预设</b></div>
+            <div class="hscroll">
+              <div class="chip"><div class="r"><b>默认</b><span class="ck"></span></div><div class="d">关闭额外音频增强,保留基础播放参数。</div></div>
+              <div class="chip on"><div class="r"><b>通用增强</b><span class="ck"></span></div><div class="d">轻度提亮人声和低频,适合日常看片。</div></div>
+              <div class="chip"><div class="r"><b>人声清晰</b><span class="ck"></span></div><div class="d">抬前对白和中高频细节,适合台词偏轻的片源。</div></div>
+              <div class="chip"><div class="r"><b>外放清晰</b><span class="ck"></span></div><div class="d">压住爆点、把对白往前推,减少糊成一团。</div></div>
+              <div class="chip ghost"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>保存当前</span></div>
+            </div>
+            <div class="sec"><b>深入调节</b></div>
+            <div class="tune-grid">
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 8l9-5 9 5-9 5-9-5zM3 8v8l9 5 9-5V8"/></svg></div><b>画面调节</b></div>
+                <div class="d">滤镜、渲染、HDR 与插帧。</div>
+                <span class="st hot">已调 2 项</span>
+              </div>
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 12h3l2-6 4 12 2-6h5"/></svg></div><b>音频调节</b></div>
+                <div class="d">音量、EQ、增强与声道混合。</div>
+                <span class="st hot">EQ 自定义</span>
+              </div>
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v12M12 21v-2M5.6 5.6l8.5 8.5M3 12h2M19 12h2"/></svg></div><b>播放与缓存</b></div>
+                <div class="d">同步模式、缓存策略与大小。</div>
+                <span class="st calm">默认</span>
+              </div>
+              <div class="tune">
+                <div class="top"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg></div><b>兼容与诊断</b></div>
+                <div class="d">兼容模式与诊断信息。</div>
+                <span class="st calm">默认</span>
+              </div>
+            </div>
+            <div class="mgmt" style="margin-top:20px;">
+              <div class="ic"><svg viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/></svg></div>
+              <div class="tx"><b>自定义管理</b><span>即时调节与预设管理</span></div>
+              <svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+            </div>
+          </div>
+          <div class="homebar"><i></i></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="col-tag"><b>手机 · 二级页样例</b><span>画面调节:细头 + 紧凑行</span></div>
+        <div class="phone">
+          <div class="notch"><i></i></div>
+          <div class="appbar">
+            <div class="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div>
+            <h2>画面调节</h2>
+            <span class="restore" style="font-size:11px; color:var(--text-muted); background:var(--accent-soft); padding:3px 10px; border-radius:99px; color:var(--accent-strong);">已调 2 项</span>
+          </div>
+          <div class="body">
+            <div class="scheme" style="padding:12px 14px;">
+              <div class="tx">
+                <div class="l2" style="margin-top:0; white-space:normal;">滤镜、渲染、HDR 与插帧。调整立即生效并自动保存。</div>
+              </div>
+            </div>
+            <div class="sec"><b>画质增强</b></div>
+            <div class="list">
+              <div class="row"><div class="tx"><b>去胶片颗粒</b><span>移除片源自带噪点,画面更干净</span></div><span class="val">默认</span><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+              <div class="row"><div class="tx"><b>锐化</b><span>增强边缘轮廓,幅度过大可能噪点明显</span></div><span class="val">默认</span><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+              <div class="row"><div class="tx"><b>降噪</b><span>抑制压缩噪点,高挡位会损失细节</span></div><span class="val">默认</span><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+            </div>
+            <div class="sec"><b>渲染与插帧</b></div>
+            <div class="list">
+              <div class="row"><div class="tx"><b>缩放算法</b><span>放大画面时的插值方式</span></div><span class="val">默认</span><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+              <div class="row"><div class="tx"><b>HDR 模式</b><span>HDR 片源的色调映射方式</span></div><span class="val hot">自动</span><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+              <div class="row"><div class="tx"><b>插帧</b><span>补帧让运动更顺滑,低性能设备可能掉帧</span></div><span class="val hot">自动</span><svg class="go" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></div>
+            </div>
+          </div>
+          <div class="homebar"><i></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div><b>1</b>"当前方案"从 130px 大卡压成一行状态条:标题右侧就是方案名,下面一行变化摘要,右侧一个"已调 N 项"胶囊——状态全页只出现这一次(修复"当前自定义 / 当前自定义"叠字)。</div>
+    <div><b>2</b>预设卡 260×152 → 196×76:去掉单选圆圈图标和留白;内置、已保存(带 ⋯ 菜单:重命名/删除)合并同一排;删除整块"暂无已保存预设"提示,改为末尾一张"保存当前"虚线卡,空状态也有行动点。选中 = 底色 + 文字变色,不加框。</div>
+    <div><b>3</b>新增"深入调节"四宫格(画面/音频/播放缓存/兼容诊断),直接进设置分类页并显示各类已调项数——把 <code>自定义管理→画质自定义→视频滤镜→插帧</code> 的 4 层路径压成 1 层。</div>
+    <div><b>4</b>"自定义管理"压成一条细长入口(原路径保留,测试不断);其二级页(自定义编辑、分类页、单项选择页)统一换成同款细头 + 紧凑行,PC 端对齐栅格宽度,不再全屏拉宽。</div>
+  </div>
+</div>
+</body>
+</html>

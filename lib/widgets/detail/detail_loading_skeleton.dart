@@ -2,9 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/detail_presentation.dart';
+import 'detail_status_page.dart';
 
 class DetailLoadingSkeleton extends StatelessWidget {
   final DetailPresentation presentation;
@@ -20,29 +22,38 @@ class DetailLoadingSkeleton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final media = MediaQuery.of(context);
-    final fill = Color.alphaBlend(
-      colors.surfaceStrong.withValues(alpha: 0.48),
-      colors.backgroundBase,
-    );
-    final subtle = Color.alphaBlend(
-      colors.surfaceSubtle.withValues(alpha: 0.42),
-      colors.backgroundBase,
-    );
-    final line = Color.alphaBlend(
-      colors.textMuted.withValues(alpha: 0.18),
-      colors.backgroundBase,
-    );
+    final fill = colors.textMuted.withValues(alpha: 0.16);
+    final subtle = colors.selectionSoft.withValues(alpha: 0.22);
+    final line = colors.textMuted.withValues(alpha: 0.20);
     const pad = DetailTokens.screenHorizontalPadding;
-    final buttonHeight = _isPane ? 48.0 : 56.0;
+    final buttonHeight = _isPane ? 40.0 : 44.0;
     final topReserve = media.padding.top + 12 + DetailTokens.topButtonSize + 8;
     final heroBottomPadding = _isPane ? 12.0 : 20.0;
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      body: LayoutBuilder(
+    return DetailStatusPage(
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.6,
+              color: colors.selectionStrong,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            AppLocalizations.of(context).commonLoading,
+            style: TextStyle(color: colors.textSecondary, fontSize: 13),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth;
           final height = constraints.maxHeight;
+          final contentWidth = math.min(width, 640.0);
           final minHero = _isPane
               ? _SkeletonMetrics.paneMinHero
               : _SkeletonMetrics.pageMinHero;
@@ -59,11 +70,9 @@ class DetailLoadingSkeleton extends StatelessWidget {
           final bodyHeight = math
               .min(_bodyReserve, math.max(0, height - heroHeight))
               .toDouble();
-          final bodyWidth = width - pad * 2;
-          final desiredPosterWidth = (width * (_isPane ? 0.24 : 0.30)).clamp(
-            120.0,
-            _isPane ? 150.0 : 180.0,
-          );
+          final bodyWidth = math.max(0, contentWidth - pad * 2);
+          final desiredPosterWidth = (contentWidth * (_isPane ? 0.22 : 0.26))
+              .clamp(120.0, _isPane ? 144.0 : 168.0);
           final availablePosterHeight = math.max(
             0,
             heroHeight - topReserve - heroBottomPadding - 1,
@@ -74,145 +83,151 @@ class DetailLoadingSkeleton extends StatelessWidget {
           final posterWidth = math
               .min(desiredPosterWidth, posterHeight / 1.45)
               .toDouble();
-          final textZoneWidth = bodyWidth - posterWidth - 16;
-          final titleWidth = textZoneWidth * 0.88;
-          final metaWidth = textZoneWidth;
+          final textZoneWidth = math.max(0, bodyWidth - posterWidth - 20);
+          final titleWidth = textZoneWidth * 0.72;
+          final metaWidth = textZoneWidth * 0.82;
 
           return Column(
             children: [
-              Container(
+              SizedBox(
                 key: const ValueKey('detail-skeleton-hero'),
                 height: heroHeight,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      fill,
-                      Color.alphaBlend(
-                        colors.overlayScrim.withValues(alpha: 0.16),
-                        colors.backgroundBase,
+                child: Center(
+                  child: SizedBox(
+                    width: contentWidth,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        pad,
+                        topReserve,
+                        pad,
+                        heroBottomPadding,
                       ),
-                      colors.backgroundBase,
-                    ],
-                  ),
-                ),
-                padding: EdgeInsets.fromLTRB(
-                  pad,
-                  topReserve,
-                  pad,
-                  heroBottomPadding,
-                ),
-                child: LayoutBuilder(
-                  builder: (context, heroConstraints) {
-                    if (heroConstraints.maxHeight < _heroContentMinHeight) {
-                      return const SizedBox.shrink();
-                    }
-                    return Column(
-                      key: const ValueKey('detail-skeleton-hero-content'),
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Spacer(),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            // Poster card placeholder — matches the vertical poster
-                            // beside the title in TvSeasonDetailPanel
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: _Bar(
-                                width: posterWidth,
-                                height: posterHeight,
-                                color: fill,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      child: LayoutBuilder(
+                        builder: (context, heroConstraints) {
+                          if (heroConstraints.maxHeight <
+                              _heroContentMinHeight) {
+                            return const SizedBox.shrink();
+                          }
+                          return Column(
+                            key: const ValueKey('detail-skeleton-hero-content'),
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Spacer(),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
+                                  // 贴近真实详情页的海报轮廓，避免整页大色块。
                                   _Bar(
-                                    width: titleWidth,
-                                    height: _isPane ? 20 : 24,
-                                    radius: 6,
+                                    width: posterWidth,
+                                    height: posterHeight,
+                                    radius: 16,
                                     color: fill,
                                   ),
-                                  const SizedBox(height: 10),
-                                  _Bar(
-                                    width: metaWidth,
-                                    height: 14,
-                                    radius: 7,
-                                    color: line,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  _Bar(
-                                    width: metaWidth * 0.52,
-                                    height: 14,
-                                    radius: 7,
-                                    color: line,
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _Bar(
+                                          width: titleWidth,
+                                          height: _isPane ? 18 : 22,
+                                          radius: 6,
+                                          color: fill,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _Bar(
+                                          width: metaWidth,
+                                          height: 10,
+                                          radius: 5,
+                                          color: line,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        _Bar(
+                                          width: metaWidth * 0.56,
+                                          height: 10,
+                                          radius: 5,
+                                          color: line,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 ),
               ),
               SizedBox(
                 height: bodyHeight,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(pad, 0, pad, 0),
-                  child: LayoutBuilder(
-                    builder: (context, bodyConstraints) {
-                      if (bodyConstraints.maxHeight < _bodyReserve) {
-                        return const SizedBox.shrink();
-                      }
-                      return Column(
-                        key: const ValueKey('detail-skeleton-body-content'),
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(height: _isPane ? 18 : 24),
-                          Row(
+                child: Center(
+                  child: SizedBox(
+                    width: contentWidth,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: pad),
+                      child: LayoutBuilder(
+                        builder: (context, bodyConstraints) {
+                          if (bodyConstraints.maxHeight < _bodyReserve) {
+                            return const SizedBox.shrink();
+                          }
+                          return Column(
+                            key: const ValueKey('detail-skeleton-body-content'),
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: _Bar(
-                                  height: buttonHeight,
-                                  radius: buttonHeight / 2,
-                                  color: subtle,
-                                ),
+                              SizedBox(height: _isPane ? 18 : 24),
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: _Bar(
+                                      width: _isPane ? 136 : 152,
+                                      height: buttonHeight,
+                                      radius: buttonHeight / 2,
+                                      color: subtle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _Bar(
+                                    width: _isPane ? 58 : 64,
+                                    height: _isPane ? 30 : 32,
+                                    radius: 16,
+                                    color: fill,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _Bar(
+                                    width: _isPane ? 52 : 58,
+                                    height: _isPane ? 30 : 32,
+                                    radius: 16,
+                                    color: fill,
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 12),
-                              _Circle(size: _isPane ? 48.0 : 56.0, color: fill),
-                              const SizedBox(width: 10),
-                              _Circle(size: _isPane ? 48.0 : 56.0, color: fill),
-                              const SizedBox(width: 10),
-                              _Circle(size: _isPane ? 48.0 : 56.0, color: fill),
+                              const SizedBox(height: 16),
+                              _Bar(
+                                width: bodyWidth * 0.82,
+                                height: 10,
+                                radius: 5,
+                                color: line,
+                              ),
+                              const SizedBox(height: 8),
+                              _Bar(
+                                width: bodyWidth * 0.54,
+                                height: 10,
+                                radius: 5,
+                                color: line,
+                              ),
                             ],
-                          ),
-                          const SizedBox(height: 18),
-                          _Bar(
-                            width: bodyWidth * 0.92,
-                            height: 12,
-                            radius: 6,
-                            color: line,
-                          ),
-                          const SizedBox(height: 8),
-                          _Bar(
-                            width: bodyWidth * 0.64,
-                            height: 12,
-                            radius: 6,
-                            color: line,
-                          ),
-                        ],
-                      );
-                    },
+                          );
+                        },
+                      ),
+                    ),
                   ),
                 ),
               ),
-              Expanded(child: ColoredBox(color: colors.backgroundBase)),
+              const Expanded(child: SizedBox.shrink()),
             ],
           );
         },
@@ -264,23 +279,6 @@ class _Bar extends StatelessWidget {
       width: width,
       height: height,
       child: DecoratedBox(decoration: decoration),
-    );
-  }
-}
-
-class _Circle extends StatelessWidget {
-  final double size;
-  final Color color;
-  const _Circle({required this.size, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: DecoratedBox(
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      ),
     );
   }
 }

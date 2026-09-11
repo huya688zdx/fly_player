@@ -237,16 +237,21 @@ void main() {
     await tester.pumpAndSettle();
     final input = find.byType(TextField).first;
     await tester.tap(input);
-    await tester.enterText(input, '主题');
+    await tester.enterText(input, 'EQ');
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(
-        of: find.byType(DesktopFloatingPanel),
-        matching: find.text('主题设置'),
+    final click = await tester.startGesture(
+      tester.getCenter(
+        find.descendant(
+          of: find.byType(DesktopFloatingPanel),
+          matching: find.text('EQ 均衡器'),
+        ),
       ),
+      kind: PointerDeviceKind.mouse,
     );
+    await tester.pump(const Duration(milliseconds: 100));
+    await click.up();
     await tester.pumpAndSettle();
-    expect(find.byType(ThemeSettingsScreen), findsOneWidget);
+    expect(find.text('EQ 均衡器').hitTestable(), findsOneWidget);
     expect(find.byType(DesktopFloatingPanel), findsNothing);
 
     await tester.tap(input);

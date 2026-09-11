@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>平行窗口设置 · 双端重构参考</title>
+<style>
+  :root{
+    --bg:            #071715;
+    --bg-elevated:   #0b211e;
+    --sidebar-bg:    #0e2320;
+    --surface:       #0f2b27;
+    --surface-subtle:#123430;
+    --border-subtle: rgba(255,255,255,.08);
+    --text-primary:  #eaf6f2;
+    --text-secondary:#9db8b1;
+    --text-muted:    #6e8b84;
+    --accent:        #3ecf9e;
+    --accent-soft:   rgba(62,207,158,.14);
+    --accent-border: rgba(62,207,158,.5);
+    --amber:         #d9a13c;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    background:#04100e; color:var(--text-primary);
+    padding:34px clamp(16px,3vw,48px) 70px;
+  }
+  .wrap{ max-width:1560px; margin:0 auto; }
+  .page-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+  .page-head h1{ font-size:19px; font-weight:700; }
+  .page-head p{ font-size:12.5px; color:var(--text-secondary); }
+
+  .layout{ display:flex; gap:28px; align-items:flex-start; margin-top:22px; flex-wrap:wrap; }
+  .desktop-col{ flex:1 1 900px; min-width:760px; }
+  .mobile-col{ flex:0 0 390px; }
+
+  .col-tag{ display:flex; align-items:baseline; gap:10px; margin:0 2px 10px; }
+  .col-tag b{ font-size:14px; }
+  .col-tag span{ font-size:12px; color:var(--text-muted); }
+
+  /* ============ 桌面 mock ============ */
+  .win{
+    display:flex; width:100%; height:860px; overflow:hidden;
+    border:1px solid var(--border-subtle); border-radius:14px;
+    background:linear-gradient(180deg,var(--bg-elevated),var(--bg));
+  }
+  .sidebar{
+    flex:0 0 300px; background:var(--sidebar-bg);
+    border-right:1px solid var(--border-subtle);
+    padding:22px 14px; font-size:13.5px;
+  }
+  .sidebar .logo{ font-weight:700; letter-spacing:.4px; font-size:15px; }
+  .sidebar .logo small{ display:block; font-size:9px; letter-spacing:2.2px; color:var(--text-muted); margin-top:3px; }
+  .nav{ margin-top:20px; display:flex; flex-direction:column; gap:2px; }
+  .nav a{
+    display:flex; align-items:center; gap:10px; padding:9px 12px;
+    border-radius:10px; color:var(--text-secondary); text-decoration:none;
+  }
+  .nav a svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8; }
+  .nav a.active{ background:var(--accent-soft); color:var(--text-primary); box-shadow:inset 2.5px 0 0 var(--accent); }
+  .nav .group{ margin:14px 12px 4px; font-size:11px; color:var(--text-muted); letter-spacing:1px; }
+  .nav a .cnt{ margin-left:auto; font-size:11px; color:var(--text-muted); }
+
+  .area{ flex:1; min-width:0; overflow:auto; }
+
+  /* ============ 子页公共（桌面/手机共用） ============ */
+  .sub-head{
+    display:flex; align-items:center; gap:12px; padding:14px 0 4px;
+    position:sticky; top:0; z-index:5;
+    background:linear-gradient(180deg,var(--bg-elevated) 70%,transparent);
+  }
+  .back{
+    width:30px; height:30px; border-radius:9px; flex:0 0 30px;
+    background:var(--surface); border:1px solid var(--border-subtle);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .back svg{ width:15px; height:15px; stroke:var(--text-primary); fill:none; stroke-width:2.2; }
+  .sub-head h2{ font-size:17.5px; font-weight:700; }
+  .status-pill{
+    margin-left:auto; font-size:11.5px; font-weight:700;
+    padding:4px 12px; border-radius:99px;
+    background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent-border);
+  }
+  .status-pill.off{ background:rgba(255,255,255,.05); color:var(--text-muted); border-color:var(--border-subtle); }
+
+  .card{
+    background:var(--surface); border:1px solid var(--border-subtle);
+    border-radius:14px; padding:18px 20px; margin-top:14px;
+  }
+  .card.locked{ opacity:.45; pointer-events:none; }
+  .card h3{ font-size:13px; font-weight:700; color:var(--text-secondary); letter-spacing:.5px; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .card h3 svg{ width:14px; height:14px; stroke:var(--accent); fill:none; stroke-width:2; }
+
+  /* --- 开关行 --- */
+  .switch-row{ display:flex; align-items:center; gap:14px; padding:2px 0; }
+  .switch-row + .switch-row{ border-top:1px solid var(--border-subtle); margin-top:12px; padding-top:14px; }
+  .switch-row .tt{ font-size:15px; font-weight:700; }
+  .switch-row .st{ font-size:12.5px; color:var(--text-secondary); margin-top:4px; line-height:1.55; }
+  .switch-row .grow{ flex:1; min-width:0; }
+  .sw{
+    width:46px; height:26px; border-radius:99px; flex:0 0 46px; cursor:pointer; position:relative;
+    background:var(--surface-subtle); border:1px solid var(--border-subtle); transition:background .16s,border-color .16s;
+  }
+  .sw::after{
+    content:""; position:absolute; top:2.5px; left:3px; width:19px; height:19px; border-radius:50%;
+    background:var(--text-muted); transition:left .16s, background .16s;
+  }
+  .sw.on{ background:var(--accent); border-color:var(--accent); }
+  .sw.on::after{ left:22px; background:#04100e; }
+  .sw.disabled{ opacity:.5; pointer-events:none; }
+
+  /* --- 分屏预览图 --- */
+  .preview-stage{
+    position:relative; border-radius:10px; overflow:hidden;
+    background:var(--bg); border:1px solid var(--border-subtle);
+  }
+  .preview-stage .panes{ display:flex; height:190px; transition:width .18s; }
+  .pane{
+    position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px;
+    border-right:1px solid var(--border-subtle); transition:flex-basis .2s ease;
+  }
+  .pane:last-child{ border-right:none; }
+  .pane .p-ico{
+    width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.05); border:1px solid var(--border-subtle);
+  }
+  .pane .p-ico svg{ width:17px; height:17px; stroke:var(--text-secondary); fill:none; stroke-width:1.8; }
+  .pane.main .p-ico{ background:var(--accent-soft); border-color:var(--accent-border); }
+  .pane.main .p-ico svg{ stroke:var(--accent); }
+  .pane.playing .p-ico{ background:rgba(77,141,246,.14); border-color:rgba(77,141,246,.5); }
+  .pane.playing .p-ico svg{ stroke:#7db4ff; fill:#7db4ff; }
+  .pane .p-name{ font-size:12px; font-weight:700; }
+  .pane .p-role{ font-size:10.5px; color:var(--text-muted); }
+  .pane .p-ratio{
+    position:absolute; top:8px; right:10px; font-size:10.5px; color:var(--text-muted); font-family:Consolas,monospace;
+  }
+  .preview-empty{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:10px;
+    background:rgba(4,16,14,.72); font-size:13px; font-weight:700; color:var(--text-muted);
+    letter-spacing:2px; transition:opacity .18s;
+  }
+  .preview-empty svg{ width:18px; height:18px; stroke:var(--text-muted); fill:none; stroke-width:2; }
+  .preview-cap{ margin-top:10px; font-size:12px; color:var(--text-muted); line-height:1.6; }
+  .preview-cap b{ color:var(--accent); font-weight:700; }
+
+  /* --- 分段控件 --- */
+  .seg{ display:flex; gap:8px; flex-wrap:wrap; }
+  .seg-item{
+    flex:1 1 0; min-width:150px; cursor:pointer; border-radius:11px;
+    border:1px solid var(--border-subtle); background:var(--surface-subtle);
+    padding:11px 13px; transition:border-color .15s, background .15s;
+  }
+  .seg-item:hover{ border-color:rgba(62,207,158,.3); }
+  .seg-item.on{ background:var(--accent-soft); border-color:var(--accent-border); }
+  .seg-item .s-head{ display:flex; align-items:center; gap:9px; }
+  .seg-item .glyph{ flex:0 0 auto; }
+  .seg-item .s-name{ font-size:13.5px; font-weight:700; }
+  .seg-item.on .s-name{ color:var(--accent); }
+  .seg-item .s-sub{ font-size:11.5px; color:var(--text-secondary); margin-top:7px; line-height:1.55; }
+  .seg-item.on .s-sub{ color:var(--text-primary); }
+
+  /* 迷你分屏示意（分段项内） */
+  .glyph{ display:flex; width:30px; height:20px; border-radius:4px; overflow:hidden; border:1px solid var(--border-subtle); }
+  .glyph i{ display:block; height:100%; transition:background .15s; }
+  .glyph i.a{ background:rgba(255,255,255,.14); }
+  .glyph i.b{ background:transparent; }
+  .seg-item.on .glyph i.a{ background:var(--accent); opacity:.85; }
+  .glyph .play-dot{ position:relative; }
+  .glyph .play-dot::after{
+    content:""; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:0; height:0; border-left:4px solid var(--text-primary); border-top:3px solid transparent; border-bottom:3px solid transparent;
+  }
+  .seg-item.on .glyph .play-dot::after{ border-left-color:#04100e; }
+
+  /* 比例条 */
+  .ratio-bar{ display:flex; width:100%; height:16px; border-radius:4px; overflow:hidden; border:1px solid var(--border-subtle); }
+  .ratio-bar i{ display:block; height:100%; }
+  .ratio-bar i.l{ background:rgba(255,255,255,.14); }
+  .ratio-bar i.r{ background:transparent; }
+  .seg-item.on .ratio-bar i.l{ background:var(--accent); opacity:.85; }
+  .seg-item .r-num{ font-family:Consolas,monospace; font-size:12.5px; font-weight:700; }
+
+  /* ============ 手机 mock ============ */
+  .phone{
+    width:390px; height:800px; border-radius:26px; overflow:hidden;
+    border:1px solid var(--border-subtle); background:var(--bg);
+    display:flex; flex-direction:column;
+  }
+  .p-statusbar{
+    flex:0 0 34px; display:flex; align-items:center; justify-content:space-between;
+    padding:0 18px; font-size:11px; color:var(--text-secondary);
+    background:var(--bg-elevated);
+  }
+  .p-body{ flex:1; overflow:auto; padding:0 14px 20px; }
+  .phone .sub-head{ padding:10px 0 4px; }
+  .phone .card{ padding:15px 15px; }
+  .phone .preview-stage .panes{ height:150px; }
+  .phone .seg-item{ min-width:140px; }
+  .phone .seg{ flex-direction:column; }
+  .phone .seg .seg-item{ flex:none; }
+
+  /* ============ 注记 ============ */
+  .notes{ margin:36px 2px 0; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+  .note{
+    background:rgba(255,255,255,.03); border:1px solid var(--border-subtle);
+    border-radius:12px; padding:16px 18px;
+  }
+  .note h3{ font-size:13px; font-weight:700; margin-bottom:8px; color:var(--accent); }
+  .note p, .note li{ font-size:12.5px; line-height:1.8; color:var(--text-secondary); }
+  .note ul{ padding-left:18px; }
+  .note code{
+    font-family:Consolas,monospace; font-size:11.5px;
+    background:rgba(255,255,255,.06); border-radius:4px; padding:1px 5px; color:var(--text-primary);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-head">
+    <h1>平行窗口设置 · 双端重构参考</h1>
+    <p>核心变化：新增「实时分屏预览图」，二选一大 radio 卡改成分段控件，开关归组为设置行 · 两端同构，直接点击体验</p>
+  </div>
+
+  <div class="layout">
+    <!-- ================= 桌面 ================= -->
+    <div class="desktop-col">
+      <div class="col-tag"><b>桌面端</b><span>设置子页（单屏铺满 / 双栏右栏同构，内容对齐 1128 网格）</span></div>
+      <div class="win">
+        <aside class="sidebar">
+          <div class="logo">飞翔播放器<small>FLY PLAYER</small></div>
+          <nav class="nav">
+            <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg>影视</a>
+            <a href="#"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.6-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.4-9 9-9 9z"/></svg>收藏<span class="cnt">11</span></a>
+            <a href="#"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>下载列表</a>
+            <a class="active" href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" stroke-dasharray="3 3"/></svg>设置</a>
+            <div class="group">媒体库</div>
+            <a href="#">动漫电影</a><a href="#">动漫TV</a><a href="#">电视剧</a>
+            <div class="group">分类</div>
+            <a href="#">全部影视<span class="cnt">85</span></a><a href="#">电影<span class="cnt">35</span></a>
+          </nav>
+        </aside>
+        <div class="area">
+          <div id="desktop-sub"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 手机 ================= -->
+    <div class="mobile-col">
+      <div class="col-tag"><b>手机端</b><span>同一组件树，纵向堆叠</span></div>
+      <div class="phone">
+        <div class="p-statusbar"><span>14:25</span><span>▮▮▮ ⌁ 87%</span></div>
+        <div class="p-body">
+          <div id="mobile-sub"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>为什么这样改</h3>
+      <ul>
+        <li><b>旧页面的问题</b>：一张大卡包住全部；260px 固定宽 radio 卡居中漂浮、左右大片留白；radio 圆点对二选一来说是冗余控件；所有选项都不「示意」它们控制的到底是什么。</li>
+        <li><b>新结构</b>：状态头卡（启用开关 + 状态摘要）→ 实时分屏预览 → 三个分段控件卡（主屏 / 播放主屏 / 比例）→ 播放行为开关行。每个分段项内嵌迷你分屏示意，选了什么、屏幕会怎么摆，一眼对应。</li>
+        <li><b>联动反馈</b>：关闭「启用平行窗口」后，其余卡片变暗锁操作、预览图盖「单屏模式」水印、状态摘要变灰——设置是否生效不再靠猜。</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Flutter 侧落点（双端同一套组件）</h3>
+      <ul>
+        <li>重写 <code>parallel_window_settings_screen.dart</code>：预览图 = <code>Row + AnimatedContainer(flex)</code> 分区着色，或 <code>CustomPaint</code>；分段控件 = 定制 <code>SegmentedButton</code> 风格容器（同款迷你示意 <code>Row(flex)</code>）。</li>
+        <li>预览比例按<b>主屏方向镜像</b>（42/58 = 主屏 42 / 副屏 58，主屏在右时左右对调）——这是页面的关键假设，若实际分屏逻辑是固定左/右数值，预览改为固定方向即可，改一行。</li>
+        <li>文案全部沿用现有 l10n（<code>parallelWindow*</code>），无新增字符串；手机端分段纵向堆叠，桌面横向铺开，几何自适应。</li>
+        <li>数据模型不动：仍是 <code>ParallelWindowSettingsProvider</code> 的 6 个字段，onChanged 接线照旧。</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ---------- 共享状态（两个 mock 联动） ----------
+  const state = {
+    enabled: true,
+    primary: 'left',        // 'left' | 'right'
+    playback: 'right',      // 'left' | 'right'
+    ratio: 'balanced',      // balanced | equal | focus_detail | focus_home
+    fullscreen: true,
+    immersive: true,
+  };
+  const RATIOS = {
+    balanced:     { l: 42, r: 58, sub: '默认，兼顾列表浏览和右侧详情。' },
+    equal:        { l: 50, r: 50, sub: '左右均衡，适合双侧并行操作。' },
+    focus_detail: { l: 35, r: 65, sub: '副屏更宽，适合详情和播放信息。' },
+    focus_home:   { l: 45, r: 55, sub: '主屏稍宽，适合首页或列表操作。' },
+  };
+  const TXT = {
+    enableTitle: '启用平行窗口',
+    enableSub: '开启后，大屏设备的二级页面优先在副屏展开；关闭后使用单屏导航。',
+    primaryTitle: '主屏位置',
+    primary: {
+      left:  { name: '主屏在左', sub: '默认首页在左，右侧展开详情或设置。' },
+      right: { name: '主屏在右', sub: '右侧为主屏，左侧展开详情或设置。' },
+    },
+    playbackTitle: '播放主屏位置',
+    playback: {
+      left:  { name: '播放主屏在左', sub: '进入分屏播放后，左边保持播放器，右边放详情或首页。' },
+      right: { name: '播放主屏在右', sub: '进入分屏播放后，右边保持播放器，左边放详情或首页。' },
+    },
+    ratioTitle: '分屏比例',
+    fullscreen: {
+      title: '默认播放全屏',
+      on:  '点击播放后先进入全屏播放器，再由按钮切到分屏。',
+      off: '点击播放后优先保持平行窗口分屏，不先放大全屏。',
+    },
+    immersive: {
+      title: '平行窗口沉浸模式',
+      on:  '进入平行窗口后隐藏状态栏，内容直接顶到屏幕顶部。',
+      off: '保留状态栏，使用常规分屏显示。',
+    },
+  };
+
+  // ---------- 子页模板 ----------
+  function subpageHTML(idp) {
+    return `
+      <div class="sub-head">
+        <div class="back"><svg viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg></div>
+        <h2>平行窗口设置</h2>
+        <span class="status-pill" id="${idp}-pill"></span>
+      </div>
+
+      <!-- 状态头卡：启用开关 -->
+      <div class="card">
+        <div class="switch-row">
+          <div class="grow">
+            <div class="tt">${TXT.enableTitle}</div>
+            <div class="st">${TXT.enableSub}</div>
+          </div>
+          <div class="sw ${state.enabled ? 'on' : ''}" data-act="enabled" id="${idp}-sw"></div>
+        </div>
+      </div>
+
+      <!-- 实时分屏预览 -->
+      <div class="card ${state.enabled ? '' : 'locked'}" id="${idp}-preview-card">
+        <h3><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>实时预览</h3>
+        <div class="preview-stage">
+          <div class="panes" id="${idp}-panes"></div>
+          <div class="preview-empty" id="${idp}-empty" style="opacity:0">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>单屏模式
+          </div>
+        </div>
+        <div class="preview-cap" id="${idp}-cap"></div>
+      </div>
+
+      <!-- 主屏位置 -->
+      <div class="card ${state.enabled ? '' : 'locked'}">
+        <h3><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>${TXT.primaryTitle}</h3>
+        <div class="seg">
+          ${['left','right'].map(side => `
+            <div class="seg-item ${state.primary === side ? 'on' : ''}" data-act="primary" data-v="${side}">
+              <div class="s-head">
+                <span class="glyph"><i class="a" style="width:${side === 'left' ? 42 : 58}%"></i><i class="b" style="width:${side === 'left' ? 58 : 42}%"></i></span>
+                <span class="s-name">${TXT.primary[side].name}</span>
+              </div>
+              <div class="s-sub">${TXT.primary[side].sub}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- 播放主屏位置 -->
+      <div class="card ${state.enabled ? '' : 'locked'}">
+        <h3><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>${TXT.playbackTitle}</h3>
+        <div class="seg">
+          ${['left','right'].map(side => `
+            <div class="seg-item ${state.playback === side ? 'on' : ''}" data-act="playback" data-v="${side}">
+              <div class="s-head">
+                <span class="glyph"><i class="a play-dot" style="width:${side === 'left' ? 42 : 58}%"></i><i class="b" style="width:${side === 'left' ? 58 : 42}%"></i></span>
+                <span class="s-name">${TXT.playback[side].name}</span>
+              </div>
+              <div class="s-sub">${TXT.playback[side].sub}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- 分屏比例 -->
+      <div class="card ${state.enabled ? '' : 'locked'}">
+        <h3><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16"/></svg>${TXT.ratioTitle}</h3>
+        <div class="seg">
+          ${Object.keys(RATIOS).map(key => `
+            <div class="seg-item ${state.ratio === key ? 'on' : ''}" data-act="ratio" data-v="${key}">
+              <div class="s-head" style="justify-content:space-between">
+                <span class="r-num">${RATIOS[key].l} / ${RATIOS[key].r}</span>
+                <span class="ratio-bar" style="width:64px"><i class="l" style="width:${RATIOS[key].l}%"></i><i class="r" style="width:${RATIOS[key].r}%"></i></span>
+              </div>
+              <div class="s-sub">${RATIOS[key].sub}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- 播放行为 -->
+      <div class="card ${state.enabled ? '' : 'locked'}">
+        <h3><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>播放行为</h3>
+        <div class="switch-row">
+          <div class="grow">
+            <div class="tt">${TXT.fullscreen.title}</div>
+            <div class="st" id="${idp}-fs-sub">${TXT.fullscreen[state.fullscreen ? 'on' : 'off']}</div>
+          </div>
+          <div class="sw ${state.fullscreen ? 'on' : ''}" data-act="fullscreen"></div>
+        </div>
+        <div class="switch-row">
+          <div class="grow">
+            <div class="tt">${TXT.immersive.title}</div>
+            <div class="st" id="${idp}-im-sub">${TXT.immersive[state.immersive ? 'on' : 'off']}</div>
+          </div>
+          <div class="sw ${state.immersive ? 'on' : ''}" data-act="immersive"></div>
+        </div>
+      </div>`;
+  }
+
+  // ---------- 渲染预览图与状态 ----------
+  function renderPreview(idp) {
+    const r = RATIOS[state.ratio];
+    // 比例按主屏方向镜像：42/58 = 主屏 42 / 副屏 58
+    const mainPct  = state.primary === 'left' ? r.l : r.r;
+    const otherPct = state.primary === 'left' ? r.r : r.l;
+    const mainIsLeft = state.primary === 'left';
+    const leftPct  = mainIsLeft ? mainPct : otherPct;
+    const rightPct = mainIsLeft ? otherPct : mainPct;
+
+    const panes = document.getElementById(`${idp}-panes`);
+    const pane = (cls, pct, side, iconSvg, name, role, ratioTxt) => `
+      <div class="pane ${cls}" style="flex-basis:${pct}%">
+        <span class="p-ratio">${ratioTxt}</span>
+        <div class="p-ico">${iconSvg}</div>
+        <span class="p-name">${name}</span>
+        <span class="p-role">${role}</span>
+      </div>`;
+    const gridIcon = '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
+    const detailIcon = '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>';
+    const playIcon = '<svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>';
+
+    const mainPane = pane('main', mainIsLeft ? leftPct : rightPct,
+      mainIsLeft ? 'left' : 'right', gridIcon, '主屏', '浏览 · 首页 / 列表', `${mainPct}%`);
+    const otherPaneCore = (cls, side) => pane(cls,
+      side === 'left' ? leftPct : rightPct, side,
+      state.playback === side ? playIcon : detailIcon,
+      state.playback === side ? '播放器' : '副屏',
+      state.playback === side ? '分屏播放' : '详情 / 设置',
+      `${side === 'left' ? leftPct : rightPct}%`);
+
+    panes.innerHTML = mainIsLeft
+      ? mainPane + otherPaneCore(state.playback === 'right' ? 'playing' : '', 'right')
+      : otherPaneCore(state.playback === 'left' ? 'playing' : '', 'left') + mainPane;
+
+    const empty = document.getElementById(`${idp}-empty`);
+    empty.style.opacity = state.enabled ? 0 : 1;
+
+    const cap = document.getElementById(`${idp}-cap`);
+    const playTxt = state.playback === 'left'
+      ? `播放器占左侧 ${RATIOS[state.ratio].l}%`
+      : `播放器占右侧 ${RATIOS[state.ratio].r}%`;
+    cap.innerHTML = `当前：主屏在<b>${state.primary === 'left' ? '左' : '右'}</b>（${mainPct}%）· ${playTxt} · 进入播放后另一侧放详情或首页。`;
+
+    const pill = document.getElementById(`${idp}-pill`);
+    if (state.enabled) {
+      pill.textContent = `已启用 · 主屏${state.primary === 'left' ? '左' : '右'} · ${mainPct}/${otherPct}`;
+      pill.classList.remove('off');
+    } else {
+      pill.textContent = '已关闭 · 单屏模式';
+      pill.classList.add('off');
+    }
+  }
+
+  function render(idp) {
+    const root = document.getElementById(idp);
+    root.innerHTML = subpageHTML(idp);
+    renderPreview(idp);
+    root.querySelectorAll('[data-act]').forEach(el => {
+      el.addEventListener('click', () => {
+        const act = el.dataset.act;
+        const v = el.dataset.v;
+        if (act === 'enabled')   state.enabled = !state.enabled;
+        if (act === 'primary' || act === 'playback' || act === 'ratio') {
+          if (!state.enabled) return;
+          if (act === 'primary')  state.primary = v;
+          if (act === 'playback') state.playback = v;
+          if (act === 'ratio')    state.ratio = v;
+        }
+        if (act === 'fullscreen') state.fullscreen = !state.fullscreen;
+        if (act === 'immersive')  state.immersive = !state.immersive;
+        render('desktop-sub');
+        render('mobile-sub');
+      });
+    });
+  }
+
+  render('desktop-sub');
+  render('mobile-sub');
+</script>
+</body>
+</html>

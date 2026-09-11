@@ -46,6 +46,7 @@ const ICONS = {
   trash:'<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/>',
   pauseC:'<circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/>',
   playC:'<circle cx="12" cy="12" r="8.5"/><path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none"/>',
+  gear:'<circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/>',
 };
 const icon = (n, w=1.6) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]||''}</svg>`;
 const $ = s => document.querySelector(s);
@@ -58,8 +59,12 @@ $$('[data-ic]').forEach(el => el.innerHTML = icon(el.dataset.ic));
     ['#btnShortcuts','keyboard'], ['#btnRefresh','refresh'],
     ['#paneClose','x'], ['#scClose','x'],
     ['#plBack','chevL'], ['#plPrev','prev'], ['#plNext','next'],
-    ['#plMute','volume'], ['#plDmSet','chat'], ['#plEpBtn','list'], ['#plFull','expand'],
+    ['#plMute','volume'], ['#plFull','expand'],
     ['#plBigPlay','play'], ['#plPlay','pause'],
+    ['#plShotBtn','camera'], ['#plPipBtn','pip'], ['#plSubBtn','cc'], ['#plAudBtn','wave'],
+    ['#plMarkBtn','starLine'],
+    ['#plSetBtn','gear'],
+    ['#plMiniExpand','expand'], ['#plMiniClose','x'], ['#plnCancel','x'], ['#pldClose','x'], ['#pleClose','x'],
   ];
   map.forEach(([s,n]) => { const el = $(s); if (el) el.innerHTML = icon(n); });
   $$('.icon-btn').forEach(el => {
@@ -67,10 +72,8 @@ $$('[data-ic]').forEach(el => el.innerHTML = icon(el.dataset.ic));
     const t = el.getAttribute('title') || '';
     el.innerHTML = icon(el.hasAttribute('data-back') || t.includes('返回') ? 'chevL' : t.includes('更多') ? 'dots' : t.includes('网格') ? 'grid' : 'dots');
   });
-  const cap = $('#plTbtn[title="截图"]'); if (cap) cap.innerHTML = icon('camera');
-  const pip = $('#plTbtn[title="小窗"]'); if (pip) pip.innerHTML = icon('pip');
   $$('.pl-btn').forEach(el => {
-    if (el.querySelector('svg') || el.querySelector('.pl-lb')) return;
+    if (el.querySelector('svg') || el.querySelector('.pl-lb') || el.querySelector('span') || el.classList.contains('pl-txt')) return;
     const t = el.getAttribute('title') || '';
     el.innerHTML = icon(t.includes('字幕') ? 'cc' : t.includes('音轨') ? 'wave' : t.includes('设置') ? 'sliders' : 'dots');
   });
@@ -578,9 +581,27 @@ function setSplit(on){
 const player = {
   el: $('#player'), open:false, playing:false, t:0, dur:1, timer:null, item:null, eps:null, s:1,
   dmOn:true, dmTimer:null, vol:80, lastVol:80, idleT:null,
+  /* 桌面扩展：章节/书签/轨道/面板/小窗/临时倍速（安卓手势与设置面板的键鼠形态） */
+  chapters:[], bookmarks:[], speed:1, quality:'', audio:0, sub:0, subDelay:0, bright:1,
+  dm:{scroll:true, top:false, bottom:false, color:true, dedup:true, avoidSub:true, opacity:.9, density:.8, scale:1, speed:1, area:.62},
+  mini:false, perf:false, drawerTab:'set', epsView:'list', holdT:null, holding:false, osdT:null, cdT:null, cdLeft:10,
 };
+let nextCardShown = false;
 const DANM = ['这段运镜绝了','前方高能预警','BGM 一响 眼泪下来了','哈哈哈哈弹幕护体','名场面打卡 ✓','导演出来挨夸','4K 真的值','谁懂这句台词的含金量','补个标：2026 夏','二刷预定','这里的伏笔第三集收','灯光师加鸡腿'];
+const DM_COLORS = ['#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#8EC9FF','#FFE28A','#A8F0C0','#FFB3C7'];
+const QUALITIES = ['4K HDR10+','4K 高码率','1080p REMUX','1080p WEB-DL'];
+const AUDIOS = ['国语 TrueHD Atmos','粤语 AC3 5.1','导演评论音轨'];
+const SUBS = ['简体中文（ASS）','繁体中文（PGS）','English（SRT）','关闭字幕'];
+const SPEEDS = [0.5,0.75,1,1.25,1.5,2,3];
+const SEG_LABELS = {decoder:'解码模式',hwapi:'硬解 API',ratio:'显示比例',tonemap:'HDR 映射',cache:'缓存档位',drc:'动态范围'};
 const fmt = s => { s=Math.max(0,s|0); const m=(s/60)|0, ss=s%60, h=(m/60)|0; return (h?h+':':'')+String(m%60).padStart(2,'0')+':'+String(ss).padStart(2,'0'); };
+
+/* 章节 mock：OP/ED 段用于片头片尾跳过（对应 intro_outro_source_mode） */
+function chaptersFor(dur){
+  const pts = [[0,'开场'],[.055,'OP · 片头'],[.13,'正片 A'],[.46,'正片 B'],[.74,'正片 C'],[.9,'ED · 片尾'],[.95,'下集预告']];
+  return pts.map(([p,name],i)=>({t:Math.round(dur*p), name, op:i===1||i===5}));
+}
+function chapterAt(t){ let cur=null; player.chapters.forEach(c=>{ if (t>=c.t) cur=c; }); return cur; }
 
 function openPlayer(id, s, e){
   const it = byId(id); if (!it) return;
@@ -592,22 +613,32 @@ function openPlayer(id, s, e){
   player.curE = isTv ? (ep ? ep.n : 1) : null;
   player.dur = ep ? ep.durSec : (it.durSec || 166*60);
   player.t = ep && ep.state==='part' ? ep.durSec*ep.part : it.progress ? player.dur*it.progress : 0;
+  player.speed = 1; player.bright = 1;
+  player.chapters = chaptersFor(player.dur);
+  player.bookmarks = [Math.round(player.dur*.31), Math.round(player.dur*.67)];
+  player.quality = `${it.quality} ${it.hue[0]>300?'杜比视界':'HDR10+'}`;
   $('#plTitle').textContent = isTv ? `${it.title} 第${player.s}季 第${ep?ep.n:1}集 ${ep?ep.title:''}` : it.title;
-  $('#plSub').textContent = `正在播放 · ${it.quality} ${it.hue[0]>300?'杜比视界':'HDR10+'} · 飞牛 NAS 直连`;
+  $('#plSub').textContent = `正在播放 · ${player.quality} · 飞牛 NAS 直连`;
+  $('#plQualBtn').innerHTML = `<i class="pl-lb">${it.quality}</i>`;
   $('#plScene').querySelector('.scene-art')?.remove();
   $('#plScene').insertAdjacentHTML('afterbegin', art(it.hue, true));
+  $('#plScene').querySelector('.scene-art')?.style.setProperty('filter','');
   $('#plEpBtn').style.display = isTv ? '' : 'none';
   $('#plPrev').style.opacity = isTv ? 1 : .35;
   $('#plNext').style.opacity = isTv ? 1 : .35;
-  $('#plDrawer').hidden = true;
-  if (isTv) buildDrawerList();
+  hidePlMenu(); setMini(false); hideNextCard(); $('#plSkip').hidden = true; $('#plDrawer').hidden = true; $('#plEps').hidden = true;
+  $('#plMiniTitle').textContent = $('#plTitle').textContent;
+  renderChapters(); renderBookmarks(); applyDm(); setSpeedLabel();
+  $('#plLoading').hidden = false; setTimeout(()=>{ $('#plLoading').hidden = true; }, 1400);
   player.el.hidden = false; player.el.classList.remove('paused','idle');
-  setPlaying(true); seek(0); // 重置到实际进度
+  setPlaying(true); seek(player.t); // 记忆播放位置（play_stats）
   wake();
 }
 function closePlayer(){
   player.open = false; player.el.hidden = true;
+  setMini(false); hidePlMenu(); hideNextCard();
   clearInterval(player.timer); clearInterval(player.dmTimer);
+  clearInterval(player.holdT); clearTimeout(player.osdT);
 }
 function setPlaying(v){
   player.playing = v;
@@ -618,43 +649,320 @@ function setPlaying(v){
   clearInterval(player.timer); clearInterval(player.dmTimer);
   if (v){
     player.timer = setInterval(()=>{ if(player.t < player.dur){ player.t++; drawProgress(); } }, 1000);
-    if (player.dmOn) player.dmTimer = setInterval(spawnDm, 760);
-  }
+    applyDmSpawn();
+  } else hideNextCard();
 }
 function drawProgress(){
   const p = Math.min(1, player.t/player.dur);
   $('#plpFill').style.width = (p*100).toFixed(2)+'%';
   $('#plCur').textContent = fmt(player.t); $('#plDur').textContent = fmt(player.dur);
+  const ch = chapterAt(player.t), chap = $('#plChapter');
+  if (ch){ chap.hidden = false; chap.innerHTML = `章节 · <b>${ch.name}</b>`; } else chap.hidden = true;
+  /* 片头跳过窗口：OP 章节内浮现按钮（对应 intro_outro 跳过） */
+  const op = player.chapters.find(c=>c.op && c.name.includes('片头'));
+  const opEnd = op ? (player.chapters[player.chapters.indexOf(op)+1]?.t ?? 0) : 0;
+  $('#plSkip').hidden = !(op && opEnd && player.t >= op.t + 2 && player.t < opEnd - 2);
+  $('#plSkipT').textContent = fmt(Math.max(0, opEnd - player.t));
+  /* 自动连播：片尾 30s 起浮现倒计时卡（对应 auto_play_enabled） */
+  if (player.item && player.item.type==='tv' && player.playing && player.t > player.dur - 30) showNextCard();
+  else hideNextCard();
 }
 function seek(sec){
   player.t = Math.min(Math.max(0, sec), player.dur); drawProgress();
 }
+function nudge(sec){
+  seek(player.t + sec); wake();
+  showOsd(`${sec>0?icon('next'):icon('prev')} ${sec>0?'快进':'快退'} <small>${Math.abs(sec)} 秒</small>`);
+}
+function showOsd(html){
+  const o = $('#plOsd'); o.innerHTML = html; o.hidden = false; o.classList.remove('fade');
+  clearTimeout(player.osdT);
+  player.osdT = setTimeout(()=>{ o.classList.add('fade'); setTimeout(()=>{ o.hidden = true; }, 380); }, 900);
+}
 function spawnDm(){
   const box = $('#plDanmaku'); if (!player.dmOn || !player.playing) return;
   const d = document.createElement('span');
+  const lanes = 8, lane = (Math.random()*lanes)|0;
   d.className = 'dm' + (Math.random()<.12?' big':'');
   d.textContent = DANM[(Math.random()*DANM.length)|0];
-  d.style.top = (6 + Math.random()*72) + '%';
-  d.style.setProperty('--dmw', d.textContent.length*16 + 'px');
-  const dur = 7.5 + Math.random()*4.5;
-  d.style.animationDuration = dur + 's';
-  d.addEventListener('animationend', ()=>d.remove());
+  if (player.dm.color) d.style.color = DM_COLORS[(Math.random()*DM_COLORS.length)|0];
+  d.style.fontSize = (15.5*player.dm.scale)+'px';
+  d.style.opacity = player.dm.opacity;
+  d.style.setProperty('--dmw', (d.textContent.length*16*player.dm.scale) + 'px');
+  d.style.animationDuration = ((7.5 + Math.random()*4.5) / player.dm.speed) + 's';
+  if ((player.dm.top || player.dm.bottom) && Math.random() < .3){
+    /* 顶部/底部固定弹幕（对应 top/bottomEnabled） */
+    d.style.left = '50%'; d.style.transform = 'translateX(-50%)'; d.style.animation = 'none';
+    d.style.top = (player.dm.bottom ? 82 : 4 + lane/lanes*52) + '%';
+    setTimeout(()=>d.remove(), 4200 / player.dm.speed);
+  } else {
+    d.style.top = (4 + lane/lanes*58) + '%';
+    d.addEventListener('animationend', ()=>d.remove());
+  }
   box.appendChild(d);
-  if (box.children.length > 22) box.firstChild.remove();
+  if (box.children.length > 26) box.firstChild.remove();
 }
-function buildDrawerList(){
+function applyDm(){
+  $('#plDanmaku').style.height = (player.dm.area*100) + '%';
+  $('#plDanmaku').classList.toggle('off', !player.dmOn);
+  $('#plDmBtn span').classList.toggle('off', !player.dmOn);
+}
+function applyDmSpawn(){
+  clearInterval(player.dmTimer);
+  if (player.dmOn && player.playing) player.dmTimer = setInterval(spawnDm, 760/player.dm.density);
+}
+function setSpeedLabel(){ $('#plSpdBtn').innerHTML = `<i class="pl-lb">${player.speed}x</i>`; }
+function setSpeed(v){
+  player.speed = v; setSpeedLabel(); wake();
+  showOsd(`${icon('speed')} 倍速 <small>${v}×</small>`);
+}
+/* 按住 → 键临时 3×（对应安卓长按临时双倍速） */
+function holdSpeed(on){
+  if (on === player.holding) return;
+  player.holding = on;
+  clearInterval(player.holdT);
+  let badge = $('.pl-hold-badge');
+  if (on){
+    if (!badge){ badge = document.createElement('div'); badge.className = 'pl-hold-badge'; player.el.appendChild(badge); }
+    badge.textContent = '3.0× 临时倍速 · 松开恢复';
+    player.holdT = setInterval(()=>{ if (player.t < player.dur){ player.t += .3; drawProgress(); } }, 100);
+  } else {
+    badge?.remove();
+    showOsd(`${icon('speed')} 恢复 <small>${player.speed}×</small>`);
+  }
+}
+function renderChapters(){
+  $('#plpChapters').innerHTML = player.chapters
+    .filter(c=>c.t>1 && c.t<player.dur-2)
+    .map(c=>`<i class="${c.op?'op':''}" style="left:${(c.t/player.dur*100).toFixed(2)}%" title="${c.name} · ${fmt(c.t)}"></i>`).join('');
+}
+function renderBookmarks(){
+  $('#plpBookmarks').innerHTML = player.bookmarks
+    .map(t=>`<i style="left:${(t/player.dur*100).toFixed(2)}%" title="书签 · ${fmt(t)}"></i>`).join('');
+}
+function addBookmark(){
+  const t = Math.round(player.t);
+  if (player.bookmarks.some(b=>Math.abs(b-t)<3)) return toast('这个位置已有书签','starLine');
+  player.bookmarks.push(t); renderBookmarks(); wake();
+  toast(`已在 ${fmt(t)} 添加书签（对应 player_bookmarks_v1）`,'starLine');
+}
+function screenshot(){
+  const f = $('#plFlash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+  wake();
+  toast(`截图已保存 · ${player.item.title} ${fmt(player.t)}（对应截图管线）`,'camera');
+}
+/* 小窗模式（对应 PIP）：右下角悬浮小卡，继续播放可返回媒体库 */
+function setMini(on){
+  player.mini = on;
+  player.el.classList.toggle('mini', on);
+  $('#plMiniBar').hidden = !on;
+}
+function toggleMini(){
+  setMini(!player.mini);
+  if (player.mini){ wake(); toast('小窗模式：播放继续，可返回媒体库浏览（对应 PIP）','pip'); }
+}
+function showNextCard(){
+  if (nextCardShown) return;
+  nextCardShown = true;
+  const n = (player.curE||1)+1;
+  const ep = player.eps ? player.eps.find(x=>x.n===n) : null;
+  $('#plnTitle').textContent = ep ? `第 ${n} 集 ${ep.title}` : '下一集';
+  $('#plnThumb').innerHTML = art(player.item.hue.map(h=>(h+n*9)%360), true);
+  $('#plNextCard').hidden = false;
+  player.cdLeft = 10; $('#plnCd').textContent = player.cdLeft;
+  clearInterval(player.cdT);
+  player.cdT = setInterval(()=>{
+    player.cdLeft--; $('#plnCd').textContent = Math.max(0, player.cdLeft);
+    if (player.cdLeft<=0){ clearInterval(player.cdT); nextCardShown = false; $('#plNextCard').hidden = true; stepEp(1); }
+  }, 1000);
+}
+function hideNextCard(){
+  if ($('#plNextCard').hidden && !nextCardShown) return;
+  nextCardShown = false; $('#plNextCard').hidden = true; clearInterval(player.cdT);
+}
+
+/* ---------- 浮层菜单：清晰度 / 音轨 / 字幕 / 倍速 / 章节 / 画面右键 ---------- */
+function openPlMenu(anchor, html){
+  const m = $('#plMenu');
+  m.innerHTML = html; m.hidden = false;
+  const r = anchor.getBoundingClientRect(), mr = m.getBoundingClientRect();
+  const top = r.top - mr.height - 10;
+  m.style.left = Math.max(12, Math.min(r.left, innerWidth - mr.width - 14)) + 'px';
+  m.style.top = (top < 12 ? r.bottom + 10 : top) + 'px';
+}
+function hidePlMenu(){ $('#plMenu').hidden = true; }
+function mi(label, opt={}){
+  return `<button class="plm-item ${opt.active?'active':''}" data-plmi="${opt.key??label}">
+    ${opt.ic?icon(opt.ic):''}<span>${label}</span>
+    ${opt.hint?`<span class="plm-hint">${opt.hint}</span>`:''}
+    ${opt.active?`<span class="plm-check">${icon('check',2.2)}</span>`:''}</button>`;
+}
+function menuQuality(){
+  const head = player.quality.split(' ')[0];
+  const activeQ = QUALITIES.find(q=>q.startsWith(head));
+  openPlMenu($('#plQualBtn'), `<div class="plm-head">清晰度 · 对应 loadArgs 多清晰度源</div>` +
+    QUALITIES.map(q=>mi(q,{active:q===activeQ, ic:q.startsWith('4K')?'starLine':'film'})).join('') +
+    `<div class="plm-sep"></div><div class="plm-note">切换后自动跳回 <b>${fmt(player.t)}</b> 继续播放（对应记忆播放位置）</div>`);
+}
+function menuAudio(){
+  openPlMenu($('#plAudBtn'), `<div class="plm-head">音轨</div>` +
+    AUDIOS.map((a,i)=>mi(a,{active:player.audio===i, ic:'wave'})).join(''));
+}
+function menuSub(){
+  openPlMenu($('#plSubBtn'), `<div class="plm-head">字幕</div>` +
+    SUBS.map((s,i)=>mi(s,{active:player.sub===i, ic:'cc'})).join('') +
+    `<div class="plm-sep"></div>` +
+    mi('加载外挂字幕…',{ic:'folder', key:'sub-external', hint:'.ass .srt'}) +
+    `<div class="plm-sep"></div>` +
+    mi('字幕提前 0.5s',{ic:'prev', key:'sub-delay-'}) +
+    mi('字幕延后 0.5s',{ic:'next', key:'sub-delay+'}));
+}
+function menuSpeed(){
+  openPlMenu($('#plSpdBtn'), `<div class="plm-head">倍速</div>` +
+    SPEEDS.map(v=>mi(v+'×',{active:player.speed===v, ic:v===1?undefined:'speed', key:String(v)})).join('') +
+    `<div class="plm-sep"></div><div class="plm-note">按住 <b>→</b> 键临时 3×（对应安卓长按双倍速）</div>`);
+}
+function menuChapters(){
+  openPlMenu($('#plProgress'), `<div class="plm-head">章节 · 对应章节进度线</div>` +
+    player.chapters.map((c,i)=>mi(`${c.name} · ${fmt(c.t)}`,{key:'ch:'+i, ic:c.op?'next':undefined, active:chapterAt(player.t)===c})).join(''));
+}
+function menuPlCtx(e){
+  const m = $('#plMenu');
+  m.innerHTML = `<div class="plm-head">${$('#plTitle').textContent}</div>` +
+    mi(player.playing?'暂停':'播放',{ic:player.playing?'pause':'play', key:'toggle-play', hint:'Space'}) +
+    `<div class="plm-sep"></div>` +
+    mi('章节…',{ic:'list', key:'menu-chapters'}) +
+    mi('倍速…',{ic:'speed', key:'menu-speed', hint:player.speed+'×'}) +
+    mi('清晰度…',{ic:'starLine', key:'menu-quality'}) +
+    `<div class="plm-sep"></div>` +
+    mi('添加书签',{ic:'starLine', key:'bookmark', hint:'B'}) +
+    mi(player.dmOn?'关闭弹幕':'开启弹幕',{ic:'chat', key:'toggle-dm', hint:'D'}) +
+    mi('弹幕设置…',{ic:'sliders', key:'menu-dmset'}) +
+    mi('截图',{ic:'camera', key:'shot', hint:'S'}) +
+    mi('小窗模式',{ic:'pip', key:'mini', hint:'I'});
+  m.hidden = false;
+  m.style.left = Math.min(e.clientX, innerWidth - 230) + 'px';
+  m.style.top = Math.min(e.clientY, innerHeight - m.offsetHeight - 14) + 'px';
+}
+
+/* ---------- 多面板抽屉：选集 | 弹幕 | 播放设置 ---------- */
+function openDrawer(tab){
+  player.drawerTab = tab;
+  $('#plDrawer').hidden = false; wake();
+  $$('#pldTabs button').forEach(b=>b.classList.toggle('active', b.dataset.pldtab===tab));
+  buildDrawerBody();
+}
+function buildDrawerBody(){
+  const B = $('#pldBody');
+  if (player.drawerTab==='dm'){ B.innerHTML = dmPanelHtml(); bindDmPanel(); return; }
+  B.innerHTML = settingsPanelHtml(); bindSettingsPanel();
+}
+/* 选集悬浮面板（独立于设置抽屉，参照通用桌面播放器的选集浮窗）：列表 / 网格双视图 */
+function openEpsPanel(){
+  if (!player.eps){ toast('电影没有剧集列表','info'); return; }
+  $('#plEps').hidden = false; wake();
+  renderEpsBody();
+}
+function renderEpsBody(){
+  const box = $('#pleBody'); if (!box || !player.eps) return;
   const it = player.item;
-  $('#pldTabs').innerHTML = Array.from({length:it.seasons||1},(_,k)=>`<button class="${k+1===player.s?'active':''}" data-plds="${k+1}">第 ${k+1} 季</button>`).join('');
-  player.eps = epsFor(it, player.s);
+  $('#pleTitle').textContent = `${it.title} · 第 ${player.s} 季`;
   const curE = player.curE || (it.cur && it.cur.s===player.s ? it.cur.e : 1);
-  $('#pldList').innerHTML = player.eps.map(ep=>{
+  const chips = (it.seasons||1) > 1 ? `<div class="pld-seasons">${Array.from({length:it.seasons},(_,k)=>
+    `<button class="pld-season ${k+1===player.s?'active':''}" data-plds="${k+1}">第 ${k+1} 季</button>`).join('')}</div>` : '';
+  player.eps = epsFor(it, player.s);
+  if (player.epsView==='grid'){
+    box.innerHTML = chips + `<div class="ple-grid">` + player.eps.map(ep=>{
+      const now = ep.n === curE;
+      return `<button class="ple-cell ${now?'now':''}" data-pldep="${ep.n}" title="第 ${ep.n} 集 ${ep.title}"><b>${ep.n}</b>
+        ${ep.state==='part'?`<i style="width:${(ep.part*100)|0}%"></i>`:ep.state==='done'?`<span class="ple-done">${icon('check',2.6)}</span>`:''}</button>`;
+    }).join('') + `</div>`;
+    return;
+  }
+  box.innerHTML = chips + player.eps.map(ep=>{
     const now = ep.n === curE;
     return `<div class="pld-item ${now?'now':''}" data-pldep="${ep.n}">
       <div class="pld-thumb">${art(it.hue.map(h=>(h+ep.n*9)%360),true)}<span class="ep-idx">第 ${ep.n} 集</span></div>
-      <div class="pld-info"><b>${ep.title}</b><i>${ep.dur} · ${it.quality}</i>
+      <div class="pld-info"><b>${ep.n}. ${ep.title}</b><i>${ep.dur} · ${it.quality}</i>
         ${ep.state==='part'?`<div class="progress"><i style="width:${ep.part*100}%"></i></div>`:''}</div>
       ${ep.state==='done'?`<span class="pld-check">${icon('check',2.4)}</span>`:''}</div>`;
   }).join('');
+  const nowEl = box.querySelector('.pld-item.now');
+  if (nowEl) nowEl.scrollIntoView({block:'nearest'});
+}
+function buildDrawerList(){ renderEpsBody(); }
+function dmPanelHtml(){
+  const d = player.dm;
+  const tgl = (k,on,locked='') => `<div class="pld-tgl ${on?'on':''} ${locked}" data-dm="${k}"></div>`;
+  const sl = (k,label,min,max,step,val,unit) => `<div class="pld-row"><span>${label}</span><div class="pld-slider"><input type="range" data-dms="${k}" min="${min}" max="${max}" step="${step}" value="${val}"><output>${val}${unit}</output></div></div>`;
+  return `
+    <div class="pld-sec">显示</div>
+    <div class="pld-row"><span>滚动弹幕</span>${tgl('scroll',d.scroll)}</div>
+    <div class="pld-row"><span>顶部弹幕</span>${tgl('top',d.top)}</div>
+    <div class="pld-row"><span>底部弹幕</span>${tgl('bottom',d.bottom)}</div>
+    <div class="pld-row"><span>彩色弹幕</span>${tgl('color',d.color)}</div>
+    <div class="pld-row"><span>相似弹幕去重</span><small>对应 hideDuplicate</small>${tgl('dedup',d.dedup)}</div>
+    <div class="pld-row"><span>避让字幕区域</span><small>对应 avoidSubtitleArea</small>${tgl('avoidSub',d.avoidSub)}</div>
+    <div class="pld-sec">样式与速度</div>
+    ${sl('opacity','不透明度',.1,1,.05,d.opacity,'')}
+    ${sl('density','密度',.2,1,.05,d.density,'')}
+    ${sl('scale','字号缩放',.7,1.6,.05,d.scale,'×')}
+    ${sl('speed','速度',.5,2,.1,d.speed,'×')}
+    ${sl('area','显示区域',.3,.9,.05,d.area,'')}
+    <div class="pld-sec">智能</div>
+    <div class="pld-row"><span>AI 智能防遮挡<small>桌面端规划中 · onnxruntime 分割（安卓为 Paddle Lite）</small></span>${tgl('aiOcclusion',false,'locked')}</div>
+    <div class="plm-note">修改即时生效 · 对应 DanmakuSettingsStore（player_danmaku_settings_v1）</div>`;
+}
+function bindDmPanel(){
+  $$('#pldBody [data-dm]').forEach(t => t.onclick = () => {
+    if (t.classList.contains('locked')) return toast('AI 防遮挡桌面端规划中（Paddle Lite → onnxruntime）','eye');
+    const k = t.dataset.dm;
+    player.dm[k] = !player.dm[k];
+    t.classList.toggle('on', player.dm[k]);
+    applyDm(); applyDmSpawn();
+  });
+  $$('#pldBody [data-dms]').forEach(r => r.oninput = () => {
+    const k = r.dataset.dms;
+    player.dm[k] = +r.value;
+    r.parentElement.querySelector('output').textContent = r.value + (k==='scale'||k==='speed'?'×':'');
+    applyDm(); applyDmSpawn();
+  });
+}
+function settingsPanelHtml(){
+  const seg = (label, opts, active, key) => `<div class="pld-row"><span>${label}</span><div class="pld-seg" data-pset="${key}">${opts.map((o,i)=>`<button class="${i===active?'active':''}" data-v="${i}">${o}</button>`).join('')}</div></div>`;
+  const tglRow = (label,sub,on,key) => `<div class="pld-row"><span>${label}${sub?`<small>${sub}</small>`:''}</span><div class="pld-tgl ${on?'on':''}" data-pset="${key}"></div></div>`;
+  return `
+    <div class="pld-sec">解码</div>
+    ${seg('解码模式',['自动','软解','硬解'],0,'decoder')}
+    ${seg('硬解 API',['d3d11va','nvdec','qsv'],0,'hwapi')}
+    <div class="pld-sec">画面</div>
+    ${seg('显示比例',['默认','4:3','16:9','2.35:1'],0,'ratio')}
+    ${tglRow('Deband 去色带','对应 mpv deband',true,'deband')}
+    ${tglRow('锐化','对应 sharpen',false,'sharpen')}
+    ${tglRow('插帧补偿','对应 frame_interpolation',false,'interp')}
+    ${seg('HDR 色调映射',['auto','bt.2446a','mobius'],0,'tonemap')}
+    ${seg('缓存档位',['小 64MB','中 192MB','大 512MB'],1,'cache')}
+    <div class="pld-sec">音频</div>
+    <div class="pld-row"><span>音量增益<small>对应 volume_gain（桌面端不受系统音量上限约束）</small></span><div class="pld-slider"><input type="range" data-pgain="1" min="0" max="200" step="5" value="100"><output>100%</output></div></div>
+    ${seg('动态范围',['关闭','夜间','影院'],1,'drc')}
+    <div class="pld-sec">调试</div>
+    ${tglRow('性能悬浮窗','对应 player_performance_overlay',player.perf,'perf')}
+    <div class="plm-note">设置项对应 mpv 属性（MpvSettingsStore · player_mpv_setting_*），与安卓端同构</div>`;
+}
+function bindSettingsPanel(){
+  $$('#pldBody [data-pset]').forEach(el => el.addEventListener('click', e => {
+    const key = el.dataset.pset, btn = e.target.closest('button');
+    if (btn){
+      [...btn.parentElement.children].forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      showOsd(`${SEG_LABELS[key]||''} <small>${btn.textContent}</small>`);
+      return;
+    }
+    const on = el.classList.toggle('on');
+    if (key==='perf'){ player.perf = on; $('#plPerf').hidden = !on; }
+  }));
+  const gain = $('#pldBody [data-pgain]');
+  if (gain) gain.oninput = () => { gain.parentElement.querySelector('output').textContent = gain.value + '%'; };
 }
 
 /* ============================================================
@@ -665,7 +973,7 @@ function toast(msg, ic='check'){
   const t = $('#toast'); t.innerHTML = icon(ic) + msg; t.hidden = false;
   clearTimeout(toastT); toastT = setTimeout(()=>t.hidden=true, 2200);
 }
-const SC_ROWS = [['Esc','返回 / 退出播放器'],['Ctrl K','全局搜索'],['Space','播放 / 暂停'],['← →','快退 / 快进 10 秒'],['↑ ↓','音量调节'],['F','全屏切换'],['1 - 5','切换侧栏导航'],['← →','沉浸浏览：切换焦点'],['?','快捷键说明']];
+const SC_ROWS = [['Esc','返回 / 退出播放器'],['Ctrl K','全局搜索'],['Space','播放 / 暂停'],['← →','快退 / 快进 10 秒'],['Shift ← →','快退 / 快进 30 秒'],['按住 →','临时 3× 倍速（对应长按双倍速）'],['↑ ↓ / 滚轮','音量调节'],['Alt + 滚轮','画面亮度'],['N / P','下一集 / 上一集'],['F','全屏切换'],['I','小窗模式'],['M','静音'],['S','截图'],['B','添加书签'],['D','弹幕开关'],['1 - 5','切换侧栏导航'],['?','快捷键说明']];
 $('#btnShortcuts').onclick = () => { $('#scGrid').innerHTML = SC_ROWS.map(([k,d])=>`<div class="sc-row"><span>${d}</span><kbd>${k}</kbd></div>`).join(''); $('#shortcutsModal').hidden = false; };
 $('#scClose').onclick = () => $('#shortcutsModal').hidden = true;
 $('#shortcutsModal').addEventListener('click', e => { if (e.target.id==='shortcutsModal') e.target.hidden = true; });
@@ -674,17 +982,32 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape'){
     if (!$('#shortcutsModal').hidden) return $('#shortcutsModal').hidden = true;
     if (!$('#ctxMenu').hidden) return hideCtx();
-    if (player.open){ if (!$('#plDrawer').hidden) return ($('#plDrawer').hidden = true); return closePlayer(); }
+    if (player.open){
+      if (!$('#plMenu').hidden) return hidePlMenu();
+      if (!$('#plEps').hidden) return ($('#plEps').hidden = true);
+      if (!$('#plDrawer').hidden) return ($('#plDrawer').hidden = true);
+      if (player.mini) return setMini(false);
+      return closePlayer();
+    }
     if (!$('#paneRight').hidden && panePage) return closePane();
     return goBack();
   }
   if (player.open){
     if (e.code==='Space'){ e.preventDefault(); setPlaying(!player.playing); }
-    else if (e.key==='ArrowRight') seek(player.t+10);
-    else if (e.key==='ArrowLeft') seek(player.t-10);
-    else if (e.key==='ArrowUp'){ e.preventDefault(); setVol(Math.min(100,player.vol+5)); }
-    else if (e.key==='ArrowDown'){ e.preventDefault(); setVol(Math.max(0,player.vol-5)); }
+    else if (e.key==='ArrowRight' && e.shiftKey) nudge(30);
+    else if (e.key==='ArrowLeft' && e.shiftKey) nudge(-30);
+    else if (e.key==='ArrowRight'){ e.preventDefault(); if (e.repeat) holdSpeed(true); else nudge(10); }
+    else if (e.key==='ArrowLeft'){ e.preventDefault(); nudge(-10); }
+    else if (e.key==='ArrowUp'){ e.preventDefault(); setVol(Math.min(100,player.vol+5)); showOsd(`${icon('volume')} 音量 <small>${player.vol}%</small>`); }
+    else if (e.key==='ArrowDown'){ e.preventDefault(); setVol(Math.max(0,player.vol-5)); showOsd(`${icon('volume')} 音量 <small>${player.vol}%</small>`); }
     else if (e.key==='f'||e.key==='F') toggleFull();
+    else if (e.key==='m'||e.key==='M') $('#plMute').click();
+    else if (e.key==='s'||e.key==='S') screenshot();
+    else if (e.key==='b'||e.key==='B') addBookmark();
+    else if (e.key==='d'||e.key==='D') toggleDm();
+    else if (e.key==='i'||e.key==='I') toggleMini();
+    else if (e.key==='n'||e.key==='N') stepEp(1);
+    else if (e.key==='p'||e.key==='P') stepEp(-1);
     return;
   }
   if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); navigate('screen/search'); setTimeout(()=>$('#searchInput').focus(),60); return; }
@@ -697,6 +1020,10 @@ document.addEventListener('keydown', e => {
     const map = ['home','poster-browse','screen/search','screen/favorites','screen/settings'];
     navigate(map[+e.key-1]);
   }
+});
+/* 松开 → 恢复常速（对应长按双倍速的抬起动作） */
+document.addEventListener('keyup', e => {
+  if (e.key==='ArrowRight' && player.holding) holdSpeed(false);
 });
 function setVol(v){
   player.vol = v; $('#plVol').value = v;
@@ -769,7 +1096,7 @@ document.addEventListener('click', e => {
   const ac  = e.target.closest('[data-accent-set]');   if (ac){ $('#app').dataset.accent = ac.dataset.accentSet; renderSettings(); return; }
   const bi  = e.target.closest('[data-bidx]');         if (bi){ bIdx = +bi.dataset.bidx; updateBrowseFocus(); return; }
   const pdt = e.target.closest('[data-plds]');         if (pdt){ player.s = +pdt.dataset.plds; buildDrawerList(); return; }
-  const pde = e.target.closest('[data-pldep]');        if (pde){ const n=+pde.dataset.pldep; const ep=player.eps.find(x=>x.n===n); player.curE=n; buildDrawerList(); openPlayer(player.item.id, player.s, n); return; }
+  const pde = e.target.closest('[data-pldep]');        if (pde){ const n=+pde.dataset.pldep; const ep=player.eps.find(x=>x.n===n); player.curE=n; const epsOpen = !$('#plEps').hidden; openPlayer(player.item.id, player.s, n); if (epsOpen) openEpsPanel(); return; }
   const dlA = e.target.closest('[data-dlact]');        if (dlA){ const d=DOWNLOADS[+dlA.dataset.dlact]; d.status = d.status==='downloading'?'paused':d.status==='paused'?'downloading':d.status; renderDownloads(); return; }
   const dlD = e.target.closest('[data-dldel]');        if (dlD){ DOWNLOADS.splice(+dlD.dataset.dldel,1); renderDownloads(); toast('已从队列移除','trash'); return; }
   const tst = e.target.closest('[data-toast]');        if (tst){ toast(tst.dataset.toast,'info'); return; }
@@ -810,21 +1137,101 @@ function stepEp(d){
   if (!player.eps) return toast('电影没有上一集/下一集','info');
   const cur = player.curE || 1; const n = cur + d;
   const ep = player.eps.find(x=>x.n===n); if (!ep) return toast(d>0?'已经是最后一集了':'已经是第一集','info');
-  player.curE = n; buildDrawerList(); openPlayer(player.item.id, player.s, n);
+  const epsOpen = !$('#plEps').hidden;
+  player.curE = n; openPlayer(player.item.id, player.s, n);
+  if (epsOpen) openEpsPanel();
 }
-$('#plEpBtn').onclick = () => { const d=$('#plDrawer'); d.hidden = !d.hidden; if(!d.hidden) buildDrawerList(); };
-$('#pldClose').onclick = () => $('#plDrawer').hidden = true;
-$('#plDmBtn').onclick = () => {
+$('#plEpBtn').onclick = () => (!$('#plEps').hidden) ? ($('#plEps').hidden = true) : openEpsPanel();
+$('#pleClose').onclick = () => ($('#plEps').hidden = true);
+$$('#pleViews button').forEach(b => b.onclick = () => {
+  player.epsView = b.dataset.pleview;
+  $$('#pleViews button').forEach(x=>x.classList.toggle('active', x===b));
+  renderEpsBody();
+});
+$('#plSetBtn').onclick = () => { (!$('#plDrawer').hidden && player.drawerTab==='set') ? ($('#plDrawer').hidden = true) : openDrawer('set'); };
+$('#pldClose').onclick = () => ($('#plDrawer').hidden = true);
+$$('#pldTabs button').forEach(b => b.onclick = () => openDrawer(b.dataset.pldtab));
+$('#plDmBtn').onclick = toggleDm;
+/* 底栏弹幕开关右键 → 弹幕设置面板 */
+$('#plDmBtn').addEventListener('contextmenu', e => { e.preventDefault(); openDrawer('dm'); });
+function toggleDm(){
   player.dmOn = !player.dmOn;
-  $('#plDanmaku').classList.toggle('off', !player.dmOn);
-  $('#plDmBtn span').classList.toggle('off', !player.dmOn);
-  if (player.dmOn && player.playing){ clearInterval(player.dmTimer); player.dmTimer = setInterval(spawnDm, 760); }
-  else clearInterval(player.dmTimer);
-};
-$('#plDmSet').onclick = () => toast('弹幕设置（对应原生弹幕设置面板）','chat');
+  applyDm(); applyDmSpawn(); wake();
+  toast(player.dmOn?'弹幕已开启':'弹幕已关闭','chat');
+}
 $('#plMute').onclick = () => { if (player.vol===0) setVol(player.lastVol||80); else { player.lastVol=player.vol; setVol(0); } };
 $('#plVol').oninput = e => setVol(+e.target.value);
 $('#plFull').onclick = toggleFull;
+$('#plQualBtn').onclick = () => $('#plMenu').hidden ? menuQuality() : hidePlMenu();
+$('#plAudBtn').onclick = () => $('#plMenu').hidden ? menuAudio() : hidePlMenu();
+$('#plSubBtn').onclick = () => $('#plMenu').hidden ? menuSub() : hidePlMenu();
+$('#plSpdBtn').onclick = () => $('#plMenu').hidden ? menuSpeed() : hidePlMenu();
+$('#plMarkBtn').onclick = addBookmark;
+$('#plShotBtn').onclick = screenshot;
+$('#plPipBtn').onclick = toggleMini;
+$('#plMiniExpand').onclick = toggleMini;
+$('#plMiniClose').onclick = closePlayer;
+$('#plSkip').onclick = () => {
+  const op = player.chapters.find(c=>c.op && c.name.includes('片头'));
+  const end = op ? player.chapters[player.chapters.indexOf(op)+1] : null;
+  if (op && end){ seek(end.t); wake(); showOsd(`已跳过片头 <small>进入 ${end.name} · ${fmt(end.t)}</small>`); }
+};
+$('#plnGo').onclick = () => { hideNextCard(); stepEp(1); };
+$('#plnCancel').onclick = () => { hideNextCard(); toast('已取消本集自动连播','pauseC'); };
+
+/* 画面滚轮：音量；Alt+滚轮：亮度（对应安卓上下滑动调音量/亮度） */
+$('#plScene').addEventListener('wheel', e => {
+  e.preventDefault(); wake();
+  if (e.altKey){
+    player.bright = Math.min(1.6, Math.max(.4, player.bright - Math.sign(e.deltaY)*.06));
+    const sa = $('#plScene').querySelector('.scene-art');
+    if (sa) sa.style.filter = `brightness(${player.bright.toFixed(2)})`;
+    showOsd(`${icon('eye')} 亮度 <small>${Math.round(player.bright*100)}%</small>`);
+  } else {
+    setVol(Math.min(100, Math.max(0, player.vol - Math.sign(e.deltaY)*5)));
+    showOsd(`${icon(player.vol? 'volume':'mute')} 音量 <small>${player.vol}%</small>`);
+  }
+}, {passive:false});
+
+/* 画面右键：播放器快捷菜单（对应安卓长按动作表的键鼠形态） */
+player.el.addEventListener('contextmenu', e => {
+  if (!e.target.closest('.pl-scene')) return;
+  e.preventDefault(); wake();
+  menuPlCtx(e);
+});
+
+/* 浮层菜单项分发 + 点击空白关闭 */
+document.addEventListener('click', e => {
+  if (!$('#plMenu').hidden && !e.target.closest('#plMenu') &&
+      !e.target.closest('#plQualBtn,#plAudBtn,#plSubBtn,#plSpdBtn')) hidePlMenu();
+  const b = e.target.closest('[data-plmi]');
+  if (!b) return;
+  const k = b.dataset.plmi; hidePlMenu(); wake();
+  switch (true){
+    case k==='toggle-play': setPlaying(!player.playing); break;
+    case k==='menu-chapters': setTimeout(menuChapters, 0); break;
+    case k==='menu-speed': setTimeout(menuSpeed, 0); break;
+    case k==='menu-quality': setTimeout(menuQuality, 0); break;
+    case k==='bookmark': addBookmark(); break;
+    case k==='toggle-dm': toggleDm(); break;
+    case k==='menu-dmset': openDrawer('dm'); break;
+    case k==='shot': screenshot(); break;
+    case k==='mini': toggleMini(); break;
+    case k && k.startsWith('ch:'): { const c = player.chapters[+k.split(':')[1]]; if (c){ seek(c.t+1); showOsd(`跳转 <small>${c.name} · ${fmt(c.t)}</small>`); } break; }
+    case QUALITIES.includes(k): {
+      player.quality = k;
+      $('#plQualBtn').innerHTML = `<i class="pl-lb">${k.split(' ')[0]}</i>`;
+      showOsd(`清晰度 <small>${k}</small>`); break;
+    }
+    case AUDIOS.includes(k): player.audio = AUDIOS.indexOf(k); showOsd(`音轨 <small>${k}</small>`); break;
+    case SUBS.includes(k): player.sub = SUBS.indexOf(k); showOsd(`字幕 <small>${k}</small>`); break;
+    case k==='sub-external': toast('外挂字幕：系统文件选择器（对应 local_subtitle_bundle）','folder'); break;
+    case k==='sub-delay-': player.subDelay -= .5; showOsd(`字幕延迟 <small>${player.subDelay}s</small>`); break;
+    case k==='sub-delay+': player.subDelay += .5; showOsd(`字幕延迟 <small>+${player.subDelay}s</small>`); break;
+    case SPEEDS.includes(+k): setSpeed(+k); break;
+  }
+});
+
 $('#plProgress').addEventListener('pointerdown', ev => {
   const r = $('#plProgress').getBoundingClientRect();
   const mv = e2 => seek(((e2.clientX - r.left)/r.width)*player.dur);
