@@ -89,6 +89,24 @@ $originalEvent
     );
   });
 
+  test('VTT 的零时长条目不阻止其余字幕与弹幕合并', () async {
+    final subtitle = File('${directory.path}/selected.vtt');
+    await subtitle.writeAsString(
+      'WEBVTT\n\n00:00:01.000 --> 00:00:01.000\n无显示时长\n\n'
+      '00:00:02.000 --> 00:00:04.000\n正常字幕\n',
+    );
+    final result = await ExternalPlayerSubtitles.prepare(
+      directory: directory,
+      subtitlePath: subtitle.path,
+      danmakuPath: danmaku.path,
+      settings: DanmakuSettings.defaults.copyWith(enabled: true),
+    );
+    final output = await File(result!).readAsString();
+    expect(output, contains('正常字幕'));
+    expect(output, contains('FlyPlayerDanmaku'));
+    expect(output, isNot(contains('无显示时长')));
+  });
+
   test('位图字幕与弹幕无法合并时明确报错，原字幕保持原样', () async {
     final subtitle = File('${directory.path}/bitmap.sup');
     await subtitle.writeAsBytes([0x50, 0x47]);

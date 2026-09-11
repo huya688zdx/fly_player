@@ -342,7 +342,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
       final resolved = MpvMediaSource.fromMap(
         jsonDecode(raw) as Map<String, dynamic>,
       );
-      final next = resolved.copyWith(
+      final selectedSource = episodeGuid == null
+          ? resolved
+          : ExternalPlayerPlaylist.inheritSubtitleSelection(
+              active.source,
+              resolved,
+            );
+      final next = selectedSource.copyWith(
         startPaused: episodeGuid == null ? status.value!.paused : false,
         startPosition: episodeGuid == null
             ? status.value!.position
@@ -352,7 +358,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
             : resolved.isDownloadedFile,
         subtitleTrackGuid: active.source.subtitleTrackGuid == ''
             ? ''
-            : resolved.subtitleTrackGuid,
+            : selectedSource.subtitleTrackGuid,
       );
       return await launch(
         source: next,
@@ -632,7 +638,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                     backend: backend,
                     itemGuid: episode.itemGuid,
                     fallbackTitle: episode.title,
-                    // 关闭字幕的明确选择随列表继承，其余使用每集自己的字幕轨。
+                    // 先解析本集轨道，再按当前语言和格式匹配本集字幕 GUID。
                     subtitleGuid: source.subtitleTrackGuid == '' ? '' : null,
                     l10n: l10n,
                     allowNetwork: !offline,
@@ -640,8 +646,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
                   );
               final raw = result?['loadArgs'];
               if (raw is! String || raw.isEmpty) throw StateError('未能解析这一集');
-              final next = MpvMediaSource.fromMap(
-                jsonDecode(raw) as Map<String, dynamic>,
+              final next = ExternalPlayerPlaylist.inheritSubtitleSelection(
+                source,
+                MpvMediaSource.fromMap(jsonDecode(raw) as Map<String, dynamic>),
               );
               if (next.playLink?.isNotEmpty == true) {
                 ownedServerSources[next.playLink!] = next;
@@ -867,16 +874,14 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 if (request == null) return null;
                 var next = await request;
                 final settings = await const DanmakuSettingsStore().load();
-                final inheritSubtitleOff =
-                    source.subtitleTrackGuid == '' &&
-                    next.source.subtitleTrackGuid != '';
-                final nextSource = inheritSubtitleOff
-                    ? next.source.copyWith(
-                        subtitleTrackGuid: '',
-                        clearSubtitleTrackIndex: true,
-                      )
-                    : next.source;
-                if (next.settings != settings.encode() || inheritSubtitleOff) {
+                final nextSource =
+                    ExternalPlayerPlaylist.inheritSubtitleSelection(
+                      source,
+                      next.source,
+                    );
+                if (next.settings != settings.encode() ||
+                    nextSource.subtitleTrackGuid !=
+                        next.source.subtitleTrackGuid) {
                   final refreshedDirectory = await ownedDirectory.createTemp(
                     'subtitles_',
                   );
