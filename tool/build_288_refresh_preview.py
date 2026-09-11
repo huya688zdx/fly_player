@@ -261,7 +261,13 @@ def build_frames() -> tuple[list[Image.Image], list[str]]:
         frames.extend([frame] * ticks)
         phases.extend([phase] * ticks)
 
-    # 同一母版的连续画稿已按支撑脚定位；播放时不随裙摆重新居中或缩放。
+    # 后撤阶段的母版误按两只靴子的共同范围居中，抬脚会带偏支撑脚。
+    # 按逐稿核对的画面右侧靴筒锚点定位，只作整数平移，不重采样画稿。
+    support_ankle_x = {
+        "human_0": 266, "human_1": 265, "human_backstep": 265,
+        "human_2": 275, "human_3": 279, "human_4": 276, "human_5": 275,
+    }
+    # 双脚并拢后保留现有重心与下蹲轨迹，不把弯曲中的脚踝强行锁住。
     # 注视、后撤、看手、抱拢、下蹲依次发生，闭眼只在抱拢后出现。
     human_holds = [
         ("human_0", 7), ("human_1", 4), ("human_backstep", 3),
@@ -276,6 +282,10 @@ def build_frames() -> tuple[list[Image.Image], list[str]]:
     for index, (phase, ticks) in enumerate(human_holds):
         left, top = index % 6 * FRAME_SIZE, index // 6 * FRAME_SIZE
         frame = human_atlas.crop((left, top, left + FRAME_SIZE, top + FRAME_SIZE))
+        if phase in support_ankle_x:
+            registered = Image.new("RGBA", frame.size)
+            registered.paste(frame, (266 - support_ankle_x[phase], 0))
+            frame = registered
         hold(frame, ticks, phase)
 
     # 人物完全包入后接回已有茧稿；入口高度接住新画稿，随后沿用收小位置。
