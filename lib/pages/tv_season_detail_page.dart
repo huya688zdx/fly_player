@@ -51,6 +51,7 @@ import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/credits_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
+import '../widgets/detail/detail_status_page.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
@@ -3000,16 +3001,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           colors.backgroundBase,
         );
         if (_error != null) {
-          return Scaffold(
-            backgroundColor: colors.backgroundBase,
-            appBar: _isPane
-                ? null
-                : AppBar(backgroundColor: colors.backgroundBase),
-            body: AppErrorState(
-              error: _error!,
-              localeMap: _localeMap,
-              onRetry: () =>
-                  _loadSeasonData(_selectedSeasonGuid, showLoading: true),
+          return DetailStatusPage(
+            child: SafeArea(
+              child: AppErrorState(
+                error: _error!,
+                localeMap: _localeMap,
+                onRetry: () =>
+                    _loadSeasonData(_selectedSeasonGuid, showLoading: true),
+              ),
             ),
           );
         }

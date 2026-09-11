@@ -7,11 +7,11 @@ import '../api/feiniu_api.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
-import '../theme/app_theme.dart';
 import '../ui/detail_presentation.dart';
 import '../utils/app_exception.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
+import '../widgets/detail/detail_status_page.dart';
 import '../pages/media_collection_detail_page.dart';
 import '../pages/play_detail_page.dart';
 import '../pages/tv_detail_page.dart';
@@ -171,23 +171,20 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
     return DetailPageMode.movie;
   }
 
-  bool get _isPane => widget.presentation == DetailPresentation.pane;
-
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     if (_loading) {
       return DetailLoadingSkeleton(presentation: widget.presentation);
     }
 
     if (_error != null) {
-      return Scaffold(
-        backgroundColor: colors.backgroundBase,
-        appBar: _isPane ? null : AppBar(backgroundColor: colors.backgroundBase),
-        body: AppErrorState(
-          error: _error!,
-          localeMap: _localeMap,
-          onRetry: _load,
+      return DetailStatusPage(
+        child: SafeArea(
+          child: AppErrorState(
+            error: _error!,
+            localeMap: _localeMap,
+            onRetry: _load,
+          ),
         ),
       );
     }
