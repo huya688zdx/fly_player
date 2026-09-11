@@ -161,8 +161,9 @@ class _LandscapeCard extends StatelessWidget {
       ),
     );
 
-    // 桌面档外包悬停浮起并接入右键菜单；非桌面档输出与旧版一致。
-    if (!MediaLayoutProfile.of(context).isDesktopTier) {
+    // 鼠标右键按平台启用，窄窗口仍保留；悬停缩放沿用原布局档。
+    final desktopTier = MediaLayoutProfile.of(context).isDesktopTier;
+    if (!desktopTier && !DesktopEnvironment.isDesktopPlatform) {
       return card;
     }
     final secondaryHandler = onSecondaryTapUp;
@@ -170,7 +171,7 @@ class _LandscapeCard extends StatelessWidget {
       onSecondaryTapUp: secondaryHandler == null
           ? null
           : (details) => secondaryHandler(details.globalPosition),
-      child: HoverLift(child: card),
+      child: HoverLift(enabled: desktopTier, child: card),
     );
   }
 }

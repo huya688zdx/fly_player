@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../desktop/desktop_environment.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/detail/media_detail_variant.dart';
 import '../media_backend/detail/media_source_info.dart';
@@ -93,6 +94,15 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
     return logical;
   }
 
+  void _changePage(int delta) {
+    if (!_pageController.hasClients) return;
+    _pageController.animateToPage(
+      (_pageController.page ?? _initialPage.toDouble()).round() + delta,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -101,6 +111,7 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
       return const SizedBox.shrink();
     }
     final media = MediaQuery.of(context);
+    final desktop = DesktopEnvironment.isDesktopPlatform;
     final isLandscape = media.size.width > media.size.height;
     final panelHeight = (media.size.height * 0.88).clamp(520.0, 920.0);
     final panelDialogHeight = (media.size.height * 0.86).clamp(500.0, 840.0);
@@ -169,13 +180,29 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                 valueListenable: _indexNotifier,
                 builder: (context, index, _) {
                   final current = widget.variants[index];
-                  return Text(
+                  final label = Text(
                     '${current.title}  ${index + 1}/${widget.variants.length}',
                     style: TextStyle(
                       color: colors.textMuted,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
+                  );
+                  if (!desktop || widget.variants.length < 2) return label;
+                  return Row(
+                    children: [
+                      IconButton(
+                        tooltip: l10n.playStatsPreviousPage,
+                        onPressed: () => _changePage(-1),
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      Expanded(child: Center(child: label)),
+                      IconButton(
+                        tooltip: l10n.playStatsNextPage,
+                        onPressed: () => _changePage(1),
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                    ],
                   );
                 },
               ),
@@ -197,6 +224,10 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                     final variant = widget.variants[pageIndex];
                     return RepaintBoundary(
                       child: SingleChildScrollView(
+                        // 自动滚动条绘制在视口右侧，内容内缩避免压住字段值。
+                        padding: desktop
+                            ? const EdgeInsets.only(right: 12)
+                            : EdgeInsets.zero,
                         key: PageStorageKey<String>(
                           'media-detail-page-${variant.key}',
                         ),

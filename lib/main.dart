@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 import 'danmaku/settings/danmaku_saved_source_store.dart';
 import 'desktop/desktop_breakpoints.dart';
 import 'desktop/desktop_environment.dart';
+import 'desktop/desktop_hover_region.dart';
 import 'desktop/desktop_scroll_behavior.dart';
 import 'desktop/desktop_shell.dart';
 import 'desktop/playback/external_playback_screen.dart';
@@ -418,6 +419,10 @@ class FlyPlayerApp extends StatelessWidget {
                 navigatorObservers: _appNavigatorObservers,
                 builder: (context, child) {
                   if (child == null) return const SizedBox.shrink();
+                  // 鼠标位置采集覆盖所有桌面窗口尺寸，不能随侧栏的宽度断点卸载。
+                  final content = DesktopEnvironment.isDesktopPlatform
+                      ? DesktopPointerPositionTracker(child: child)
+                      : child;
                   final media = MediaQuery.of(context);
                   final scale = AdaptiveText.globalScale(media);
                   return AppRuntimeColorScopeBuilder(
@@ -427,8 +432,8 @@ class FlyPlayerApp extends StatelessWidget {
                         textScaler: TextScaler.linear(scale),
                       ),
                       child: defaultTargetPlatform == TargetPlatform.windows
-                          ? DesktopWindowFrame(child: child)
-                          : child,
+                          ? DesktopWindowFrame(child: content)
+                          : content,
                     ),
                   );
                 },

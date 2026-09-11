@@ -86,12 +86,15 @@ void main() {
   testWidgets('桌面媒体架缩成分屏宽度后仍可双向翻页，放大后刷新边界', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+    addTearDown(DesktopPointerPosition.debugResetForTest);
     tester.view.physicalSize = const Size(1200, 300);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
+        builder: (context, child) =>
+            DesktopPointerPositionTracker(child: child!),
         home: Scaffold(
           body: HomeHorizontalShelf<int>(
             storageKey: 'narrow-shelf',
@@ -107,11 +110,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await mouse.addPointer(location: const Offset(250, 50));
+    await mouse.addPointer(location: const Offset(950, 50));
+    await mouse.moveTo(const Offset(900, 50));
     addTearDown(mouse.removePointer);
     await tester.pumpAndSettle();
     expect(_opacityOf(tester, Icons.chevron_right), 0);
     tester.view.physicalSize = const Size(500, 300);
+    await tester.pumpAndSettle();
+    await mouse.moveTo(const Offset(250, 50));
     await tester.pumpAndSettle();
     expect(find.byType(HoverScrollArrows), findsOneWidget);
     expect(_opacityOf(tester, Icons.chevron_right), 1);
