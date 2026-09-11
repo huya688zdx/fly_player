@@ -18,14 +18,13 @@ class AppAmbientPage extends StatelessWidget {
       context.dependOnInheritedWidgetOfExactType<_SharedAmbientBackground>() !=
       null;
 
-  /// 共用背景上的内容卡透出底色；独立页面保留原有材质。
+  /// 设置卡片在各平台透出氛围底色，与背景是否由导航器共用无关。
   static Color cardColorOf(BuildContext context, Color color) =>
-      sharesBackgroundOf(context) ? color.withValues(alpha: 0.16) : color;
+      color.withValues(alpha: 0.16);
 
-  /// 桌面设置的控件与状态统一沿用导航选择色，不修改全局主题配方。
+  /// 设置控件与状态统一沿用选择色，不修改全局主题配方。
   static AppThemeColors controlColorsOf(BuildContext context) {
     final colors = context.appColors;
-    if (!sharesBackgroundOf(context)) return colors;
     return colors.copyWith(
       accent: colors.selection,
       accentSoft: colors.selectionSoft,
@@ -37,26 +36,24 @@ class AppAmbientPage extends StatelessWidget {
   Widget build(BuildContext context) {
     if (sharesBackgroundOf(context)) return child;
     final theme = Theme.of(context);
-    final content = shareBackground
-        ? _SharedAmbientBackground(
-            child: Theme(
-              data: theme.copyWith(
-                scaffoldBackgroundColor: Colors.transparent,
-                textButtonTheme: TextButtonThemeData(
-                  style: (theme.textButtonTheme.style ?? const ButtonStyle())
-                      .copyWith(
-                        foregroundColor: WidgetStateProperty.resolveWith(
-                          (states) => states.contains(WidgetState.disabled)
-                              ? context.appColors.textMuted
-                              : context.appColors.selectionStrong,
-                        ),
-                      ),
-                ),
-              ),
-              child: child,
+    final themedChild = Theme(
+      data: theme.copyWith(
+        scaffoldBackgroundColor: Colors.transparent,
+        textButtonTheme: TextButtonThemeData(
+          style: (theme.textButtonTheme.style ?? const ButtonStyle()).copyWith(
+            foregroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.disabled)
+                  ? context.appColors.textMuted
+                  : context.appColors.selectionStrong,
             ),
-          )
-        : child;
+          ),
+        ),
+      ),
+      child: child,
+    );
+    final content = shareBackground
+        ? _SharedAmbientBackground(child: themedChild)
+        : themedChild;
     // 宽窗复用壳层整窗背景；独立设置窗口在导航器外绘制一次。
     if (shareBackground &&
         context.findAncestorWidgetOfExactType<AppAtmosphericBackground>() !=

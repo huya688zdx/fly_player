@@ -97,15 +97,6 @@ class PlayStatsReportSection extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(26),
         border: Border.all(color: colors.borderSubtle),
-        boxShadow: AppAmbientPage.sharesBackgroundOf(context)
-            ? null
-            : <BoxShadow>[
-                BoxShadow(
-                  color: colors.overlayScrim.withValues(alpha: 0.12),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
-                ),
-              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -173,28 +164,13 @@ class PlayStatsHeroCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: AppAmbientPage.sharesBackgroundOf(context)
-              ? <Color>[
-                  AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
-                  AppAmbientPage.cardColorOf(context, colors.surface),
-                ]
-              : <Color>[
-                  colors.accent.withValues(alpha: 0.28),
-                  colors.surfaceStrong.withValues(alpha: 0.96),
-                  colors.backgroundElevated.withValues(alpha: 0.92),
-                ],
+          colors: <Color>[
+            AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
+            AppAmbientPage.cardColorOf(context, colors.surface),
+          ],
         ),
         borderRadius: BorderRadius.circular(30),
         border: Border.all(color: colors.borderStrong.withValues(alpha: 0.7)),
-        boxShadow: AppAmbientPage.sharesBackgroundOf(context)
-            ? null
-            : <BoxShadow>[
-                BoxShadow(
-                  color: colors.accent.withValues(alpha: 0.14),
-                  blurRadius: 28,
-                  offset: const Offset(0, 18),
-                ),
-              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

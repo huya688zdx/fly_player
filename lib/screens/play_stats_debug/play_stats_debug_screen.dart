@@ -8,6 +8,7 @@ import '../../providers/nas_provider.dart';
 import '../../services/embedded_detail_launcher.dart';
 import '../../services/play_stats/play_stats.dart';
 import '../../ui/app_transitions.dart';
+import '../../widgets/common/app_ambient_page.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_debug_detail_pages.dart';
 import 'play_stats_debug_formatters.dart';
@@ -196,7 +197,7 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
       genreMap: _genreMap,
       countryMap: _countryMap,
     );
-    return Scaffold(
+    final page = Scaffold(
       appBar: AppBar(
         leading: IconButton(
           onPressed: () {
@@ -379,5 +380,6 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
         },
       ),
     );
+    return AppAmbientPage(child: page);
   }
 }
