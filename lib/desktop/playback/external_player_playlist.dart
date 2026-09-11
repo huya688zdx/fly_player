@@ -6,7 +6,21 @@ import '../../playback/playback_source.dart';
 import '../../providers/nas_provider.dart';
 import '../../services/native_reentry_support.dart';
 
-typedef ExternalPlaylistEpisode = ({String itemGuid, String title});
+class ExternalPlaylistEpisode {
+  const ExternalPlaylistEpisode({
+    required this.itemGuid,
+    required this.title,
+    required this.seasonNumber,
+    required this.episodeNumber,
+    this.seasonGuid = '',
+  });
+
+  final String itemGuid;
+  final String title;
+  final int seasonNumber;
+  final int episodeNumber;
+  final String seasonGuid;
+}
 
 /// 只加载剧集目录；播放地址、字幕和弹幕在选中该集时再解析。
 class ExternalPlayerPlaylist {
@@ -34,9 +48,12 @@ class ExternalPlayerPlaylist {
             : '第${season.seasonNumber}季';
         for (final episode in episodes) {
           if (episode.id.isEmpty) continue;
-          entries[episode.id] = (
+          entries[episode.id] = ExternalPlaylistEpisode(
             itemGuid: episode.id,
             title: '$label 第${episode.episodeNumber}集 ${episode.title}',
+            seasonNumber: season.seasonNumber,
+            episodeNumber: episode.episodeNumber,
+            seasonGuid: season.id,
           );
         }
       }
@@ -48,17 +65,27 @@ class ExternalPlayerPlaylist {
       if (id.isEmpty) continue;
       entries.putIfAbsent(
         id,
-        () => (
+        () => ExternalPlaylistEpisode(
           itemGuid: id,
           title:
               '第${source.seasonNumber}季 第${episode['episodeNumber'] ?? ''}集 '
               '${episode['title'] ?? ''}',
+          seasonNumber:
+              (episode['seasonNumber'] as num?)?.toInt() ?? source.seasonNumber,
+          episodeNumber: (episode['episodeNumber'] as num?)?.toInt() ?? 0,
+          seasonGuid: '${episode['seasonGuid'] ?? source.seasonGuid}',
         ),
       );
     }
     entries.putIfAbsent(
       source.itemGuid,
-      () => (itemGuid: source.itemGuid, title: source.title),
+      () => ExternalPlaylistEpisode(
+        itemGuid: source.itemGuid,
+        title: source.title,
+        seasonNumber: source.seasonNumber,
+        episodeNumber: source.episodeNumber,
+        seasonGuid: source.seasonGuid,
+      ),
     );
     return entries.values.toList();
   }

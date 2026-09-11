@@ -13,6 +13,7 @@ import 'desktop/desktop_breakpoints.dart';
 import 'desktop/desktop_environment.dart';
 import 'desktop/desktop_scroll_behavior.dart';
 import 'desktop/desktop_shell.dart';
+import 'desktop/playback/external_playback_screen.dart';
 import 'desktop/desktop_window_frame.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
@@ -460,6 +461,14 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
       ? settings.name!.trim()
       : '/';
   final uri = Uri.tryParse(routeName);
+
+  if (uri?.path == ExternalPlaybackScreen.routeName &&
+      DesktopEnvironment.isWindows) {
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      const ExternalPlaybackScreen(),
+      settings: settings,
+    );
+  }
 
   if (uri != null && uri.path == '/detail/item') {
     final payloadToken = DetailRoutePayloadStore.payloadTokenFromUri(uri);
