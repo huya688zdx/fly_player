@@ -449,6 +449,47 @@ void main() {
     );
   });
 
+  test('固定时长需单独开启，章节识别可独立关闭', () {
+    const chapters = [
+      DesktopPlayerChapter(title: 'OP', position: Duration(seconds: 30)),
+      DesktopPlayerChapter(title: '正片', position: Duration(seconds: 125)),
+    ];
+    final noFallback = desktopPlaybackSkipBounds(
+      const [],
+      const Duration(minutes: 24),
+      chapterEnabled: true,
+      fixedDurationEnabled: false,
+      introMinutes: 2,
+      outroMinutes: 2,
+    );
+    expect(noFallback.introEnd, isNull);
+    expect(noFallback.outroStart, isNull);
+    final mixed = desktopPlaybackSkipBounds(
+      chapters,
+      const Duration(minutes: 24),
+      chapterEnabled: true,
+      fixedDurationEnabled: true,
+      introMinutes: 2,
+      outroMinutes: 2,
+    );
+    expect(mixed.introStart, const Duration(seconds: 30));
+    expect(mixed.introEnd, const Duration(seconds: 125));
+    expect(mixed.introFromChapter, isTrue);
+    expect(mixed.outroStart, const Duration(minutes: 22));
+    expect(mixed.outroFromChapter, isFalse);
+    final fixedOnly = desktopPlaybackSkipBounds(
+      chapters,
+      const Duration(minutes: 24),
+      chapterEnabled: false,
+      fixedDurationEnabled: true,
+      introMinutes: 2,
+      outroMinutes: 2,
+    );
+    expect(fixedOnly.introStart, Duration.zero);
+    expect(fixedOnly.introEnd, const Duration(minutes: 2));
+    expect(fixedOnly.introFromChapter, isFalse);
+  });
+
   test('进度固定采样媒体身份，最终上报完成后再释放服务端会话', () async {
     final firstReport = Completer<void>();
     final released = Completer<void>();
@@ -811,7 +852,8 @@ void main() {
     expect(find.text('在线搜索'), findsOneWidget);
   });
 
-  testWidgets('弹幕源在播放器设置面板内部打开', (tester) async {
+  testWidgets('播放器设置内部切页，固定时长开关更新依据和跳转目标', (tester) async {
+    var fixedEnabled = false;
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(
@@ -822,67 +864,72 @@ void main() {
         ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: SizedBox(
-          width: 410,
-          height: 760,
-          child: DesktopPlaybackSettingsPanel(
-            source: const MpvMediaSource(
-              itemGuid: 'item',
-              mediaGuid: 'media',
-              videoGuid: 'video',
-              url: 'https://example.invalid/video',
-              headers: <String, String>{},
-              title: '测试视频',
+        home: StatefulBuilder(
+          builder: (context, setState) => SizedBox(
+            width: 410,
+            height: 760,
+            child: DesktopPlaybackSettingsPanel(
+              source: const MpvMediaSource(
+                itemGuid: 'item',
+                mediaGuid: 'media',
+                videoGuid: 'video',
+                url: 'https://example.invalid/video',
+                headers: <String, String>{},
+                title: '测试视频',
+              ),
+              position: Duration.zero,
+              duration: const Duration(minutes: 24),
+              autoPlayEnabled: true,
+              nextEpisodePreloadEnabled: false,
+              aspectRatioMode: 'fit',
+              decoderMode: 'hardware',
+              mpvSettings: MpvSettingsCatalog.defaults,
+              videoAdjustments: MpvSettingsCatalog.videoAdjustmentDefaults,
+              audioDelaySeconds: 0,
+              bookmarks: const <PlayerBookmarkEntry>[],
+              chapters: const <DesktopPlayerChapter>[],
+              introOutroEnabled: true,
+              introMaxMinutes: 2,
+              outroMaxMinutes: 2,
+              fixedDurationSkipEnabled: fixedEnabled,
+              hasNextEpisode: true,
+              subtitleDelaySeconds: 0,
+              subtitlePosition: 92,
+              subtitleScale: 1,
+              onSubtitleStyleChanged:
+                  ({
+                    required delaySeconds,
+                    required position,
+                    required scale,
+                  }) async {},
+              onIntroOutroChanged:
+                  ({
+                    required enabled,
+                    required introMaxMinutes,
+                    required outroMaxMinutes,
+                    required bool fixedDurationEnabled,
+                  }) async {
+                    setState(() => fixedEnabled = fixedDurationEnabled);
+                  },
+              onSelectChapter: (_) async {},
+              danmakuEnabled: true,
+              danmakuSourceLabel: '',
+              danmakuCommentCount: 0,
+              onAutoPlayChanged: (_) async {},
+              onNextEpisodePreloadChanged: (_) async {},
+              onAspectRatioChanged: (_) async {},
+              onDecoderChanged: (_) async {},
+              onMpvAdvancedChanged: (_, __) async {},
+              onLoadSavedPresets: (_) async => const <SavedMpvPreset>[],
+              onApplySavedPreset: (_) async {},
+              onVideoAdjustmentChanged: (_, __) async {},
+              onAudioDelayChanged: (_) async {},
+              onAddBookmark: () async => const <PlayerBookmarkEntry>[],
+              onDeleteBookmark: (_) async => const <PlayerBookmarkEntry>[],
+              onSelectBookmark: (_) async {},
+              danmakuSettingsPageBuilder: (_) => const Text('弹幕设置内页'),
+              danmakuSourcesPageBuilder: (_) => const Text('弹幕源内页'),
             ),
-            position: Duration.zero,
-            duration: const Duration(minutes: 24),
-            autoPlayEnabled: true,
-            nextEpisodePreloadEnabled: false,
-            aspectRatioMode: 'fit',
-            decoderMode: 'hardware',
-            mpvSettings: MpvSettingsCatalog.defaults,
-            videoAdjustments: MpvSettingsCatalog.videoAdjustmentDefaults,
-            audioDelaySeconds: 0,
-            bookmarks: const <PlayerBookmarkEntry>[],
-            chapters: const <DesktopPlayerChapter>[],
-            introOutroEnabled: true,
-            introMaxMinutes: 2,
-            outroMaxMinutes: 2,
-            skipCountdownSeconds: 5,
-            subtitleDelaySeconds: 0,
-            subtitlePosition: 92,
-            subtitleScale: 1,
-            onSubtitleStyleChanged:
-                ({
-                  required delaySeconds,
-                  required position,
-                  required scale,
-                }) async {},
-            onIntroOutroChanged:
-                ({
-                  required enabled,
-                  required introMaxMinutes,
-                  required outroMaxMinutes,
-                  required skipCountdownSeconds,
-                }) async {},
-            onSelectChapter: (_) async {},
-            danmakuEnabled: true,
-            danmakuSourceLabel: '',
-            danmakuCommentCount: 0,
-            onAutoPlayChanged: (_) async {},
-            onNextEpisodePreloadChanged: (_) async {},
-            onAspectRatioChanged: (_) async {},
-            onDecoderChanged: (_) async {},
-            onMpvAdvancedChanged: (_, __) async {},
-            onLoadSavedPresets: (_) async => const <SavedMpvPreset>[],
-            onApplySavedPreset: (_) async {},
-            onVideoAdjustmentChanged: (_, __) async {},
-            onAudioDelayChanged: (_) async {},
-            onAddBookmark: () async => const <PlayerBookmarkEntry>[],
-            onDeleteBookmark: (_) async => const <PlayerBookmarkEntry>[],
-            onSelectBookmark: (_) async {},
-            danmakuSettingsPageBuilder: (_) => const Text('弹幕设置内页'),
-            danmakuSourcesPageBuilder: (_) => const Text('弹幕源内页'),
           ),
         ),
       ),
@@ -903,6 +950,25 @@ void main() {
 
     expect(find.byType(DesktopPlaybackSettingsPanel), findsOneWidget);
     expect(find.text('弹幕源内页'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.arrow_back_ios_new_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('片头片尾跳过'));
+    await tester.pumpAndSettle();
+    expect(find.text('不提示跳过'), findsNWidgets(2));
+    expect(find.text('固定片头时长'), findsNothing);
+    expect(find.text('跳过倒计时'), findsNothing);
+    await tester.tap(find.text('固定时长跳过'));
+    await tester.pumpAndSettle();
+    expect(find.text('固定片头时长'), findsOneWidget);
+    await tester.ensureVisible(find.text('当前片头'));
+    await tester.pumpAndSettle();
+    expect(find.text('固定时长 · 00:00–02:00'), findsOneWidget);
+    expect(find.text('点击后跳到 02:00。'), findsOneWidget);
+    await tester.ensureVisible(find.text('当前片尾'));
+    await tester.pumpAndSettle();
+    expect(find.text('固定时长 · 22:00–24:00'), findsOneWidget);
+    expect(find.text('点击后播放下一集，片尾起点之后的内容会一并跳过。'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
 
