@@ -24,13 +24,15 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
   bool _loading = true;
   bool _paused = false;
   bool _buffering = false;
+  bool _qualifiedBuffering = false;
   bool _completed = false;
   bool _hasProgress = false;
   bool _weak = false;
   bool _dismissed = false;
   Duration? _position;
   DateTime? _seekUntil;
-  DateTime? _lastRebuffer;
+  DateTime? _lastWeakSignal;
+  DateTime? _lowBufferSince;
   DateTime? _lastSpeedSample;
   double _speed = 0;
   Duration? estimatedResumeWait;
@@ -61,7 +63,11 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
         _loading ||
         _paused ||
         _completed ||
-        bytesPerSecond <= 0) {
+        (bytesPerSecond <= 0 && !_qualifiedBuffering) ||
+        (_lastWeakSignal != null &&
+            _now().difference(_lastWeakSignal!) >=
+                const Duration(seconds: 60)) ||
+        (_seekUntil != null && _now().isBefore(_seekUntil!))) {
       return null;
     }
     final choices = DesktopMpvRuntime.qualityMenu(
@@ -93,7 +99,9 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
     _timer?.cancel();
     _source = source;
     _rebuffers.clear();
-    _lastRebuffer = null;
+    _lastWeakSignal = null;
+    _lowBufferSince = null;
+    _qualifiedBuffering = false;
     _lastSpeedSample = null;
     _seekUntil = null;
     _position = null;
@@ -134,9 +142,14 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
         (time) => now.difference(time) >= const Duration(seconds: 45),
       );
       _rebuffers.add(now);
-      _lastRebuffer = now;
+      _lastWeakSignal = now;
+      _qualifiedBuffering = true;
       if (_rebuffers.length >= 2) _weak = true;
     }
+    if (!buffering || loading || paused || completed) {
+      _qualifiedBuffering = false;
+    }
+    if (loading || paused || completed) _lowBufferSince = null;
     _loading = loading;
     _paused = paused;
     _buffering = buffering;
@@ -161,9 +174,12 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
 
   void markSeek() {
     _hasProgress = false;
+    _qualifiedBuffering = false;
+    _lowBufferSince = null;
     _position = null;
     // seek 命令完成早于画面恢复；短暂屏蔽旧位置回调，之后仍须实际播放前进。
     _seekUntil = _now().add(const Duration(seconds: 3));
+    notifyListeners();
   }
 
   void dismiss() {
@@ -175,8 +191,7 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
     if (_disposed ||
         _sampling ||
         !remote ||
-        _loading ||
-        _paused ||
+        (_paused && !_loading) ||
         _completed) {
       return;
     }
@@ -189,20 +204,41 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
         readProperty('cache-pause-wait'),
       ]).timeout(const Duration(seconds: 2));
       if (_disposed || generation != _generation) return;
-      final raw = double.tryParse(values[0]) ?? 0;
-      final speed = raw.isFinite && raw > 0 && raw <= 256 * 1024 * 1024
-          ? raw
-          : 0.0;
+      final raw = double.tryParse(values[0]);
+      final validSpeed =
+          raw != null && raw.isFinite && raw >= 0 && raw <= 256 * 1024 * 1024;
       final previousSpeed = bytesPerSecond;
-      _speed = speed <= 0
+      _speed = !validSpeed || raw == 0
           ? 0
           : previousSpeed <= 0
-          ? speed
-          : _speed * 0.75 + speed * 0.25;
+          ? raw
+          : _speed * 0.75 + raw * 0.25;
       _lastSpeedSample = _now();
-      final cached = double.tryParse(values[1]) ?? 0;
+      final cached = double.tryParse(values[1]) ?? double.nan;
       final target = double.tryParse(values[2]) ?? 0;
       final bitrate = _source!.bitrate;
+      // 缓存充足时下载自然会暂停，不能只凭低网速判断弱网。
+      // 已开播后网速持续赶不上消耗、缓存不足 3 秒，才提前建议降档。
+      final starving =
+          !_loading &&
+          !_paused &&
+          (_hasProgress || _qualifiedBuffering) &&
+          (_seekUntil == null || !_now().isBefore(_seekUntil!)) &&
+          validSpeed &&
+          bitrate > 0 &&
+          _speed * 8 < bitrate &&
+          cached.isFinite &&
+          cached >= 0 &&
+          cached < 3;
+      if (starving) {
+        _lowBufferSince ??= _now();
+        if (_now().difference(_lowBufferSince!) >= const Duration(seconds: 8)) {
+          _weak = true;
+          _lastWeakSignal = _now();
+        }
+      } else {
+        _lowBufferSince = null;
+      }
       estimatedResumeWait =
           _buffering &&
               _speed > 0 &&
@@ -220,13 +256,14 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
       if (_disposed || generation != _generation) return;
       // 不保留失效读数，断流或不支持统计时显示未知网速。
       _speed = 0;
+      _lowBufferSince = null;
       estimatedResumeWait = null;
     } finally {
       _sampling = false;
     }
     if (_disposed || generation != _generation) return;
-    if (_lastRebuffer != null &&
-        _now().difference(_lastRebuffer!) >= const Duration(seconds: 60)) {
+    if (_lastWeakSignal != null &&
+        _now().difference(_lastWeakSignal!) >= const Duration(seconds: 60)) {
       _weak = false;
     }
     notifyListeners();
