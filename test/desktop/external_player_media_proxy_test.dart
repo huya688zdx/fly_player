@@ -4,6 +4,54 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/playback/external_player_media_proxy.dart';
 
 void main() {
+  test('HLS 清单、相对分片和密钥均经本机中转，并按各自地址签名', () async {
+    final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => origin.close(force: true));
+    final signedPaths = <String>[];
+    origin.listen((request) async {
+      expect(request.headers.value('Authx'), 'GET ${request.uri.path}');
+      signedPaths.add(request.uri.path);
+      if (request.uri.path.endsWith('.m3u8')) {
+        request.response.headers.set(
+          'Content-Type',
+          'application/vnd.apple.mpegurl',
+        );
+        request.response.write(
+          '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXTINF:4,\nsegment.ts?sequence=1\n#EXT-X-ENDLIST\n',
+        );
+      } else {
+        request.response.add([0x47, 1, 2, 3]);
+      }
+      await request.response.close();
+    });
+    final proxy = await ExternalPlayerMediaProxy.start(
+      source: Uri.parse('http://127.0.0.1:${origin.port}/stream/main.m3u8'),
+      headers: {'Authx': 'original-signature'},
+      headersForUrl: (url) => {'Authx': 'GET ${url.path}'},
+    );
+    addTearDown(proxy.close);
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    final response = await (await client.getUrl(Uri.parse(proxy.url))).close();
+    final body = String.fromCharCodes(
+      await response.expand((chunk) => chunk).toList(),
+    );
+    final key = RegExp('URI="([^"]+)"').firstMatch(body)![1]!;
+    final segment = body
+        .split('\n')
+        .firstWhere((line) => line.startsWith('http'));
+    for (final url in [key, segment]) {
+      expect(Uri.parse(url).port, Uri.parse(proxy.url).port);
+      final part = await (await client.getUrl(Uri.parse(url))).close();
+      expect(await part.expand((chunk) => chunk).toList(), [0x47, 1, 2, 3]);
+    }
+    expect(signedPaths, [
+      '/stream/main.m3u8',
+      '/stream/key.bin',
+      '/stream/segment.ts',
+    ]);
+  });
+
   test('视频中转保留鉴权、Range 和 HEAD，关闭后停止取流', () async {
     final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => origin.close(force: true));
