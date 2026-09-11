@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../models/stream_track_data.dart';
 import '../../theme/app_theme.dart';
+import '../desktop_floating_panel.dart';
 import 'desktop_playback_chapters.dart';
 import 'desktop_player_motion_icon.dart';
+import 'desktop_seek_thumbnails.dart';
 import 'desktop_semantics_safe_slider.dart';
 
 Widget _tooltipOrChild({
@@ -29,6 +32,9 @@ class DesktopPlayerControls extends StatefulWidget {
     required this.player,
     required this.showBuffer,
     this.chapters = const [],
+    this.seekThumbnails = const [],
+    this.seekThumbnailBifUrl = '',
+    this.thumbnailHeaders = const {},
     required this.videoState,
     required this.title,
     required this.resolution,
@@ -92,6 +98,9 @@ class DesktopPlayerControls extends StatefulWidget {
   final Player player;
   final bool showBuffer;
   final List<DesktopPlayerChapter> chapters;
+  final List<MpvSeekThumbnail> seekThumbnails;
+  final String seekThumbnailBifUrl;
+  final Map<String, String> thumbnailHeaders;
   final VideoState videoState;
   final String title;
   final String resolution;
@@ -165,6 +174,34 @@ class DesktopPlayerControls extends StatefulWidget {
 }
 
 class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
+  final _thumbnails = DesktopSeekThumbnails();
+
+  @override
+  void initState() {
+    super.initState();
+    _prepareThumbnails();
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopPlayerControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _prepareThumbnails();
+  }
+
+  void _prepareThumbnails() => unawaited(
+    _thumbnails.prepare(
+      bifUrl: widget.seekThumbnailBifUrl,
+      chapters: widget.seekThumbnails,
+      headers: widget.thumbnailHeaders,
+    ),
+  );
+
+  @override
+  void dispose() {
+    _thumbnails.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -316,6 +353,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                         duration: duration,
                         buffered: widget.showBuffer ? buffer : Duration.zero,
                         chapters: widget.chapters,
+                        thumbnails: _thumbnails,
                         accent: colors.accent,
                         onSeek: widget.onSeek,
                       ),
@@ -733,6 +771,7 @@ class _DesktopTimeline extends StatefulWidget {
     required this.duration,
     required this.buffered,
     required this.chapters,
+    required this.thumbnails,
     required this.accent,
     required this.onSeek,
   });
@@ -741,6 +780,7 @@ class _DesktopTimeline extends StatefulWidget {
   final Duration duration;
   final Duration buffered;
   final List<DesktopPlayerChapter> chapters;
+  final DesktopSeekThumbnails thumbnails;
   final Color accent;
   final Future<void> Function(Duration) onSeek;
 
@@ -810,85 +850,136 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
     return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
   }
 
+  Widget _previewImage(ImageProvider image, int positionMs, double width) {
+    return Image(
+      image: image,
+      key: ValueKey(widget.thumbnails.generation),
+      width: width,
+      height: width * 9 / 16,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) {
+        final chapter = widget.thumbnails.chapterAt(positionMs);
+        if (image is MemoryImage && chapter != null) {
+          return _previewImage(chapter, positionMs, width);
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (event) => setState(() {
-        _hovered = true;
-        _hoverDx = event.localPosition.dx;
-      }),
-      onHover: (event) => setState(() => _hoverDx = event.localPosition.dx),
-      onExit: (_) => setState(() => _hovered = false),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          return GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTapDown: (details) => _begin(details.localPosition.dx, width),
-            onTapUp: (details) =>
-                _end(tapFraction: _fraction(details.localPosition.dx, width)),
-            onTapCancel: () => setState(() => _dragging = false),
-            onHorizontalDragStart: (details) =>
-                _begin(details.localPosition.dx, width),
-            onHorizontalDragUpdate: (details) =>
-                _update(details.localPosition.dx, width),
-            onHorizontalDragEnd: (_) => _end(),
-            onHorizontalDragCancel: () => setState(() => _dragging = false),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: <Widget>[
-                CustomPaint(
-                  painter: _TimelinePainter(
-                    position: _positionFraction,
-                    buffered: _bufferFraction,
-                    emphasized: _hovered || _dragging,
-                    accent: widget.accent,
-                    chapters: widget.chapters,
-                    duration: widget.duration,
+    return ListenableBuilder(
+      listenable: widget.thumbnails,
+      builder: (context, _) => MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (event) => setState(() {
+          _hovered = true;
+          _hoverDx = event.localPosition.dx;
+        }),
+        onHover: (event) => setState(() => _hoverDx = event.localPosition.dx),
+        onExit: (_) => setState(() => _hovered = false),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final previewDx = _dragging ? _dragValue * width : _hoverDx;
+            final positionMs = (_fraction(previewDx, width) * _durationMs)
+                .round();
+            final image = _hovered || _dragging
+                ? widget.thumbnails.imageAt(positionMs)
+                : null;
+            final tipWidth = (image == null ? 84.0 : 232.0).clamp(0.0, width);
+            final timeLabel = Text(
+              _tipLabel(width),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+              ),
+            );
+            return GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTapDown: (details) => _begin(details.localPosition.dx, width),
+              onTapUp: (details) =>
+                  _end(tapFraction: _fraction(details.localPosition.dx, width)),
+              onTapCancel: () => setState(() => _dragging = false),
+              onHorizontalDragStart: (details) =>
+                  _begin(details.localPosition.dx, width),
+              onHorizontalDragUpdate: (details) =>
+                  _update(details.localPosition.dx, width),
+              onHorizontalDragEnd: (_) => _end(),
+              onHorizontalDragCancel: () => setState(() => _dragging = false),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: <Widget>[
+                  CustomPaint(
+                    painter: _TimelinePainter(
+                      position: _positionFraction,
+                      buffered: _bufferFraction,
+                      emphasized: _hovered || _dragging,
+                      accent: widget.accent,
+                      chapters: widget.chapters,
+                      duration: widget.duration,
+                    ),
+                    size: Size(width, constraints.maxHeight),
                   ),
-                  size: Size(width, constraints.maxHeight),
-                ),
-                if (_hovered &&
-                    !_dragging &&
-                    _durationMs > 0 &&
-                    width.isFinite &&
-                    width > 60)
-                  Positioned(
-                    left: (_hoverDx.clamp(34, width - 34)),
-                    top: -14,
-                    child: FractionalTranslation(
-                      translation: const Offset(-0.5, 0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xEB0A0E16),
-                          borderRadius: BorderRadius.circular(7),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.15),
-                          ),
-                        ),
-                        child: Text(
-                          _tipLabel(width),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            fontFeatures: <FontFeature>[
-                              FontFeature.tabularFigures(),
-                            ],
-                          ),
-                        ),
+                  if ((_hovered || _dragging) &&
+                      _durationMs > 0 &&
+                      width.isFinite &&
+                      width > 60)
+                    Positioned(
+                      left: (previewDx - tipWidth / 2).clamp(
+                        0,
+                        width - tipWidth,
+                      ),
+                      bottom: constraints.maxHeight + 6,
+                      width: tipWidth,
+                      child: IgnorePointer(
+                        child: image != null
+                            ? DesktopFloatingPanel(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: _previewImage(
+                                          image,
+                                          positionMs,
+                                          tipWidth - 12,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      timeLabel,
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                alignment: Alignment.center,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xEB0A0E16),
+                                  borderRadius: BorderRadius.circular(7),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.15),
+                                  ),
+                                ),
+                                child: timeLabel,
+                              ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
