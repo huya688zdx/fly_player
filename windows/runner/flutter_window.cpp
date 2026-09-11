@@ -28,6 +28,8 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
   potplayer_bridge_ = std::make_unique<PotPlayerBridge>(
       flutter_controller_->engine()->messenger());
+  system_media_controls_ = std::make_unique<SystemMediaControls>(
+      GetHandle(), flutter_controller_->engine()->messenger());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -42,6 +44,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  system_media_controls_ = nullptr;
   potplayer_bridge_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
@@ -54,6 +57,10 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == SystemMediaControls::kCommandMessage && system_media_controls_) {
+    system_media_controls_->HandleCommand(wparam, lparam);
+    return 0;
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
