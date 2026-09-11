@@ -176,6 +176,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   bool _showResumePrompt = false;
   bool _playbackCompleted = false;
   bool _isLocked = false;
+  Duration? _lastLockedEscapeTime;
   bool _autoNextSuppressed = false;
   int _autoNextSeconds = 0;
   bool _autoPlayEnabled = true;
@@ -3204,6 +3205,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   void _toggleLock() {
+    _lastLockedEscapeTime = null;
     _dismissHoverOverlay();
     _updateView(() => _isLocked = !_isLocked);
     unawaited(windowManager.setPreventClose(_isLocked));
@@ -3215,7 +3217,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   void _showLockedHint() {
     _wakeControls();
-    _showPlayerMessage(_l10n.nativePlayerLockedUnlockHint);
+    _showPlayerMessage('${_l10n.nativePlayerLockedUnlockHint} · Esc × 2');
   }
 
   @override
@@ -3230,7 +3232,22 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
     final key = event.logicalKey;
     if (_isLocked) {
-      if (isInitialPress) _showLockedHint();
+      if (isInitialPress) {
+        if (key == LogicalKeyboardKey.escape) {
+          final previous = _lastLockedEscapeTime;
+          _lastLockedEscapeTime = event.timeStamp;
+          if (previous != null &&
+              event.timeStamp - previous <= const Duration(seconds: 2)) {
+            _toggleLock();
+          } else {
+            _wakeControls();
+            _showPlayerMessage('再按一次 Esc 解锁');
+          }
+        } else {
+          _lastLockedEscapeTime = null;
+          _showLockedHint();
+        }
+      }
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.space && isInitialPress) {
@@ -3613,33 +3630,40 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   Widget _buildLockLayer() {
-    return Positioned(
-      top: 0,
-      bottom: 0,
-      right: 24,
-      child: Center(
-        child: IgnorePointer(
-          ignoring: !_controlsVisible,
-          child: AnimatedOpacity(
-            opacity: _controlsVisible ? 1 : 0,
-            duration: _controlsAnimationDuration,
-            child: IconButton(
-              tooltip: _isLocked ? '解锁' : '返回锁',
-              onPressed: _toggleLock,
-              style: IconButton.styleFrom(
-                fixedSize: const Size(44, 44),
-                foregroundColor: Colors.white,
-                backgroundColor: _isLocked
-                    ? Colors.black38
-                    : Colors.transparent,
-              ),
-              icon: Icon(
-                _isLocked ? Icons.lock_outline : Icons.lock_open_rounded,
+    return ValueListenableBuilder<PlayerHoverOverlaySnapshot>(
+      valueListenable: _hoverOverlayNotifier,
+      builder: (context, overlay, _) {
+        // 浮层淡出期间也让出位置，避免锁图标压住面板内容。
+        if (overlay.kind != null) return const SizedBox.shrink();
+        return Positioned(
+          top: 0,
+          bottom: 0,
+          right: 24,
+          child: Center(
+            child: IgnorePointer(
+              ignoring: !_controlsVisible,
+              child: AnimatedOpacity(
+                opacity: _controlsVisible ? 1 : 0,
+                duration: _controlsAnimationDuration,
+                child: IconButton(
+                  tooltip: _isLocked ? '解锁（连按两次 Esc）' : '返回锁',
+                  onPressed: _toggleLock,
+                  style: IconButton.styleFrom(
+                    fixedSize: const Size(44, 44),
+                    foregroundColor: Colors.white,
+                    backgroundColor: _isLocked
+                        ? Colors.black38
+                        : Colors.transparent,
+                  ),
+                  icon: Icon(
+                    _isLocked ? Icons.lock_outline : Icons.lock_open_rounded,
+                  ),
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -3922,29 +3946,25 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             opacity: message == null ? 0 : 1,
             duration: const Duration(milliseconds: 160),
             child: Center(
-              child: Container(
+              child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xE817202C),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0x24FFFFFF)),
-                  boxShadow: const <BoxShadow>[
-                    BoxShadow(color: Color(0x55000000), blurRadius: 20),
-                  ],
-                ),
-                child: Text(
-                  message ?? '',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
+                child: DesktopFloatingPanel(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 9,
+                    ),
+                    child: Text(
+                      message ?? '',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: context.appColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ),
               ),
