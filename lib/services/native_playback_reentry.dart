@@ -158,11 +158,20 @@ class ServerPlaybackReporter {
   String _mediaId = '';
   int _lastTs = 0;
 
-  Future<void> report(Map<String, dynamic> progress) async {
+  Future<void> report(
+    Map<String, dynamic> progress, {
+    void Function(PlaybackProgressResult)? onResult,
+  }) async {
     // 暂停心跳只服务本地统计；服务端回写保持旧行为（暂停重复帧原本就不上报）。
-    if (progress['pausedHeartbeat'] == true) return;
+    if (progress['pausedHeartbeat'] == true) {
+      onResult?.call(PlaybackProgressResult.failed);
+      return;
+    }
     final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
-    if (itemGuid.isEmpty) return;
+    if (itemGuid.isEmpty) {
+      onResult?.call(PlaybackProgressResult.failed);
+      return;
+    }
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
     final ts = (progress['ts'] as num?)?.toInt() ?? 0;
     final isPaused = progress['isPaused'] == true;
@@ -228,7 +237,10 @@ class ServerPlaybackReporter {
           mediaSourceId: mediaGuid,
           positionSeconds: ts,
           isPaused: isPaused,
+          onResult: onResult,
         );
+      } else {
+        onResult?.call(PlaybackProgressResult.failed);
       }
       unawaited(
         logSwallowedError(
@@ -239,6 +251,8 @@ class ServerPlaybackReporter {
           source: 'server_playback_reporter',
         ),
       );
+      return;
     }
+    onResult?.call(PlaybackProgressResult.synced);
   }
 }
