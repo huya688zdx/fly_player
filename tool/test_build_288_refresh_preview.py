@@ -63,6 +63,22 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
             self.assertIn(phase, self.phases)
         self.assertTrue(all(frame.size == (512, 512) for frame in self.frames))
 
+    def test_human_bridges_show_new_poses_between_their_endpoints(self) -> None:
+        # 锁定这次接受的六处动作过程，不能退回重复端点或长时间空等。
+        for before, bridge, after in (
+            ("human_1", "human_backstep", "human_2"),
+            ("human_6", "human_hands_separate", "human_arms_cross"),
+            ("human_hands_separate", "human_arms_cross", "human_7"),
+            ("human_9", "human_knees_bend", "human_10"),
+            ("human_12", "human_crouch_lower", "human_13"),
+            ("human_13", "human_crouch_tuck", "human_14"),
+        ):
+            left, middle, right = (self.phases.index(phase) for phase in (before, bridge, after))
+            self.assertTrue(left < middle < right)
+            for neighbor in (left, right):
+                self.assertFalse(np.array_equal(np.asarray(self.frames[middle]), np.asarray(self.frames[neighbor])))
+        self.assertLessEqual(self.phases.count("human_0") + self.phases.count("human_1"), 12)
+
     def test_no_frame_is_blank_or_cut_by_the_canvas(self) -> None:
         for index, frame in enumerate(self.frames):
             self.assertGreater(alpha_area(frame), 20, f"第 {index + 1} 帧为空")
