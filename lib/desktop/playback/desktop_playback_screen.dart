@@ -152,6 +152,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   String? _errorMessage;
   String? _toastMessage;
   bool _isLoading = true;
+  String? _qualitySwitchingMessage;
   bool _isBuffering = false;
   bool _pausedByUser = false;
   // 控制条可见性、播放状态与悬停弹层都用 ValueNotifier 驱动：
@@ -1237,9 +1238,25 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final generation = ++_sourceChangeGeneration;
     _lastDirectLinkRefreshAttempt = null;
     final wasPlaying = _isPlaying || (_isBuffering && !_pausedByUser);
+    final quality = qualityIndex == null
+        ? null
+        : DesktopMpvRuntime.qualityMenu(_source).customGroups.values
+              .expand((group) => group)
+              .where((choice) => choice.sourceIndex == qualityIndex)
+              .firstOrNull;
     _wakeControls(scheduleHide: false);
     _updateView(() {
       _isLoading = true;
+      _qualitySwitchingMessage = quality == null
+          ? null
+          : _l10n.playerQualitySwitching(
+              quality.isOriginal
+                  ? '${quality.displayTier} ${_l10n.playerQualityOriginal}'
+                  : quality.displayTier,
+              quality.quality.bitrate > 0
+                  ? '（${DesktopMpvRuntime.qualityBitrateLabel(quality.quality.bitrate)}）'
+                  : '',
+            );
       _errorMessage = null;
     });
     MpvMediaSource? resolved;
@@ -1506,7 +1523,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   void _finishLoading() {
-    if (mounted) _updateView(() => _isLoading = false);
+    if (mounted) {
+      _updateView(() {
+        _isLoading = false;
+        _qualitySwitchingMessage = null;
+      });
+    }
   }
 
   void _showGenericError(String message) {
@@ -1580,6 +1602,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!mounted) return;
     _updateView(() {
       _playbackCompleted = false;
+      _qualitySwitchingMessage = null;
       _autoNextSeconds = 0;
       _autoNextSuppressed = false;
       _showResumePrompt = false;
@@ -4158,6 +4181,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (_errorMessage == null && (_isLoading || _isBuffering)) {
       return Center(
         child: Container(
+          constraints: BoxConstraints(
+            maxWidth: (MediaQuery.sizeOf(context).width - 48)
+                .clamp(0, 520)
+                .toDouble(),
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: const Color(0xC9141C28),
@@ -4175,31 +4203,34 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                 ),
               ),
               const SizedBox(width: 11),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _isLoading
-                        ? _l10n.playerLoadingOpeningSource
-                        : _l10n.playerLoadingBuffering,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (_weakNetwork.remote) ...[
-                    const SizedBox(height: 4),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      _weakNetworkDetails,
+                      _isLoading
+                          ? (_qualitySwitchingMessage ??
+                                _l10n.playerLoadingOpeningSource)
+                          : _l10n.playerLoadingBuffering,
                       style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11.5,
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (_weakNetwork.remote) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _weakNetworkDetails,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ],
           ),
