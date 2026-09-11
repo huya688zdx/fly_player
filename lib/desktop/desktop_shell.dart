@@ -458,6 +458,10 @@ class _DesktopShellState extends State<DesktopShell>
                             _openContentRoute('/screen/favorites'),
                         onOpenDownloads: (context) =>
                             _openContentRoute('/screen/downloads'),
+                        onOpenExternalPlayback: (context) {
+                          unawaited(_paneHostProxy.closePane());
+                          _openContentRoute('/screen/external-playback');
+                        },
                         onOpenCatalog: (context, catalog) =>
                             _openSidebarCatalog(context, catalog),
                         onOpenAllItems: (context) => _openSidebarCategory(

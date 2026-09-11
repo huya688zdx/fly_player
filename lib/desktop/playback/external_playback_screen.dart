@@ -1,0 +1,1415 @@
+import 'package:flutter/material.dart';
+
+import '../../danmaku/models/danmaku_settings.dart';
+import '../../models/playback_stream.dart';
+import '../../models/stream_track_data.dart';
+import '../../playback/playback_source.dart';
+import '../../screens/settings_destination_routes.dart';
+import '../../services/playback_progress_offline_queue.dart';
+import '../../theme/app_theme.dart';
+import 'external_playback_controls.dart';
+import 'external_playback_host.dart';
+import 'external_player_playlist.dart';
+
+/// PotPlayer 外部会话的独立控制页，只展示宿主实际回报的状态。
+class ExternalPlaybackScreen extends StatefulWidget {
+  const ExternalPlaybackScreen({super.key});
+
+  static const String routeName = '/screen/external-playback';
+
+  @override
+  State<ExternalPlaybackScreen> createState() => _ExternalPlaybackScreenState();
+}
+
+class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
+  DanmakuSettings? _draft;
+  DanmakuSettings? _applied;
+  String? _draftSubtitleGuid;
+  String? _appliedSubtitleGuid;
+  String? _mediaIdentity;
+  int _tabIndex = 0;
+  int? _seasonNumber;
+  double? _dragPosition;
+  bool _busy = false;
+
+  void _syncMedia(ExternalPlaybackStatus status) {
+    final source = status.source;
+    final identity = '${source.itemGuid}\u0000${source.mediaGuid}';
+    if (_mediaIdentity == identity) {
+      final keepDraft = _dirty;
+      _applied = status.danmakuSettings;
+      _appliedSubtitleGuid = _selectableSubtitleGuid(source);
+      if (!keepDraft) {
+        _draft = _applied;
+        _draftSubtitleGuid = _appliedSubtitleGuid;
+      }
+      return;
+    }
+    _mediaIdentity = identity;
+    _draft = status.danmakuSettings;
+    _applied = status.danmakuSettings;
+    _draftSubtitleGuid = _selectableSubtitleGuid(source);
+    _appliedSubtitleGuid = _draftSubtitleGuid;
+    _seasonNumber = source.seasonNumber;
+    _dragPosition = null;
+  }
+
+  String? _selectableSubtitleGuid(MpvMediaSource source) {
+    return source.subtitleTrackGuid;
+  }
+
+  List<SubtitleTrackOption> _textSubtitles(MpvMediaSource source) {
+    const supported = <String>{'ass', 'srt', 'vtt'};
+    return source.subtitleTracks.where((track) {
+      final localPath = source.localSubtitleFiles[track.guid]?.trim() ?? '';
+      final fileName = localPath.replaceAll('\\', '/').split('/').last;
+      final extension = fileName.contains('.')
+          ? fileName.split('.').last.toLowerCase()
+          : '';
+      final format = extension.isNotEmpty
+          ? extension
+          : (track.format.isNotEmpty ? track.format : track.codecName)
+                .trim()
+                .toLowerCase();
+      final hasLocalFile = localPath.isNotEmpty;
+      return track.isBitmap != 1 &&
+          supported.contains(format) &&
+          (track.isExternal == 1 || track.extraFile == 1 || hasLocalFile);
+    }).toList();
+  }
+
+  bool get _dirty {
+    final draft = _draft;
+    final applied = _applied;
+    if (draft == null || applied == null) return false;
+    return draft.enabled != applied.enabled ||
+        draft.fontScale != applied.fontScale ||
+        draft.opacity != applied.opacity ||
+        draft.density != applied.density ||
+        draft.speed != applied.speed ||
+        draft.displayAreaRatio != applied.displayAreaRatio ||
+        draft.scrollEnabled != applied.scrollEnabled ||
+        draft.topEnabled != applied.topEnabled ||
+        draft.bottomEnabled != applied.bottomEnabled ||
+        draft.avoidSubtitleArea != applied.avoidSubtitleArea ||
+        _draftSubtitleGuid != _appliedSubtitleGuid;
+  }
+
+  bool _canApply(ExternalPlaybackStatus status) {
+    if (_draft?.enabled != true || _draftSubtitleGuid?.isEmpty != false) {
+      return true;
+    }
+    return _textSubtitles(
+      status.source,
+    ).any((track) => track.guid == _draftSubtitleGuid);
+  }
+
+  void _message(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _run(
+    Future<bool> Function() action, {
+    String failure = '操作未能完成，请确认 PotPlayer 会话仍然有效',
+  }) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      if (!await action()) _message(failure);
+    } catch (_) {
+      _message(failure);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _apply(ExternalPlaybackStatus status) async {
+    final draft = _draft;
+    if (draft == null) return;
+    final itemGuid = status.source.itemGuid;
+    final mediaGuid = status.source.mediaGuid;
+    await _run(() async {
+      final applied = await ExternalPlaybackHost.applySettings(
+        itemGuid: itemGuid,
+        settings: draft,
+        subtitleGuid: _draftSubtitleGuid == _appliedSubtitleGuid
+            ? null
+            : _draftSubtitleGuid,
+      );
+      if (applied &&
+          mounted &&
+          ExternalPlaybackHost.status.value?.source.itemGuid == itemGuid &&
+          ExternalPlaybackHost.status.value?.source.mediaGuid == mediaGuid) {
+        setState(() {
+          _applied = draft;
+          _appliedSubtitleGuid =
+              ExternalPlaybackHost.status.value!.source.subtitleTrackGuid;
+        });
+        _message('设置已应用到 PotPlayer');
+      }
+      return applied;
+    });
+  }
+
+  Future<void> _showSources(ExternalPlaybackStatus status) async {
+    final hadDirtyDraft = _dirty;
+    await showExternalDanmakuSources(context, status);
+    if (!mounted) return;
+    final latest = ExternalPlaybackHost.status.value;
+    if (latest == null ||
+        latest.source.itemGuid != status.source.itemGuid ||
+        latest.source.mediaGuid != status.source.mediaGuid) {
+      return;
+    }
+    setState(() {
+      _applied = latest.danmakuSettings;
+      if (!hadDirtyDraft) _draft = latest.danmakuSettings;
+    });
+  }
+
+  void _resetDraft() {
+    setState(() {
+      _draft = _applied;
+      _draftSubtitleGuid = _appliedSubtitleGuid;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      body: SafeArea(
+        child: ValueListenableBuilder<ExternalPlaybackStatus?>(
+          valueListenable: ExternalPlaybackHost.status,
+          builder: (context, status, _) {
+            if (status == null) return _buildIdle(context);
+            _syncMedia(status);
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 980;
+                return SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(
+                    compact ? 20 : 36,
+                    24,
+                    compact ? 20 : 36,
+                    36,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1420),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildPageHeader(context, status),
+                          const SizedBox(height: 22),
+                          _buildNowPlaying(context, status),
+                          const SizedBox(height: 22),
+                          if (compact) ...[
+                            _buildControlPanel(context, status),
+                            const SizedBox(height: 18),
+                            _buildPlaylist(context, status),
+                          ] else
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _buildControlPanel(context, status),
+                                ),
+                                const SizedBox(width: 22),
+                                SizedBox(
+                                  width: 310,
+                                  child: _buildPlaylist(context, status),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIdle(BuildContext context) {
+    final colors = context.appColors;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: _Panel(
+          padding: const EdgeInsets.all(36),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.open_in_new_off_rounded,
+                size: 48,
+                color: colors.textMuted,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                '当前没有外部播放',
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '从媒体详情页选择 PotPlayer 播放后，这里会显示真实进度、弹幕、字幕和剧集控制。',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: colors.textSecondary, height: 1.6),
+              ),
+              const SizedBox(height: 24),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  FilledButton.icon(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    label: const Text('返回媒体库'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).pushNamed(SettingsDestinationRoutes.externalPlayer),
+                    icon: const Icon(Icons.tune_rounded),
+                    label: const Text('外部播放器设置'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPageHeader(BuildContext context, ExternalPlaybackStatus status) {
+    final colors = context.appColors;
+    final phase = _phaseLabel(status);
+    return Row(
+      children: [
+        IconButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+          tooltip: '返回',
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '外部播放',
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'PotPlayer 会话控制与片源设置',
+                style: TextStyle(color: colors.textMuted, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          decoration: BoxDecoration(
+            color: _phaseColor(colors, status).withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: _phaseColor(colors, status).withValues(alpha: 0.35),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: _phaseColor(colors, status),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                phase,
+                style: TextStyle(color: colors.textPrimary, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          onPressed: () => Navigator.of(
+            context,
+          ).pushNamed(SettingsDestinationRoutes.externalPlayer),
+          tooltip: '外部播放器设置',
+          icon: const Icon(Icons.tune_rounded),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNowPlaying(BuildContext context, ExternalPlaybackStatus status) {
+    final colors = context.appColors;
+    final source = status.source;
+    final durationMs = status.duration.inMilliseconds.toDouble();
+    final positionMs =
+        (_dragPosition ?? status.position.inMilliseconds.toDouble()).clamp(
+          0.0,
+          durationMs > 0 ? durationMs : 1.0,
+        );
+    final currentIndex = status.playlist.indexWhere(
+      (episode) => episode.itemGuid == source.itemGuid,
+    );
+    final previous = currentIndex > 0
+        ? status.playlist[currentIndex - 1]
+        : null;
+    final next = currentIndex >= 0 && currentIndex + 1 < status.playlist.length
+        ? status.playlist[currentIndex + 1]
+        : null;
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [colors.surfaceStrong, colors.surfaceSubtle],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.borderStrong),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 20,
+            runSpacing: 18,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                width: 88,
+                height: 96,
+                decoration: BoxDecoration(
+                  color: colors.accentSoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.movie_filter_rounded,
+                  color: colors.accent,
+                  size: 38,
+                ),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      source.seriesTitle.isEmpty ? '正在播放' : source.seriesTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textMuted,
+                        fontSize: 11,
+                        letterSpacing: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      source.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      [
+                        if (source.seasonNumber > 0)
+                          '第 ${source.seasonNumber} 季',
+                        if (source.episodeNumber > 0)
+                          '第 ${source.episodeNumber} 集',
+                        if (source.resolution.isNotEmpty) source.resolution,
+                        if (source.isDownloadedFile ||
+                            source.externalLocalSource)
+                          '本地文件',
+                      ].join('  ·  '),
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: !_busy && status.canControl
+                    ? () => _run(
+                        () => ExternalPlaybackHost.setPaused(
+                          !status.paused,
+                          itemGuid: source.itemGuid,
+                        ),
+                      )
+                    : null,
+                icon: Icon(
+                  status.paused
+                      ? Icons.play_arrow_rounded
+                      : Icons.pause_rounded,
+                ),
+                label: Text(status.paused ? '继续' : '暂停'),
+              ),
+              IconButton.filledTonal(
+                onPressed: !_busy && status.canControl && previous != null
+                    ? () => _playEpisode(status, previous)
+                    : null,
+                tooltip: '上一集',
+                icon: const Icon(Icons.skip_previous_rounded),
+              ),
+              IconButton.filledTonal(
+                onPressed: !_busy && status.canControl && next != null
+                    ? () => _playEpisode(status, next)
+                    : null,
+                tooltip: '下一集',
+                icon: const Icon(Icons.skip_next_rounded),
+              ),
+              OutlinedButton.icon(
+                onPressed: !_busy && status.canControl
+                    ? () => _run(
+                        () => ExternalPlaybackHost.activateCurrent(
+                          itemGuid: source.itemGuid,
+                        ),
+                      )
+                    : null,
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('回到 PotPlayer'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              SizedBox(
+                width: 48,
+                child: Text(
+                  _time(Duration(milliseconds: positionMs.round())),
+                  style: TextStyle(color: colors.textSecondary, fontSize: 12),
+                ),
+              ),
+              Expanded(
+                child: Slider(
+                  value: positionMs,
+                  max: durationMs > 0 ? durationMs : 1,
+                  onChanged: !_busy && status.canControl && durationMs > 0
+                      ? (value) => setState(() => _dragPosition = value)
+                      : null,
+                  onChangeEnd: (value) async {
+                    await _run(
+                      () => ExternalPlaybackHost.seek(
+                        Duration(milliseconds: value.round()),
+                        itemGuid: source.itemGuid,
+                      ),
+                    );
+                    if (mounted) setState(() => _dragPosition = null);
+                  },
+                ),
+              ),
+              SizedBox(
+                width: 48,
+                child: Text(
+                  _time(status.duration),
+                  textAlign: TextAlign.end,
+                  style: TextStyle(color: colors.textSecondary, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          if (status.progressMessage.isNotEmpty || status.error != null) ...[
+            const SizedBox(height: 12),
+            _buildSessionMessage(context, status),
+          ],
+          const SizedBox(height: 8),
+          if (status.lastSyncedAt != null)
+            Text(
+              '最近一次服务器同步：${_clock(status.lastSyncedAt!)}',
+              style: TextStyle(color: colors.textMuted, fontSize: 11),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSessionMessage(
+    BuildContext context,
+    ExternalPlaybackStatus status,
+  ) {
+    final colors = context.appColors;
+    final message = status.error ?? status.progressMessage;
+    final failed =
+        status.error != null ||
+        status.progressResult == PlaybackProgressResult.failed;
+    final synced = status.progressResult == PlaybackProgressResult.synced;
+    final messageColor = failed
+        ? colors.danger
+        : synced
+        ? colors.success
+        : colors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: messageColor.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: messageColor.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            failed
+                ? Icons.error_outline_rounded
+                : synced
+                ? Icons.check_circle_outline_rounded
+                : Icons.info_outline_rounded,
+            size: 18,
+            color: messageColor,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message, style: TextStyle(color: colors.textPrimary)),
+          ),
+          if (status.phase == ExternalPlaybackPhase.disconnected ||
+              status.phase == ExternalPlaybackPhase.ended)
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () => _run(
+                      () => ExternalPlaybackHost(context).reconnect(),
+                      failure: '重新连接 PotPlayer 失败',
+                    ),
+              child: const Text('重新连接'),
+            )
+          else if (status.canControl &&
+              (status.progressResult == PlaybackProgressResult.failed ||
+                  status.progressResult == PlaybackProgressResult.queued))
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () => _run(
+                      ExternalPlaybackHost.retryProgress,
+                      failure: '重试进度回报失败',
+                    ),
+              child: const Text('重试回报'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlPanel(
+    BuildContext context,
+    ExternalPlaybackStatus status,
+  ) {
+    final colors = context.appColors;
+    return _Panel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            child: Row(
+              children: [
+                _TabButton(
+                  selected: _tabIndex == 0,
+                  icon: Icons.subtitles_rounded,
+                  label: '弹幕',
+                  onTap: () => setState(() => _tabIndex = 0),
+                ),
+                const SizedBox(width: 24),
+                _TabButton(
+                  selected: _tabIndex == 1,
+                  icon: Icons.video_settings_rounded,
+                  label: '片源与字幕',
+                  onTap: () => setState(() => _tabIndex = 1),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: colors.borderSubtle),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 0),
+            child: _tabIndex == 0
+                ? _buildDanmaku(context, status)
+                : _buildTracks(context, status),
+          ),
+          const SizedBox(height: 22),
+          Divider(height: 1, color: colors.borderSubtle),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(
+                  _dirty
+                      ? Icons.edit_note_rounded
+                      : Icons.check_circle_outline_rounded,
+                  size: 17,
+                  color: _dirty ? colors.warning : colors.success,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _dirty && !_canApply(status)
+                        ? '启用弹幕前，请关闭内封/位图字幕或改选外挂文本字幕'
+                        : (_dirty ? '有尚未应用的更改' : '设置已与当前会话同步'),
+                    style: TextStyle(
+                      color: _dirty ? colors.warning : colors.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _busy && _dirty
+                      ? null
+                      : (_dirty ? _resetDraft : null),
+                  child: const Text('撤销'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed:
+                      !_busy && status.canControl && _dirty && _canApply(status)
+                      ? () => _apply(status)
+                      : null,
+                  icon: const Icon(Icons.sync_rounded, size: 18),
+                  label: const Text('应用到 PotPlayer'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDanmaku(BuildContext context, ExternalPlaybackStatus status) {
+    final colors = context.appColors;
+    final draft = _draft!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    status.danmakuLabel.isEmpty
+                        ? '未选择弹幕源'
+                        : status.danmakuLabel,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    status.danmakuCount > 0
+                        ? '${status.danmakuCount} 条弹幕'
+                        : '没有已加载的弹幕',
+                    style: TextStyle(color: colors.textMuted, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            TextButton.icon(
+              onPressed: status.canControl ? () => _showSources(status) : null,
+              icon: const Icon(Icons.search_rounded, size: 18),
+              label: const Text('搜索或导入'),
+            ),
+            const SizedBox(width: 8),
+            Switch(
+              value: draft.enabled,
+              onChanged: status.canControl
+                  ? (value) =>
+                        setState(() => _draft = draft.copyWith(enabled: value))
+                  : null,
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _buildPreview(context, draft),
+        const SizedBox(height: 20),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final oneColumn = constraints.maxWidth < 660;
+            final settings = <Widget>[
+              _SettingSlider(
+                label: '字号',
+                value: draft.fontScale,
+                min: 0.6,
+                max: 1.4,
+                display: '${(draft.fontScale * 100).round()}%',
+                onChanged: (value) =>
+                    setState(() => _draft = draft.copyWith(fontScale: value)),
+              ),
+              _SettingSlider(
+                label: '不透明度',
+                value: draft.opacity,
+                min: 0.2,
+                max: 1,
+                display: '${(draft.opacity * 100).round()}%',
+                onChanged: (value) =>
+                    setState(() => _draft = draft.copyWith(opacity: value)),
+              ),
+              _SettingSlider(
+                label: '密度',
+                value: draft.density,
+                min: 0.2,
+                max: 1,
+                display: '${draft.density.toStringAsFixed(1)}×',
+                onChanged: (value) =>
+                    setState(() => _draft = draft.copyWith(density: value)),
+              ),
+              _SettingSlider(
+                label: '速度',
+                value: draft.speed,
+                min: 0.5,
+                max: 2,
+                display: '${draft.speed.toStringAsFixed(1)}×',
+                onChanged: (value) =>
+                    setState(() => _draft = draft.copyWith(speed: value)),
+              ),
+            ];
+            return oneColumn
+                ? Column(children: settings)
+                : Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: settings[0]),
+                          const SizedBox(width: 24),
+                          Expanded(child: settings[1]),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          Expanded(child: settings[2]),
+                          const SizedBox(width: 24),
+                          Expanded(child: settings[3]),
+                        ],
+                      ),
+                    ],
+                  );
+          },
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '显示区域 ${(draft.displayAreaRatio * 100).round()}%',
+          style: TextStyle(color: colors.textPrimary, fontSize: 12),
+        ),
+        Slider(
+          value: draft.displayAreaRatio,
+          min: 0.25,
+          max: 1,
+          divisions: 3,
+          onChanged: (value) =>
+              setState(() => _draft = draft.copyWith(displayAreaRatio: value)),
+        ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 6,
+          children: [
+            FilterChip(
+              selected: draft.scrollEnabled,
+              label: const Text('滚动'),
+              onSelected: (value) =>
+                  setState(() => _draft = draft.copyWith(scrollEnabled: value)),
+            ),
+            FilterChip(
+              selected: draft.topEnabled,
+              label: const Text('顶部'),
+              onSelected: (value) =>
+                  setState(() => _draft = draft.copyWith(topEnabled: value)),
+            ),
+            FilterChip(
+              selected: draft.bottomEnabled,
+              label: const Text('底部'),
+              onSelected: (value) =>
+                  setState(() => _draft = draft.copyWith(bottomEnabled: value)),
+            ),
+            FilterChip(
+              selected: draft.avoidSubtitleArea,
+              avatar: const Icon(Icons.subtitles_off_rounded, size: 16),
+              label: const Text('避让字幕区域'),
+              onSelected: (value) => setState(
+                () => _draft = draft.copyWith(avoidSubtitleArea: value),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPreview(BuildContext context, DanmakuSettings draft) {
+    final colors = context.appColors;
+    return Container(
+      height: 154,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: colors.backgroundElevated,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(-0.35, 0.1),
+                  radius: 1.2,
+                  colors: [
+                    colors.accentSoft.withValues(alpha: 0.48),
+                    colors.backgroundElevated,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (draft.enabled) ...[
+            if (draft.scrollEnabled)
+              Positioned(
+                top: 25,
+                left: 28,
+                child: _PreviewText('这一幕的配乐太棒了', draft: draft),
+              ),
+            if (draft.topEnabled)
+              Positioned(
+                top: 62,
+                right: 42,
+                child: _PreviewText(
+                  '前方高能',
+                  draft: draft,
+                  color: colors.accentStrong,
+                ),
+              ),
+            if (draft.bottomEnabled)
+              Positioned(
+                bottom: 38,
+                left: 90,
+                child: _PreviewText('细节满分', draft: draft),
+              ),
+          ] else
+            Center(
+              child: Text('弹幕已关闭', style: TextStyle(color: colors.textMuted)),
+            ),
+          Positioned(
+            left: 12,
+            bottom: 10,
+            child: Text(
+              '样式预览',
+              style: TextStyle(color: colors.textMuted, fontSize: 10),
+            ),
+          ),
+          if (draft.avoidSubtitleArea)
+            Positioned(
+              right: 12,
+              bottom: 10,
+              child: Text(
+                '字幕避让区',
+                style: TextStyle(color: colors.textMuted, fontSize: 10),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTracks(BuildContext context, ExternalPlaybackStatus status) {
+    final colors = context.appColors;
+    final source = status.source;
+    final subtitles = _textSubtitles(source);
+    final selectedTrackIsUnavailable =
+        source.subtitleTrackGuid?.trim().isNotEmpty == true &&
+        !subtitles.any((track) => track.guid == source.subtitleTrackGuid);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '视频片源',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (source.qualities.isEmpty)
+          Text(
+            '当前媒体没有其他可切换片源',
+            style: TextStyle(color: colors.textMuted, fontSize: 12),
+          )
+        else
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: source.qualities.map((quality) {
+              final selected = quality.mediaGuid == source.mediaGuid;
+              return ChoiceChip(
+                selected: selected,
+                label: Text(_qualityLabel(quality)),
+                onSelected: !selected && !_busy && status.canControl
+                    ? (_) => _run(
+                        () => ExternalPlaybackHost(context).changeQuality(
+                          itemGuid: source.itemGuid,
+                          quality: quality,
+                        ),
+                        failure: '片源切换失败，请稍后重试',
+                      )
+                    : null,
+              );
+            }).toList(),
+          ),
+        const SizedBox(height: 26),
+        Text(
+          '外挂字幕',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '仅列出可与弹幕合并的 ASS、SRT、VTT 文本字幕。',
+          style: TextStyle(color: colors.textMuted, fontSize: 11),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          key: ValueKey(_draftSubtitleGuid),
+          initialValue: _draftSubtitleGuid,
+          decoration: const InputDecoration(labelText: '字幕选择'),
+          items: [
+            if (source.subtitleTrackGuid == null)
+              const DropdownMenuItem<String>(
+                value: null,
+                child: Text('由 PotPlayer 选择'),
+              ),
+            const DropdownMenuItem<String>(value: '', child: Text('关闭字幕')),
+            if (selectedTrackIsUnavailable && source.subtitleTrackGuid != null)
+              DropdownMenuItem<String>(
+                value: source.subtitleTrackGuid,
+                enabled: false,
+                child: Text(
+                  source.subtitleTracks.any(
+                        (track) =>
+                            track.guid == source.subtitleTrackGuid &&
+                            track.isBitmap == 1,
+                      )
+                      ? '当前位图字幕（在 PotPlayer 中切换）'
+                      : '当前内封字幕（在 PotPlayer 中切换）',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ...subtitles.map(
+              (track) => DropdownMenuItem<String>(
+                value: track.guid,
+                child: Text(
+                  _subtitleLabel(track),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+          onChanged: status.canControl
+              ? (value) => setState(() => _draftSubtitleGuid = value)
+              : null,
+        ),
+        if (selectedTrackIsUnavailable) ...[
+          const SizedBox(height: 10),
+          Text(
+            source.subtitleTracks.any(
+                  (track) =>
+                      track.guid == source.subtitleTrackGuid &&
+                      track.isBitmap == 1,
+                )
+                ? '当前是位图字幕，请在 PotPlayer 菜单中切换；这里可关闭或改用外挂文本字幕。'
+                : '当前是内封字幕，请在 PotPlayer 菜单中切换；这里可关闭或改用外挂文本字幕。',
+            style: TextStyle(color: colors.warning, fontSize: 11, height: 1.5),
+          ),
+        ],
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: colors.surfaceSubtle,
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(color: colors.borderSubtle),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.volume_up_outlined,
+                color: colors.textSecondary,
+                size: 18,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  '音轨和内封字幕由 PotPlayer 管理，请在播放器菜单中切换。',
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: 12,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlaylist(BuildContext context, ExternalPlaybackStatus status) {
+    final colors = context.appColors;
+    final seasons =
+        status.playlist.map((episode) => episode.seasonNumber).toSet().toList()
+          ..sort();
+    final season = seasons.contains(_seasonNumber)
+        ? _seasonNumber
+        : (seasons.isEmpty ? null : seasons.first);
+    final episodes = status.playlist
+        .where((episode) => season == null || episode.seasonNumber == season)
+        .toList();
+    return _Panel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '播放列表',
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${episodes.length} 集',
+                  style: TextStyle(color: colors.textMuted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          if (seasons.length > 1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: DropdownButtonFormField<int>(
+                key: ValueKey(season),
+                initialValue: season,
+                decoration: const InputDecoration(isDense: true),
+                items: seasons
+                    .map(
+                      (number) => DropdownMenuItem(
+                        value: number,
+                        child: Text(number == 0 ? '特别篇' : '第 $number 季'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() => _seasonNumber = value),
+              ),
+            ),
+          Divider(height: 1, color: colors.borderSubtle),
+          if (episodes.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(22),
+              child: Text(
+                '当前会话没有剧集目录',
+                style: TextStyle(color: colors.textMuted, fontSize: 12),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 430),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: episodes.length,
+                itemBuilder: (context, index) {
+                  final episode = episodes[index];
+                  final active = episode.itemGuid == status.source.itemGuid;
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 5, 8, 0),
+                    child: ListTile(
+                      selected: active,
+                      selectedTileColor: colors.selectionSoft,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      leading: Text(
+                        episode.episodeNumber > 0
+                            ? '${episode.episodeNumber}'
+                            : '·',
+                        style: TextStyle(
+                          color: active ? colors.accent : colors.textMuted,
+                        ),
+                      ),
+                      title: Text(
+                        episode.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: active
+                          ? Icon(
+                              Icons.graphic_eq_rounded,
+                              color: colors.accent,
+                              size: 18,
+                            )
+                          : null,
+                      onTap: !active && !_busy && status.canControl
+                          ? () => _playEpisode(status, episode)
+                          : null,
+                    ),
+                  );
+                },
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Text(
+              '切集后会重新解析该集的片源、字幕和弹幕；连续播放由 PotPlayer 的播放列表设置控制。',
+              style: TextStyle(color: colors.textMuted, fontSize: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _playEpisode(
+    ExternalPlaybackStatus status,
+    ExternalPlaylistEpisode episode,
+  ) {
+    _run(
+      () => ExternalPlaybackHost(context).playEpisode(
+        itemGuid: status.source.itemGuid,
+        episodeGuid: episode.itemGuid,
+      ),
+      failure: '剧集切换失败，请稍后重试',
+    );
+  }
+
+  String _phaseLabel(ExternalPlaybackStatus status) => switch (status.phase) {
+    ExternalPlaybackPhase.preparing => '正在连接',
+    ExternalPlaybackPhase.ready => status.paused ? '已暂停' : '播放中',
+    ExternalPlaybackPhase.disconnected => '连接已断开',
+    ExternalPlaybackPhase.ended => '播放已结束',
+  };
+
+  Color _phaseColor(AppThemeColors colors, ExternalPlaybackStatus status) =>
+      switch (status.phase) {
+        ExternalPlaybackPhase.ready => colors.success,
+        ExternalPlaybackPhase.preparing => colors.warning,
+        ExternalPlaybackPhase.disconnected => colors.danger,
+        ExternalPlaybackPhase.ended => colors.textMuted,
+      };
+
+  static String _time(Duration value) {
+    final seconds = value.inSeconds.clamp(0, 359999);
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600 ~/ 60).toString().padLeft(2, '0');
+    final remainder = (seconds % 60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$remainder' : '$minutes:$remainder';
+  }
+
+  static String _clock(DateTime value) {
+    final local = value.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
+  }
+
+  static String _qualityLabel(PlaybackQualityOption quality) {
+    final resolution = quality.resolution.trim().isEmpty
+        ? '原画'
+        : quality.resolution.trim();
+    final bitrate = quality.bitrate > 0
+        ? ' · ${(quality.bitrate / 1000000).toStringAsFixed(1)} Mbps'
+        : '';
+    return '$resolution$bitrate';
+  }
+
+  static String _subtitleLabel(SubtitleTrackOption track) {
+    final title = track.title.trim().isEmpty
+        ? track.displayLabel
+        : track.title.trim();
+    final detail = track.detailLabel;
+    return detail.isEmpty ? title : '$title · $detail';
+  }
+}
+
+class _Panel extends StatelessWidget {
+  const _Panel({required this.child, required this.padding});
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
+  }
+}
+
+class _TabButton extends StatelessWidget {
+  const _TabButton({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 17),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: selected ? colors.accent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: selected ? colors.accent : colors.textMuted,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? colors.accent : colors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingSlider extends StatelessWidget {
+  const _SettingSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.display,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final String display;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(color: colors.textPrimary, fontSize: 12),
+                ),
+              ),
+              Text(
+                display,
+                style: TextStyle(color: colors.textSecondary, fontSize: 11),
+              ),
+            ],
+          ),
+          Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewText extends StatelessWidget {
+  const _PreviewText(this.text, {required this.draft, this.color});
+
+  final String text;
+  final DanmakuSettings draft;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => Opacity(
+    opacity: draft.opacity,
+    child: Text(
+      text,
+      style: TextStyle(
+        color: color ?? context.appColors.textPrimary,
+        fontSize: 15 * draft.fontScale,
+        fontWeight: FontWeight.w700,
+        shadows: const [
+          Shadow(color: Colors.black87, blurRadius: 3, offset: Offset(1, 1)),
+        ],
+      ),
+    ),
+  );
+}

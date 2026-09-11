@@ -164,16 +164,30 @@ class NativeReentrySupport {
   /// 对齐播放器 `_submitPlaybackRecord` 的 `_externalLocalSource` 早退语义。
   static Future<void> recordProgress(
     NasProvider nas,
-    Map<String, dynamic> progress,
-  ) async {
+    Map<String, dynamic> progress, {
+    void Function(PlaybackProgressResult)? onResult,
+  }) async {
     // 暂停心跳只服务本地统计；飞牛回写保持旧行为（暂停重复帧原本就不上报）。
-    if (progress['pausedHeartbeat'] == true) return;
+    if (progress['pausedHeartbeat'] == true) {
+      onResult?.call(PlaybackProgressResult.failed);
+      return;
+    }
     final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
-    if (itemGuid.isEmpty || mediaGuid.isEmpty) return;
+    if (itemGuid.isEmpty || mediaGuid.isEmpty) {
+      onResult?.call(PlaybackProgressResult.failed);
+      return;
+    }
     final duration = (progress['duration'] as num?)?.toInt() ?? 0;
-    if (duration <= 0) return;
-    await PlaybackProgressOfflineQueue.record(nas, progress);
+    if (duration <= 0) {
+      onResult?.call(PlaybackProgressResult.failed);
+      return;
+    }
+    await PlaybackProgressOfflineQueue.record(
+      nas,
+      progress,
+      onResult: onResult,
+    );
   }
 
   static List<Map<String, dynamic>> _episodesFromLoadArgs(
