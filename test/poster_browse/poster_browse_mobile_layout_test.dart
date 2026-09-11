@@ -54,6 +54,32 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    var retainedCurves = 0;
+    void trackCurves(ObjectEvent event) {
+      if (event.object is! CurvedAnimation) return;
+      if (event is ObjectCreated) retainedCurves++;
+      if (event is ObjectDisposed) retainedCurves--;
+    }
+
+    FlutterMemoryAllocations.instance.addListener(trackCurves);
+    addTearDown(
+      () => FlutterMemoryAllocations.instance.removeListener(trackCurves),
+    );
+    // 每帧切换，连续打断吸附动画；停下后不能遗留随次数增长的曲线监听。
+    for (var i = 0; i < 160; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+    expect(index, 0);
+    expect(retainedCurves, lessThan(10));
+    expect(
+      find.descendant(
+        of: find.byType(PosterBrowsePosterCard),
+        matching: find.byType(Tooltip),
+      ),
+      findsNothing,
+    );
     // 鼠标位于顶部信息区，连续两格在同一帧内也应累计。
     for (var i = 0; i < 2; i++) {
       await tester.sendEventToBinding(
