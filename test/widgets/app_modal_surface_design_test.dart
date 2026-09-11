@@ -265,7 +265,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('PC 窄窗口媒体信息可双向切换版本，滚动条与字段留有间距', (tester) async {
+  testWidgets('PC 媒体信息可双向翻页，滚动条贴近面板右侧且字段留白不变', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
     tester.view.physicalSize = const Size(390, 800);
@@ -305,9 +305,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('版本 0  1/2'), findsOneWidget);
     final scroll = find.byType(SingleChildScrollView).first;
+    final panel = find.byKey(
+      const ValueKey<String>('app-modal-surface-media-details'),
+    );
+    expect(tester.getRect(scroll).right, tester.getRect(panel).right - 4);
     expect(
       tester.getRect(find.text('h264').first).right,
-      lessThanOrEqualTo(tester.getRect(scroll).right - 12),
+      tester.getRect(panel).right - 32,
     );
     await tester.tap(find.byTooltip('下一页'));
     await tester.pumpAndSettle();
