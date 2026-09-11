@@ -7,11 +7,10 @@ import '../../theme/app_theme.dart';
 import 'desktop_player_dialogs.dart';
 import 'desktop_player_panels.dart';
 import 'external_playback_host.dart';
+import 'external_playback_notice.dart';
 
 void _externalPlaybackMessage(BuildContext context, String message) {
-  ScaffoldMessenger.maybeOf(
-    context,
-  )?.showSnackBar(SnackBar(content: Text(message)));
+  showExternalPlaybackNotice(context, message);
 }
 
 bool _isCurrentExternalSource(MpvMediaSource source) {
@@ -197,9 +196,7 @@ class _ExternalPlaybackControlsState extends State<ExternalPlaybackControls> {
 
   void _message(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(
-      context,
-    )?.showSnackBar(SnackBar(content: Text(message)));
+    showExternalPlaybackNotice(context, message);
   }
 
   Future<void> _control(Future<bool> Function() action) async {
