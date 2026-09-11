@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../desktop/desktop_environment.dart';
 import '../providers/startup_preferences_provider.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
 
@@ -59,7 +60,10 @@ class _StartupDestinationGateState extends State<StartupDestinationGate> {
 
   Future<void> _openPosterBrowse() async {
     try {
-      await Navigator.of(context).pushNamed(widget.posterBrowseRouteName);
+      await Navigator.of(
+        context,
+        rootNavigator: DesktopEnvironment.isDesktopPlatform,
+      ).pushNamed(widget.posterBrowseRouteName);
     } finally {
       if (mounted) setState(() => _openingDestination = false);
     }

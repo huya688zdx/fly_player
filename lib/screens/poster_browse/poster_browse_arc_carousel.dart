@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 
-import '../../desktop/desktop_horizontal_wheel.dart';
+import '../../desktop/desktop_environment.dart';
 import '../../media_backend/media_image_request.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_poster_card.dart';
@@ -127,13 +128,29 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
   @override
   void didUpdateWidget(covariant PosterBrowseArcCarousel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!PosterBrowseArcMath.hasSameItemOrder(oldWidget.items, widget.items) ||
-        oldWidget.initialIndex != widget.initialIndex) {
+    if (!PosterBrowseArcMath.hasSameItemOrder(oldWidget.items, widget.items)) {
       _controller.stop();
       _pageAnimation = null;
       _animationTarget = null;
       _notifyWhenSettled = false;
       _page = widget.initialIndex.toDouble();
+    } else if (oldWidget.initialIndex != widget.initialIndex) {
+      if (DesktopEnvironment.isDesktopPlatform && widget.items.isNotEmpty) {
+        final origin = _animationTarget ?? _page;
+        final cycle = ((origin - widget.initialIndex) / widget.items.length)
+            .round();
+        final target = (widget.initialIndex + cycle * widget.items.length)
+            .toDouble();
+        if (target != _animationTarget) {
+          _animateTo(target, notifyWhenSettled: false);
+        }
+      } else {
+        _controller.stop();
+        _pageAnimation = null;
+        _animationTarget = null;
+        _notifyWhenSettled = false;
+        _page = widget.initialIndex.toDouble();
+      }
     }
   }
 
@@ -164,8 +181,16 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
               cardWidth: widget.cardWidth,
             );
         final cards = _visibleCards();
-        final content = GestureDetector(
+        return GestureDetector(
           behavior: HitTestBehavior.opaque,
+          supportedDevices: DesktopEnvironment.isDesktopPlatform
+              ? const {
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.stylus,
+                  PointerDeviceKind.invertedStylus,
+                  PointerDeviceKind.trackpad,
+                }
+              : null,
           onHorizontalDragStart: widget.items.length > 1
               ? _handleDragStart
               : null,
@@ -179,17 +204,6 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
                 .map((card) => _buildPositionedCard(card, spacing))
                 .toList(growable: false),
           ),
-        );
-        return Listener(
-          onPointerSignal: widget.items.length > 1
-              ? (event) => handleDesktopHorizontalWheel(event, (delta) {
-                  _animateTo(
-                    (_animationTarget ?? _page).roundToDouble() + delta.sign,
-                    notifyWhenSettled: true,
-                  );
-                })
-              : null,
-          child: content,
         );
       },
     );
@@ -249,6 +263,8 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
     final focused = card.delta.abs() < 0.35;
 
     return Positioned.fill(
+      // 层级每帧重排，标识必须放在 Stack 的直接子项以保留点击中的卡片身份。
+      key: ValueKey('poster_browse_arc_position_${card.realIndex}'),
       child: Transform.translate(
         offset: Offset(
           transform.horizontalOffset * spacing,
@@ -306,11 +322,16 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
   }
 
   void _handleCardTap(_VisibleArcCard card) {
+    if (DesktopEnvironment.isDesktopPlatform && _controller.isAnimating) {
+      return;
+    }
     if (card.delta.abs() < 0.35) {
       widget.onCenteredTap(card.realIndex);
       return;
     }
-    _animateTo(card.virtualIndex.toDouble(), notifyWhenSettled: true);
+    final desktop = DesktopEnvironment.isDesktopPlatform;
+    _animateTo(card.virtualIndex.toDouble(), notifyWhenSettled: !desktop);
+    if (desktop) widget.onSettled(card.realIndex);
   }
 
   void _animateTo(double target, {required bool notifyWhenSettled}) {

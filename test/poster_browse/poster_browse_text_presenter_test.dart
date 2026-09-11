@@ -74,7 +74,7 @@ void main() {
         releaseYear: '2024',
         genres: const <String>[' 科幻 ', '', '剧情', '冒险', '动画'],
         durationSeconds: 59,
-        resolutions: const <String>[' 4K ', '', '1080p', '720p'],
+        resolutions: const <String>[' 4k ', '', '1080p', '720p'],
       );
 
       expect(presenter.metaTexts(item), <String>[
@@ -83,7 +83,7 @@ void main() {
         '科幻 / 剧情 / 冒险',
         l10n.detailDurationMinutes(1),
         '4K',
-        '1080p',
+        '1080P',
       ]);
     });
 

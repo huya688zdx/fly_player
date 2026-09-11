@@ -102,7 +102,7 @@ class CatalogFilterLocalizer {
     ).firstMatch(text);
     if (match != null) return match.group(1) ?? text;
     if (text == 'Others') return l10n.commonOther;
-    return text;
+    return text.toUpperCase();
   }
 
   String _audioLabel(String value) {

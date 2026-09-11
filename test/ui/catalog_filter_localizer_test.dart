@@ -50,14 +50,14 @@ void main() {
     expect(optionLabel(MediaFilterDimensionKind.decade, '2010'), '2010');
   });
 
-  test('resolution 去掉尾部 p，Others 本地化，其余原样', () {
+  test('resolution 去掉尾部 p，Others 本地化，画质标识大写', () {
     expect(optionLabel(MediaFilterDimensionKind.resolution, '1080p'), '1080');
     expect(optionLabel(MediaFilterDimensionKind.resolution, '2160p'), '2160');
     expect(
       optionLabel(MediaFilterDimensionKind.resolution, 'Others'),
       l10n.commonOther,
     );
-    expect(optionLabel(MediaFilterDimensionKind.resolution, '4K'), '4K');
+    expect(optionLabel(MediaFilterDimensionKind.resolution, '4k'), '4K');
   });
 
   test('audioType 本地化已知规格，其余原样', () {

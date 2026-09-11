@@ -90,8 +90,10 @@ void main() {
   });
 
   testWidgets('矮视口大字号下两行标题卡片不溢出（横屏露底回归）', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
     final card = _card(id: 'overflow-1', title: '辉夜大小姐想让我告白第二季');
-    await tester.binding.setSurfaceSize(const Size(800, 360));
+    await tester.binding.setSurfaceSize(const Size(701, 331));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(
@@ -113,7 +115,12 @@ void main() {
                 items: [card],
               ),
             ],
-            displayItemOf: (card) => _displayItem(card),
+            displayItemOf: (card) => _displayItem(card).copyWith(
+              type: 'Episode',
+              seasonNumber: 2,
+              episodeNumber: 13,
+              episodeTitle: '期末考试，放学后的轻音部',
+            ),
             selectedRow: 0,
             focusedIndex: 0,
             focusedItem: _displayItem(card),
