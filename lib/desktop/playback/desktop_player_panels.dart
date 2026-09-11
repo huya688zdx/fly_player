@@ -1084,7 +1084,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.introOutroEnabled,
     required this.introMaxMinutes,
     required this.outroMaxMinutes,
-    required this.skipCountdownSeconds,
+    required this.fixedDurationSkipEnabled,
+    required this.hasNextEpisode,
     required this.subtitleDelaySeconds,
     required this.subtitlePosition,
     required this.subtitleScale,
@@ -1128,7 +1129,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
   final bool introOutroEnabled;
   final int introMaxMinutes;
   final int outroMaxMinutes;
-  final int skipCountdownSeconds;
+  final bool fixedDurationSkipEnabled;
+  final bool hasNextEpisode;
   final double subtitleDelaySeconds;
   final int subtitlePosition;
   final double subtitleScale;
@@ -1136,7 +1138,7 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required bool enabled,
     required int introMaxMinutes,
     required int outroMaxMinutes,
-    required int skipCountdownSeconds,
+    required bool fixedDurationEnabled,
   })
   onIntroOutroChanged;
   final Future<void> Function({
@@ -1536,27 +1538,73 @@ class _DesktopPlaybackSettingsPanelState
         ),
       ]);
 
-  // 片头片尾跳过：对齐安卓 buildIntroOutroPage（开关 + 时长上限 + 提示秒数）。
   Widget _buildIntroOutroPage(AppLocalizations l10n) {
-    final bounds = desktopChapterSkipBounds(widget.chapters, widget.duration);
-    final detected = <String>[
-      if (bounds.introEnd != null)
-        '片头 ${_duration(bounds.introStart!)}–${_duration(bounds.introEnd!)}',
-      if (bounds.outroStart != null) '片尾 ${_duration(bounds.outroStart!)} 起',
-    ];
+    final bounds = desktopPlaybackSkipBounds(
+      widget.chapters,
+      widget.duration,
+      chapterEnabled: widget.introOutroEnabled,
+      fixedDurationEnabled: widget.fixedDurationSkipEnabled,
+      introMinutes: widget.introMaxMinutes,
+      outroMinutes: widget.outroMaxMinutes,
+    );
+    Widget statusCard({required bool intro}) {
+      final label = intro ? '片头' : '片尾';
+      final start = intro ? bounds.introStart : bounds.outroStart;
+      final end = intro ? bounds.introEnd : widget.duration;
+      final fromChapter = intro
+          ? bounds.introFromChapter
+          : bounds.outroFromChapter;
+      if (start == null || end == null) {
+        final String reason;
+        if (!widget.introOutroEnabled && !widget.fixedDurationSkipEnabled) {
+          reason = '章节识别与固定时长跳过均已关闭。';
+        } else if (widget.duration <= Duration.zero) {
+          reason = '正在等待视频时长和章节信息。';
+        } else if (!widget.fixedDurationSkipEnabled && !fromChapter) {
+          reason = widget.chapters.isEmpty
+              ? '当前未读取到章节；未启用固定时长跳过。'
+              : '未识别到$label章节；未启用固定时长跳过。';
+        } else {
+          reason = '当前跳过范围无效或片头片尾范围重叠。';
+        }
+        return _SettingsStatusCard(
+          title: '当前$label',
+          value: '不提示跳过',
+          description: reason,
+        );
+      }
+      final basis = fromChapter ? '章节识别' : '固定时长';
+      final target = intro
+          ? '跳到 ${_duration(end)}'
+          : widget.hasNextEpisode
+          ? '播放下一集'
+          : '跳到视频结束';
+      return _SettingsStatusCard(
+        title: '当前$label',
+        value: '$basis · ${_duration(start)}–${_duration(end)}',
+        description: intro ? '点击后$target。' : '点击后$target，片尾起点之后的内容会一并跳过。',
+      );
+    }
+
     final children = <Widget>[
       _SettingsSwitchTile(
-        title: '启用片头片尾跳过',
-        subtitle: '进入片头/片尾窗口时在右下角提示跳过',
+        title: '按章节识别',
+        subtitle: '匹配 OP、ED、片头、片尾等章节名称，进入范围后提示跳过',
         value: widget.introOutroEnabled,
         onChanged: (value) => _setIntroOutro(enabled: value),
       ),
+      _SettingsSwitchTile(
+        title: '固定时长跳过',
+        subtitle: '按设定的前后时长提示；同时开启章节识别时，优先使用章节',
+        value: widget.fixedDurationSkipEnabled,
+        onChanged: (value) => _setIntroOutro(fixedDurationEnabled: value),
+      ),
     ];
-    if (widget.introOutroEnabled) {
+    if (widget.fixedDurationSkipEnabled) {
       children.add(
         _SettingsSliderTile(
-          title: '片头时长上限',
-          subtitle: '未识别到片头章节时使用该窗口',
+          title: '固定片头时长',
+          subtitle: '从视频开头到设定时间，点击跳过会跳到该时间点',
           valueLabel: '${widget.introMaxMinutes} 分钟',
           value: widget.introMaxMinutes.toDouble(),
           min: 1,
@@ -1569,8 +1617,8 @@ class _DesktopPlaybackSettingsPanelState
       );
       children.add(
         _SettingsSliderTile(
-          title: '片尾时长上限',
-          subtitle: '未识别到片尾章节时使用该窗口',
+          title: '固定片尾时长',
+          subtitle: '在视频最后这段时间内提示跳过',
           valueLabel: '${widget.outroMaxMinutes} 分钟',
           value: widget.outroMaxMinutes.toDouble(),
           min: 1,
@@ -1581,28 +1629,9 @@ class _DesktopPlaybackSettingsPanelState
               _setIntroOutro(outroMaxMinutes: value.round()),
         ),
       );
-      children.add(
-        _SettingsSliderTile(
-          title: '跳过倒计时',
-          subtitle: '提示卡停留时长',
-          valueLabel: '${widget.skipCountdownSeconds} 秒',
-          value: widget.skipCountdownSeconds.toDouble(),
-          min: 2,
-          max: 10,
-          divisions: 8,
-          onChanged: (_) {},
-          onChangeEnd: (value) =>
-              _setIntroOutro(skipCountdownSeconds: value.round()),
-        ),
-      );
     }
-    children.add(
-      _SettingsStatusCard(
-        title: '当前视频',
-        value: detected.isEmpty ? '未检测到片头片尾时间点' : detected.join(' · '),
-        description: '优先按明确的片头片尾章节跳过，未识别的部分使用时长上限。',
-      ),
-    );
+    children.add(statusCard(intro: true));
+    children.add(statusCard(intro: false));
     return _settingsList(children);
   }
 
@@ -1610,13 +1639,14 @@ class _DesktopPlaybackSettingsPanelState
     bool? enabled,
     int? introMaxMinutes,
     int? outroMaxMinutes,
-    int? skipCountdownSeconds,
+    bool? fixedDurationEnabled,
   }) async {
     await widget.onIntroOutroChanged(
       enabled: enabled ?? widget.introOutroEnabled,
       introMaxMinutes: introMaxMinutes ?? widget.introMaxMinutes,
       outroMaxMinutes: outroMaxMinutes ?? widget.outroMaxMinutes,
-      skipCountdownSeconds: skipCountdownSeconds ?? widget.skipCountdownSeconds,
+      fixedDurationEnabled:
+          fixedDurationEnabled ?? widget.fixedDurationSkipEnabled,
     );
   }
 

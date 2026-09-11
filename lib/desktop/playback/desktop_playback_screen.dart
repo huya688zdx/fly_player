@@ -110,8 +110,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   static const String _introOutroEnabledPrefKey = 'player_intro_outro_enabled';
   static const String _introMaxMinutesPrefKey = 'player_intro_outro_intro_min';
   static const String _outroMaxMinutesPrefKey = 'player_intro_outro_outro_min';
-  static const String _skipCountdownPrefKey =
-      'player_intro_outro_countdown_sec';
+  static const String _fixedDurationSkipPrefKey =
+      'player_intro_outro_fixed_duration_enabled';
   static const String _subDelayPrefKey = 'player_subtitle_delay_seconds';
   static const String _subPosPrefKey = 'player_subtitle_position';
   static const String _subScalePrefKey = 'player_subtitle_scale';
@@ -203,7 +203,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   bool _introOutroEnabled = true;
   int _introMaxMinutes = 2;
   int _outroMaxMinutes = 2;
-  int _skipCountdownSeconds = 5;
+  bool _fixedDurationSkipEnabled = false;
   // 片头片尾跳过提示：ValueNotifier 驱动，全屏路由下也能即时显隐。
   final ValueNotifier<_SkipPromptKind?> _skipPromptKindNotifier =
       ValueNotifier<_SkipPromptKind?>(null);
@@ -387,7 +387,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _introOutroEnabled = prefs.getBool(_introOutroEnabledPrefKey) ?? true;
       _introMaxMinutes = prefs.getInt(_introMaxMinutesPrefKey) ?? 2;
       _outroMaxMinutes = prefs.getInt(_outroMaxMinutesPrefKey) ?? 2;
-      _skipCountdownSeconds = prefs.getInt(_skipCountdownPrefKey) ?? 5;
+      _fixedDurationSkipEnabled =
+          prefs.getBool(_fixedDurationSkipPrefKey) ?? false;
       _subtitleDelaySeconds = prefs.getDouble(_subDelayPrefKey) ?? 0;
       _subtitlePosition = prefs.getInt(_subPosPrefKey) ?? 92;
       _subtitleScale = prefs.getDouble(_subScalePrefKey) ?? 1;
@@ -924,22 +925,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     );
   }
 
-  ({Duration introStart, Duration introEnd, Duration outroStart})
-  get _skipBounds {
-    final duration = _player.state.duration;
-    final bounds = desktopChapterSkipBounds(_chapters, duration);
-    final start = bounds.introStart ?? Duration.zero;
-    return (
-      introStart: start < const Duration(seconds: 2)
-          ? const Duration(seconds: 2)
-          : start,
-      introEnd: bounds.introEnd ?? Duration(minutes: _introMaxMinutes),
-      outroStart:
-          bounds.outroStart ?? duration - Duration(minutes: _outroMaxMinutes),
-    );
-  }
+  get _skipBounds => desktopPlaybackSkipBounds(
+    _chapters,
+    _player.state.duration,
+    chapterEnabled: _introOutroEnabled,
+    fixedDurationEnabled: _fixedDurationSkipEnabled,
+    introMinutes: _introMaxMinutes,
+    outroMinutes: _outroMaxMinutes,
+  );
 
-  /// 优先使用章节边界，无明确片头/片尾章节时回退到设置的时长窗口。
+  /// 仅在已启用的章节或固定时长范围内提示跳过。
   void _onPositionChanged(Duration position) {
     _weakNetwork.onPosition(position);
     unawaited(_refreshSegmentedSubtitle(position));
@@ -965,7 +960,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   _SkipPromptKind? _computeSkipPromptKind(Duration position) {
-    if (!_introOutroEnabled ||
+    if ((!_introOutroEnabled && !_fixedDurationSkipEnabled) ||
         _playbackCompleted ||
         _isLoading ||
         _abLoopStart != null) {
@@ -974,17 +969,18 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final duration = _player.state.duration;
     if (duration <= Duration.zero) return null;
     final bounds = _skipBounds;
+    final introStart = bounds.introStart;
     final introEnd = bounds.introEnd;
     final outroStart = bounds.outroStart;
     if (!_introSkipDismissed &&
-        position >= bounds.introStart &&
-        position < introEnd &&
-        introEnd < outroStart) {
+        introStart != null &&
+        introEnd != null &&
+        position >= const Duration(seconds: 2) &&
+        position >= introStart &&
+        position < introEnd) {
       return _SkipPromptKind.intro;
     }
-    if (!_outroSkipDismissed &&
-        outroStart > introEnd &&
-        position >= outroStart) {
+    if (!_outroSkipDismissed && outroStart != null && position >= outroStart) {
       return _SkipPromptKind.outro;
     }
     return null;
@@ -1002,7 +998,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (kind == null) return;
     _dismissSkipPrompt();
     if (kind == _SkipPromptKind.intro) {
-      await _seekTo(_skipBounds.introEnd);
+      final target = _skipBounds.introEnd;
+      if (target != null) await _seekTo(target);
       return;
     }
     final next = _nextEpisode;
@@ -1017,21 +1014,24 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     required bool enabled,
     required int introMaxMinutes,
     required int outroMaxMinutes,
-    required int skipCountdownSeconds,
+    required bool fixedDurationEnabled,
   }) async {
     if (mounted) {
       _updateView(() {
         _introOutroEnabled = enabled;
         _introMaxMinutes = introMaxMinutes.clamp(1, 4);
         _outroMaxMinutes = outroMaxMinutes.clamp(1, 4);
-        _skipCountdownSeconds = skipCountdownSeconds.clamp(2, 10);
+        _fixedDurationSkipEnabled = fixedDurationEnabled;
+        _skipPromptKindNotifier.value = _computeSkipPromptKind(
+          _player.state.position,
+        );
       });
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_introOutroEnabledPrefKey, enabled);
     await prefs.setInt(_introMaxMinutesPrefKey, _introMaxMinutes);
     await prefs.setInt(_outroMaxMinutesPrefKey, _outroMaxMinutes);
-    await prefs.setInt(_skipCountdownPrefKey, _skipCountdownSeconds);
+    await prefs.setBool(_fixedDurationSkipPrefKey, fixedDurationEnabled);
   }
 
   Future<void> _selectChapter(Duration position) async {
@@ -2515,7 +2515,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           introOutroEnabled: _introOutroEnabled,
           introMaxMinutes: _introMaxMinutes,
           outroMaxMinutes: _outroMaxMinutes,
-          skipCountdownSeconds: _skipCountdownSeconds,
+          fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
+          hasNextEpisode: _nextEpisode != null,
           subtitleDelaySeconds: _subtitleDelaySeconds,
           subtitlePosition: _subtitlePosition,
           subtitleScale: _subtitleScale,
@@ -2996,51 +2997,55 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       style: PlayerOverlayPanelStyle.centeredDialog,
       barrierLabel: _l10n.commonClose,
       closeTooltip: _l10n.commonClose,
-      builder: (context) => DesktopPlaybackSettingsPanel(
-        reserveCloseButtonSpace: true,
-        source: _source,
-        position: _player.state.position,
-        duration: _player.state.duration,
-        autoPlayEnabled: _autoPlayEnabled,
-        nextEpisodePreloadEnabled: _nextEpisodePreloadEnabled,
-        aspectRatioMode: _aspectRatioMode,
-        decoderMode: _decoderMode,
-        mpvSettings: _mpvSettings,
-        videoAdjustments: _videoAdjustments,
-        audioDelaySeconds: _audioDelaySeconds,
-        bookmarks: _bookmarks,
-        danmakuEnabled: _danmakuSettings.enabled,
-        danmakuSourceLabel: _danmakuSourceLabel,
-        danmakuCommentCount: _danmakuComments.length,
-        initialPage: initialPage,
-        onAutoPlayChanged: _setAutoPlayEnabled,
-        onNextEpisodePreloadChanged: _setNextEpisodePreloadEnabled,
-        onAspectRatioChanged: _setAspectRatioMode,
-        onDecoderChanged: _setDecoderMode,
-        onMpvAdvancedChanged: _setMpvAdvancedSetting,
-        onVideoAdjustmentChanged: _setVideoAdjustment,
-        onAudioDelayChanged: _setAudioDelay,
-        onLoadSavedPresets: _loadSavedPresets,
-        onApplySavedPreset: _applySavedMpvPreset,
-        chapters: _chapters,
-        introOutroEnabled: _introOutroEnabled,
-        introMaxMinutes: _introMaxMinutes,
-        outroMaxMinutes: _outroMaxMinutes,
-        skipCountdownSeconds: _skipCountdownSeconds,
-        subtitleDelaySeconds: _subtitleDelaySeconds,
-        subtitlePosition: _subtitlePosition,
-        subtitleScale: _subtitleScale,
-        onIntroOutroChanged: _setIntroOutroSettings,
-        onSubtitleStyleChanged: _setSubtitleStyleSettings,
-        onSelectChapter: _selectChapter,
-        onAddBookmark: _addBookmark,
-        onDeleteBookmark: _deleteBookmark,
-        onSelectBookmark: (entry) async {
-          Navigator.of(context).pop();
-          await _selectBookmark(entry);
-        },
-        danmakuSettingsPageBuilder: _buildDanmakuSettingsPage,
-        danmakuSourcesPageBuilder: _buildDanmakuSourcesPage,
+      builder: (context) => ValueListenableBuilder<int>(
+        valueListenable: _viewRevision,
+        builder: (context, _, __) => DesktopPlaybackSettingsPanel(
+          reserveCloseButtonSpace: true,
+          source: _source,
+          position: _player.state.position,
+          duration: _player.state.duration,
+          autoPlayEnabled: _autoPlayEnabled,
+          nextEpisodePreloadEnabled: _nextEpisodePreloadEnabled,
+          aspectRatioMode: _aspectRatioMode,
+          decoderMode: _decoderMode,
+          mpvSettings: _mpvSettings,
+          videoAdjustments: _videoAdjustments,
+          audioDelaySeconds: _audioDelaySeconds,
+          bookmarks: _bookmarks,
+          danmakuEnabled: _danmakuSettings.enabled,
+          danmakuSourceLabel: _danmakuSourceLabel,
+          danmakuCommentCount: _danmakuComments.length,
+          initialPage: initialPage,
+          onAutoPlayChanged: _setAutoPlayEnabled,
+          onNextEpisodePreloadChanged: _setNextEpisodePreloadEnabled,
+          onAspectRatioChanged: _setAspectRatioMode,
+          onDecoderChanged: _setDecoderMode,
+          onMpvAdvancedChanged: _setMpvAdvancedSetting,
+          onVideoAdjustmentChanged: _setVideoAdjustment,
+          onAudioDelayChanged: _setAudioDelay,
+          onLoadSavedPresets: _loadSavedPresets,
+          onApplySavedPreset: _applySavedMpvPreset,
+          chapters: _chapters,
+          introOutroEnabled: _introOutroEnabled,
+          introMaxMinutes: _introMaxMinutes,
+          outroMaxMinutes: _outroMaxMinutes,
+          fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
+          hasNextEpisode: _nextEpisode != null,
+          subtitleDelaySeconds: _subtitleDelaySeconds,
+          subtitlePosition: _subtitlePosition,
+          subtitleScale: _subtitleScale,
+          onIntroOutroChanged: _setIntroOutroSettings,
+          onSubtitleStyleChanged: _setSubtitleStyleSettings,
+          onSelectChapter: _selectChapter,
+          onAddBookmark: _addBookmark,
+          onDeleteBookmark: _deleteBookmark,
+          onSelectBookmark: (entry) async {
+            Navigator.of(context).pop();
+            await _selectBookmark(entry);
+          },
+          danmakuSettingsPageBuilder: _buildDanmakuSettingsPage,
+          danmakuSourcesPageBuilder: _buildDanmakuSourcesPage,
+        ),
       ),
     );
   }
@@ -3863,13 +3868,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           builder: (context, kind, _) {
             final hasNext =
                 kind == _SkipPromptKind.outro && _nextEpisode != null;
+            final bounds = _skipBounds;
+            final fromChapter = kind == _SkipPromptKind.intro
+                ? bounds.introFromChapter
+                : bounds.outroFromChapter;
+            final basis = fromChapter ? '章节识别' : '固定时长';
             final message = kind == _SkipPromptKind.intro
-                ? '跳过片头'
+                ? '片头 · $basis'
                 : kind == null
                 ? null
-                : hasNext
-                ? '跳过片尾，播放下一集'
-                : '跳过片尾';
+                : '片尾 · $basis';
             return IgnorePointer(
               ignoring: kind == null,
               child: AnimatedSlide(
@@ -3911,7 +3919,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                               minimumSize: const Size(0, 30),
                             ),
                             child: Text(
-                              hasNext ? '下一集' : '立即跳过',
+                              kind == _SkipPromptKind.intro
+                                  ? '跳到 ${_formatDuration(bounds.introEnd ?? Duration.zero)}'
+                                  : hasNext
+                                  ? '播放下一集'
+                                  : '跳到视频结束',
                               style: const TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w700,
