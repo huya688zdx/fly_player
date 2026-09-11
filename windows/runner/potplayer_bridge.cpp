@@ -15,6 +15,7 @@ constexpr WPARAM kGetPosition = 0x5004;
 constexpr WPARAM kSetPosition = 0x5005;
 constexpr WPARAM kGetState = 0x5006;
 constexpr WPARAM kSetState = 0x5007;
+constexpr WPARAM kSetPlayOrder = 0x5008;
 constexpr WPARAM kSetSpeed = 0x5016;
 constexpr WPARAM kGetFile = 0x6020;
 using Value = flutter::EncodableValue;
@@ -112,7 +113,7 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
         const auto& method = call.method_name();
         if (method != "snapshot" && method != "activate" && method != "close" &&
             method != "configure" && method != "launch" &&
-            method != "subtitle") {
+            method != "subtitle" && method != "stepPlaylist") {
           result->NotImplemented();
           return;
         }
@@ -128,7 +129,8 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
         Request request;
         request.method = method;
         request.media_url = ReadString(*args, "mediaUrl");
-        if ((method == "activate" || method == "configure") &&
+        if ((method == "activate" || method == "configure" ||
+             method == "stepPlaylist") &&
             args->count(Value("mediaUrl")) && request.media_url.empty()) {
           result->Error("invalid_media_url", "播放媒体标识为空");
           return;
@@ -139,6 +141,14 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
             result->Error("invalid_subtitle", "字幕文件或媒体标识为空");
             return;
           }
+        }
+        if (method == "stepPlaylist") {
+          const int64_t direction = ReadInteger(*args, "direction", 0);
+          if (request.media_url.empty() || (direction != -1 && direction != 1)) {
+            result->Error("invalid_playlist_step", "播放列表切换方向或媒体标识无效");
+            return;
+          }
+          request.playlist_direction = static_cast<int>(direction);
         }
         if (method == "launch") {
           request.executable = WideString(ReadString(*args, "executable"));
@@ -308,7 +318,8 @@ PotPlayerBridge::Completion PotPlayerBridge::Execute(Request request,
     completion.value = Value(PostMessageW(window, WM_CLOSE, 0, 0) != FALSE);
     return completion;
   }
-  if ((request.method == "activate" || request.method == "configure") &&
+  if ((request.method == "activate" || request.method == "configure" ||
+       request.method == "stepPlaylist") &&
       !request.media_url.empty()) {
     if (!receiver) {
       completion.error = "potplayer_receiver";
@@ -356,6 +367,12 @@ PotPlayerBridge::Completion PotPlayerBridge::Execute(Request request,
              sent;
     }
     completion.value = Value(sent);
+    return completion;
+  }
+  if (request.method == "stepPlaylist") {
+    const LPARAM order = request.playlist_direction < 0 ? 0 : 1;
+    completion.value = Value(
+        PostMessageW(window, WM_USER, kSetPlayOrder, order) != FALSE);
     return completion;
   }
   if (!receiver) {
