@@ -21,6 +21,7 @@ import 'package:fly_player/screens/language_settings_screen.dart';
 import 'package:fly_player/screens/theme_settings_screen.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
+import 'package:fly_player/widgets/common/app_ambient_page.dart';
 
 void main() {
   const embeddingChannel = MethodChannel('fly_player/embedding');
@@ -379,6 +380,36 @@ void main() {
       find.byKey(const ValueKey<String>('desktop_settings_two_pane_row')),
       findsNothing,
     );
+    expect(
+      AppAmbientPage.sharesBackgroundOf(
+        tester.element(find.byType(LanguageSettingsScreen)),
+      ),
+      isTrue,
+      reason: '壳层副屏也必须继承共享背景标记',
+    );
+    expect(find.byType(AppAtmosphericBackground), findsOneWidget);
+    final paneSurface = tester.widget<ColoredBox>(
+      find
+          .descendant(
+            of: find.byType(DesktopDetailPaneHost),
+            matching: find.byType(ColoredBox),
+          )
+          .first,
+    );
+    expect(paneSurface.color, Colors.transparent);
+    await host.openRoute('/screen/settings/parallel-window');
+    await tester.pumpAndSettle();
+    final settingsCard = tester.widget<Container>(
+      find
+          .ancestor(of: find.text('启用平行窗口'), matching: find.byType(Container))
+          .first,
+    );
+    expect(
+      (settingsCard.decoration! as BoxDecoration).color!.a,
+      closeTo(0.16, 0.01),
+    );
+    await host.backInPane();
+    await tester.pumpAndSettle();
     await host.backInPane();
     await tester.pumpAndSettle();
     expect(find.byType(DesktopDetailPaneHost), findsNothing);
