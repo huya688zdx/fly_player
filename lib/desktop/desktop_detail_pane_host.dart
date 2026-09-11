@@ -10,6 +10,7 @@ import '../ui/app_transitions.dart';
 import '../ui/detail_route_builder.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/async_action_guard.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'desktop_split_controller.dart';
 
 /// 桌面「浏览 | 详情」分屏的详情宿主。
@@ -223,6 +224,20 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
 
   @override
   Widget build(BuildContext context) {
+    final path = paneRoutePath(currentRouteName ?? baseRouteName);
+    final settingsPane =
+        path == '/screen/settings' || path.startsWith('/screen/settings/');
+    final navigator = ColoredBox(
+      color: settingsPane ? Colors.transparent : context.appColors.surface,
+      child: Navigator(
+        key: _navigatorKey,
+        initialRoute: baseRouteName,
+        onGenerateInitialRoutes: _buildInitialRoutes,
+        onGenerateRoute: _generateRoute,
+        onUnknownRoute: _generateRoute,
+        observers: <NavigatorObserver>[_routeObserver],
+      ),
+    );
     return PlayerPaneHostScope(
       controller: this,
       child: LayoutBuilder(
@@ -230,17 +245,11 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
           data: MediaQuery.of(
             context,
           ).copyWith(size: Size(constraints.maxWidth, constraints.maxHeight)),
-          child: ColoredBox(
-            color: context.appColors.surface,
-            child: Navigator(
-              key: _navigatorKey,
-              initialRoute: baseRouteName,
-              onGenerateInitialRoutes: _buildInitialRoutes,
-              onGenerateRoute: _generateRoute,
-              onUnknownRoute: _generateRoute,
-              observers: <NavigatorObserver>[_routeObserver],
-            ),
-          ),
+          // 副屏与设置首页是兄弟节点，须在导航器外共享整窗背景，
+          // 使后续压入的设置子页也继承卡片材质和控件配色。
+          child: settingsPane
+              ? AppAmbientPage(shareBackground: true, child: navigator)
+              : navigator,
         ),
       ),
     );
