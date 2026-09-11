@@ -29,6 +29,7 @@ import 'desktop_mpv_runtime.dart';
 import 'desktop_playback_chapters.dart';
 import 'desktop_playback_reporter.dart';
 import 'desktop_playback_session.dart';
+import 'desktop_system_media_controls.dart';
 import 'desktop_weak_network_monitor.dart';
 import 'desktop_player_controls.dart';
 import 'desktop_player_dialogs.dart';
@@ -118,6 +119,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   late final Player _player;
   late final VideoController _videoController;
+  DesktopSystemMediaControls? _systemMediaControls;
   late final DesktopWeakNetworkMonitor _weakNetwork;
   late MpvMediaSource _source;
   late final StreamSubscription<String> _errorSubscription;
@@ -235,6 +237,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     );
     // media_kit 的全屏控制层属于另一条路由，宿主页 setState 不会重建它。
     _viewRevision.value++;
+    _syncSystemMediaControls();
   }
 
   AppLocalizations get _l10n => AppLocalizations.of(context);
@@ -273,6 +276,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _playbackRate = _validPlaybackRate(_source.playbackSpeed);
     _volume = _player.state.volume;
     if (_volume > 0) _lastAudibleVolume = _volume;
+    if (Platform.isWindows) {
+      _systemMediaControls = DesktopSystemMediaControls(
+        onPlaying: _setSystemPlaying,
+        onSeek: (position) async {
+          if (mounted && !_isLoading) await _seekTo(position);
+        },
+      );
+      _updateSystemMediaMetadata();
+    }
 
     _errorSubscription = _player.stream.error.listen(_onPlayerError);
     _playingSubscription = _player.stream.playing.listen(_onPlayingChanged);
@@ -315,6 +327,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   @override
   void dispose() {
+    unawaited(_systemMediaControls?.dispose());
     windowManager.removeListener(this);
     if (_isLocked) unawaited(windowManager.setPreventClose(false));
     _weakNetwork.dispose();
@@ -915,7 +928,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     await _setMpvProperty('audio-delay', normalized.toStringAsFixed(1));
   }
 
-  void _onDurationChanged(Duration duration) => _chapterLoader.load(duration);
+  void _onDurationChanged(Duration duration) {
+    _chapterLoader.load(duration);
+    _syncSystemMediaControls();
+  }
 
   void _onChaptersChanged() {
     if (!mounted) return;
@@ -936,6 +952,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   /// 仅在已启用的章节或固定时长范围内提示跳过。
   void _onPositionChanged(Duration position) {
+    _syncSystemMediaControls();
     _weakNetwork.onPosition(position);
     unawaited(_refreshSegmentedSubtitle(position));
     if (!_isLoading && _errorMessage == null) {
@@ -1058,6 +1075,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final previousSource = _source;
     final previousTracks = _player.state.track;
     _source = source;
+    _updateSystemMediaMetadata();
     _weakNetwork.setSource(source);
     _pausedByUser = !play;
     widget.session.ready = false;
@@ -1668,6 +1686,54 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!mounted || _isLoading) return;
     _pausedByUser = _isPlaying;
     await _player.playOrPause();
+  }
+
+  void _updateSystemMediaMetadata() {
+    unawaited(
+      _systemMediaControls?.setMetadata(
+        title: _source.title.trim().isEmpty
+            ? _source.seriesTitle
+            : _source.title,
+        subtitle: _subtitle,
+      ),
+    );
+  }
+
+  void _syncSystemMediaControls() {
+    if (!mounted) return;
+    unawaited(
+      _systemMediaControls?.update(
+        status: _errorMessage != null
+            ? 'closed'
+            : _isLoading
+            ? 'changing'
+            : _player.state.completed
+            ? 'stopped'
+            : _player.state.playing
+            ? 'playing'
+            : 'paused',
+        position: _player.state.position,
+        duration: _player.state.duration,
+        rate: _playbackRate,
+      ),
+    );
+  }
+
+  Future<void> _setSystemPlaying(bool playing) async {
+    if (!mounted || _isLoading || _errorMessage != null) return;
+    if (playing == _player.state.playing && !_player.state.completed) return;
+    _wakeControls();
+    if (playing && _player.state.completed) {
+      await _replayCompleted();
+    } else if (playing) {
+      await _refreshDirectLinkIfNeeded(beforePlay: true);
+      if (!mounted || _isLoading) return;
+      _pausedByUser = false;
+      await _player.play();
+    } else {
+      _pausedByUser = true;
+      await _player.pause();
+    }
   }
 
   Future<void> _seekRelative(Duration offset) async {
