@@ -274,7 +274,10 @@ class PotPlayerSession with WidgetsBindingObserver {
     }
   }
 
-  Future<bool> activate({Duration? position}) async {
+  Future<bool> activate({
+    Duration? position,
+    bool resumePlayback = true,
+  }) async {
     if (_finished || !isCurrentSession()) return false;
     final state = await _snapshot();
     if (!_matches(state) || !{1, 2}.contains(state['state'])) return false;
@@ -288,11 +291,13 @@ class PotPlayerSession with WidgetsBindingObserver {
       if (position != null) 'positionMs': position.inMilliseconds,
       'mediaUrl': mediaUrl,
     });
-    await channel.invokeMethod<void>('configure', {
-      'pid': pid,
-      'paused': false,
-      'mediaUrl': mediaUrl,
-    });
+    if (resumePlayback) {
+      await channel.invokeMethod<void>('configure', {
+        'pid': pid,
+        'paused': false,
+        'mediaUrl': mediaUrl,
+      });
+    }
     return true;
   }
 

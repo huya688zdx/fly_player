@@ -25,6 +25,7 @@ class PotPlayerBridge {
     bool focus = true;
     int paused = -1;
     int speed = -1;
+    int playlist_direction = 0;
     std::wstring subtitle_path;
     std::string media_url;
     std::wstring executable;

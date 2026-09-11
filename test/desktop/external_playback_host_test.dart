@@ -62,8 +62,10 @@ void main() {
           }
           state['state'] = arguments['paused'] == true ? 1 : 2;
         } else if (call.method == 'activate') {
-          expect(arguments['focus'], false);
-          state['positionMs'] = arguments['positionMs'] as int;
+          if (arguments.containsKey('positionMs')) {
+            expect(arguments['focus'], false);
+            state['positionMs'] = arguments['positionMs'] as int;
+          }
         } else if (call.method == 'subtitle') {
           expect(arguments['mediaUrl'], video.path);
           expect(calls.any((call) => call.method == 'snapshot'), isTrue);
@@ -128,6 +130,12 @@ void main() {
       );
       expect(ExternalPlaybackHost.status.value!.paused, isTrue);
       expect(
+        await ExternalPlaybackHost.activateCurrent(itemGuid: 'local-probe'),
+        isTrue,
+      );
+      expect(ExternalPlaybackHost.status.value!.paused, isTrue);
+      expect(ExternalPlaybackHost.status.value!.canControl, isTrue);
+      expect(
         await ExternalPlaybackHost.seek(
           const Duration(seconds: 32),
           itemGuid: 'local-probe',
@@ -151,6 +159,20 @@ void main() {
       expect(ExternalPlaybackHost.status.value!.danmakuCount, 1);
       expect(ExternalPlaybackHost.status.value!.danmakuLabel, '手动匹配');
       expect(
+        await ExternalPlaybackHost.applySettings(
+          itemGuid: 'local-probe',
+          settings: ExternalPlaybackHost.status.value!.danmakuSettings.copyWith(
+            fontScale: 1.3,
+            opacity: 0.6,
+          ),
+          subtitleGuid: '',
+        ),
+        isTrue,
+      );
+      expect(subtitles.last, contains('当前影片弹幕'));
+      expect(ExternalPlaybackHost.status.value!.source.subtitleTrackGuid, '');
+      expect(ExternalPlaybackHost.status.value!.danmakuSettings.fontScale, 1.3);
+      expect(
         await ExternalPlaybackHost.applyDanmaku(
           itemGuid: 'local-probe',
           path: '${directory.path}/missing.json',
@@ -159,7 +181,7 @@ void main() {
         ),
         isFalse,
       );
-      expect(subtitles, hasLength(2));
+      expect(subtitles, hasLength(3));
       expect(ExternalPlaybackHost.status.value!.danmakuLabel, '手动匹配');
       await ExternalPlaybackHost.stop();
       expect(ExternalPlaybackHost.status.value, isNull);

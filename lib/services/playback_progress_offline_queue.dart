@@ -7,6 +7,8 @@ import '../api/feiniu_api.dart';
 import '../providers/nas_provider.dart';
 import '../utils/app_exception.dart';
 
+enum PlaybackProgressResult { synced, queued, failed }
+
 /// 进度离线排队。
 ///
 /// 原生壳/在线播放器把播放进度回写 NAS（`recordPlayback`）时，断网/超时会直接丢失。
@@ -34,11 +36,19 @@ class PlaybackProgressOfflineQueue {
     return result;
   }
 
-  static Future<void> record(NasProvider nas, Map<String, dynamic> progress) =>
-      _ordered(() async {
-        await _enqueue(progress);
-        await _flush(nas);
-      });
+  static Future<void> record(
+    NasProvider nas,
+    Map<String, dynamic> progress, {
+    void Function(PlaybackProgressResult)? onResult,
+  }) => _ordered(() async {
+    final didEnqueue = await _enqueue(progress);
+    if (!didEnqueue) {
+      onResult?.call(PlaybackProgressResult.failed);
+      return;
+    }
+    final result = await _flush(nas, resultKey: _keyOf(progress));
+    onResult?.call(result ?? PlaybackProgressResult.queued);
+  });
   static bool _serverFlushing = false;
 
   static Future<void> enqueueServer({
@@ -46,10 +56,15 @@ class PlaybackProgressOfflineQueue {
     required String mediaSourceId,
     required int positionSeconds,
     bool isPaused = false,
+    void Function(PlaybackProgressResult)? onResult,
   }) async {
     final normalizedItemId = itemId.trim();
     final normalizedMediaSourceId = mediaSourceId.trim();
-    if (normalizedItemId.isEmpty || normalizedMediaSourceId.isEmpty) return;
+    if (normalizedItemId.isEmpty || normalizedMediaSourceId.isEmpty) {
+      onResult?.call(PlaybackProgressResult.failed);
+      return;
+    }
+    PlaybackProgressResult result;
     try {
       final prefs = await SharedPreferences.getInstance();
       final entries = _readServer(prefs);
@@ -61,10 +76,15 @@ class PlaybackProgressOfflineQueue {
         'enqueuedAt': DateTime.now().millisecondsSinceEpoch,
       };
       _trimServer(entries);
-      await prefs.setString(_serverPrefsKey, jsonEncode(entries));
+      final saved = await prefs.setString(_serverPrefsKey, jsonEncode(entries));
+      result = saved
+          ? PlaybackProgressResult.queued
+          : PlaybackProgressResult.failed;
     } catch (_) {
       // 离线队列是旁路能力，落盘失败不应阻断播放。
+      result = PlaybackProgressResult.failed;
     }
+    onResult?.call(result);
   }
 
   static Future<void> flushServer(
@@ -128,16 +148,23 @@ class PlaybackProgressOfflineQueue {
   }
 
   /// 入队（按 key upsert，保留最新），发送失败时留待下次重放。
-  static Future<void> enqueue(Map<String, dynamic> progress) =>
-      _ordered(() => _enqueue(progress));
+  static Future<void> enqueue(
+    Map<String, dynamic> progress, {
+    void Function(PlaybackProgressResult)? onResult,
+  }) => _ordered(() async {
+    final saved = await _enqueue(progress);
+    onResult?.call(
+      saved ? PlaybackProgressResult.queued : PlaybackProgressResult.failed,
+    );
+  });
 
-  static Future<void> _enqueue(Map<String, dynamic> progress) async {
+  static Future<bool> _enqueue(Map<String, dynamic> progress) async {
     final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
     final videoGuid = (progress['videoGuid'] ?? '').toString().trim();
-    if (itemGuid.isEmpty || mediaGuid.isEmpty) return;
+    if (itemGuid.isEmpty || mediaGuid.isEmpty) return false;
     final duration = (progress['duration'] as num?)?.toInt() ?? 0;
-    if (duration <= 0) return;
+    if (duration <= 0) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
       final map = _read(prefs);
@@ -155,21 +182,28 @@ class PlaybackProgressOfflineQueue {
         'enqueuedAt': DateTime.now().millisecondsSinceEpoch,
       };
       _trim(map);
-      await prefs.setString(_prefsKey, jsonEncode(map));
+      return await prefs.setString(_prefsKey, jsonEncode(map));
     } catch (_) {
       // 排队是旁路能力，落盘失败静默。
+      return false;
     }
   }
 
   /// 重放队列：旧的先发。成功删除；仍断网保留并提前结束；不可恢复错误丢弃该条。
-  static Future<void> flush(NasProvider nas) => _ordered(() => _flush(nas));
+  static Future<void> flush(NasProvider nas) => _ordered(() async {
+    await _flush(nas);
+  });
 
-  static Future<void> _flush(NasProvider nas) async {
-    if (!nas.isConfigured) return;
+  static Future<PlaybackProgressResult?> _flush(
+    NasProvider nas, {
+    String? resultKey,
+  }) async {
+    if (!nas.isConfigured) return null;
+    PlaybackProgressResult? result;
     try {
       final prefs = await SharedPreferences.getInstance();
       final map = _read(prefs);
-      if (map.isEmpty) return;
+      if (map.isEmpty) return result;
       final api = FeiniuApi(nas);
       final keys = _sortedByEnqueuedAt(map);
       var dirty = false;
@@ -178,27 +212,32 @@ class PlaybackProgressOfflineQueue {
         if (entry is! Map) {
           map.remove(key);
           dirty = true;
+          if (key == resultKey) result = PlaybackProgressResult.failed;
           continue;
         }
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
         if (duration <= 0) {
           map.remove(key);
           dirty = true;
+          if (key == resultKey) result = PlaybackProgressResult.failed;
           continue;
         }
         try {
           await _send(api, Map<String, dynamic>.from(entry));
           map.remove(key);
           dirty = true;
+          if (key == resultKey) result = PlaybackProgressResult.synced;
         } catch (e) {
           final ex = AppException.from(e, action: 'playback record');
           if (ex.isTransient) {
             // 网络仍未恢复：保留剩余条目，下次再试。
+            if (key == resultKey) result = PlaybackProgressResult.queued;
             break;
           }
           // 鉴权/数据/致命：重放也不会成功，丢弃避免堆积。
           map.remove(key);
           dirty = true;
+          if (key == resultKey) result = PlaybackProgressResult.failed;
         }
       }
       if (dirty) {
@@ -211,6 +250,7 @@ class PlaybackProgressOfflineQueue {
     } catch (_) {
       // 重放失败静默，条目仍在盘上，下次再试。
     }
+    return result;
   }
 
   static Future<void> _send(FeiniuApi api, Map<String, dynamic> entry) async {
