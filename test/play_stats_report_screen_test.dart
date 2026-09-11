@@ -10,6 +10,7 @@ import 'package:fly_player/screens/play_stats_report/play_stats_report_widgets.d
 import 'package:fly_player/screens/play_stats_report_screen.dart';
 import 'package:fly_player/services/play_stats/play_stats.dart';
 import 'package:fly_player/ui/app_info_popover.dart';
+import 'package:fly_player/widgets/common/app_ambient_page.dart';
 
 void main() {
   testWidgets('switches range and opens detail page', (
@@ -24,6 +25,8 @@ void main() {
           locale: const Locale('zh'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) =>
+              AppAmbientPage(shareBackground: true, child: child!),
           home: PlayStatsReportScreen(
             summaryRepository: repository,
             detailPageBuilder: (_) =>
@@ -37,6 +40,21 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('30天'), findsOneWidget);
+    final heroCard = tester.widget<Container>(
+      find
+          .descendant(
+            of: find.byType(PlayStatsHeroCard),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    final decoration = heroCard.decoration! as BoxDecoration;
+    expect(decoration.gradient!.colors.every((color) => color.a < 0.2), isTrue);
+    expect(decoration.boxShadow, isNull);
+    final backButton = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.arrow_back_rounded),
+    );
+    expect(backButton.style!.backgroundColor!.resolve({})!.a, lessThan(0.2));
 
     await tester.tap(find.text('7天'));
     await tester.pump();
@@ -55,6 +73,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('detail stub page'), findsOneWidget);
+    expect(
+      Theme.of(
+        tester.element(find.text('detail stub page')),
+      ).scaffoldBackgroundColor,
+      Colors.transparent,
+    );
   });
 
   testWidgets('paginates history items by six entries per page', (
