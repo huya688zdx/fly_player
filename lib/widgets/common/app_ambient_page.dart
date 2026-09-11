@@ -41,6 +41,7 @@ class AppAmbientPage extends StatelessWidget {
         ? _SharedAmbientBackground(
             child: Theme(
               data: theme.copyWith(
+                scaffoldBackgroundColor: Colors.transparent,
                 textButtonTheme: TextButtonThemeData(
                   style: (theme.textButtonTheme.style ?? const ButtonStyle())
                       .copyWith(

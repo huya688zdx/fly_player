@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/play_stats/play_stats.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/common/app_ambient_page.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_debug_formatters.dart';
 
@@ -21,7 +22,7 @@ class PlayStatsDebugSectionCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -67,7 +68,7 @@ class PlayStatsDebugEntryTile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: colors.surfaceSubtle,
+            color: AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Row(

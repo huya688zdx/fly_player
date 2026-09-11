@@ -213,20 +213,22 @@ class _LogSummaryCard extends StatelessWidget {
       width: double.infinity,
       padding: EdgeInsets.all(compact ? 18 : 22),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: colors.borderSubtle),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[
-            colors.surface,
-            Color.alphaBlend(
-              colors.selection.withValues(alpha: 0.08),
-              colors.surfaceSubtle,
-            ),
-          ],
-        ),
+        gradient: AppAmbientPage.sharesBackgroundOf(context)
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[
+                  colors.surface,
+                  Color.alphaBlend(
+                    colors.selection.withValues(alpha: 0.08),
+                    colors.surfaceSubtle,
+                  ),
+                ],
+              ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,9 +325,9 @@ class _SummaryBadge extends StatelessWidget {
       constraints: BoxConstraints(minWidth: wide ? 220 : 108),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Color.alphaBlend(
-          tint.withValues(alpha: 0.10),
-          colors.surfaceSubtle,
+        color: AppAmbientPage.cardColorOf(
+          context,
+          Color.alphaBlend(tint.withValues(alpha: 0.10), colors.surfaceSubtle),
         ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
@@ -419,7 +421,7 @@ class _LogEmptyCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -476,7 +478,7 @@ class _LogEntryCardState extends State<_LogEntryCard> {
 
     return Container(
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
           color: Color.alphaBlend(

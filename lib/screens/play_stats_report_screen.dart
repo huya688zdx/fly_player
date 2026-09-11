@@ -406,16 +406,21 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
         clipBehavior: Clip.antiAlias,
         decoration: isExpanded
             ? BoxDecoration(
-                color: colors.surface.withValues(alpha: 0.96),
+                color: AppAmbientPage.cardColorOf(
+                  context,
+                  colors.surface.withValues(alpha: 0.96),
+                ),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: colors.borderSubtle),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: colors.overlayScrim.withValues(alpha: 0.1),
-                    blurRadius: 14,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
+                boxShadow: AppAmbientPage.sharesBackgroundOf(context)
+                    ? null
+                    : <BoxShadow>[
+                        BoxShadow(
+                          color: colors.overlayScrim.withValues(alpha: 0.1),
+                          blurRadius: 14,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
               )
             : BoxDecoration(
                 gradient: isDocked
@@ -957,7 +962,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: colors.surface,
+            color: AppAmbientPage.cardColorOf(context, colors.surface),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: colors.borderSubtle),
           ),

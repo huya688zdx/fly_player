@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common/app_ambient_page.dart';
 
 Future<void> handleSecondaryHostBack(BuildContext context) {
   return EmbeddedDetailLauncher.closeHostOrPop(context);
@@ -49,7 +50,10 @@ PreferredSizeWidget buildSecondaryHostAppBar(
               unawaited(handleSecondaryHostBack(context));
             },
             style: IconButton.styleFrom(
-              backgroundColor: colors.surface,
+              backgroundColor: AppAmbientPage.cardColorOf(
+                context,
+                colors.surface,
+              ),
               side: BorderSide(color: colors.borderSubtle),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(9),
