@@ -510,6 +510,8 @@ class ItemPlaybackLauncher {
               ),
               'duration': ep.duration,
               'watched': ep.watched,
+              'watchedTs': ep.watchedTs,
+              'ts': ep.ts,
               'downloaded': record != null,
             };
           }(),

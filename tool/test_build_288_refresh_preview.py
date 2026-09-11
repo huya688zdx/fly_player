@@ -5,14 +5,14 @@ import struct
 import unittest
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PIL import Image
 
 from tool import build_288_refresh_preview as animation_builder
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ANIMATION_ASSET = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading.webp"
+ANIMATION_ASSET = animation_builder.ASSET_ANIMATION
 
 
 def alpha_area(frame: Image.Image) -> int:
@@ -50,16 +50,17 @@ def webp_frame_durations(path: Path) -> list[int]:
 class RefreshAnimationSequenceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.frames = animation_builder.build_frames()
+        cls.frames, cls.phases = animation_builder.build_frames()
 
     def test_uses_only_drawn_and_original_video_frames(self) -> None:
         source = inspect.getsource(animation_builder)
         self.assertNotIn("calcOpticalFlowFarneback", source)
         self.assertNotIn("interpolate_poses", source)
 
-    def test_output_keeps_near_340_frames(self) -> None:
-        self.assertGreaterEqual(len(self.frames), 320)
-        self.assertLessEqual(len(self.frames), 360)
+    def test_output_has_a_complete_readable_story(self) -> None:
+        self.assertEqual(len(self.frames), len(self.phases))
+        for phase in ("human_0", "closure_5", "growth_0", "video1_472", "ring", "point", "video2_284", "video2_359"):
+            self.assertIn(phase, self.phases)
         self.assertTrue(all(frame.size == (512, 512) for frame in self.frames))
 
     def test_no_frame_is_blank_or_cut_by_the_canvas(self) -> None:
@@ -72,55 +73,107 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
             self.assertLess(bottom, 512, f"第 {index + 1} 帧碰到下边界")
 
     def test_winged_ball_is_not_sliced_by_a_rectangular_mask(self) -> None:
-        human_frame_count = len(self.frames) - animation_builder.SOURCE_VIDEO_FRAME_COUNT
-        first_winged_ball_frames = self.frames[
-            human_frame_count : human_frame_count + 30
-        ]
+        first_winged_ball_frames = [frame for frame, phase in zip(self.frames, self.phases) if phase.startswith("video1_")]
+        self.assertEqual(
+            [phase for phase in self.phases if phase.startswith("video1_")],
+            [f"video1_{index}" for index in range(472, 547, 2)],
+        )
+        original = animation_builder.load_video_range(animation_builder.SOURCE_VIDEO, 472, 547)[::2]
+        for actual, expected in zip(first_winged_ball_frames, original):
+            np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
         self.assertLessEqual(
             max(maximum_upper_vertical_edge(frame) for frame in first_winged_ball_frames),
             70,
         )
 
     def test_ring_collapses_to_a_point_then_reopens_as_a_bird(self) -> None:
-        second_video_frame_count = 360 - animation_builder.SOURCE_VIDEO_2_FIRST_FRAME
-        second_video_start = len(self.frames) - second_video_frame_count
         point_area = min(
-            alpha_area(frame)
-            for frame in self.frames[second_video_start + 5 : second_video_start + 33]
+            alpha_area(frame) for frame, phase in zip(self.frames, self.phases) if phase == "point"
         )
         reopened_area = max(
-            alpha_area(frame)
-            for frame in self.frames[second_video_start + 33 : second_video_start + 60]
+            alpha_area(frame) for frame, phase in zip(self.frames, self.phases) if phase.startswith("video2_")
         )
         self.assertLessEqual(point_area, 700)
         self.assertGreaterEqual(reopened_area, 3000)
 
+    def test_pale_ball_body_remains_opaque(self) -> None:
+        frame = animation_builder.load_video_range(animation_builder.SOURCE_VIDEO, 420, 421)[0]
+        # 原片第 420 帧球体内部；浅色身体不能因不属于蓝色或暖色种子而丢失。
+        alpha = np.asarray(frame.getchannel("A"))
+        self.assertGreaterEqual(int(alpha[325:345, 245:260].min()), 250)
+
+    def test_point_keeps_its_body_without_the_detached_noise(self) -> None:
+        frame = animation_builder.load_video_range(animation_builder.SOURCE_VIDEO_2, 275, 276)[0]
+        alpha = np.asarray(frame.getchannel("A"))
+        self.assertLessEqual(int(alpha[291:299, 248:255].max()), 24)
+        self.assertGreaterEqual(int(alpha[310:316, 240:247].min()), 250)
+
     def test_final_bird_flies_up_and_away(self) -> None:
-        second_video_frame_count = 360 - animation_builder.SOURCE_VIDEO_2_FIRST_FRAME
-        second_video_start = len(self.frames) - second_video_frame_count
-        self.assertLessEqual(alpha_area(self.frames[-1]), 200)
+        # 飞远段必须逐帧保留原片，不强制远景鸟具有近景的大轮廓。
+        start = self.phases.index("video2_277")
+        original = animation_builder.load_video_range(animation_builder.SOURCE_VIDEO_2, 277, 360)
+        self.assertEqual(self.phases[start:], [f"video2_{index}" for index in range(277, 360)])
+        for actual, expected in zip(self.frames[start:], original):
+            np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
+        stable = self.frames[self.phases.index("video2_296")]
+        self.assertGreater(alpha_area(self.frames[-1]), 20)
+        self.assertLess(alpha_area(self.frames[-1]), alpha_area(stable) * .7)
         self.assertLessEqual(
             alpha_bbox_center_y(self.frames[-1]),
-            alpha_bbox_center_y(self.frames[second_video_start + 75]) - 120,
+            alpha_bbox_center_y(stable) - 80,
         )
 
-    def test_timing_keeps_25_fps_for_original_video_frames(self) -> None:
+    def test_timing_uses_30_fps_without_accumulated_rounding_drift(self) -> None:
         durations = animation_builder.frame_durations(self.frames)
-        human_frame_count = len(self.frames) - animation_builder.SOURCE_VIDEO_FRAME_COUNT
-        self.assertTrue(all(value == 80 for value in durations[1:human_frame_count]))
-        self.assertTrue(all(value == 40 for value in durations[human_frame_count:-1]))
+        self.assertEqual(set(durations), {33, 34})
+        self.assertEqual(sum(durations), round(len(self.frames) * 1000 / 30))
 
     def test_exported_webp_keeps_the_complete_sequence(self) -> None:
         with Image.open(ANIMATION_ASSET) as animation:
-            # WebP 会把完全相同的持帧合并；总时间轴仍有约 340 帧，
-            # 编码后保留约 270 个有效画面且总时长必须完整。
-            self.assertGreaterEqual(animation.n_frames, 260)
-            self.assertLessEqual(animation.n_frames, 300)
+            # 持帧合并不应改变整个故事的时长，也不要求凑到固定画面数。
+            self.assertGreater(animation.n_frames, 24)
             self.assertEqual(animation.size, (512, 512))
         self.assertEqual(
             sum(webp_frame_durations(ANIMATION_ASSET)),
             sum(animation_builder.frame_durations(self.frames)),
         )
+
+    def test_mp4_preview_preserves_timing_and_frame_count(self) -> None:
+        video = cv2.VideoCapture(str(animation_builder.OUTPUT_VIDEO))
+        try:
+            self.assertTrue(video.isOpened())
+            self.assertAlmostEqual(video.get(cv2.CAP_PROP_FPS), 30)
+            self.assertEqual(int(video.get(cv2.CAP_PROP_FRAME_COUNT)), len(self.frames))
+            for _ in self.frames:
+                ok, actual = video.read()
+                self.assertTrue(ok)
+                self.assertEqual(actual.shape[:2], (512, 512))
+            self.assertFalse(video.read()[0])
+        finally:
+            video.release()
+
+    def test_preview_preserves_pixels_outside_the_updated_rectangle(self) -> None:
+        # 按时间定位，避免原片持帧合并后编码帧号与时间轴帧号不一致。
+        target_time = sum(animation_builder.frame_durations(self.frames)[:40])
+        with Image.open(animation_builder.OUTPUT_ANIMATION) as preview:
+            elapsed = 0
+            for index in range(preview.n_frames):
+                preview.seek(index)
+                elapsed += preview.info["duration"]
+                if elapsed > target_time:
+                    break
+            np.testing.assert_array_equal(
+                np.asarray(preview.convert("RGBA").getchannel("A")),
+                np.asarray(self.frames[40].getchannel("A")),
+            )
+
+    def test_transition_keeps_feet_and_ball_stable(self) -> None:
+        bottoms = [frame.getchannel("A").getbbox()[3] for frame, phase in zip(self.frames, self.phases) if phase.startswith("human_")]
+        self.assertLessEqual(max(bottoms) - min(bottoms), 1)
+        geometry = np.array([animation_builder.ball_geometry(frame) for frame, phase in zip(self.frames, self.phases) if phase.startswith("growth_")])
+        # 稳定尺度允许出翼时有意轻沉，不能重新锁死成完全不动的身体。
+        self.assertTrue(np.all(np.ptp(geometry, axis=0) <= [2, 10, 6]), geometry)
+        self.assertTrue(np.all((np.diff(geometry[:, 1]) >= 0) & (np.diff(geometry[:, 1]) <= 3)), geometry)
 
 
 if __name__ == "__main__":

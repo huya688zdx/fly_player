@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>主题设置 · 双端重构参考</title>
+<style>
+  :root{
+    --bg:#04100e; --border-subtle:rgba(255,255,255,.08);
+    --surface:#0f2b27; --surface-subtle:#123430;
+    --text-primary:#eaf6f2; --text-secondary:#9db8b1; --text-muted:#6e8b84;
+    --accent:#3ecf9e; --accent-soft:rgba(62,207,158,.14); --accent-border:rgba(62,207,158,.5);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    background:var(--bg); color:var(--text-primary);
+    padding:34px clamp(16px,3vw,48px) 70px;
+  }
+  .wrap{ max-width:1560px; margin:0 auto; }
+  .page-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+  .page-head h1{ font-size:19px; font-weight:700; }
+  .page-head p{ font-size:12.5px; color:var(--text-secondary); }
+  .layout{ display:flex; gap:28px; align-items:flex-start; margin-top:22px; flex-wrap:wrap; }
+  .desktop-col{ flex:1 1 940px; min-width:780px; }
+  .mobile-col{ flex:0 0 390px; }
+  .col-tag{ display:flex; align-items:baseline; gap:10px; margin:0 2px 10px; }
+  .col-tag b{ font-size:14px; } .col-tag span{ font-size:12px; color:var(--text-muted); }
+
+  .win{
+    display:flex; width:100%; height:900px; overflow:hidden;
+    border:1px solid var(--border-subtle); border-radius:14px;
+    background:var(--bg);
+  }
+  .sidebar{
+    flex:0 0 300px; background:#0e2320; border-right:1px solid var(--border-subtle);
+    padding:22px 14px; font-size:13.5px;
+  }
+  .sidebar .logo{ font-weight:700; font-size:15px; }
+  .sidebar .logo small{ display:block; font-size:9px; letter-spacing:2.2px; color:var(--text-muted); margin-top:3px; }
+  .nav{ margin-top:20px; display:flex; flex-direction:column; gap:2px; }
+  .nav a{ display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; color:var(--text-secondary); text-decoration:none; }
+  .nav a svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8; }
+  .nav a.active{ background:var(--accent-soft); color:var(--text-primary); box-shadow:inset 2.5px 0 0 var(--accent); }
+  .nav .group{ margin:14px 12px 4px; font-size:11px; color:var(--text-muted); letter-spacing:1px; }
+  .nav a .cnt{ margin-left:auto; font-size:11px; color:var(--text-muted); }
+  .area{ flex:1; min-width:0; overflow:auto; }
+
+  /* 子页公共 */
+  .sub-head{ display:flex; align-items:center; gap:12px; padding:14px 0 4px; position:sticky; top:0; z-index:5; }
+  .back{ width:30px; height:30px; border-radius:9px; flex:0 0 30px; background:var(--surface); border:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .back svg{ width:15px; height:15px; stroke:var(--text-primary); fill:none; stroke-width:2.2; }
+  .sub-head h2{ font-size:17.5px; font-weight:700; }
+  .status-pill{ margin-left:auto; font-size:11.5px; font-weight:700; padding:4px 12px; border-radius:99px; background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent-border); }
+
+  .card{ background:var(--surface); border:1px solid var(--border-subtle); border-radius:14px; padding:18px 20px; margin-top:14px; }
+  .sec-head{ display:flex; align-items:center; gap:9px; margin-bottom:12px; }
+  .sec-head .chip{ width:24px; height:24px; border-radius:7px; background:var(--accent-soft); display:flex; align-items:center; justify-content:center; }
+  .sec-head .chip svg{ width:13px; height:13px; stroke:var(--accent); fill:none; stroke-width:2; }
+  .sec-head b{ font-size:13px; font-weight:700; color:var(--text-secondary); letter-spacing:.6px; }
+
+  /* --- 英雄预览（紧凑） --- */
+  .hero{ display:flex; gap:20px; align-items:stretch; }
+  .hero .meta{ flex:0 0 200px; display:flex; flex-direction:column; justify-content:center; gap:10px; }
+  .hero .swatches{ display:flex; gap:7px; }
+  .hero .swatches i{ width:20px; height:20px; border-radius:7px; border:1px solid rgba(255,255,255,.18); }
+  .hero .name{ font-size:17px; font-weight:800; }
+  .hero .desc{ font-size:12px; color:var(--text-secondary); line-height:1.6; }
+  .hero .mini{
+    flex:1; min-width:0; border-radius:12px; border:1px solid var(--border-subtle);
+    padding:14px 16px; display:flex; flex-direction:column; gap:11px; transition:background .2s;
+  }
+  .mini .posters{ display:flex; gap:10px; }
+  .mini .poster{ flex:1; aspect-ratio:2/3; max-width:74px; border-radius:6px; opacity:.92; }
+  .mini .row{ display:flex; align-items:center; gap:10px; }
+  .mini .btn{ font-size:11.5px; font-weight:700; padding:7px 22px; border-radius:9px; color:#04100e; transition:background .2s; }
+  .mini .tab{ font-size:11.5px; font-weight:700; padding:6px 16px; border-radius:9px; border:1.5px solid; transition:color .2s,border-color .2s; }
+  .mini .bar{ flex:1; height:4px; border-radius:2px; overflow:hidden; }
+  .mini .bar i{ display:block; height:100%; width:62%; border-radius:2px; transition:background .2s; }
+  .mini .more{ font-size:11.5px; font-weight:700; transition:color .2s; }
+
+  /* --- 预设网格 --- */
+  .pgrid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .preset{
+    border-radius:12px; border:1.5px solid var(--border-subtle); cursor:pointer;
+    padding:10px 12px 12px; transition:border-color .15s, background .15s; background:var(--surface-subtle);
+  }
+  .preset:hover{ border-color:rgba(62,207,158,.35); }
+  .preset.on{ border-color:var(--accent); background:var(--accent-soft); }
+  .preset .strip{ height:56px; border-radius:8px; overflow:hidden; position:relative; border:1px solid rgba(255,255,255,.1); transition:background .2s; }
+  .preset .strip .a{ position:absolute; left:9px; bottom:9px; width:26px; height:14px; border-radius:4px; transition:background .2s; }
+  .preset .strip .s{ position:absolute; right:9px; bottom:9px; width:22px; height:14px; border-radius:4px; border:1.5px solid; transition:border-color .2s; }
+  .preset .strip .l{ position:absolute; right:9px; top:8px; font-size:9px; font-weight:700; transition:color .2s; }
+  .preset .nm{ display:flex; align-items:center; gap:7px; margin-top:9px; font-size:13.5px; font-weight:700; }
+  .preset .nm .ck{ margin-left:auto; width:15px; height:15px; border-radius:50%; border:1.5px solid var(--text-muted); flex:0 0 15px; }
+  .preset.on .nm .ck{ border-color:var(--accent); background:var(--accent); position:relative; }
+  .preset.on .nm .ck::after{ content:""; position:absolute; inset:3px; border-radius:50%; background:#04100e; }
+  .preset .sb{ font-size:11px; color:var(--text-secondary); margin-top:4px; line-height:1.5; }
+
+  /* --- 色调行 --- */
+  .tone-row{ display:flex; align-items:center; gap:12px; padding:11px 0; flex-wrap:wrap; }
+  .tone-row + .tone-row{ border-top:1px solid var(--border-subtle); }
+  .tone-row .sw{ width:26px; height:26px; border-radius:9px; flex:0 0 26px; border:1px solid rgba(255,255,255,.2); transition:background .2s; }
+  .tone-row .tn{ flex:0 0 108px; }
+  .tone-row .tn b{ font-size:13.5px; font-weight:700; display:block; }
+  .tone-row .tn span{ font-size:10.5px; color:var(--text-muted); display:block; margin-top:2px; }
+  .tone-row .chips{ display:flex; gap:6px; flex-wrap:wrap; flex:1; min-width:180px; }
+  .dot{ width:22px; height:22px; border-radius:50%; cursor:pointer; border:2px solid transparent; transition:transform .12s, border-color .12s; position:relative; }
+  .dot:hover{ transform:scale(1.12); }
+  .dot.on{ border-color:var(--accent); }
+  .dot.on::after{ content:""; position:absolute; inset:3.5px; border-radius:50%; border:2px solid var(--bg); }
+  .palette-btn{
+    flex:0 0 auto; display:flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700;
+    color:var(--text-secondary); border:1px solid var(--border-subtle); border-radius:8px;
+    padding:6px 11px; cursor:pointer; transition:border-color .15s,color .15s;
+  }
+  .palette-btn:hover{ border-color:var(--accent-border); color:var(--accent); }
+  .palette-btn svg{ width:13px; height:13px; stroke:currentColor; fill:none; stroke-width:2; }
+  .custom-badge{ font-size:10px; font-weight:700; color:var(--accent); background:var(--accent-soft); border:1px solid var(--accent-border); border-radius:99px; padding:1.5px 8px; margin-left:6px; }
+
+  /* --- 开关行 / 自定义主题 --- */
+  .switch-row{ display:flex; align-items:center; gap:14px; }
+  .switch-row .grow{ flex:1; }
+  .switch-row .tt{ font-size:14.5px; font-weight:700; }
+  .switch-row .st{ font-size:12px; color:var(--text-secondary); margin-top:3px; line-height:1.55; }
+  .sw{ width:44px; height:25px; border-radius:99px; flex:0 0 44px; cursor:pointer; position:relative; background:var(--surface-subtle); border:1px solid var(--border-subtle); transition:background .16s; }
+  .sw::after{ content:""; position:absolute; top:2.5px; left:3px; width:18px; height:18px; border-radius:50%; background:var(--text-muted); transition:left .16s,background .16s; }
+  .sw.on{ background:var(--accent); border-color:var(--accent); }
+  .sw.on::after{ left:21px; background:#04100e; }
+
+  .custom-row{ display:flex; align-items:center; gap:12px; cursor:pointer; border-radius:10px; padding:4px 2px; }
+  .custom-row:hover{ background:rgba(255,255,255,.03); }
+  .custom-row .chev{ margin-left:auto; color:var(--text-muted); }
+
+  /* ============ 手机 ============ */
+  .phone{ width:390px; height:820px; border-radius:26px; overflow:hidden; border:1px solid var(--border-subtle); background:var(--bg); display:flex; flex-direction:column; }
+  .p-statusbar{ flex:0 0 34px; display:flex; align-items:center; justify-content:space-between; padding:0 18px; font-size:11px; color:var(--text-secondary); background:var(--bg-elevated,#0b211e); }
+  .p-body{ flex:1; overflow:auto; padding:0 13px 20px; }
+  .phone .sub-head{ padding:10px 0 4px; }
+  .phone .card{ padding:15px; }
+  .phone .hero{ flex-direction:column; }
+  .phone .hero .meta{ flex:none; }
+  .phone .pgrid{ grid-template-columns:repeat(2,1fr); }
+  .phone .tone-row .tn{ flex:0 0 88px; }
+
+  .notes{ margin:36px 2px 0; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+  .note{ background:rgba(255,255,255,.03); border:1px solid var(--border-subtle); border-radius:12px; padding:16px 18px; }
+  .note h3{ font-size:13px; font-weight:700; margin-bottom:8px; color:var(--accent); }
+  .note p,.note li{ font-size:12.5px; line-height:1.8; color:var(--text-secondary); }
+  .note ul{ padding-left:18px; }
+  .note code{ font-family:Consolas,monospace; font-size:11.5px; background:rgba(255,255,255,.06); border-radius:4px; padding:1px 5px; color:var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-head">
+    <h1>主题设置 · 双端重构参考</h1>
+    <p>巨幅预览卡紧凑化、固定主题横向滚动改网格、四张色调巨卡压成四行内嵌色板 · 点预设/色板实时联动，全部可点</p>
+  </div>
+
+  <div class="layout">
+    <div class="desktop-col">
+      <div class="col-tag"><b>桌面端</b><span>设置子页（单屏 / 双栏右栏同构）</span></div>
+      <div class="win">
+        <aside class="sidebar">
+          <div class="logo">飞翔播放器<small>FLY PLAYER</small></div>
+          <nav class="nav">
+            <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg>影视</a>
+            <a href="#"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.6-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.4-9 9-9 9z"/></svg>收藏<span class="cnt">11</span></a>
+            <a href="#"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>下载列表</a>
+            <a class="active" href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" stroke-dasharray="3 3"/></svg>设置</a>
+            <div class="group">媒体库</div>
+            <a href="#">动漫电影</a><a href="#">动漫TV</a><a href="#">电视剧</a>
+            <div class="group">分类</div>
+            <a href="#">全部影视<span class="cnt">85</span></a><a href="#">电影<span class="cnt">35</span></a>
+          </nav>
+        </aside>
+        <div class="area"><div id="desktop-sub"></div></div>
+      </div>
+    </div>
+
+    <div class="mobile-col">
+      <div class="col-tag"><b>手机端</b><span>同一组件树，网格降为 2 列</span></div>
+      <div class="phone">
+        <div class="p-statusbar"><span>14:25</span><span>▮▮▮ ⌁ 87%</span></div>
+        <div class="p-body"><div id="mobile-sub"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>旧页面的四个问题</h3>
+      <ul>
+        <li>「当前外观」巨卡大半空白——一段进度条 + 两个按钮撑满 400px 高。</li>
+        <li>固定主题横向滚动，7 个里永远只能看到 3 个半（截图里石墨被裁一半），不可发现的选项等于不存在。</li>
+        <li>四张色调面板（背景/主操作/选中/链接）结构完全相同却各占一屏高，重复啰嗦。</li>
+        <li>改一个颜色看不到全貌——预览卡在最顶上，色板在最下面，来回滚。</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>新结构与 Flutter 落点</h3>
+      <ul>
+        <li><b>英雄预览</b>：色板簇 + 名称摘要 + 紧凑 mini mock（海报排 + 主按钮 + 选中标签 + 进度 + 更多），高度 ~150。改任何颜色它都变——<code>ThemeSettingsPreviewCard</code> 重写为紧凑版。</li>
+        <li><b>固定主题</b>：横向滚动改 <b>网格</b>（桌面 4 列 / 手机 2 列，<code>GridView</code>），7 个预设全部可见、选中态环标。</li>
+        <li><b>色调面板</b>：四张巨卡压成 <b>一张卡四行</b>，每行 = 色块 + 名称 + 内嵌色板圈 + 调色盘入口；点色圈即生效，自定义徽章跟随。</li>
+        <li>动态取色、自定义主题（当前配方入口 + 已保存网格）压缩为同语言卡片；文案全部沿用现有 <code>theme*</code> l10n。</li>
+        <li>颜色一律 <code>context.appColors</code> 通用取色（卡片描边/文字/选中环），预览内容用 <code>provider.previewColorsForPreset</code> 等现有数据。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- 预设调色板（近似 app_theme.dart 值） ----------
+  const PRESETS = {
+    midnight: { name:'午夜', sub:'深夜影院感，层次稳重',   bg:'#09111C', card:'#101B2A', accent:'#3A82F7', selection:'#3A82F7', link:'#63A0FF', text:'#EAF2FB' },
+    ocean:    { name:'海洋', sub:'冷海风格，信息感更强',   bg:'#07121A', card:'#0E1D29', accent:'#2E9BFF', selection:'#7CC6FF', link:'#7CC6FF', text:'#EAF4FD' },
+    forest:   { name:'森林', sub:'自然绿调，观感更柔和',   bg:'#0E1A13', card:'#15251C', accent:'#37B36B', selection:'#87E6AC', link:'#87E6AC', text:'#EAF6EE' },
+    graphite: { name:'石墨', sub:'中性石墨，适合长期使用', bg:'#14171C', card:'#1D2127', accent:'#9BA8BC', selection:'#C4D0DE', link:'#AEBBCC', text:'#E8ECF2' },
+    sunset:   { name:'日落', sub:'暖调落日，氛围更明显',   bg:'#1A120E', card:'#251812', accent:'#E67358', selection:'#FFA089', link:'#FFA089', text:'#FBEFE9' },
+    aurora:   { name:'极光', sub:'清亮极光，更偏轻快科技感', bg:'#071715', card:'#0F2B27', accent:'#3ECF9E', selection:'#39C7A7', link:'#8EECD8', text:'#EAF6F2' },
+    latte:    { name:'拿铁', sub:'奶白纸感，适合亮背景偏好', bg:'#F8F4EC', card:'#FFFCF7', accent:'#6C8FF1', selection:'#395EBE', link:'#395EBE', text:'#182132' },
+  };
+  const ACCENT_TONES = [
+    ['blue','#3A82F7'],['cyan','#27B5E9'],['green','#37B36B'],['amber','#D39A28'],
+    ['rose','#D95B77'],['coral','#E67358'],['indigo','#6B6FE8'],['mint','#39C7A7'],
+  ];
+  const BG_TONES = [
+    ['night','#09111C'],['slate','#0E1620'],['ocean','#07121A'],['moss','#102019'],
+    ['ember','#1A120E'],['pearl','#F7F3EA'],['linen','#F1E9DA'],['ivory','#FFFDF8'],
+  ];
+  const SECTION_TITLES = { background:'背景主色', accent:'主操作色', selection:'选中色', link:'链接高亮色' };
+  const SECTION_SUBS = {
+    background:'页面底色、卡片与导航基调',
+    accent:'主按钮、进度条与确认动作',
+    selection:'选中态、边框高亮与标签',
+    link:'“更多”、跳转文本与轻提示',
+  };
+
+  const state = {
+    preset: 'aurora',
+    dynamic: true,
+    tones: { background:null, accent:null, selection:null, link:null }, // null=跟随预设
+  };
+
+  const isLight = c => { const n=parseInt(c.slice(1),16); return ((n>>16&255)*.299+(n>>8&255)*.587+(n&255)*.114) > 140; };
+  function pal(){
+    const p = PRESETS[state.preset];
+    return {
+      bg: state.tones.background || p.bg,
+      card: p.card, accent: state.tones.accent || p.accent,
+      selection: state.tones.selection || p.selection,
+      link: state.tones.link || p.link,
+      text: isLight(state.tones.background || p.bg) ? '#182132' : p.text,
+      name: p.name, sub: p.sub,
+    };
+  }
+
+  function heroHTML(){
+    const c = pal();
+    return `
+      <div class="hero">
+        <div class="meta">
+          <div class="swatches">
+            <i style="background:${c.bg}"></i><i style="background:${c.card}"></i>
+            <i style="background:${c.accent}"></i><i style="background:${c.selection}"></i>
+            <i style="background:${c.link}"></i>
+          </div>
+          <div class="name">${c.name}</div>
+          <div class="desc">${c.sub} · 切换后立即作为全局主题生效。</div>
+        </div>
+        <div class="mini" style="background:${c.bg};border-color:var(--border-subtle)">
+          <div class="posters">
+            <div class="poster" style="background:${c.card}"></div>
+            <div class="poster" style="background:${c.card}"></div>
+            <div class="poster" style="background:${c.card}"></div>
+            <div class="poster" style="background:${c.card}"></div>
+            <div class="poster" style="background:${c.card}"></div>
+          </div>
+          <div class="row">
+            <span class="btn" style="background:${c.accent}">主按钮</span>
+            <span class="tab" style="color:${c.selection};border-color:${c.selection}">选中标签</span>
+            <span class="bar"><i style="background:${c.accent}"></i></span>
+            <span class="more" style="color:${c.link}">更多</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function presetGridHTML(){
+    return Object.entries(PRESETS).map(([k,p]) => `
+      <div class="preset ${state.preset===k?'on':''}" data-preset="${k}">
+        <div class="strip" style="background:${p.bg}">
+          <span class="l" style="color:${p.link}">更多</span>
+          <span class="a" style="background:${p.accent}"></span>
+          <span class="s" style="border-color:${p.selection}"></span>
+        </div>
+        <div class="nm">${p.name}<span class="ck"></span></div>
+        <div class="sb">${p.sub}</div>
+      </div>`).join('');
+  }
+
+  function toneRowHTML(kind, color, chips){
+    const custom = state.tones[kind];
+    const active = custom || color;
+    return `
+      <div class="tone-row">
+        <span class="sw" style="background:${active}"></span>
+        <span class="tn"><b>${SECTION_TITLES[kind]}${custom?'<span class="custom-badge">自定义</span>':''}</b><span>${SECTION_SUBS[kind]}</span></span>
+        <span class="chips">
+          ${chips.map(([k,c]) => `<span class="dot ${(!custom && color.toLowerCase()===c.toLowerCase())?'on':''}" data-tone="${kind}" data-c="${c}" style="background:${c}"></span>`).join('')}
+        </span>
+        <span class="palette-btn" data-palette="${kind}"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="14" cy="8.5" r="1" fill="currentColor"/><circle cx="14.5" cy="13.5" r="1" fill="currentColor"/></svg>调色盘</span>
+      </div>`;
+  }
+
+  function subpageHTML(idp){
+    const c = pal();
+    return `
+      <div class="sub-head">
+        <div class="back"><svg viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg></div>
+        <h2>主题设置</h2>
+        <span class="status-pill">当前 · ${c.name}${state.tones.accent?' + 自定义':''}</span>
+      </div>
+
+      <div class="card"><div class="sec-head"><span class="chip"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16"/></svg></span><b>当前外观</b></div>${heroHTML()}</div>
+
+      <div class="card"><div class="sec-head"><span class="chip"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span><b>固定主题</b></div>
+        <div class="pgrid">${presetGridHTML()}</div>
+      </div>
+
+      <div class="card"><div class="sec-head"><span class="chip"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18" opacity=".5"/></svg></span><b>色彩自定义</b></div>
+        ${toneRowHTML('background', c.bg, BG_TONES)}
+        ${toneRowHTML('accent', c.accent, ACCENT_TONES)}
+        ${toneRowHTML('selection', c.selection, ACCENT_TONES)}
+        ${toneRowHTML('link', c.link, ACCENT_TONES)}
+      </div>
+
+      <div class="card">
+        <div class="switch-row">
+          <div class="grow">
+            <div class="tt">动态取色主题</div>
+            <div class="st">详情页和人物页可基于海报临时取色，退出后恢复当前主题。</div>
+          </div>
+          <div class="sw ${state.dynamic?'on':''}" data-act="dynamic"></div>
+        </div>
+      </div>
+
+      <div class="card"><div class="sec-head"><span class="chip"><svg viewBox="0 0 24 24"><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/></svg></span><b>自定义主题</b></div>
+        <div class="custom-row">
+          <span class="sw" style="background:${c.accent}"></span>
+          <div>
+            <div class="tt" style="font-size:13.5px;font-weight:700">当前自定义</div>
+            <div class="st" style="font-size:11.5px;color:var(--text-secondary);margin-top:2px">编辑颜色分类与当前配方。</div>
+          </div>
+          <span class="chev">›</span>
+        </div>
+        <div class="pgrid" style="margin-top:10px">
+          <div class="preset"><div class="strip" style="background:${c.bg}"><span class="a" style="background:${c.accent}"></span><span class="s" style="border-color:${c.selection}"></span></div><div class="nm">我的极光变体<span class="ck"></span></div><div class="sb">已保存主题</div></div>
+        </div>
+      </div>`;
+  }
+
+  function bind(idp){
+    const root = document.getElementById(idp);
+    root.querySelectorAll('[data-preset]').forEach(el =>
+      el.addEventListener('click', () => { state.preset = el.dataset.preset; state.tones = { background:null, accent:null, selection:null, link:null }; render(); }));
+    root.querySelectorAll('[data-tone]').forEach(el =>
+      el.addEventListener('click', () => { state.tones[el.dataset.tone] = el.dataset.c; render(); }));
+    const sw = root.querySelector('[data-act="dynamic"]');
+    if (sw) sw.addEventListener('click', () => { state.dynamic = !state.dynamic; render(); });
+  }
+
+  function render(){
+    for (const idp of ['desktop-sub','mobile-sub']) {
+      document.getElementById(idp).innerHTML = subpageHTML(idp);
+      bind(idp);
+    }
+  }
+  render();
+</script>
+</body>
+</html>

@@ -571,3 +571,148 @@ svg{display:block}
   .nv-key{display:none}
   .split-toggle{justify-content:center}
 }
+
+/* ============================================================
+   播放器增强（桌面自建壳 · 与安卓 NativePlayerActivity 功能对齐）
+   ============================================================ */
+
+/* 截图闪光（对应 FullscreenScreenshotActivity） */
+.pl-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:4}
+.pl-flash.go{animation:shotFlash .5s ease-out}
+@keyframes shotFlash{0%{opacity:.85}100%{opacity:0}}
+
+/* 中央 OSD（对应安卓中央状态提示：seek/音量/亮度/临时倍速） */
+.pl-osd{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;background:rgba(8,12,20,.78);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:14px 26px;font-family:var(--font-disp);font-size:22px;font-weight:700;color:#fff;display:flex;align-items:center;gap:12px;pointer-events:none;animation:osdIn .18s var(--ease)}
+.pl-osd svg{width:24px;height:24px;color:var(--accent-strong)}
+.pl-osd small{font-size:12px;font-weight:600;color:rgba(255,255,255,.65);letter-spacing:.08em}
+.pl-osd.fade{animation:osdFade .4s forwards}
+@keyframes osdIn{from{opacity:0;transform:translate(-50%,-50%) scale(.92)}}
+@keyframes osdFade{to{opacity:0;transform:translate(-50%,-50%) scale(.96)}}
+
+/* 中央加载态（对应安卓中央 loading） */
+.pl-loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:12px;pointer-events:none}
+.pl-loading i{font-style:normal;font-size:11px;color:rgba(255,255,255,.6);font-family:var(--font-disp);letter-spacing:.1em}
+.pl-spin{width:44px;height:44px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:var(--accent);animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 性能悬浮窗（对应性能/FPS overlay 开关） */
+.pl-perf{position:absolute;left:20px;top:64px;z-index:6;background:rgba(5,8,14,.72);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:7px 11px;font-family:var(--font-disp);font-size:10.5px;color:#8BE9B8;letter-spacing:.05em;pointer-events:none}
+
+/* 顶栏清晰度徽标 */
+.pl-tq{font-style:normal;font-family:var(--font-disp);font-size:9px;font-weight:800;background:var(--accent);border-radius:5px;padding:2px 5px;letter-spacing:.06em}
+.pl-tbtn svg{display:block}
+
+/* 章节名提示 + 进度条章节/书签标记（对应章节进度线与书签） */
+.pl-chapter{position:relative;height:16px;font-size:10.5px;color:rgba(255,255,255,.55);letter-spacing:.1em;margin-bottom:2px;transition:opacity .3s}
+.pl-chapter b{color:var(--accent-strong)}
+.plp-chapters,.plp-bookmarks{position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none}
+.plp-chapters i{position:absolute;top:50%;transform:translate(-50%,-50%);width:3px;height:11px;border-radius:2px;background:rgba(255,255,255,.55);box-shadow:0 0 4px rgba(0,0,0,.6)}
+.plp-chapters i.op{background:#FFD479}
+.plp-bookmarks i{position:absolute;top:50%;transform:translate(-50%,-50%) rotate(45deg);width:8px;height:8px;border-radius:2px;background:var(--accent-strong);box-shadow:0 0 6px rgba(0,0,0,.7)}
+.pl-progress:hover .plp-chapters i{height:13px}
+
+/* 跳过片头 / 跳过片尾胶囊（对应 intro_outro） */
+.pl-skip{position:absolute;right:26px;bottom:96px;z-index:6;display:flex;align-items:center;gap:8px;height:40px;padding:0 20px;border-radius:12px;background:rgba(8,12,20,.78);backdrop-filter:blur(12px);border:1.5px solid rgba(255,255,255,.4);color:#fff;font-size:13px;font-weight:700;transition:.16s;animation:osdIn .25s var(--ease)}
+.pl-skip:hover{background:var(--accent);border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 40%,transparent)}
+.pl-skip i{font-style:normal;font-family:var(--font-disp);font-size:11px;color:rgba(255,255,255,.72)}
+
+/* 自动连播卡（对应 auto_play_enabled，桌面表现为右下角倒计时卡） */
+.pl-nextcard{position:absolute;right:26px;bottom:96px;z-index:6;display:flex;align-items:center;gap:12px;padding:10px;border-radius:16px;background:color-mix(in srgb,#0B111C 90%,transparent);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.14);box-shadow:0 16px 40px rgba(0,0,0,.5);animation:drawerIn .3s var(--ease)}
+.pln-thumb{width:104px;height:60px;border-radius:9px;overflow:hidden;position:relative;flex:none}
+.pln-thumb .scene-art{position:absolute;inset:0}
+.pln-info i{display:block;font-style:normal;font-size:10px;color:rgba(255,255,255,.55);font-family:var(--font-disp);letter-spacing:.08em}
+.pln-info b{display:block;font-size:13px;margin-top:4px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pln-go{display:flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:10px;background:var(--accent);color:#fff;font-size:12px;font-weight:700;transition:.15s}
+.pln-go:hover{filter:brightness(1.12)}
+.pln-cd{font-size:11px;background:rgba(0,0,0,.28);border-radius:6px;padding:2px 6px}
+.pln-cancel{color:rgba(255,255,255,.6)}
+
+/* 浮层菜单：清晰度/音轨/字幕/倍速/播放器右键（对应安卓底部弹层，桌面为锚定浮层） */
+.pl-menu{position:fixed;z-index:210;min-width:200px;background:color-mix(in srgb,#0B111C 92%,transparent);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:6px;box-shadow:0 18px 48px rgba(0,0,0,.55);animation:ctxIn .14s var(--ease)}
+.plm-head{font-size:10px;font-weight:700;letter-spacing:.14em;color:rgba(255,255,255,.45);padding:7px 11px 5px;font-family:var(--font-disp)}
+.plm-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 11px;border-radius:9px;font-size:12.5px;color:rgba(255,255,255,.86);text-align:left;transition:.1s}
+.plm-item:hover{background:rgba(255,255,255,.1);color:#fff}
+.plm-item svg{width:15px;height:15px;color:rgba(255,255,255,.5);flex:none}
+.plm-item:hover svg{color:var(--accent-strong)}
+.plm-item .plm-hint{margin-left:auto;font-family:var(--font-disp);font-size:10px;color:rgba(255,255,255,.4);border:1px solid rgba(255,255,255,.16);border-radius:5px;padding:2px 6px}
+.plm-item.active{color:var(--accent-strong)}
+.plm-item.active svg{color:var(--accent-strong)}
+.plm-item .plm-check{margin-left:auto;color:var(--accent-strong)}
+.plm-item .plm-check svg{width:14px;height:14px}
+.plm-sep{height:1px;background:rgba(255,255,255,.1);margin:5px 8px}
+.plm-note{font-size:10.5px;color:rgba(255,255,255,.45);padding:6px 11px 7px;line-height:1.5}
+.plm-note b{color:rgba(255,255,255,.7)}
+
+/* 多面板抽屉内容：弹幕设置 / 播放设置 */
+.pld-body{flex:1;overflow-y:auto;padding:6px 18px 20px}
+.pld-sec{font-size:10px;font-weight:700;letter-spacing:.16em;color:rgba(255,255,255,.4);font-family:var(--font-disp);margin:16px 0 6px}
+.pld-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 2px;border-bottom:1px dashed rgba(255,255,255,.08);font-size:12.5px;color:rgba(255,255,255,.85)}
+.pld-row small{display:block;font-size:10px;color:rgba(255,255,255,.4);margin-top:3px}
+.pld-tgl{width:38px;height:21px;border-radius:99px;background:rgba(255,255,255,.16);position:relative;cursor:pointer;transition:.18s;flex:none}
+.pld-tgl::after{content:"";position:absolute;left:3px;top:3px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.18s var(--ease)}
+.pld-tgl.on{background:var(--accent)}
+.pld-tgl.on::after{left:20px}
+.pld-tgl.locked{opacity:.45;cursor:not-allowed}
+.pld-slider{display:flex;align-items:center;gap:10px;flex:none;width:180px}
+.pld-slider input{flex:1;accent-color:var(--accent);height:4px;cursor:pointer}
+.pld-slider output{font-family:var(--font-disp);font-size:10.5px;color:rgba(255,255,255,.6);width:44px;text-align:right;flex:none}
+.pld-seg{display:flex;gap:4px;background:rgba(255,255,255,.07);border-radius:9px;padding:3px;flex:none}
+.pld-seg button{font-size:10.5px;color:rgba(255,255,255,.6);padding:4px 9px;border-radius:7px;transition:.12s;white-space:nowrap}
+.pld-seg button.active{background:var(--accent);color:#fff;font-weight:600}
+
+/* 小窗模式（对应 PIP：桌面表现为右下角悬浮小卡，继续播放可浏览媒体库） */
+.player.mini{inset:auto;right:18px;bottom:18px;width:348px;height:200px;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.2);box-shadow:0 24px 64px rgba(0,0,0,.6);animation:miniIn .3s var(--ease)}
+@keyframes miniIn{from{opacity:0;transform:translateY(16px) scale(.96)}}
+.player.mini .pl-top,.player.mini .pl-bottom,.player.mini .pl-center,.player.mini .pl-drawer,
+.player.mini .pl-skip,.player.mini .pl-nextcard,.player.mini .pl-osd,.player.mini .pl-perf,.player.mini .pl-loading{display:none!important}
+.player.mini .pl-scene .scene-art{animation:none}
+.pl-mini-bar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:8px 10px;background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent);z-index:5}
+.pl-mini-bar b{flex:1;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player.mini .pl-danmaku{height:74%}
+.player.mini .dm{font-size:11px}
+
+/* 播放器内快捷键提示（Esc 级联与 hold 倍速，桌面专属） */
+.pl-hold-badge{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);z-index:6;font-family:var(--font-disp);font-size:12px;font-weight:700;color:#fff;background:rgba(8,12,20,.8);border:1px solid rgba(255,255,255,.18);border-radius:99px;padding:6px 14px;pointer-events:none;animation:osdIn .15s var(--ease)}
+
+/* hidden 属性优先于组件 display（player 内大量用 hidden 切换浮层） */
+.player [hidden]{display:none!important}
+
+/* 抽屉内选集列表 / 季芯片（eps tab 复用原选集样式） */
+.pld-body .pld-list{padding:4px 0 18px}
+.pld-seasons{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 10px}
+.pld-season{font-size:11px;color:rgba(255,255,255,.65);padding:5px 12px;border-radius:8px;background:rgba(255,255,255,.08)}
+.pld-season.active{background:var(--accent);color:#fff;font-weight:600}
+
+/* ============================================================
+   播放器布局修订（参照通用桌面播放器）：
+   顶栏仅留设置 icon；弹幕/倍速/选集/清晰度移至底栏；选集独立悬浮面板
+   ============================================================ */
+
+/* 顶栏设置 icon 按钮 */
+.pl-tbtn.sq{width:32px;height:32px;padding:0;justify-content:center;border-radius:10px}
+.pl-tbtn.sq svg{width:16px;height:16px}
+
+/* 底栏文字按钮（倍速 / 选集 / 清晰度）与弹幕开关 */
+.pl-btn.pl-txt{width:auto;padding:0 12px;font-size:12.5px;font-weight:600;color:rgba(255,255,255,.85);letter-spacing:.02em}
+.pl-btn.pl-txt:hover{background:rgba(255,255,255,.14)}
+.pl-btn span{width:18px;height:18px;border-radius:5px;background:var(--accent);display:grid;place-items:center;font-size:10px;font-weight:700;color:#fff}
+.pl-btn span.off{background:rgba(255,255,255,.25)}
+
+/* 选集悬浮面板（非全高抽屉：顶部对齐顶栏下方，底部悬于控制条上方） */
+.pl-eps{position:absolute;top:72px;right:24px;bottom:112px;width:min(430px,30vw);display:flex;flex-direction:column;background:color-mix(in srgb,#0B111C 90%,transparent);backdrop-filter:blur(22px);border:1px solid rgba(255,255,255,.12);border-radius:16px;box-shadow:0 18px 48px rgba(0,0,0,.55);z-index:6;animation:drawerIn .28s var(--ease);overflow:hidden}
+.ple-head{display:flex;align-items:center;gap:10px;padding:13px 14px 11px;border-bottom:1px solid rgba(255,255,255,.08);flex:none}
+.ple-head>b{flex:1;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ple-views{display:flex;gap:3px;background:rgba(255,255,255,.07);border-radius:8px;padding:3px;flex:none}
+.ple-views button{width:27px;height:24px;border-radius:6px;display:grid;place-items:center;color:rgba(255,255,255,.5);transition:.12s}
+.ple-views button:hover{color:#fff}
+.ple-views button.active{background:var(--accent);color:#fff}
+.ple-views button svg{width:13px;height:13px}
+.ple-body{flex:1;overflow-y:auto;padding:10px 12px 14px;display:flex;flex-direction:column;gap:9px}
+/* 网格视图（对应选集面板的网格切换） */
+.ple-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px}
+.ple-cell{position:relative;aspect-ratio:16/10;border-radius:9px;background:rgba(255,255,255,.08);display:grid;place-items:center;font-family:var(--font-disp);font-size:14px;font-weight:700;color:rgba(255,255,255,.8);border:1px solid transparent;transition:.14s;overflow:hidden}
+.ple-cell:hover{background:rgba(255,255,255,.15)}
+.ple-cell.now{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 55%,transparent);color:var(--accent-strong)}
+.ple-cell i{position:absolute;left:0;bottom:0;height:3px;background:var(--accent)}
+.ple-cell .ple-done{position:absolute;right:4px;top:4px;color:#7BE3A8}
+.ple-cell .ple-done svg{width:11px;height:11px}

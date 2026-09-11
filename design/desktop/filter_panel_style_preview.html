@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>筛选面板样式参考 · 背景 + 选中态</title>
+<style>
+  /* ============================================================
+     Token 对照（值取自 PC 分支 lib/theme/app_theme.dart）
+     midnight/night 兜底盘:
+       backgroundBase    #09111C   页面底
+       surface           #101B2A   面板底（现状）
+       surfaceSubtle     #132238   hover 底
+       borderSubtle      rgba(255,255,255,.10)
+       textPrimary       #FFFFFF
+       textSecondary     #C4D0DE
+     accent 按用户当前主题（mint）:
+       accent            #39C7A7   AppAccentTone.mint.color
+       accentStrong      #8EECD8   AppAccentTone.mint.strongColor
+       accentSoft        accent @ ~14% alpha（fallback 0x24 规律）
+     ============================================================ */
+  :root{
+    --bg:            #09111C;
+    --surface:       #101B2A;
+    --surface-subtle:#132238;
+    --border-subtle: rgba(255,255,255,.10);
+    --text-primary:  #FFFFFF;
+    --text-secondary:#C4D0DE;
+
+    --accent:        #39C7A7;
+    --accent-strong: #8EECD8;
+    --accent-soft:   rgba(57,199,167,.15);
+    --accent-border: rgba(57,199,167,.45);
+  }
+  :root[data-accent="blue"]{
+    --accent:        #3A82F7;
+    --accent-strong: #63A0FF;
+    --accent-soft:   rgba(58,130,247,.15);
+    --accent-border: rgba(99,160,255,.45);
+  }
+
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ background:var(--bg); }
+  body{
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    color:var(--text-primary);
+    padding:34px clamp(16px,4vw,56px) 60px;
+  }
+  .wrap{ max-width:1280px; margin:0 auto; }
+
+  /* ---------- 页头（仅参考页自身的框架，不属于面板） ---------- */
+  .page-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:6px; }
+  .page-head h1{ font-size:19px; font-weight:700; letter-spacing:.2px; }
+  .page-head p{ font-size:12.5px; color:var(--text-secondary); }
+  .accent-switch{ margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary); }
+  .accent-switch .dot{
+    width:14px; height:14px; border-radius:50%; cursor:pointer;
+    border:2px solid transparent; transition:border-color .15s, transform .15s;
+  }
+  .accent-switch .dot:hover{ transform:scale(1.12); }
+  .accent-switch .dot.mint{ background:#39C7A7; }
+  .accent-switch .dot.blue{ background:#3A82F7; }
+  :root[data-accent="mint"]  .dot.mint,
+  :root[data-accent="blue"]  .dot.blue{ border-color:#fff; }
+
+  .section-tag{
+    display:flex; align-items:baseline; gap:10px;
+    margin:30px 2px 10px;
+  }
+  .section-tag b{ font-size:14px; font-weight:700; }
+  .section-tag span{ font-size:12px; color:var(--text-muted,#8EA2BA); }
+  .section-tag .ok{ color:var(--accent); }
+
+  /* ============================================================
+     工具栏复刻（仅作上下文，样式未动）
+     ============================================================ */
+  .toolbar{ display:flex; align-items:center; padding:8px 12px; }
+  .sort{ display:flex; align-items:center; gap:4px; cursor:pointer; }
+  .sort b{ font-size:16px; font-weight:700; }
+  .sort svg{ width:16px; height:16px; stroke:var(--text-secondary); }
+  .count{
+    margin-left:8px; padding:2px 8px; border-radius:8px;
+    background:var(--surface); color:var(--text-secondary);
+    font-size:13px; font-weight:700;
+  }
+  .tools{ margin-left:auto; display:flex; gap:10px; }
+  .tool{
+    width:40px; height:40px; border-radius:12px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.04); border:1px solid var(--border-subtle);
+    transition:background .15s;
+  }
+  .tool:hover{ background:var(--surface-subtle); }
+  .tool svg{ width:20px; height:20px; fill:var(--text-secondary); }
+  .tool.active{ background:var(--accent-soft); border-color:var(--accent-border); }
+  .tool.active svg{ fill:var(--accent-strong); }
+
+  /* ============================================================
+     面板公共骨架 —— 尺寸全部照抄 Flutter 代码，两个方案一致：
+     外框 margin 0 12px 8px / 圆角14 / 内容 padding 18 18 4
+     行标签列宽104 + padding-top 5 / 字号13 w600
+     行间距 3px / Wrap spacing 3 runSpacing 2 / chip padding 9 4 圆角7
+     收起：12.5px w600 + 17px 箭头
+     ============================================================ */
+  .panel{ margin:0 12px 8px; border-radius:14px; }
+  .panel-inner{ padding:18px 18px 4px; }
+  .frow{ display:flex; align-items:flex-start; }
+  .frow + .frow{ margin-top:3px; }
+  .flabel{
+    flex:0 0 104px; padding-top:5px;
+    font-size:13px; font-weight:600; color:var(--text-secondary);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .fopts{ flex:1; display:flex; flex-wrap:wrap; column-gap:3px; row-gap:2px; }
+  .collapse{
+    display:flex; align-items:center; gap:1px; justify-content:center;
+    width:max-content; margin:2px auto 0; padding:5px 8px; border-radius:8px;
+    font-size:12.5px; font-weight:600; color:var(--text-secondary); cursor:pointer;
+  }
+  .collapse:hover{ color:var(--text-primary); background:var(--surface-subtle); }
+  .collapse svg{ width:17px; height:17px; stroke:currentColor; }
+
+  /* ---------- chip 骨架（所有状态同尺寸：统一占位 1px 透明边） ---------- */
+  .chip{
+    padding:4px 9px; border-radius:7px; border:1px solid transparent;
+    font-size:13px; font-weight:500; color:var(--text-secondary);
+    cursor:pointer; user-select:none; line-height:1.45;
+    transition:background .14s, color .14s, border-color .14s;
+  }
+
+  /* ============================================================
+     方案 A · 现状还原（样式 = 当前 _InlineFilterChip）
+     ============================================================ */
+  .panel--before{
+    background:var(--surface);
+    border:1px solid var(--border-subtle);
+  }
+  .panel--before .chip:hover{ background:var(--surface-subtle); }
+  .panel--before .chip.on{ color:var(--accent); font-weight:700; }
+
+  /* ============================================================
+     方案 B · 提案（只动背景 + 选中态，几何尺寸不变）
+     ------------------------------------------------------------
+     背景：同色系轻微提亮的上浅下深渐变 + 顶部极淡 accent 氛围
+           + 内侧 1px 顶部高光 + 外投影（浮起一层的感觉）
+     选中：accentSoft 实底 + accent 45% 描边 + accentStrong 文字
+     “全部”：行内无实选时 = 弱选中（textPrimary w700，不占 accent）
+     ============================================================ */
+  .panel--after{
+    position:relative;
+    background:
+      radial-gradient(120% 70% at 50% 0%, var(--accent-soft), transparent 55%),
+      linear-gradient(180deg, #16263E 0%, var(--surface) 72%);
+    border:1px solid var(--border-subtle);
+    box-shadow:
+      0 14px 34px rgba(2,8,18,.50),
+      inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .panel--after .chip:hover{ background:var(--surface-subtle); color:var(--text-primary); }
+  .panel--after .chip.on{          /* 真实选中项：只靠颜色，不加框 */
+    color:var(--accent-strong);
+    font-weight:700;
+  }
+  .panel--after .chip.default-on{  /* “全部”的弱选中 */
+    color:var(--text-primary);
+    font-weight:700;
+  }
+
+  /* ---------- 注记 ---------- */
+  .notes{ margin:26px 2px 0; display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .note{
+    background:rgba(255,255,255,.03); border:1px solid var(--border-subtle);
+    border-radius:12px; padding:14px 16px;
+  }
+  .note h3{ font-size:13px; font-weight:700; margin-bottom:8px; color:var(--accent-strong); }
+  .note p, .note li{ font-size:12.5px; line-height:1.75; color:var(--text-secondary); }
+  .note ul{ padding-left:18px; }
+  .note code{
+    font-family:Consolas,"JetBrains Mono",monospace; font-size:11.5px;
+    background:rgba(255,255,255,.06); border-radius:4px; padding:1px 5px; color:var(--text-primary);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-head">
+    <h1>筛选面板样式参考</h1>
+    <p>只改「面板背景 + 选中态」，字号 / 间距 / 布局 / 文案全部与现线上一致 · 可直接点击选项对比手感</p>
+    <div class="accent-switch">
+      主题色
+      <span class="dot mint" data-set="mint" title="mint（你当前截图的青色）"></span>
+      <span class="dot blue" data-set="blue" title="blue（默认）"></span>
+    </div>
+  </div>
+
+  <!-- ================= 方案 A · 现状 ================= -->
+  <div class="section-tag"><b>A · 现状还原</b><span>选中仅变色加粗，9 个「全部」常亮稀释了 accent</span></div>
+  <div class="toolbar">
+    <div class="sort"><b>按添加日期</b><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M12 4v16m0 0l-6-6m6 6l6-6"/></svg></div>
+    <span class="count">47</span>
+    <div class="tools">
+      <div class="tool active"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg></div>
+      <div class="tool" data-filter><svg viewBox="0 0 24 24"><path d="M3 5h18l-7 8v5.5l-4 2V13L3 5z"/></svg></div>
+    </div>
+  </div>
+  <div class="panel panel--before">
+    <div class="panel-inner" data-filter-root>
+      <!-- 行由 JS 生成，两个面板共用同一份数据与选择逻辑 -->
+    </div>
+  </div>
+
+  <!-- ================= 方案 B · 提案 ================= -->
+  <div class="section-tag"><b>B · 提案</b><span class="ok">背景有了层次；选中不加框，只换更亮一档的主题色 + 加粗；真实选中与「全部」默认态分离</span></div>
+  <div class="toolbar">
+    <div class="sort"><b>按添加日期</b><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M12 4v16m0 0l-6-6m6 6l6-6"/></svg></div>
+    <span class="count">47</span>
+    <div class="tools">
+      <div class="tool active"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg></div>
+      <div class="tool" data-filter><svg viewBox="0 0 24 24"><path d="M3 5h18l-7 8v5.5l-4 2V13L3 5z"/></svg></div>
+    </div>
+  </div>
+  <div class="panel panel--after">
+    <div class="panel-inner" data-filter-root></div>
+  </div>
+
+  <!-- ================= 落地要点 ================= -->
+  <div class="notes">
+    <div class="note">
+      <h3>改动范围（Flutter 侧）</h3>
+      <ul>
+        <li>只动 <code>app_catalog_query_sheets.dart</code> 里 <code>_InlineFilterChip</code> 的 BoxDecoration 与 <code>AppCatalogFilterInlinePanel</code> 的外框 decoration，几何参数（padding/字号/行距/圆角/标签列宽）一个不碰。</li>
+        <li>选中态只改 <code>color + fontWeight</code>（<code>accentStrong</code> + <code>w700</code>），不加底色与描边，对布局零影响。</li>
+        <li>「全部」弱选中 = <code>textPrimary + w700</code>，不再占用 accent；行内有实选时它退化为普通未选中态。</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>颜色全部来自现有 token（自动跟随主题）</h3>
+      <ul>
+        <li>面板背景渐变：<code>surface → 顶部提亮 8%</code>，可写死色值也可用 <code>Color.lerp(colors.surface, Colors.white, 0.04)</code>；顶部氛围光用 <code>colors.accentSoft</code>。</li>
+        <li>选中文字用 <code>colors.accentStrong</code>（比现行 <code>colors.accent</code> 亮一档）+ <code>w700</code>；不加底色/描边。</li>
+        <li>hover 沿用现有 <code>colors.surfaceSubtle</code>；外投影可省略（不影响辨识度）。</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // 与截图一致的数据
+  const ROWS = [
+    ["影视分类",   ["电影","电视剧"]],
+    ["类型",       ["冒险","剧情","动画","喜剧","悬疑","科幻奇幻","惊悚","爱情","音乐","动作冒险"]],
+    ["国家和地区", ["日本","华语","中国大陆"]],
+    ["发行年份",   ["今年","2020s","2010s","2000s","1990s"]],
+    ["分辨率",     ["4k","1080","720","480"]],
+    ["视频动态范围",["SDR"]],
+    ["音频规格",   ["杜比环绕","DTS","立体声","其他"]],
+    ["匹配状态",   ["未匹配","已匹配","NFO匹配"]],
+    ["是否观看",   ["已观看","未观看"]],
+  ];
+
+  // 每个面板独立的选择状态（与 App 单选语义一致：点已选项=回到全部）
+  const panels = document.querySelectorAll("[data-filter-root]");
+  const state = ROWS.map(() => null);        // null = 全部
+  const filterButtons = document.querySelectorAll("[data-filter]");
+
+  panels.forEach((root, pi) => {
+    root.innerHTML = ROWS.map(([label, opts], ri) => `
+      <div class="frow">
+        <div class="flabel">${label}</div>
+        <div class="fopts">
+          <span class="chip" data-r="${ri}" data-v="">全部</span>
+          ${opts.map((o, oi) => `<span class="chip" data-r="${ri}" data-v="${oi}">${o}</span>`).join("")}
+        </div>
+      </div>`).join("") + `
+      <div class="collapse">收起
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M6 14l6-6 6 6"/></svg>
+      </div>`;
+
+    root.addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      const ri = +chip.dataset.r, v = chip.dataset.v === "" ? null : +chip.dataset.v;
+      state[ri] = state[ri] === v ? null : (v === null ? null : v);
+      render();
+    });
+  });
+
+  function render(){
+    panels.forEach(root => {
+      root.querySelectorAll(".chip").forEach(chip => {
+        const ri = +chip.dataset.r, v = chip.dataset.v === "" ? null : +chip.dataset.v;
+        chip.classList.remove("on", "default-on");
+        if (v === null) {
+          // 「全部」：行内无实选 → 弱选中（仅方案 B 视觉区分）；方案 A 沿用旧高亮
+          if (state[ri] === null) chip.classList.add(root.closest(".panel--after") ? "default-on" : "on");
+        } else if (state[ri] === v) {
+          chip.classList.add("on");
+        }
+      });
+    });
+    const active = state.some(s => s !== null);
+    filterButtons.forEach(b => b.classList.toggle("active", active));
+  }
+  render();
+
+  // 主题色切换
+  document.querySelectorAll(".accent-switch .dot").forEach(d =>
+    d.addEventListener("click", () => document.documentElement.dataset.accent = d.dataset.set));
+</script>
+</body>
+</html>

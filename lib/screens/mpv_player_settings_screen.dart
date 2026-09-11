@@ -694,11 +694,16 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen>
     Widget page, {
     required bool animated,
     bool keepReverseAnimation = false,
+    RouteSettings? routeSettings,
   }) {
     if (animated) {
-      return AppTransitions.leftToRightPageTurnRoute<void>(page);
+      return AppTransitions.leftToRightPageTurnRoute<void>(
+        page,
+        settings: routeSettings,
+      );
     }
     return PageRouteBuilder<void>(
+      settings: routeSettings,
       pageBuilder: (_, __, ___) => page,
       transitionDuration: Duration.zero,
       reverseTransitionDuration: keepReverseAnimation
@@ -753,6 +758,7 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen>
         ),
         animated: false,
         keepReverseAnimation: true,
+        routeSettings: ModalRoute.of(context)?.settings,
       ),
     );
   }
@@ -779,7 +785,12 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen>
       ),
     };
     await Navigator.of(context).pushReplacement(
-      _buildAutoRoute(page, animated: false, keepReverseAnimation: true),
+      _buildAutoRoute(
+        page,
+        animated: false,
+        keepReverseAnimation: true,
+        routeSettings: ModalRoute.of(context)?.settings,
+      ),
     );
   }
 
