@@ -384,7 +384,9 @@ void main() {
       expect(arrowOpacityOf(tester, Icons.chevron_left), 0);
     });
 
-    testWidgets('桌面档续看卡右键触发回调且非桌面档不触发', (tester) async {
+    testWidgets('PC 续看卡缩成窄窗口后右键仍触发，触屏平台不触发', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = true;
+      addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
       final rightTaps = <double>[];
       Widget section(double width) => desktopApp(
         width: width,
@@ -413,7 +415,7 @@ void main() {
 
       expect(rightTaps, hasLength(1));
 
-      await tester.pumpWidget(section(800));
+      await tester.pumpWidget(section(390));
       await tester.pumpAndSettle();
       final plainGesture = await tester.startGesture(
         tester.getCenter(
@@ -426,8 +428,15 @@ void main() {
       await plainGesture.up();
       await tester.pumpAndSettle();
 
-      // 非桌面档没有右键包装，不新增回调。
-      expect(rightTaps, hasLength(1));
+      expect(rightTaps, hasLength(2));
+      DesktopEnvironment.debugOverridePlatform = false;
+      await tester.pumpWidget(section(390));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('continue-card-c-0')),
+        buttons: kSecondaryMouseButton,
+      );
+      await tester.pumpAndSettle();
+      expect(rightTaps, hasLength(2));
       expect(tester.takeException(), isNull);
     });
   });
