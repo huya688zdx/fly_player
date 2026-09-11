@@ -78,6 +78,15 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
             for neighbor in (left, right):
                 self.assertFalse(np.array_equal(np.asarray(self.frames[middle]), np.asarray(self.frames[neighbor])))
         self.assertLessEqual(self.phases.count("human_0") + self.phases.count("human_1"), 12)
+        # 收臂主要改变手的位置，不能让交叉手臂那张的头部突然缩小。
+        head_widths = []
+        for phase in ("human_6", "human_hands_separate", "human_arms_cross", "human_7"):
+            rgba = np.asarray(self.frames[self.phases.index(phase)]).astype(np.int16)[110:210]
+            red, green, blue, alpha = np.moveaxis(rgba, 2, 0)
+            _, xs = np.where((blue - red > 75) & (green < 155) & (alpha > 200))
+            self.assertGreater(len(xs), 100, phase)
+            head_widths.append(int(np.ptp(xs)) + 1)
+        self.assertLessEqual(np.ptp(head_widths), 4, head_widths)
 
     def test_no_frame_is_blank_or_cut_by_the_canvas(self) -> None:
         for index, frame in enumerate(self.frames):
