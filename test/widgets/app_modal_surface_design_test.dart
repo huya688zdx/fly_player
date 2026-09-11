@@ -1,3 +1,5 @@
+import 'package:fly_player/desktop/desktop.dart';
+import 'package:fly_player/desktop/desktop_scroll_behavior.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/detail/media_detail_variant.dart';
 import 'package:fly_player/media_backend/detail/media_source_info.dart';
@@ -260,6 +262,60 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('文件媒体信息'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('PC 窄窗口媒体信息可双向切换版本，滚动条与字段留有间距', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+    tester.view.physicalSize = const Size(390, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final changes = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: AppThemeBuilder.build(AppThemePreset.midnight),
+        scrollBehavior: const DesktopScrollBehavior(),
+        home: Scaffold(
+          body: MediaDetailOverlayPage(
+            variants: List.generate(
+              2,
+              (index) => MediaDetailVariant(
+                key: 'source-$index',
+                title: '版本 $index',
+                video: MediaInfoCard(
+                  header: '视频 $index',
+                  fields: List.generate(
+                    30,
+                    (_) =>
+                        const MediaInfoField(MediaInfoFieldKey.encoder, 'h264'),
+                  ),
+                ),
+              ),
+            ),
+            initialIndex: 0,
+            onVariantChanged: changes.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('版本 0  1/2'), findsOneWidget);
+    final scroll = find.byType(SingleChildScrollView).first;
+    expect(
+      tester.getRect(find.text('h264').first).right,
+      lessThanOrEqualTo(tester.getRect(scroll).right - 12),
+    );
+    await tester.tap(find.byTooltip('下一页'));
+    await tester.pumpAndSettle();
+    expect(find.text('版本 1  2/2'), findsOneWidget);
+    await tester.tap(find.byTooltip('上一页'));
+    await tester.pumpAndSettle();
+    expect(find.text('版本 0  1/2'), findsOneWidget);
+    expect(changes, [1, 0]);
     expect(tester.takeException(), isNull);
   });
 
