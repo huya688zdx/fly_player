@@ -47,6 +47,7 @@ import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
+import '../widgets/detail/detail_status_page.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
@@ -1555,15 +1556,13 @@ class _TvDetailPageState extends State<TvDetailPage>
           return DetailLoadingSkeleton(presentation: widget.presentation);
         }
         if (_error != null) {
-          return Scaffold(
-            backgroundColor: colors.backgroundBase,
-            appBar: _isPane
-                ? null
-                : AppBar(backgroundColor: colors.backgroundBase),
-            body: AppErrorState(
-              error: _error!,
-              localeMap: _localeMap,
-              onRetry: _load,
+          return DetailStatusPage(
+            child: SafeArea(
+              child: AppErrorState(
+                error: _error!,
+                localeMap: _localeMap,
+                onRetry: _load,
+              ),
             ),
           );
         }
