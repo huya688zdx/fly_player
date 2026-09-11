@@ -7,7 +7,6 @@ import 'dart:ui' as ui;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -512,12 +511,8 @@ class DynamicThemeSeedExtractor {
     _persistTimer?.cancel();
     _persistTimer = Timer(_persistDebounceDelay, () {
       _persistTimer = null;
-      // seed 常在进场转场内解析入库，debounce 到点仍可能撞转场/动画帧；
-      // 全量 jsonEncode + prefs 写入挂到调度器空闲位执行（帧忙时自动顺延；
-      // 退出前的 flushPendingWrites 仍走直写兜底，两边幂等）。
-      SchedulerBinding.instance.scheduleTask<void>(() {
-        unawaited(_persistSeedCache());
-      }, Priority.idle);
+      // 保留延迟合并写入；避免动画回调未结束时空闲任务反复重排、占满事件循环。
+      unawaited(_persistSeedCache());
     });
   }
 
