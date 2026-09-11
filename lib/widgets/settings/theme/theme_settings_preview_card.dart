@@ -201,9 +201,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppAmbientPage.sharesBackgroundOf(context)
-            ? chrome.surface.withValues(alpha: 0.16)
-            : chrome.surface,
+        color: AppAmbientPage.cardColorOf(context, chrome.surface),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: chrome.borderSubtle),
       ),
