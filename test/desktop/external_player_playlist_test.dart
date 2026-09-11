@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/playback/external_player_playlist.dart';
 import 'package:fly_player/media_backend/media_backend.dart';
 import 'package:fly_player/models/download_task_record.dart';
+import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/services/download_task_service.dart';
@@ -23,6 +24,43 @@ class _NoNetworkNas implements NasProvider {
 }
 
 void main() {
+  test('切集时中文 ASS 选择映射到新集字幕，不被默认 VTT 覆盖', () {
+    MpvMediaSource episode(String id, String selected) => MpvMediaSource(
+      itemGuid: id,
+      mediaGuid: id,
+      videoGuid: id,
+      url: '/$id.mkv',
+      headers: const {},
+      title: id,
+      subtitleTrackGuid: selected,
+      subtitleTracks: [
+        for (final format in ['vtt', 'ass'])
+          SubtitleTrackOption.fromJson({
+            'guid': '$id-$format',
+            'media_guid': id,
+            'format': format,
+            'language': 'chi',
+            'is_external': 1,
+            'is_default': format == 'vtt' ? 1 : 0,
+          }),
+      ],
+    );
+    final current = episode('e2', 'e2-ass');
+    final next = ExternalPlayerPlaylist.inheritSubtitleSelection(
+      current,
+      episode('e3', 'e3-vtt'),
+    );
+    expect(next.subtitleTrackGuid, 'e3-ass');
+    expect(next.preferExternalSubtitle, isTrue);
+    expect(
+      ExternalPlayerPlaylist.inheritSubtitleSelection(
+        current.copyWith(subtitleTrackGuid: ''),
+        next,
+      ).subtitleTrackGuid,
+      '',
+    );
+  });
+
   test('离线目录合并 fallback 与同组已下载剧集，并排除电影和其他系列', () async {
     final directory = await Directory.systemTemp.createTemp(
       'fly_external_playlist_',

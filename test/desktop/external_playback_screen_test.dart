@@ -113,11 +113,37 @@ void main() {
       'Bad state: 播放失败',
       error: true,
     );
-    await tester.pumpAndSettle();
-    final notice = tester.widget<SnackBar>(find.byType(SnackBar));
-    expect(notice.behavior, SnackBarBehavior.floating);
-    expect(notice.width, lessThanOrEqualTo(420));
-    expect(find.text('播放失败'), findsOneWidget);
+    showExternalPlaybackNotice(
+      tester.element(find.byType(ExternalPlaybackScreen)),
+      '第二条提示',
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('external-playback-notice')),
+      findsOneWidget,
+    );
+    expect(find.text('播放失败'), findsNothing);
+    expect(find.text('第二条提示'), findsOneWidget);
+    final notice = tester.widget<Positioned>(
+      find.byKey(const ValueKey<String>('external-playback-notice')),
+    );
+    expect(notice.top, greaterThan(40));
+    expect(notice.bottom, isNull);
+    await tester.tap(find.byTooltip('关闭提示'));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('external-playback-notice')),
+      findsNothing,
+    );
+    showExternalPlaybackNotice(
+      tester.element(find.byType(ExternalPlaybackScreen)),
+      '自动消失',
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('自动消失'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
