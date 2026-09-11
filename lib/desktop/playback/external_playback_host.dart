@@ -10,6 +10,7 @@ import '../../danmaku/settings/danmaku_settings_store.dart';
 import '../../danmaku/models/danmaku_settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_backend.dart';
+import '../../media_backend/playback/media_session_reload.dart';
 import '../../models/play_info.dart';
 import '../../models/playback_stream.dart';
 import '../../playback/feiniu_playback_source_bridge.dart';
@@ -21,6 +22,8 @@ import '../../services/native_danmaku_prefetch.dart';
 import '../../services/native_playback_reentry.dart';
 import '../../services/native_reentry_support.dart';
 import '../../services/playback_progress_offline_queue.dart';
+import '../../services/server_reentry_support.dart';
+import 'external_playback_notice.dart';
 import 'desktop_mpv_runtime.dart';
 import 'desktop_playback_reporter.dart';
 import 'external_player_media_proxy.dart';
@@ -281,13 +284,12 @@ final class ExternalPlaybackHost implements PlaybackHost {
     }
     final index = active.source.qualities.indexOf(quality);
     if (index < 0) return false;
-    return _replaceMedia(active, quality: quality, qualityIndex: index);
+    return _replaceMedia(active, qualityIndex: index);
   }
 
   Future<bool> _replaceMedia(
     ExternalPlaybackStatus active, {
     String? episodeGuid,
-    PlaybackQualityOption? quality,
     int? qualityIndex,
   }) async {
     _changingSource = true;
@@ -295,21 +297,27 @@ final class ExternalPlaybackHost implements PlaybackHost {
     final session = _session;
     final expectedUrl = session?.mediaUrl;
     try {
-      final result = await const ItemPlaybackLauncher().resolveForNative(
-        context.read<NasProvider>(),
-        backend: context.read<MediaBackendProvider>().backend,
-        itemGuid: episodeGuid ?? active.source.itemGuid,
-        fallbackTitle: active.source.title,
-        qualityIndex: qualityIndex,
-        qualityMediaGuid: quality?.mediaGuid,
-        // 不把另一版本、另一集的字幕 GUID 误套到新媒体。
-        subtitleGuid: active.source.subtitleTrackGuid == '' ? '' : null,
-        startPositionMs: episodeGuid == null
-            ? active.position.inMilliseconds
-            : null,
-        l10n: AppLocalizations.of(context),
-        allowNetwork: !_offline,
-      );
+      final nas = context.read<NasProvider>();
+      final backend = context.read<MediaBackendProvider>().backend;
+      final l10n = AppLocalizations.of(context);
+      final result = qualityIndex != null
+          ? await _reloadQuality(
+              active.source.copyWith(startPosition: active.position),
+              qualityIndex: qualityIndex,
+            )
+          : await const ItemPlaybackLauncher().resolveForNative(
+              nas,
+              backend: backend,
+              itemGuid: episodeGuid ?? active.source.itemGuid,
+              fallbackTitle: active.source.title,
+              // 不把另一版本、另一集的字幕 GUID 误套到新媒体。
+              subtitleGuid: active.source.subtitleTrackGuid == '' ? '' : null,
+              startPositionMs: episodeGuid == null
+                  ? active.position.inMilliseconds
+                  : null,
+              l10n: l10n,
+              allowNetwork: !_offline,
+            );
       if (!context.mounted ||
           !identical(_source, expected) ||
           !identical(_session, session) ||
@@ -339,16 +347,48 @@ final class ExternalPlaybackHost implements PlaybackHost {
         startPosition: episodeGuid == null
             ? status.value!.position
             : resolved.startPosition,
+        isDownloadedFile: qualityIndex != null
+            ? false
+            : resolved.isDownloadedFile,
+        subtitleTrackGuid: active.source.subtitleTrackGuid == ''
+            ? ''
+            : resolved.subtitleTrackGuid,
       );
-      return launch(
+      return await launch(
         source: next,
         episodes: _episodeMaps(active.playlist),
-        danmakuFilePath: result?['danmakuFile']?.toString(),
+        danmakuFilePath: qualityIndex != null
+            ? _danmakuFilePath
+            : result?['danmakuFile']?.toString(),
         offline: _offline,
       );
     } finally {
       _changingSource = false;
     }
+  }
+
+  Future<Map<String, dynamic>?> _reloadQuality(
+    MpvMediaSource source, {
+    int? qualityIndex,
+  }) {
+    final backend = context.read<MediaBackendProvider>().backend;
+    final intent = MediaSessionReloadIntent(
+      qualityIndex: qualityIndex,
+      startPosition: source.startPosition,
+      subtitleDisabled: source.subtitleTrackGuid == '',
+    );
+    return backend.capabilities.usesLegacyFeiniuFlow
+        ? NativeReentrySupport.reloadServerSession(
+            context.read<NasProvider>(),
+            currentLoadArgs: jsonEncode(source.toMap()),
+            intent: intent,
+          )
+        : ServerReentrySupport.reloadServerSession(
+            backend,
+            currentLoadArgs: jsonEncode(source.toMap()),
+            intent: intent,
+            l10n: AppLocalizations.of(context),
+          );
   }
 
   static List<Map<String, dynamic>> _episodeMaps(
@@ -379,11 +419,20 @@ final class ExternalPlaybackHost implements PlaybackHost {
       if (status.value?.canControl == true) return true;
       if (!session.finished) return false;
     }
+    var source = active.source.copyWith(
+      startPosition: active.position,
+      startPaused: active.paused,
+    );
+    if (!_offline && source.serverPlaybackManaged) {
+      final result = await _reloadQuality(source);
+      final raw = result?['loadArgs'];
+      if (raw is! String || !context.mounted) return false;
+      source = MpvMediaSource.fromMap(
+        jsonDecode(raw) as Map<String, dynamic>,
+      ).copyWith(startPaused: active.paused, isDownloadedFile: false);
+    }
     return launch(
-      source: active.source.copyWith(
-        startPosition: active.position,
-        startPaused: active.paused,
-      ),
+      source: source,
       episodes: _episodeMaps(active.playlist),
       danmakuFilePath: _danmakuFilePath,
       offline: _offline,
@@ -438,11 +487,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
       );
       if (error != null) throw StateError(error);
       if (!context.mounted) return false;
-      final messenger = ScaffoldMessenger.maybeOf(context);
       void notify(String message) {
-        if (messenger?.mounted == true) {
-          messenger!.showSnackBar(SnackBar(content: Text(message)));
-        }
+        showExternalPlaybackNotice(context, message);
       }
 
       final provider = context.read<MediaBackendProvider>();
@@ -519,19 +565,39 @@ final class ExternalPlaybackHost implements PlaybackHost {
       _offline = offline;
       publishPreparing();
       final uri = Uri.tryParse(source.url);
-      // 仅中转飞牛原画文件；HLS 清单仍需原始基地址解析分片。
-      if (backend.capabilities.usesLegacyFeiniuFlow &&
-          (uri?.scheme == 'http' || uri?.scheme == 'https') &&
-          uri!.path.startsWith('/v/api/v1/media/range/')) {
+      // 剧集目录不依赖当前集是网络文件还是下载文件。
+      final catalog = await ExternalPlayerPlaylist.loadEpisodes(
+        source: source,
+        backend: backend,
+        nas: effectiveNas,
+        fallback: episodes,
+        offline: offline,
+        onWarning: notify,
+      );
+      final isHttp = uri?.scheme == 'http' || uri?.scheme == 'https';
+      if (catalog.length > 1 ||
+          (isHttp && backend.capabilities.usesLegacyFeiniuFlow)) {
+        final api = FeiniuApi(effectiveNas);
         mediaProxy = await ExternalPlayerMediaProxy.start(
-          source: uri,
+          source: isHttp || uri?.scheme == 'file'
+              ? uri!
+              : Uri.file(source.url, windows: true),
           headers: source.headers,
+          headersForUrl: backend.capabilities.usesLegacyFeiniuFlow
+              ? (url) {
+                  if (!isCurrentSession()) throw StateError('播放账号已切换');
+                  return api.buildPlaybackHeadersForUrl(url.toString());
+                }
+              : null,
         );
       }
       final playerUrl =
           mediaProxy?.url ??
           (uri?.scheme == 'file' ? uri!.toFilePath(windows: true) : source.url);
       final ownedDirectory = directory;
+      final ownedServerSources = <String, MpvMediaSource>{
+        if (source.playLink?.isNotEmpty == true) source.playLink!: source,
+      };
       final prepared = <String, Future<_PreparedExternalItem>>{
         playerUrl: Future.value((
           source: source,
@@ -541,42 +607,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
           settings: initialDanmakuSettings.encode(),
         )),
       };
-      var playlist = <ExternalPlaylistEpisode>[
-        for (final entry in episodes ?? <Map<String, dynamic>>[])
-          if ('${entry['itemGuid'] ?? entry['guid'] ?? ''}'.isNotEmpty)
-            ExternalPlaylistEpisode(
-              itemGuid: '${entry['itemGuid'] ?? entry['guid']}',
-              title: '${entry['title'] ?? ''}',
-              seasonNumber:
-                  (entry['seasonNumber'] as num?)?.toInt() ??
-                  source.seasonNumber,
-              episodeNumber: (entry['episodeNumber'] as num?)?.toInt() ?? 0,
-              seasonGuid: '${entry['seasonGuid'] ?? source.seasonGuid}',
-            ),
-      ];
-      if (!playlist.any((entry) => entry.itemGuid == source.itemGuid)) {
-        playlist.add(
-          ExternalPlaylistEpisode(
-            itemGuid: source.itemGuid,
-            title: source.title,
-            seasonNumber: source.seasonNumber,
-            episodeNumber: source.episodeNumber,
-            seasonGuid: source.seasonGuid,
-          ),
-        );
-      }
+      final playlist = catalog;
       String? playlistPath;
-      if (mediaProxy != null &&
-          !offline &&
-          source.mediaType.toLowerCase() == 'episode') {
-        final catalog = await ExternalPlayerPlaylist.loadEpisodes(
-          source: source,
-          backend: backend,
-          nas: effectiveNas,
-          fallback: episodes,
-          onWarning: notify,
-        );
-        playlist = catalog;
+      if (mediaProxy != null && catalog.length > 1) {
         final titles = <String, String>{};
         final proxy = mediaProxy;
         for (var index = 0; index < catalog.length; index++) {
@@ -602,24 +635,16 @@ final class ExternalPlaybackHost implements PlaybackHost {
                     // 关闭字幕的明确选择随列表继承，其余使用每集自己的字幕轨。
                     subtitleGuid: source.subtitleTrackGuid == '' ? '' : null,
                     l10n: l10n,
+                    allowNetwork: !offline,
+                    episodes: _episodeMaps(catalog),
                   );
               final raw = result?['loadArgs'];
               if (raw is! String || raw.isEmpty) throw StateError('未能解析这一集');
               final next = MpvMediaSource.fromMap(
                 jsonDecode(raw) as Map<String, dynamic>,
               );
-              final nextUri = Uri.tryParse(next.url);
-              if (next.serverPlaybackManaged ||
-                  nextUri?.path.toLowerCase().endsWith('.m3u8') == true ||
-                  nextUri?.path.toLowerCase().endsWith('.mpd') == true) {
-                final link = next.playLink?.trim() ?? '';
-                if (link.isNotEmpty && isCurrentSession()) {
-                  await NativeReentrySupport.releaseServerSession(
-                    effectiveNas,
-                    link,
-                  );
-                }
-                throw StateError('此集为分段转码流，请从 Fly Player 单独打开');
+              if (next.playLink?.isNotEmpty == true) {
+                ownedServerSources[next.playLink!] = next;
               }
               if (disposed || !isCurrentSession()) throw StateError('播放会话已结束');
               await entryDirectory.create(recursive: true);
@@ -630,7 +655,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 source: next,
                 backend: backend,
                 nas: effectiveNas,
-                offline: false,
+                offline: offline,
                 directory: entryDirectory,
                 danmakuFilePath: result?['danmakuFile']?.toString(),
                 notify: notify,
@@ -901,7 +926,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                     settings: activeDanmakuSettings.encode(),
                   ));
                 }
-                reporter.release(source, replacement: next.source);
+                // DPL 会再次打开之前的条目；出流会话在整个列表结束时统一释放。
                 source = next.source;
                 activeSubtitle = next.subtitle;
                 activeDanmakuPath = next.danmaku;
@@ -982,6 +1007,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
             await reporter.flushServer();
             await reporter.dispose();
             reporter.release(source);
+            for (final other in ownedServerSources.values) {
+              if (other.playLink != source.playLink) reporter.release(other);
+            }
             if (!offline &&
                 isCurrentSession() &&
                 !source.externalLocalSource &&

@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../danmaku/models/danmaku_settings.dart';
+import '../../media_backend/media_image_ref.dart';
 import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
 import '../../playback/playback_source.dart';
+import '../../providers/media_backend_provider.dart';
+import '../../providers/nas_provider.dart';
 import '../../screens/settings_destination_routes.dart';
 import '../../services/playback_progress_offline_queue.dart';
 import '../../theme/app_theme.dart';
+import '../../ui/detail_artwork_resolver.dart';
+import '../../ui/media_detail_components.dart';
 import 'external_playback_controls.dart';
 import 'external_playback_host.dart';
+import 'external_playback_notice.dart';
 import 'external_player_playlist.dart';
 
 /// PotPlayer 外部会话的独立控制页，只展示宿主实际回报的状态。
@@ -78,6 +85,65 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     }).toList();
   }
 
+  MediaImageRequest _posterRequest(
+    BuildContext context,
+    MpvMediaSource source,
+  ) {
+    final path = source.posterPath.trim();
+    if (path.isEmpty) return MediaImageRequest.empty;
+    final uri = Uri.tryParse(path);
+    final isLocal =
+        uri?.scheme == 'file' ||
+        RegExp(r'^[A-Za-z]:[\\/]').hasMatch(path) ||
+        path.startsWith(r'\\') ||
+        path.startsWith('//');
+    if (isLocal) return MediaImageRequest(urls: <String>[path]);
+
+    final backendProvider = context.read<MediaBackendProvider?>();
+    final nas = context.read<NasProvider?>();
+    final usesNas =
+        backendProvider?.backend.capabilities.usesLegacyFeiniuFlow ?? true;
+    return DetailArtworkResolver(
+      baseUrl: usesNas ? nas?.baseUrl ?? '' : '',
+      token: usesNas ? nas?.token ?? '' : '',
+      accessCode: usesNas ? nas?.accessCode ?? '' : '',
+    ).resolveRef(MediaImageRef(url: path), width: 320);
+  }
+
+  int? _currentQualityIndex(MpvMediaSource source) {
+    final expectedSource = switch (source.playbackMode) {
+      PlayerPlaybackMode.originalQuality => PlaybackQualitySource.originalProxy,
+      PlayerPlaybackMode.directLinkQuality => PlaybackQualitySource.directLink,
+      PlayerPlaybackMode.serverSession => PlaybackQualitySource.serverSession,
+    };
+    final matches = <int>[];
+    for (var index = 0; index < source.qualities.length; index++) {
+      final quality = source.qualities[index];
+      if (quality.source != expectedSource ||
+          quality.mediaGuid != source.mediaGuid ||
+          (quality.videoGuid.isNotEmpty &&
+              source.videoGuid.isNotEmpty &&
+              quality.videoGuid != source.videoGuid)) {
+        continue;
+      }
+      if (quality.isDirectLink &&
+          quality.directLinkQualityIndex != source.directLinkQualityIndex) {
+        continue;
+      }
+      if (quality.isServerSession) {
+        final sourceResolution = source.resolution.trim().toLowerCase();
+        final qualityResolution = quality.resolution.trim().toLowerCase();
+        if (sourceResolution.isEmpty ||
+            qualityResolution != sourceResolution ||
+            (source.bitrate > 0 && quality.bitrate != source.bitrate)) {
+          continue;
+        }
+      }
+      matches.add(index);
+    }
+    return matches.length == 1 ? matches.single : null;
+  }
+
   bool get _dirty {
     final draft = _draft;
     final applied = _applied;
@@ -106,9 +172,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   void _message(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    showExternalPlaybackNotice(context, message);
   }
 
   Future<void> _run(
@@ -370,6 +434,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   Widget _buildNowPlaying(BuildContext context, ExternalPlaybackStatus status) {
     final colors = context.appColors;
     final source = status.source;
+    final poster = _posterRequest(context, source);
     final durationMs = status.duration.inMilliseconds.toDouble();
     final positionMs =
         (_dragPosition ?? status.position.inMilliseconds.toDouble()).clamp(
@@ -407,15 +472,12 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               Container(
                 width: 88,
                 height: 96,
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
                   color: colors.accentSoft,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(
-                  Icons.movie_filter_rounded,
-                  color: colors.accent,
-                  size: 38,
-                ),
+                child: DetailHeroImage(images: poster),
               ),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 430),
@@ -564,7 +626,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     ExternalPlaybackStatus status,
   ) {
     final colors = context.appColors;
-    final message = status.error ?? status.progressMessage;
+    final message = normalizeExternalPlaybackNotice(
+      status.error ?? status.progressMessage,
+    );
     final failed =
         status.error != null ||
         status.progressResult == PlaybackProgressResult.failed;
@@ -948,6 +1012,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final colors = context.appColors;
     final source = status.source;
     final subtitles = _textSubtitles(source);
+    final currentQualityIndex = _currentQualityIndex(source);
     final selectedTrackIsUnavailable =
         source.subtitleTrackGuid?.trim().isNotEmpty == true &&
         !subtitles.any((track) => track.guid == source.subtitleTrackGuid);
@@ -971,8 +1036,10 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           Wrap(
             spacing: 10,
             runSpacing: 10,
-            children: source.qualities.map((quality) {
-              final selected = quality.mediaGuid == source.mediaGuid;
+            children: source.qualities.indexed.map((entry) {
+              final index = entry.$1;
+              final quality = entry.$2;
+              final selected = index == currentQualityIndex;
               return ChoiceChip(
                 selected: selected,
                 label: Text(_qualityLabel(quality)),
@@ -998,7 +1065,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          '仅列出可与弹幕合并的 ASS、SRT、VTT 文本字幕。',
+          '启用弹幕时，Fly Player 会将外挂 ASS、SRT、VTT 与弹幕合成为一条临时 ASS；关闭字幕只关闭影片字幕。',
           style: TextStyle(color: colors.textMuted, fontSize: 11),
         ),
         const SizedBox(height: 12),
@@ -1252,12 +1319,17 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   static String _qualityLabel(PlaybackQualityOption quality) {
     final resolution = quality.resolution.trim().isEmpty
-        ? '原画'
+        ? '未知清晰度'
         : quality.resolution.trim();
+    final source = quality.isOriginalProxy
+        ? '原画'
+        : quality.isDirectLink
+        ? '直链'
+        : '转码';
     final bitrate = quality.bitrate > 0
         ? ' · ${(quality.bitrate / 1000000).toStringAsFixed(1)} Mbps'
         : '';
-    return '$resolution$bitrate';
+    return '$resolution · $source$bitrate';
   }
 
   static String _subtitleLabel(SubtitleTrackOption track) {
