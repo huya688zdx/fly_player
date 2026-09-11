@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设置二级页（单屏模式）宽度方案参考</title>
+<style>
+  :root{
+    /* 取自当前动态主题（截图的青绿暗色系），accent 保持选中的蓝 */
+    --bg:            #071715;
+    --bg-elevated:   #0b211e;
+    --sidebar-bg:    #0e2320;
+    --surface:       #0f2b27;
+    --surface-subtle:#123430;
+    --border-subtle: rgba(255,255,255,.08);
+    --text-primary:  #eaf6f2;
+    --text-secondary:#9db8b1;
+    --text-muted:    #6e8b84;
+    --selection:     #4d8df6;
+    --donut-blue:    #5f97f7;
+    --amber:         #d9a13c;
+    --green:         #3ecf8e;
+    --purple:        #a06bfa;
+    --cyan:          #35b5e9;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    background:#04100e; color:var(--text-primary);
+    padding:34px clamp(16px,3vw,48px) 70px;
+  }
+  .wrap{ max-width:1720px; margin:0 auto; }
+
+  .page-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+  .page-head h1{ font-size:19px; font-weight:700; }
+  .page-head p{ font-size:12.5px; color:var(--text-secondary); }
+
+  /* ---------- 宽度滑块 ---------- */
+  .slider-row{
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    margin:18px 2px 6px; padding:14px 18px;
+    background:rgba(255,255,255,.03); border:1px solid var(--border-subtle);
+    border-radius:12px;
+  }
+  .slider-row label{ font-size:13px; font-weight:700; }
+  .slider-row .val{ font-size:12.5px; color:var(--selection); font-family:Consolas,monospace; min-width:170px; }
+  input[type=range]{ flex:1; min-width:260px; accent-color:var(--selection); }
+  .hint{ font-size:11.5px; color:var(--text-muted); }
+
+  .section-tag{ display:flex; align-items:baseline; gap:10px; margin:30px 2px 10px; flex-wrap:wrap; }
+  .section-tag b{ font-size:14px; font-weight:700; }
+  .section-tag .badge{
+    font-size:11px; font-weight:700; color:#04100e;
+    background:var(--green); border-radius:99px; padding:2px 10px;
+  }
+  .section-tag span{ font-size:12px; color:var(--text-muted); }
+  .gutter-note{ font-size:12px; color:var(--amber); font-family:Consolas,monospace; }
+
+  /* ============================================================
+     窗口 mock：应用侧栏(300) + 设置内容区(其余)
+     内容区宽度由滑块控制（--win 实时写入）
+     ============================================================ */
+  .win{
+    display:flex; width:100%; overflow:hidden;
+    border:1px solid var(--border-subtle); border-radius:14px;
+    background:linear-gradient(180deg,var(--bg-elevated),var(--bg));
+    height:560px;
+  }
+  .sidebar{
+    flex:0 0 300px; background:var(--sidebar-bg);
+    border-right:1px solid var(--border-subtle);
+    padding:22px 14px; font-size:13.5px;
+  }
+  .sidebar .logo{ font-weight:700; letter-spacing:.4px; font-size:15px; }
+  .sidebar .logo small{ display:block; font-size:9px; letter-spacing:2.2px; color:var(--text-muted); margin-top:3px; }
+  .nav{ margin-top:20px; display:flex; flex-direction:column; gap:2px; }
+  .nav a{
+    display:flex; align-items:center; gap:10px; padding:9px 12px;
+    border-radius:10px; color:var(--text-secondary); text-decoration:none;
+  }
+  .nav a svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8; }
+  .nav a.active{ background:rgba(77,141,246,.16); color:var(--text-primary); box-shadow:inset 2.5px 0 0 var(--selection); }
+  .nav .group{ margin:14px 12px 4px; font-size:11px; color:var(--text-muted); letter-spacing:1px; }
+  .nav a .cnt{ margin-left:auto; font-size:11px; color:var(--text-muted); }
+
+  .area{ flex:1; min-width:0; overflow:hidden; position:relative; }
+  /* 两侧留白的可视化（仅现状用） */
+  .gutter{
+    position:absolute; top:12px; bottom:12px; width:12px; border-radius:3px;
+    background:rgba(255,159,10,.28); border:1px dashed rgba(255,159,10,.55);
+  }
+  .gutter.left{ left:12px; } .gutter.right{ right:12px; }
+
+  /* ---------- 二级页骨架 ---------- */
+  .sub{ height:100%; overflow:auto; }
+  .sub-head{
+    display:flex; align-items:center; gap:12px; padding:14px 0 6px;
+  }
+  .back{
+    width:30px; height:30px; border-radius:9px; flex:0 0 30px;
+    background:var(--surface); border:1px solid var(--border-subtle);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .back svg{ width:15px; height:15px; stroke:var(--text-primary); fill:none; stroke-width:2.2; }
+  .sub-head h2{ font-size:17px; font-weight:700; }
+  .sub-head .spacer{ flex:1; }
+  .sub-head svg.rf{ width:18px; height:18px; stroke:var(--text-secondary); fill:none; stroke-width:2; cursor:pointer; }
+
+  .card{
+    background:var(--surface); border:1px solid var(--border-subtle);
+    border-radius:14px; padding:20px 22px; margin-top:14px;
+  }
+  .card h3{ font-size:15.5px; font-weight:700; margin-bottom:14px; }
+
+  .total-row{ display:flex; align-items:center; gap:16px; }
+  .total-ico{
+    width:44px; height:44px; border-radius:12px; flex:0 0 44px;
+    background:rgba(62,207,142,.14); border:1px solid rgba(62,207,142,.3);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .total-ico svg{ width:20px; height:20px; stroke:var(--green); fill:none; stroke-width:2; }
+  .total-row .num{ font-size:26px; font-weight:800; letter-spacing:.5px; }
+  .total-row .lbl{ font-size:12.5px; color:var(--text-secondary); }
+  .total-row .refresh{ margin-left:auto; font-size:11.5px; color:var(--text-muted); }
+
+  .usage{ display:flex; align-items:center; gap:34px; flex-wrap:wrap; }
+  .donut{
+    --seg: conic-gradient(var(--donut-blue) 0 359.1deg, var(--amber) 359.1deg 360deg);
+    width:190px; height:190px; border-radius:50%; flex:0 0 190px;
+    background:radial-gradient(circle at 50% 50%, var(--surface) 0 54px, transparent 54px), var(--seg);
+    position:relative;
+  }
+  .donut .c{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:3px;
+  }
+  .donut .c b{ font-size:12.5px; color:var(--text-secondary); font-weight:600; }
+  .donut .c i{ font-style:normal; font-size:22px; font-weight:800; }
+  .legend{ display:flex; flex-direction:column; gap:18px; }
+  .legend .li b{ font-size:14.5px; font-weight:700; display:flex; align-items:center; gap:8px; }
+  .legend .li b::before{ content:""; width:8px; height:8px; border-radius:50%; background:var(--dot); }
+  .legend .li span{ display:block; font-size:12.5px; color:var(--text-secondary); margin-top:4px; padding-left:16px; }
+
+  .row{
+    display:flex; align-items:center; gap:12px; padding:13px 2px;
+  }
+  .row + .row{ border-top:1px solid var(--border-subtle); }
+  .row .dot{ width:9px; height:9px; border-radius:50%; background:var(--dot); flex:0 0 9px; }
+  .row .t{ font-size:14.5px; font-weight:700; }
+  .row .s{ font-size:12px; color:var(--text-secondary); margin-top:3px; }
+  .row .val{ margin-left:auto; font-size:14px; font-weight:800; font-family:Consolas,monospace; }
+  .row .chev{ color:var(--text-muted); font-size:13px; }
+  .btn-clear{
+    border:1px solid rgba(62,207,142,.5); color:var(--green);
+    background:transparent; border-radius:99px; padding:4px 14px;
+    font-size:12.5px; cursor:pointer;
+  }
+  .row .ops{ margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .row .ops .val{ margin-left:0; }
+
+  /* ============================================================
+     三种方案的内容宽度规则
+     ============================================================ */
+  .content{ position:relative; height:100%; }
+  /* 现状：940 居中 */
+  .v-current .content .inner{ max-width:940px; margin:0 auto; padding:0 24px 28px; }
+  /* 方案A：对齐首页网格 1128 居中 */
+  .v-align .content .inner{ max-width:1128px; margin:0 auto; padding:0 40px 28px; }
+  /* 方案B：铺满内容区 */
+  .v-fill .content .inner{ max-width:none; margin:0; padding:0 48px 28px; }
+
+  /* ---------- 结论注记 ---------- */
+  .notes{ margin:34px 2px 0; display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; }
+  .note{
+    background:rgba(255,255,255,.03); border:1px solid var(--border-subtle);
+    border-radius:12px; padding:16px 18px;
+  }
+  .note h3{ font-size:13px; font-weight:700; margin-bottom:8px; color:var(--donut-blue); }
+  .note p, .note li{ font-size:12.5px; line-height:1.8; color:var(--text-secondary); }
+  .note ul{ padding-left:18px; }
+  .note code{
+    font-family:Consolas,monospace; font-size:11.5px;
+    background:rgba(255,255,255,.06); border-radius:4px; padding:1px 5px; color:var(--text-primary);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-head">
+    <h1>设置二级页 · 单屏模式宽度方案</h1>
+    <p>现状把内容钉在 940px 居中，大窗口两侧各空出一条（截图橙框）。拖动滑块对比三种改法。</p>
+  </div>
+
+  <div class="slider-row">
+    <label>窗口宽度</label>
+    <input type="range" id="winSlider" min="1000" max="2000" step="10" value="1600">
+    <span class="val" id="winVal"></span>
+    <span class="hint">侧栏固定 300px，其余是设置内容区</span>
+  </div>
+
+  <!-- ============ 现状 ============ -->
+  <div class="section-tag">
+    <b>现状还原</b>
+    <span class="gutter-note" data-gutter></span>
+    <span>内容 940px 居中（_DesktopSettingsSubPage 的 maxWidth: 940）</span>
+  </div>
+  <div class="win v-current" data-win>
+    <aside class="sidebar">
+      <div class="logo">飞翔播放器<small>FLY PLAYER</small></div>
+      <nav class="nav">
+        <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg>影视</a>
+        <a href="#"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.6-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.4-9 9-9 9z"/></svg>收藏<span class="cnt">11</span></a>
+        <a href="#"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>下载列表</a>
+        <a class="active" href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" stroke-dasharray="3 3"/></svg>设置</a>
+        <div class="group">媒体库</div>
+        <a href="#">动漫电影</a><a href="#">动漫TV</a><a href="#">电视剧</a><a href="#">混合影片测试</a>
+        <div class="group">分类</div>
+        <a href="#">全部影视<span class="cnt">85</span></a><a href="#">电影<span class="cnt">35</span></a><a href="#">电视剧<span class="cnt">46</span></a>
+      </nav>
+    </aside>
+    <div class="area">
+      <div class="gutter left" data-gutter-bar></div>
+      <div class="gutter right" data-gutter-bar></div>
+      <div class="content"><div class="inner" data-subpage></div></div>
+    </div>
+  </div>
+
+  <!-- ============ 方案 A ============ -->
+  <div class="section-tag">
+    <b>方案 A · 对齐首页网格</b><span class="badge">推荐</span>
+    <span class="gutter-note" data-gutter></span>
+    <span>内容上限 1128px 居中 —— 与设置首页网格（_gridMaxWidth）同宽，首页/二级页左右边缘完全对齐</span>
+  </div>
+  <div class="win v-align" data-win>
+    <aside class="sidebar">
+      <div class="logo">飞翔播放器<small>FLY PLAYER</small></div>
+      <nav class="nav">
+        <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg>影视</a>
+        <a href="#"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.6-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.4-9 9-9 9z"/></svg>收藏<span class="cnt">11</span></a>
+        <a href="#"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>下载列表</a>
+        <a class="active" href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" stroke-dasharray="3 3"/></svg>设置</a>
+        <div class="group">媒体库</div>
+        <a href="#">动漫电影</a><a href="#">动漫TV</a><a href="#">电视剧</a><a href="#">混合影片测试</a>
+        <div class="group">分类</div>
+        <a href="#">全部影视<span class="cnt">85</span></a><a href="#">电影<span class="cnt">35</span></a><a href="#">电视剧<span class="cnt">46</span></a>
+      </nav>
+    </aside>
+    <div class="area">
+      <div class="gutter left" data-gutter-bar></div>
+      <div class="gutter right" data-gutter-bar></div>
+      <div class="content"><div class="inner" data-subpage></div></div>
+    </div>
+  </div>
+
+  <!-- ============ 方案 B ============ -->
+  <div class="section-tag">
+    <b>方案 B · 铺满内容区</b>
+    <span>无上限，只留 48px 页边距 —— 信息密度最高，但卡片拉得过长、与首页边缘错位</span>
+  </div>
+  <div class="win v-fill" data-win>
+    <aside class="sidebar">
+      <div class="logo">飞翔播放器<small>FLY PLAYER</small></div>
+      <nav class="nav">
+        <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9l5 3-5 3z"/></svg>影视</a>
+        <a href="#"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.6-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.4-9 9-9 9z"/></svg>收藏<span class="cnt">11</span></a>
+        <a href="#"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14"/></svg>下载列表</a>
+        <a class="active" href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0z" stroke-dasharray="3 3"/></svg>设置</a>
+        <div class="group">媒体库</div>
+        <a href="#">动漫电影</a><a href="#">动漫TV</a><a href="#">电视剧</a><a href="#">混合影片测试</a>
+        <div class="group">分类</div>
+        <a href="#">全部影视<span class="cnt">85</span></a><a href="#">电影<span class="cnt">35</span></a><a href="#">电视剧<span class="cnt">46</span></a>
+      </nav>
+    </aside>
+    <div class="area">
+      <div class="content"><div class="inner" data-subpage></div></div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>三个方案的取舍</h3>
+      <ul>
+        <li><b>现状</b>：940 居中。窗口越宽留白越夸张（1600 窗口时两侧各 ~290px 空条）。</li>
+        <li><b>方案 A</b>：上限提到 1128 = 首页网格宽度。二级页和首页左右边缘严格对齐，进出子页内容不跳位；留白仍存在但与首页一致、观感是“设计出来的”而不是“漏出来的”。</li>
+        <li><b>方案 B</b>：完全铺满。利用率最高，但储存管理这类列表页在 27 寸上行长到难以扫读，且和首页边缘错位。</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Flutter 侧改动量（任一方案都只动一处）</h3>
+      <ul>
+        <li>只改 <code>_DesktopSettingsSubPage</code> 里的 <code>ConstrainedBox(maxWidth: 940)</code>：方案 A 改 1128（外层再补 40px padding 对齐首页网格），方案 B 去掉 ConstrainedBox 改 padding。</li>
+        <li>双栏右栏模式不受影响（子页在右栏内宽度已由栏宽决定，940 上限本来就达不到）。</li>
+        <li>建议 A：如果嫌居中留白还是显眼，可以把 <code>Align.topCenter</code> 换成内容区自带顶部标题行通栏（返回钮 + 标题拉到最左），只有卡片内容居中——需要的话我在 A 的基础上加这个变体。</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ---------- 二级页内容模板（储存管理页的简化复刻） ----------
+  const SUBPAGE = `
+    <div class="sub">
+      <div class="sub-head">
+        <div class="back"><svg viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg></div>
+        <h2>储存管理</h2>
+        <div class="spacer"></div>
+        <svg class="rf" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3M20 5v6h-6"/></svg>
+      </div>
+      <div class="card">
+        <div class="total-row">
+          <div class="total-ico"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg></div>
+          <div><div class="lbl">总占用</div><div class="num">3.53 KB</div><div class="refresh">上次刷新 12:34</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>占用分类</h3>
+        <div class="usage">
+          <div class="donut"><div class="c"><b>总计</b><i>3.53 KB</i></div></div>
+          <div class="legend">
+            <div class="li" style="--dot:var(--amber)"><b>日志</b><span>0.5% · 17.0 B</span></div>
+            <div class="li" style="--dot:var(--donut-blue)"><b>应用数据</b><span>99.5% · 3.52 KB</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>分类详情</h3>
+        <div class="row" style="--dot:var(--purple)">
+          <span class="dot"></span>
+          <div><div class="t">播放缓存</div><div class="s">0 个缓存 · 0 个完整</div></div>
+          <div class="ops"><span class="val">0 B</span><span class="chev">▾</span></div>
+        </div>
+        <div class="row" style="--dot:var(--green)">
+          <span class="dot"></span>
+          <div><div class="t">本地下载</div><div class="s">0 个文件 · 已下载完成的视频文件</div></div>
+          <div class="ops"><span class="val">0 B</span><span class="chev">▾</span></div>
+        </div>
+        <div class="row" style="--dot:var(--cyan)">
+          <span class="dot"></span>
+          <div><div class="t">截图文件</div><div class="s">0 个文件</div></div>
+          <div class="ops"><span class="val">0 B</span><button class="btn-clear">清空</button></div>
+        </div>
+        <div class="row" style="--dot:var(--amber)">
+          <span class="dot"></span>
+          <div><div class="t">日志</div><div class="s">0 条 · 估算 · 应用内日志，不含导出文件</div></div>
+          <div class="ops"><span class="val">17.0 B</span><button class="btn-clear">清空</button></div>
+        </div>
+      </div>
+    </div>`;
+  document.querySelectorAll("[data-subpage]").forEach(el => el.innerHTML = SUBPAGE);
+
+  // ---------- 宽度滑块：驱动三个窗口的内容区，并计算两侧留白 ----------
+  const slider = document.getElementById("winSlider");
+  const valLabel = document.getElementById("winVal");
+  const SIDEBAR = 300;
+
+  function apply(){
+    const win = +slider.value;
+    const area = win - SIDEBAR;
+    valLabel.textContent = `窗口 ${win}px · 设置内容区 ${area}px`;
+    document.querySelectorAll("[data-win]").forEach(w => {
+      w.style.maxWidth = win + "px";
+      w.style.margin = "0 auto";
+    });
+    // 留白可视化与数字：现状 = (area - 940)/2，方案A = (area - 1128)/2
+    document.querySelectorAll(".section-tag").forEach(tag => {
+      const note = tag.querySelector("[data-gutter]");
+      if (!note) return;
+      const isCurrent = tag.querySelector("b").textContent.includes("现状");
+      const cap = isCurrent ? 940 : 1128;
+      const g = Math.max(0, Math.round((area - cap) / 2));
+      note.textContent = g > 0 ? `两侧留白各 ≈ ${g}px` : `无留白（内容区 ${area}px ≤ 上限 ${cap}px）`;
+      note.style.color = g > 120 ? "var(--amber)" : "var(--green)";
+    });
+    // 橙条只在留白 > 24px 时显示
+    document.querySelectorAll(".v-current, .v-align").forEach(w => {
+      const isCurrent = w.classList.contains("v-current");
+      const cap = isCurrent ? 940 : 1128;
+      const g = Math.max(0, (area - cap) / 2);
+      w.querySelectorAll("[data-gutter-bar]").forEach(bar => {
+        bar.style.display = g > 24 ? "block" : "none";
+        bar.style.left = "";
+        if (g > 24) {
+          // 紧贴内容边缘
+          const inset = g + (isCurrent ? 24 : 40);
+          w.querySelector(".gutter.left").style.left = (inset - 16) + "px";
+          w.querySelector(".gutter.right").style.right = (inset - 16) + "px";
+        }
+      });
+    });
+  }
+  slider.addEventListener("input", apply);
+  apply();
+</script>
+</body>
+</html>

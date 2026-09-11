@@ -244,16 +244,21 @@
     <div class="pl-scene" id="plScene">
       <div class="pl-grain"></div>
       <div class="pl-danmaku" id="plDanmaku"></div>
+      <div class="pl-flash" id="plFlash"></div>
     </div>
+
+    <!-- 中央 OSD：seek / 音量 / 亮度 / 临时倍速（对应安卓中央状态提示与长按双倍速） -->
+    <div class="pl-osd disp" id="plOsd" hidden></div>
+    <!-- 中央加载态（对应安卓中央 loading） -->
+    <div class="pl-loading" id="plLoading" hidden><span class="pl-spin"></span><i>缓冲中 · 已预载 12s</i></div>
+    <!-- 性能悬浮窗（对应 player_performance_overlay / fps_overlay） -->
+    <div class="pl-perf disp" id="plPerf" hidden>60.0 FPS · d3d11va · 3840×2160 @23.976 · buf 12.4s</div>
 
     <div class="pl-top" id="plTop">
       <button class="icon-btn dark" id="plBack"></button>
       <div class="pl-title"><b id="plTitle">沙丘哨兵</b><i id="plSub">正在播放 · 4K 杜比视界</i></div>
       <div class="pl-top-actions">
-        <button class="pl-tbtn" id="plDmBtn" title="弹幕开关"><span class="on">弹</span></button>
-        <button class="pl-tbtn" title="画质">4K</button>
-        <button class="pl-tbtn" title="截图"></button>
-        <button class="pl-tbtn" title="小窗"></button>
+        <button class="pl-tbtn sq" id="plSetBtn" title="设置（弹幕 / 播放）"></button>
       </div>
     </div>
 
@@ -261,43 +266,84 @@
       <button class="pl-big" id="plBigPlay"></button>
     </div>
 
+    <!-- 片头片尾跳过（对应 intro_outro 跳过） -->
+    <button class="pl-skip" id="plSkip" hidden>跳过片头<i class="disp" id="plSkipT">1:10</i></button>
+    <!-- 自动连播卡（片尾出现，对应 auto_play_enabled） -->
+    <div class="pl-nextcard" id="plNextCard" hidden>
+      <div class="pln-thumb" id="plnThumb"></div>
+      <div class="pln-info"><i>即将自动播放</i><b id="plnTitle">下一集</b></div>
+      <button class="pln-go" id="plnGo">立即播放<span class="pln-cd disp" id="plnCd">10</span></button>
+      <button class="pln-cancel icon-btn sm dark" id="plnCancel" title="取消连播"></button>
+    </div>
+
     <div class="pl-bottom" id="plBottom">
+      <div class="pl-chapter disp" id="plChapter" hidden>正片</div>
       <div class="pl-progress" id="plProgress">
         <div class="plp-buf"></div>
+        <div class="plp-chapters" id="plpChapters"></div>
+        <div class="plp-bookmarks" id="plpBookmarks"></div>
         <div class="plp-fill" id="plpFill"><span class="plp-knob"></span></div>
         <div class="plp-tip disp" id="plpTip">12:34</div>
       </div>
       <div class="pl-ctrls">
         <div class="plc-left">
           <button class="pl-btn" id="plPlay"></button>
-          <button class="pl-btn" id="plPrev" title="上一集"></button>
-          <button class="pl-btn" id="plNext" title="下一集"></button>
+          <button class="pl-btn" id="plPrev" title="上一集 (P)"></button>
+          <button class="pl-btn" id="plNext" title="下一集 (N)"></button>
           <div class="pl-vol">
-            <button class="pl-btn" id="plMute"></button>
-            <input type="range" id="plVol" min="0" max="100" value="80">
+            <button class="pl-btn" id="plMute" title="静音 (M)"></button>
+            <input type="range" id="plVol" min="0" max="100" value="80" title="画面上滚动滚轮同样可调">
           </div>
           <span class="pl-time disp"><b id="plCur">12:34</b> / <span id="plDur">46:08</span></span>
         </div>
         <div class="plc-right">
-          <button class="pl-btn" id="plDmSet" title="弹幕设置"></button>
-          <button class="pl-btn" title="字幕"></button>
-          <button class="pl-btn" title="音轨"></button>
-          <button class="pl-btn" title="倍速"><i class="pl-lb">1.0x</i></button>
-          <button class="pl-btn" id="plEpBtn" title="选集面板（对应原生选集面板）"></button>
-          <button class="pl-btn" title="设置"></button>
+          <button class="pl-btn" id="plDmBtn" title="弹幕开关 (D)"><span class="on">弹</span></button>
+          <button class="pl-btn pl-txt" id="plSpdBtn" title="倍速"><i class="pl-lb">1.0x</i></button>
+          <button class="pl-btn pl-txt" id="plEpBtn" title="选集">选集</button>
+          <button class="pl-btn pl-txt" id="plQualBtn" title="清晰度（对应 loadArgs 多清晰度源）"><i class="pl-lb">4K</i></button>
+          <button class="pl-btn" id="plSubBtn" title="字幕轨 / 外挂字幕"></button>
+          <button class="pl-btn" id="plAudBtn" title="音轨"></button>
+          <button class="pl-btn" id="plMarkBtn" title="添加书签 (B)"></button>
+          <button class="pl-btn" id="plShotBtn" title="截图 (S)"></button>
+          <button class="pl-btn" id="plPipBtn" title="小窗模式 (I)"></button>
           <button class="pl-btn" id="plFull" title="全屏 (F)"></button>
         </div>
       </div>
     </div>
 
-    <!-- 选集抽屉 -->
+    <!-- 选集浮窗（独立悬浮面板：列表 / 网格双视图，对应原生选集面板） -->
+    <div class="pl-eps" id="plEps" hidden>
+      <div class="ple-head">
+        <b id="pleTitle">长风渡口 · 第 1 季</b>
+        <div class="ple-views" id="pleViews">
+          <button class="active" data-pleview="list" title="列表视图"><span data-ic="monitor"></span></button>
+          <button data-pleview="grid" title="网格视图"><span data-ic="grid"></span></button>
+        </div>
+        <button class="icon-btn sm dark" id="pleClose" title="关闭"></button>
+      </div>
+      <div class="ple-body" id="pleBody"></div>
+    </div>
+
+    <!-- 设置抽屉：弹幕 | 播放设置 -->
     <div class="pl-drawer" id="plDrawer" hidden>
       <div class="pld-head">
-        <b>选集</b>
-        <div class="pld-tabs" id="pldTabs"><button class="active">第 1 季</button><button>第 2 季</button></div>
+        <div class="pld-tabs" id="pldTabs">
+          <button class="active" data-pldtab="dm">弹幕</button>
+          <button data-pldtab="set">播放设置</button>
+        </div>
         <button class="icon-btn sm dark" id="pldClose"></button>
       </div>
-      <div class="pld-list" id="pldList"></div>
+      <div class="pld-body" id="pldBody"></div>
+    </div>
+
+    <!-- 浮层菜单：清晰度 / 音轨 / 字幕 / 倍速 / 播放器右键 -->
+    <div class="pl-menu" id="plMenu" hidden></div>
+
+    <!-- 小窗模式标题栏（对应 PIP，桌面表现为右下角悬浮小卡） -->
+    <div class="pl-mini-bar" id="plMiniBar" hidden>
+      <b id="plMiniTitle"></b>
+      <button class="icon-btn sm dark" id="plMiniExpand" title="还原 (I)"></button>
+      <button class="icon-btn sm dark" id="plMiniClose" title="关闭"></button>
     </div>
   </div>
 

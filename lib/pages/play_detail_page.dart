@@ -81,6 +81,7 @@ import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
+import '../widgets/detail/detail_status_page.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_selector_row.dart';
@@ -3278,15 +3279,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           // 中立后端(Emby)展示体:复用本页 hero/meta/描述/演职员组件,从 _detail 渲染。
           pageBody = _buildNeutralBody(colors, ambientTint);
         } else if (_error != null || _data == null) {
-          pageBody = Scaffold(
-            backgroundColor: colors.backgroundBase,
-            appBar: _isPane
-                ? null
-                : AppBar(backgroundColor: colors.backgroundBase),
-            body: AppErrorState(
-              error: _error!,
-              localeMap: _localeMap,
-              onRetry: _load,
+          pageBody = DetailStatusPage(
+            child: SafeArea(
+              child: AppErrorState(
+                error: _error!,
+                localeMap: _localeMap,
+                onRetry: _load,
+              ),
             ),
           );
         } else {
@@ -3868,6 +3867,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               duration: AppTransitions.switchDuration,
               child: pageBody,
             ),
+            if (_loading && widget.initialItemDetail != null)
+              DetailFloatingTopBar(
+                onBack: () =>
+                    unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
+                onMore: () {},
+                title: '',
+                titleOpacity: 0,
+                showMore: false,
+              ),
           ],
         );
       },

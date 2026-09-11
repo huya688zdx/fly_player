@@ -36,6 +36,7 @@ import '../widgets/common/app_catalog_query_sheets.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/liquid_glass.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
+import '../widgets/detail/detail_status_page.dart';
 import '../desktop/desktop_environment.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../widgets/common/track_option_sheet.dart';
@@ -1081,15 +1082,13 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
           return DetailLoadingSkeleton(presentation: widget.presentation);
         }
         if (_error != null) {
-          return Scaffold(
-            backgroundColor: colors.backgroundBase,
-            appBar: _isPane
-                ? null
-                : AppBar(backgroundColor: colors.backgroundBase),
-            body: AppErrorState(
-              error: _error!,
-              localeMap: const <String, dynamic>{},
-              onRetry: _load,
+          return DetailStatusPage(
+            child: SafeArea(
+              child: AppErrorState(
+                error: _error!,
+                localeMap: const <String, dynamic>{},
+                onRetry: _load,
+              ),
             ),
           );
         }

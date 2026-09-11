@@ -34,9 +34,9 @@ class AppErrorState extends StatelessWidget {
         colors.warning,
       ),
       AppExceptionKind.transient => (
-        Icons.cloud_off_rounded,
+        Icons.sync_problem_rounded,
         l10n.globalLoadFailed,
-        colors.danger,
+        colors.selectionStrong,
       ),
       AppExceptionKind.fatal => (
         Icons.error_outline_rounded,
@@ -50,36 +50,52 @@ class AppErrorState extends StatelessWidget {
         error.kind != AppExceptionKind.unauthorized;
 
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: padding,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 116,
-              height: 88,
+              width: 76,
+              height: 76,
               decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: colors.borderSubtle),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    tint.withValues(alpha: 0.14),
+                    tint.withValues(alpha: 0.04),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: tint.withValues(alpha: 0.16)),
               ),
               alignment: Alignment.center,
-              child: Icon(icon, size: 52, color: tint),
+              child: Icon(icon, size: 34, color: tint),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 24),
             Text(
               title,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: colors.textSecondary,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
+                color: colors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
               ),
             ),
             if (showRetry) ...[
-              const SizedBox(height: 18),
+              const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: onRetry,
+                style: ElevatedButton.styleFrom(
+                  elevation: 0,
+                  backgroundColor: colors.selectionSoft,
+                  foregroundColor: colors.selectionStrong,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+                ),
                 child: Text(l10n.commonRefreshRetry),
               ),
             ],

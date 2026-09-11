@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设置二级页 · 宽窗口布局方案对比</title>
+<style>
+  :root{
+    --bg:        #081511;
+    --bg-top:    #0B201A;
+    --sidebar:   #0A1B17;
+    --surface:   #0E2721;
+    --surface-2: #113129;
+    --line:      rgba(255,255,255,.09);
+    --text:      #EAF6F1;
+    --text-2:    #AFC9C0;
+    --muted:     #7E9C93;
+    --accent:    #39C7A7;
+    --accent-soft: rgba(57,199,167,.14);
+    --blue:      #4A9DF8;
+    --amber:     #D9A63C;
+    --purple:    #9E7BF1;
+    --green:     #4CC97B;
+    --cyan:      #3CC5D8;
+    --pink:      #E06FA8;
+    --note:      #FF8A3D;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+    padding:30px clamp(14px,3vw,44px) 70px;
+  }
+  .page{ max-width:1800px; margin:0 auto; }
+  .head h1{ font-size:20px; font-weight:700; }
+  .head p{ font-size:13px; color:var(--text-2); margin-top:6px; line-height:1.7; }
+  .head b{ color:var(--accent); }
+
+  .opt-head{
+    display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+    margin:34px 0 12px;
+  }
+  .opt-head .tag{
+    font-size:15px; font-weight:700; color:var(--text);
+    background:var(--accent-soft); border:1px solid rgba(57,199,167,.35);
+    padding:3px 12px; border-radius:8px;
+  }
+  .opt-head .desc{ font-size:12.5px; color:var(--text-2); }
+  .opt-head .cost{
+    margin-left:auto; font-size:11.5px; color:var(--muted);
+    border:1px solid var(--line); border-radius:99px; padding:3px 10px;
+  }
+  .opt-head .cost b{ color:var(--text-2); font-weight:600; }
+
+  /* ---------- 窗口模拟框 ---------- */
+  .win{
+    border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    background:linear-gradient(180deg,var(--bg-top),var(--bg));
+    box-shadow:0 18px 40px rgba(0,0,0,.35);
+  }
+  .win-inner{ display:flex; min-height:560px; }
+  .sb{
+    flex:0 0 168px; background:var(--sidebar); border-right:1px solid var(--line);
+    padding:16px 12px; font-size:12px;
+  }
+  .sb .logo{ font-weight:700; font-size:13px; letter-spacing:.5px; }
+  .sb .logo small{ display:block; font-size:8.5px; letter-spacing:2.5px; color:var(--muted); margin-top:2px; }
+  .sb .nav{ margin-top:16px; display:flex; flex-direction:column; gap:2px; }
+  .sb .nav span{
+    padding:7px 10px; border-radius:8px; color:var(--text-2); display:flex; align-items:center; gap:8px;
+  }
+  .sb .nav span i{ width:12px; height:12px; border:1.5px solid currentColor; border-radius:3px; opacity:.7; }
+  .sb .nav .on{ background:var(--accent-soft); color:var(--accent); font-weight:700; }
+  .sb .sec{ margin:14px 10px 4px; font-size:10px; color:var(--muted); letter-spacing:1px; }
+
+  .content{ flex:1; position:relative; min-width:0; }
+  .ruler{
+    position:absolute; inset:0; pointer-events:none; z-index:5;
+  }
+  .ruler .band{
+    position:absolute; top:0; bottom:0; background:repeating-linear-gradient(45deg,transparent 0 10px,rgba(255,138,61,.10) 10px 20px);
+    border-left:1.5px dashed var(--note); border-right:1.5px dashed var(--note);
+  }
+  .ruler .band label{
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    font-size:10.5px; color:var(--note); white-space:nowrap; letter-spacing:.5px;
+  }
+
+  /* ---------- 二级页公共 ---------- */
+  .sub{ height:100%; display:flex; flex-direction:column; }
+  .appbar{
+    display:flex; align-items:center; gap:12px; padding:14px 22px;
+  }
+  .back{
+    width:30px; height:30px; border-radius:9px; flex:0 0 30px;
+    background:var(--surface); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    font-size:14px; color:var(--text-2);
+  }
+  .appbar h2{ font-size:16px; font-weight:700; }
+  .appbar .refresh{
+    margin-left:auto; width:28px; height:28px; border-radius:8px;
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    color:var(--text-2); font-size:13px;
+  }
+  .body{ flex:1; overflow:hidden; padding:4px 22px 20px; }
+
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+  }
+  .total-card{ display:flex; align-items:center; gap:16px; padding:18px 22px; }
+  .total-card .ic{
+    width:44px; height:44px; border-radius:12px; background:var(--accent-soft);
+    display:flex; align-items:center; justify-content:center; color:var(--accent); font-size:18px;
+  }
+  .total-card .lbl{ font-size:12px; color:var(--muted); }
+  .total-card .val{ font-size:24px; font-weight:800; margin:2px 0; letter-spacing:.3px; }
+  .total-card .meta{ font-size:11.5px; color:var(--muted); }
+
+  .sec-title{ font-size:15px; font-weight:700; margin:20px 2px 12px; }
+
+  .donut-card{ padding:20px 24px; display:flex; align-items:center; gap:44px; }
+  .donut{
+    width:150px; height:150px; border-radius:50%; flex:0 0 150px;
+    background:conic-gradient(var(--blue) 0 99.5%, var(--amber) 99.5% 100%);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .donut::before{ content:""; width:96px; height:96px; border-radius:50%; background:var(--surface); }
+  .donut-wrap{ position:relative; }
+  .donut-center{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-size:11px; color:var(--muted);
+  }
+  .donut-center b{ font-size:17px; color:var(--text); margin-top:3px; }
+  .legend{ display:flex; flex-direction:column; gap:14px; }
+  .legend .li{ display:flex; gap:9px; align-items:flex-start; }
+  .legend .dot{ width:8px; height:8px; border-radius:50%; margin-top:5px; }
+  .legend .nm{ font-size:13px; font-weight:600; }
+  .legend .dt{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+
+  .rows .row{
+    display:flex; align-items:center; gap:12px; padding:14px 20px;
+  }
+  .rows .row + .row{ border-top:1px solid var(--line); }
+  .rows .dot{ width:9px; height:9px; border-radius:50%; flex:0 0 9px; }
+  .rows .nm{ font-size:13.5px; font-weight:600; }
+  .rows .dt{ font-size:11.5px; color:var(--muted); margin-top:3px; }
+  .rows .val{ margin-left:auto; font-size:13px; font-weight:700; font-family:Consolas,monospace; display:flex; align-items:center; gap:8px; }
+  .rows .val .chev{ color:var(--muted); font-weight:400; }
+  .btn-clear{
+    font-size:11.5px; color:var(--accent); border:1px solid rgba(57,199,167,.4);
+    border-radius:99px; padding:3px 13px;
+  }
+
+  /* ============ 方案 A 现状：整体（含 AppBar）锁在 940 居中 ============ */
+  .lay-a{ display:flex; justify-content:center; }
+  .lay-a .frame{ width:940px; }
+
+  /* ============ 方案 B 顶栏拉通：AppBar 横贯整宽，内容 940 居中 ============ */
+  .lay-b .appbar{ padding:14px 34px; }
+
+  /* ============ 方案 C 自适应双列：内容放宽到 1240，卡片双列 ============ */
+  .lay-c .frame{ width:min(1240px, 92%); margin:0 auto; }
+  .lay-c .grid2{ display:grid; grid-template-columns:400px 1fr; gap:18px; align-items:start; }
+  .lay-c .grid2 .donut-card{
+    flex-direction:column; align-items:center; gap:18px; padding:26px 20px;
+  }
+  .lay-c .grid2 .legend{ flex-direction:row; gap:22px; }
+  .lay-c .rows2{ display:grid; grid-template-columns:1fr 1fr; column-gap:0; }
+  .lay-c .rows2 .row:nth-child(odd){ border-right:1px solid var(--line); }
+  .lay-c .rows2 .row:nth-child(n+3){ border-top:1px solid var(--line); }
+  .lay-c .rows2 .row:nth-child(2){ border-top:none; }
+
+  /* ============ 方案 D 居中面板卡：内容装进一张浮起的面板 ============ */
+  .lay-d{ display:flex; justify-content:center; padding:0 34px; }
+  .lay-d .panel{
+    width:min(980px, 92%);
+    background:linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)) , var(--surface);
+    border:1px solid var(--line); border-radius:16px;
+    box-shadow:0 22px 48px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.05);
+    display:flex; flex-direction:column; overflow:hidden; height:calc(100% - 46px);
+  }
+  .lay-d .appbar{ border-bottom:1px solid var(--line); padding:14px 20px; }
+  .lay-d .body{ padding:0 0 20px; }
+  .lay-d .card{ border:none; border-radius:0; background:transparent; border-bottom:1px solid var(--line); }
+  .lay-d .sec-title{ display:none; }
+  .lay-d .total-card{ background:rgba(255,255,255,.02); }
+
+  .verdict{
+    margin-top:14px; font-size:12.5px; color:var(--text-2); line-height:1.8;
+    background:rgba(255,255,255,.03); border:1px solid var(--line); border-radius:12px; padding:12px 16px;
+  }
+  .verdict b{ color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <h1>设置二级页 · 宽窗口布局方案</h1>
+    <p>场景：并行窗口 <b>关闭</b>，桌面宽窗口单屏打开「储存管理」。橙色斜纹 = 当前被浪费的空白区。四个方案内容完全一致，只变容器与排版。窗口内容区按 1680px 宽模拟。</p>
+  </div>
+
+  <!-- 方案 A -->
+  <div class="opt-head">
+    <span class="tag">A · 现状</span>
+    <span class="desc">整个二级页（连 AppBar）锁 940px 居中 —— 你截图的样子</span>
+    <span class="cost">改动成本 <b>0</b>（对照基线）</span>
+  </div>
+  <div class="win"><div class="win-inner" id="winA"></div></div>
+  <div class="verdict">问题：返回钮离左缘一大截、两侧空洞无解释性，越宽的屏幕越像坏了。</div>
+
+  <!-- 方案 B -->
+  <div class="opt-head">
+    <span class="tag">B · 顶栏拉通</span>
+    <span class="desc">返回钮 + 标题 + 刷新横贯整个内容区，正文仍 940px 居中</span>
+    <span class="cost">改动成本 <b>低</b> · 只动子页容器一处</span>
+  </div>
+  <div class="win"><div class="win-inner" id="winB"></div></div>
+  <div class="verdict">顶栏把宽度「钉」住了，下方居中变成有意图的排版。实现：把头部从子页 Scaffold 提到设置区容器统一绘制（返回钮本来就该贴边），子页去 AppBar 只留正文。所有二级页一处改完。</div>
+
+  <!-- 方案 C -->
+  <div class="opt-head">
+    <span class="tag">C · 自适应双列</span>
+    <span class="desc">正文放宽到 1240px，卡片重排两列 —— 最「桌面原生」</span>
+    <span class="cost">改动成本 <b>中高</b> · 容器 + 各子页内容响应式</span>
+  </div>
+  <div class="win"><div class="win-inner" id="winC"></div></div>
+  <div class="verdict">空间被真正用起来：总占用 + 环形图并排，分类详情双列。观感与首页分组网格同语言，但要给 11 个子页各自做宽屏排版（列表型页面如日志/下载收益小），工作量最大。</div>
+
+  <!-- 方案 D -->
+  <div class="opt-head">
+    <span class="tag">D · 居中面板卡</span>
+    <span class="desc">保持 980px，但整页装进一张浮起的面板卡，空洞变成「舞台」</span>
+    <span class="cost">改动成本 <b>最低</b> · 只改子页容器装饰</span>
+  </div>
+  <div class="win"><div class="win-inner" id="winD"></div></div>
+  <div class="verdict">不挪内容，把「空」变成设计：面板浮在氛围底上（同筛选弹层、浮窗的面板语言），空白读作留白而非缺失。可与 B 叠加（面板 + 拉通顶栏）。</div>
+
+  <div class="head" style="margin-top:36px">
+    <p style="font-size:12.5px;color:var(--muted)">组合建议：<b>B + D</b>（顶栏拉通 + 面板卡）成本依然只有子页容器一处，观感完整；若追求真正的桌面密度再上 C。手机 / 平板形态不受影响——窄视口下面板退化为通栏，顶栏回到子页自带 AppBar。</p>
+  </div>
+</div>
+
+<script>
+  const SIDEBAR = `
+    <div class="sb">
+      <div class="logo">飞翔播放器<small>FLY PLAYER</small></div>
+      <div class="nav">
+        <span><i></i>影视</span><span><i></i>收藏</span><span><i></i>下载列表</span>
+        <span class="on"><i></i>设置</span>
+      </div>
+      <div class="sec">媒体库</div>
+      <div class="nav"><span><i></i>动漫电影</span><span><i></i>动漫TV</span><span><i></i>电视剧</span></div>
+      <div class="sec">分类</div>
+      <div class="nav"><span><i></i>全部影视</span><span><i></i>电影</span><span><i></i>电视剧</span></div>
+    </div>`;
+
+  const ROWS = [
+    ["var(--purple)","播放缓存","0 个缓存 · 0 个完整","0 B", "chev"],
+    ["var(--green)","本地下载","0 个文件 · 已下载完成的视频文件","0 B", "chev"],
+    ["var(--cyan)","截图文件","0 个文件","0 B", "clear"],
+    ["var(--amber)","日志","0 条 · 估算 应用内日志，不含导出文件","17.0 B", "clear"],
+    ["var(--pink)","弹幕蒙版缓存","0 个文件 · 每集的人像分割缩略图与蒙版 warm-start 缓存","0 B", "clear"],
+    ["var(--blue)","应用数据","5 项 · 含书签、主题、弹幕来源和设置估算值 / 播放统计(SQLite)","3.52 KB", "chev"],
+    ["#8FA79E","其他缓存","0 个文件","0 B", "clear"],
+  ];
+
+  function appBar(stretch){
+    return `
+      <div class="appbar">
+        <div class="back">←</div>
+        <h2>储存管理</h2>
+        <div class="refresh">⟳</div>
+      </div>`;
+  }
+
+  function bodyHTML(compact){
+    const totalCard = `
+      <div class="card total-card">
+        <div class="ic">≡</div>
+        <div>
+          <div class="lbl">总占用</div>
+          <div class="val">3.53 KB</div>
+          <div class="meta">上次刷新 12:34</div>
+        </div>
+      </div>`;
+    const donutCard = `
+      <div class="card donut-card">
+        <div class="donut-wrap">
+          <div class="donut"></div>
+          <div class="donut-center">总计<b>3.53 KB</b></div>
+        </div>
+        <div class="legend">
+          <div class="li"><span class="dot" style="background:var(--amber)"></span>
+            <div><div class="nm">日志</div><div class="dt">0.5% · 17.0 B</div></div></div>
+          <div class="li"><span class="dot" style="background:var(--blue)"></span>
+            <div><div class="nm">应用数据</div><div class="dt">99.5% · 3.52 KB</div></div></div>
+        </div>
+      </div>`;
+    const detailRows = `
+      <div class="card rows ${compact ? "rows2" : ""}">
+        ${ROWS.map(([c,nm,dt,val,act]) => `
+          <div class="row">
+            <span class="dot" style="background:${c}"></span>
+            <div><div class="nm">${nm}</div><div class="dt">${dt}</div></div>
+            <div class="val">${val}
+              ${act === "clear" ? '<span class="btn-clear">清空</span>' : '<span class="chev">›</span>'}
+            </div>
+          </div>`).join("")}
+      </div>`;
+
+    if (!compact) {
+      return `${totalCard}
+        <div class="sec-title">占用分类</div>
+        ${donutCard}
+        <div class="sec-title">分类详情</div>
+        ${detailRows}`;
+    }
+    // 宽屏双列：左列环形图，右列总占用 + 分类详情（双列行）。
+    return `
+      <div class="grid2">
+        <div>
+          ${donutCard}
+        </div>
+        <div>
+          ${totalCard}
+          <div class="sec-title" style="margin-top:16px">分类详情</div>
+          ${detailRows}
+        </div>
+      </div>`;
+  }
+
+  // A：现状 —— AppBar + 正文整体锁 940
+  document.getElementById("winA").innerHTML = SIDEBAR + `
+    <div class="content"><div class="ruler">
+        <div class="band" style="left:0;width:calc((100% - 940px)/2)"><label>≈ 300px 空白</label></div>
+        <div class="band" style="right:0;width:calc((100% - 940px)/2)"><label>≈ 300px 空白</label></div>
+      </div>
+      <div class="sub lay-a"><div class="frame">${appBar()}<div class="body">${bodyHTML(false)}</div></div></div>
+    </div>`;
+
+  // B：顶栏拉通
+  document.getElementById("winB").innerHTML = SIDEBAR + `
+    <div class="content">
+      <div class="sub lay-b">
+        ${appBar()}
+        <div class="body" style="display:flex;justify-content:center">
+          <div style="width:940px">${bodyHTML(false)}</div>
+        </div>
+      </div>
+    </div>`;
+
+  // C：自适应双列
+  document.getElementById("winC").innerHTML = SIDEBAR + `
+    <div class="content">
+      <div class="sub lay-c">
+        ${appBar()}
+        <div class="body"><div class="frame">${bodyHTML(true)}</div></div>
+      </div>
+    </div>`;
+
+  // D：居中面板卡
+  document.getElementById("winD").innerHTML = SIDEBAR + `
+    <div class="content">
+      <div class="sub lay-d" style="padding-top:0">
+        <div style="height:12px"></div>
+        <div class="panel">${appBar()}<div class="body">${bodyHTML(false)}</div></div>
+      </div>
+    </div>`;
+</script>
+</body>
+</html>
