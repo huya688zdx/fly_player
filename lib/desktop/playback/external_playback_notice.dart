@@ -1,60 +1,107 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import '../desktop_floating_panel.dart';
 
-/// 外部播放共用的紧凑提示，避免把异常类型前缀直接展示给用户。
+OverlayEntry? _externalPlaybackNoticeEntry;
+Timer? _externalPlaybackNoticeTimer;
+int _externalPlaybackNoticeToken = 0;
+
+/// 在当前应用窗口上方显示单条提示，重复调用会替换上一条。
 void showExternalPlaybackNotice(
   BuildContext context,
   Object message, {
   bool error = false,
 }) {
   if (!context.mounted) return;
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  if (messenger == null) return;
-  final colors = context.appColors;
-  final availableWidth = MediaQuery.sizeOf(context).width - 32;
-  final width = availableWidth < 240
-      ? availableWidth
-      : availableWidth.clamp(240.0, 420.0);
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  _removeExternalPlaybackNotice();
+  final token = ++_externalPlaybackNoticeToken;
   final text = normalizeExternalPlaybackNotice(message);
-  messenger
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        width: width,
-        behavior: SnackBarBehavior.floating,
-        elevation: 12,
-        backgroundColor: colors.surfaceStrong,
-        showCloseIcon: true,
-        closeIconColor: colors.textSecondary,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: (error ? colors.danger : colors.accent).withValues(
-              alpha: 0.42,
+  final overlayContext = overlay.context;
+  final colors = overlayContext.appColors;
+  final top = MediaQuery.paddingOf(overlayContext).top + 64;
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => Positioned(
+      key: const ValueKey<String>('external-playback-notice'),
+      top: top,
+      left: 24,
+      right: 24,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: DesktopFloatingPanel(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    error
+                        ? Icons.error_outline_rounded
+                        : Icons.info_outline_rounded,
+                    size: 18,
+                    color: error ? colors.danger : colors.accent,
+                  ),
+                  const SizedBox(width: 9),
+                  Flexible(
+                    child: Text(
+                      text,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: colors.textPrimary, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    key: const ValueKey<String>(
+                      'external-playback-notice-close',
+                    ),
+                    onPressed: () {
+                      if (token == _externalPlaybackNoticeToken) {
+                        _removeExternalPlaybackNotice();
+                      }
+                    },
+                    tooltip: '关闭提示',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 17,
+                    color: colors.textSecondary,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        content: Row(
-          children: [
-            Icon(
-              error ? Icons.error_outline_rounded : Icons.info_outline_rounded,
-              size: 18,
-              color: error ? colors.danger : colors.accent,
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                text,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: colors.textPrimary, fontSize: 12),
-              ),
-            ),
-          ],
-        ),
       ),
-    );
+    ),
+  );
+  _externalPlaybackNoticeEntry = entry;
+  overlay.insert(entry);
+  _externalPlaybackNoticeTimer = Timer(const Duration(seconds: 3), () {
+    if (token == _externalPlaybackNoticeToken) {
+      _removeExternalPlaybackNotice();
+    }
+  });
+}
+
+void _removeExternalPlaybackNotice() {
+  _externalPlaybackNoticeTimer?.cancel();
+  _externalPlaybackNoticeTimer = null;
+  final entry = _externalPlaybackNoticeEntry;
+  _externalPlaybackNoticeEntry = null;
+  if (entry == null) return;
+  try {
+    entry.remove();
+  } catch (_) {
+    // 所属窗口已经销毁时无需再清理。
+  } finally {
+    entry.dispose();
+  }
 }
 
 String normalizeExternalPlaybackNotice(Object message) {
