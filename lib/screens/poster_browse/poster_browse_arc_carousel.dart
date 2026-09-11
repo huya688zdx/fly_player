@@ -354,7 +354,7 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
     _pageAnimation = Tween<double>(
       begin: _page,
       end: target,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(_controller);
     _controller.forward(from: 0);
   }
 
