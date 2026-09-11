@@ -28,6 +28,46 @@ class ExternalPlaylistEpisode {
 
 /// 只加载剧集目录；播放地址、字幕和弹幕在选中该集时再解析。
 class ExternalPlayerPlaylist {
+  /// 各集字幕 GUID 不同，按当前外挂字幕的语言和格式继承选择。
+  static MpvMediaSource inheritSubtitleSelection(
+    MpvMediaSource current,
+    MpvMediaSource next,
+  ) {
+    if (current.subtitleTrackGuid == '') {
+      return next.copyWith(
+        subtitleTrackGuid: '',
+        clearSubtitleTrackIndex: true,
+        preferExternalSubtitle: false,
+      );
+    }
+    final selected = current.subtitleTracks
+        .where((track) => track.guid == current.subtitleTrackGuid)
+        .firstOrNull;
+    if (selected == null ||
+        (selected.isExternal != 1 && selected.extraFile != 1)) {
+      return next;
+    }
+    final matches = next.subtitleTracks.where(
+      (track) =>
+          (track.isExternal == 1 || track.extraFile == 1) &&
+          track.format.trim().toLowerCase() ==
+              selected.format.trim().toLowerCase() &&
+          track.language.trim().toLowerCase() ==
+              selected.language.trim().toLowerCase(),
+    );
+    final matching =
+        matches
+            .where((track) => track.guid == next.subtitleTrackGuid)
+            .firstOrNull ??
+        matches.firstOrNull;
+    if (matching == null) return next;
+    return next.copyWith(
+      subtitleTrackGuid: matching.guid,
+      clearSubtitleTrackIndex: true,
+      preferExternalSubtitle: true,
+    );
+  }
+
   static Future<List<ExternalPlaylistEpisode>> loadEpisodes({
     required MpvMediaSource source,
     required MediaBackend backend,
