@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/embedded_detail_launcher.dart';
 import '../../services/play_stats/play_stats.dart';
 import '../../ui/app_transitions.dart';
+import '../../widgets/common/app_ambient_page.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_debug_formatters.dart';
 import 'play_stats_debug_widgets.dart';
@@ -38,7 +39,7 @@ class PlayStatsDebugAnimePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final anime = node.anime;
-    return Scaffold(
+    final page = Scaffold(
       appBar: buildPlayStatsDebugAppBar(
         context,
         title: Text(
@@ -105,6 +106,7 @@ class PlayStatsDebugAnimePage extends StatelessWidget {
         ],
       ),
     );
+    return AppAmbientPage(child: page);
   }
 }
 
@@ -123,7 +125,7 @@ class PlayStatsDebugSeasonPage extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final season = node.season;
     final credits = seasonCredits(node);
-    return Scaffold(
+    final page = Scaffold(
       appBar: buildPlayStatsDebugAppBar(
         context,
         title: Text(
@@ -163,6 +165,7 @@ class PlayStatsDebugSeasonPage extends StatelessWidget {
         ],
       ),
     );
+    return AppAmbientPage(child: page);
   }
 }
 
@@ -181,7 +184,7 @@ class PlayStatsDebugVideoPage extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final video = node.video;
     final isMovie = video.videoKind.trim().toLowerCase() == 'movie';
-    return Scaffold(
+    final page = Scaffold(
       appBar: buildPlayStatsDebugAppBar(
         context,
         title: Text(
@@ -219,6 +222,7 @@ class PlayStatsDebugVideoPage extends StatelessWidget {
         ],
       ),
     );
+    return AppAmbientPage(child: page);
   }
 }
 
@@ -236,7 +240,7 @@ class PlayStatsDebugHistoryListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final page = Scaffold(
       appBar: buildPlayStatsDebugAppBar(context, title: Text(title)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -250,6 +254,7 @@ class PlayStatsDebugHistoryListPage extends StatelessWidget {
         ],
       ),
     );
+    return AppAmbientPage(child: page);
   }
 }
 
@@ -266,7 +271,7 @@ class PlayStatsDebugHistoryDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
+    final page = Scaffold(
       appBar: buildPlayStatsDebugAppBar(
         context,
         title: Text(
@@ -283,6 +288,7 @@ class PlayStatsDebugHistoryDetailPage extends StatelessWidget {
         ],
       ),
     );
+    return AppAmbientPage(child: page);
   }
 }
 
