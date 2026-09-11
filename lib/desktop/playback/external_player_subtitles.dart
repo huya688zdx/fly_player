@@ -226,7 +226,8 @@ List<String> _plainSubtitleEvents(String source, _AssDocument document) {
     final match = timing.firstMatch(lines[index].trim())!;
     final start = _parseTime(match[1]!);
     final end = _parseTime(match[2]!);
-    if (end <= start) throw const FormatException('字幕结束时间必须晚于开始时间。');
+    // 无显示时长的条目不参与渲染，不能因此丢弃整份字幕和弹幕。
+    if (end <= start) continue;
     final text = lines
         .skip(index + 1)
         .join('\n')
