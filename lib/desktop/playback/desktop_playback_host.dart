@@ -12,6 +12,8 @@ import '../../controllers/local_download_source_resolver.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_backend.dart';
 import '../../media_backend/detail/media_season_summary.dart';
+import '../../media_backend/media_image_ref.dart';
+import '../../ui/detail_artwork_resolver.dart';
 import '../../models/play_info.dart';
 import '../../providers/media_backend_provider.dart';
 import '../../playback/playback_host.dart';
@@ -196,6 +198,14 @@ final class DesktopPlaybackHost implements PlaybackHost {
     _scope = playbackSessionScope(context);
     _screenBuilder = (_) => DesktopPlaybackScreen(
       session: session,
+      resolveArtwork: (path) {
+        final usesNas = backend.capabilities.usesLegacyFeiniuFlow;
+        return DetailArtworkResolver(
+          baseUrl: usesNas ? effectiveNas.baseUrl : '',
+          token: usesNas ? effectiveNas.token : '',
+          accessCode: usesNas ? effectiveNas.accessCode : '',
+        ).resolveRef(MediaImageRef(url: path));
+      },
       refreshDirectLink: backend.capabilities.usesLegacyFeiniuFlow
           ? (current) => const FeiniuPlaybackSourceBridge().refreshDirectLink(
               api: FeiniuApi(effectiveNas),
