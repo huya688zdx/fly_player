@@ -9,6 +9,7 @@ import '../danmaku/settings/danmaku_settings_store.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
+import '../ui/secondary_host_navigation.dart';
 import '../ui/app_transitions.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_ambient_page.dart';
@@ -143,19 +144,20 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
+    final pageTitle = Text(
+      l10n.danmakuSettingsTitle,
+      style: TextStyle(
+        color: colors.textPrimary,
+        fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
+        fontWeight: FontWeight.w700,
+      ),
+    );
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          title: Text(
-            l10n.danmakuSettingsTitle,
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
+        appBar: AppAmbientPage.sharesBackgroundOf(context)
+            ? buildSecondaryHostAppBar(context, title: pageTitle)
+            : AppBar(title: pageTitle),
         body: SafeArea(
           top: false,
           child: _loading
@@ -499,7 +501,7 @@ class _DanmakuCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return Material(
-      color: colors.surfaceSubtle,
+      color: AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
@@ -695,7 +697,9 @@ class _DanmakuChoiceButton extends StatelessWidget {
         height: 46,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          color: selected ? colors.selectionSoft : colors.surfaceStrong,
+          color: selected
+              ? colors.selectionSoft
+              : AppAmbientPage.cardColorOf(context, colors.surfaceStrong),
           border: Border.all(
             color: selected ? colors.selection : colors.borderSubtle,
           ),
@@ -744,7 +748,9 @@ class _DanmakuTypeChip extends StatelessWidget {
               height: 52,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: selected ? colors.selectionSoft : colors.surfaceStrong,
+                color: selected
+                    ? colors.selectionSoft
+                    : AppAmbientPage.cardColorOf(context, colors.surfaceStrong),
                 border: Border.all(
                   color: selected ? colors.selection : colors.borderSubtle,
                 ),
