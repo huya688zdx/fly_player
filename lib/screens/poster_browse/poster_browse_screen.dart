@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../api/feiniu_api.dart';
 import '../../controllers/item_playback_launcher.dart';
 import '../../controllers/tv_season_playback_launcher.dart';
+import '../../desktop/desktop_environment.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_backend.dart';
 import '../../media_backend/media_item_card.dart';
@@ -678,6 +679,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
   PosterBrowseDisplayItem? get _settledItem {
     final focused = _focusedItem;
+    if (DesktopEnvironment.isDesktopPlatform && _settledItemId != null) {
+      return _displayById[_settledItemId] ?? focused;
+    }
     return PosterBrowseScreenPolicy.settledItemFor<PosterBrowseDisplayItem>(
       settledItemId: _settledItemId,
       focusedItemId: focused?.card.id,
@@ -932,9 +936,23 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       return;
     }
 
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _selectDesktopItem(normalized.itemIndex);
+      return;
+    }
     unawaited(
       _settle(rowIndex: normalized.rowIndex, itemIndex: normalized.itemIndex),
     );
+  }
+
+  void _selectDesktopItem(int itemIndex) {
+    final card = _rows[_selection.selectedRow].items[itemIndex];
+    if (itemIndex == _selection.currentIndex) return;
+    setState(() {
+      _focusGeneration += 1;
+      _selection.select(rowIndex: _selection.selectedRow, itemIndex: itemIndex);
+    });
+    _focusThrottle.schedule(card.id);
   }
 
   void _handleMobileSettled(int itemIndex) {
@@ -943,6 +961,10 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       itemIndex: itemIndex,
     );
     if (normalized == null) return;
+    if (DesktopEnvironment.isDesktopPlatform) {
+      _selectDesktopItem(normalized.itemIndex);
+      return;
+    }
     unawaited(
       _settle(rowIndex: normalized.rowIndex, itemIndex: normalized.itemIndex),
     );

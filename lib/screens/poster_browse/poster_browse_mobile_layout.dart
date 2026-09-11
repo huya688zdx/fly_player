@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_environment.dart';
+import 'poster_browse_desktop_navigation.dart';
+
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../media_backend/media_item_card.dart';
@@ -55,14 +58,24 @@ class PosterBrowseMobileLayout extends StatelessWidget {
     final currentItems = currentRow == null
         ? const <PosterBrowseDisplayItem>[]
         : currentRow.items.map(displayItemOf).toList(growable: false);
-    return SafeArea(
-      child: LayoutBuilder(
-        builder: (context, constraints) => _buildForSize(
-          context: context,
-          size: constraints.biggest,
-          visibleRows: rows,
-          currentRow: currentRow,
-          currentItems: currentItems,
+    return PosterBrowseDesktopNavigation(
+      selectedRow: selectedRow,
+      rowCount: rows.length,
+      focusedIndex: focusedIndex,
+      itemCount: currentItems.length,
+      onSelectRow: onSelectRow,
+      onSelectItem: onSelectItem,
+      onBack: onBack,
+      wrapItems: true,
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) => _buildForSize(
+            context: context,
+            size: constraints.biggest,
+            visibleRows: rows,
+            currentRow: currentRow,
+            currentItems: currentItems,
+          ),
         ),
       ),
     );
@@ -77,7 +90,9 @@ class PosterBrowseMobileLayout extends StatelessWidget {
   }) {
     final compactHeight = size.height < 520;
     final isLandscape = size.width > size.height;
-    final carouselHeight = compactHeight ? 236.0 : 258.0;
+    final carouselHeight =
+        (compactHeight ? 236.0 : 258.0) +
+        (DesktopEnvironment.isDesktopPlatform ? 48 : 0);
     final infoTop = compactHeight ? 54.0 : 92.0;
     final infoMaxWidth = isLandscape
         ? (size.width * 0.44).clamp(300.0, 390.0).toDouble()
@@ -100,7 +115,8 @@ class PosterBrowseMobileLayout extends StatelessWidget {
             context,
             currentRow,
             currentItems,
-            showSecondaryLabel: isLandscape,
+            showSecondaryLabel:
+                isLandscape || DesktopEnvironment.isDesktopPlatform,
           ),
         ),
       ],

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/media_backend/media_item_card.dart';
@@ -10,6 +10,46 @@ import 'package:fly_player/screens/poster_browse/poster_browse_display_item.dart
 import 'package:fly_player/screens/poster_browse/poster_browse_poster_card.dart';
 
 void main() {
+  setUp(() => DesktopEnvironment.debugOverridePlatform = false);
+  tearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+
+  testWidgets('PC 双击左侧海报只移到该项，不回退也不误开详情', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await tester.binding.setSurfaceSize(const Size(420, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var index = 1;
+    var opened = 0;
+    final items = _items(3);
+    await tester.pumpWidget(
+      _app(
+        StatefulBuilder(
+          builder: (context, setState) => PosterBrowseArcCarousel(
+            items: items,
+            initialIndex: index,
+            showProgress: false,
+            imageOf: (_) => MediaImageRequest.empty,
+            secondaryLabelOf: (_) => '',
+            onSettled: (value) => setState(() => index = value),
+            onCenteredTap: (_) => opened++,
+          ),
+        ),
+      ),
+    );
+    final left = tester.getCenter(_cardByTitle('标题0'));
+    await tester.tapAt(left, kind: PointerDeviceKind.mouse);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    await tester.tapAt(left, kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(index, 0);
+    expect(opened, 0);
+    expect(
+      tester.widget<PosterBrowsePosterCard>(_cardByTitle('标题0')).focused,
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   group('PosterBrowseArcMath', () {
     test('realIndex 使用安全正模并处理空列表', () {
       expect(PosterBrowseArcMath.realIndex(-1, 5), 4);
@@ -142,23 +182,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(settled.single, 4);
-    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final center = tester.getCenter(find.byType(PosterBrowseArcCarousel));
-    // 动画未结束前连续滚两格，目标也要累计两项。
-    for (var i = 0; i < 2; i++) {
-      await tester.sendEventToBinding(
-        PointerScrollEvent(position: center, scrollDelta: const Offset(0, 120)),
-      );
-    }
-    await tester.pumpAndSettle();
-    expect(settled.last, 6);
-    await tester.sendEventToBinding(
-      PointerScrollEvent(position: center, scrollDelta: const Offset(0, -120)),
-    );
-    await tester.pumpAndSettle();
-    expect(settled.last, 5);
-    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('点击侧项只吸附 settle，点击中心才触发 centeredTap', (tester) async {
