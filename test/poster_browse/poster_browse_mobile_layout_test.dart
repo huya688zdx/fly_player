@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
@@ -13,6 +17,87 @@ import 'package:fly_player/screens/poster_browse/poster_browse_poster_track.dart
 import 'package:fly_player/screens/poster_browse/poster_browse_rows.dart';
 
 void main() {
+  setUp(() => DesktopEnvironment.debugOverridePlatform = false);
+  tearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+
+  testWidgets('PC 窄窗口整页滚轮和方向键切换，鼠标拖动不切换', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    await tester.binding.setSurfaceSize(const Size(420, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final cards = List.generate(8, (i) => _card(id: 'pc-$i', title: '影片$i'));
+    var index = 0;
+    var row = 0;
+    await tester.pumpWidget(
+      _localizedApp(
+        StatefulBuilder(
+          builder: (context, setState) => _layout(
+            rows: [
+              PosterBrowseRow(
+                kind: PosterBrowseRowKind.continueWatching,
+                items: cards,
+              ),
+              PosterBrowseRow(
+                kind: PosterBrowseRowKind.catalog,
+                title: '电影',
+                items: cards,
+              ),
+            ],
+            selectedRow: row,
+            focusedIndex: index,
+            focusedItem: _displayItem(cards[index]),
+            onSelectItem: (value) => setState(() => index = value),
+            onSelectRow: (value) => setState(() => row = value),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // 鼠标位于顶部信息区，连续两格在同一帧内也应累计。
+    for (var i = 0; i < 2; i++) {
+      await tester.sendEventToBinding(
+        const PointerScrollEvent(
+          position: Offset(350, 180),
+          scrollDelta: Offset(0, 120),
+        ),
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(index, 2);
+    final carousel = find.byType(PosterBrowseArcCarousel);
+    final focusedCard = tester
+        .widgetList<PosterBrowsePosterCard>(
+          find.descendant(
+            of: carousel,
+            matching: find.byType(PosterBrowsePosterCard),
+          ),
+        )
+        .singleWhere((card) => card.focused);
+    expect(focusedCard.item.card.id, 'pc-2');
+    await tester.drag(
+      carousel,
+      const Offset(-200, 0),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pumpAndSettle();
+    expect(index, 2);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pumpAndSettle();
+    expect(index, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(index, 2);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(row, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pumpAndSettle();
+    expect(row, 0);
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('手机布局显示信息区弧形轮盘两个分组且没有中心大海报', (tester) async {
     final cards = [
       _card(id: 'continue-1', title: '银翼杀手'),

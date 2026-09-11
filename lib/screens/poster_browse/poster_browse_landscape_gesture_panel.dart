@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 
+import '../../desktop/desktop_environment.dart';
 import '../../media_backend/media_image_request.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_poster_track.dart';
@@ -111,6 +113,14 @@ class _PosterBrowseLandscapeGesturePanelState
           key: const ValueKey('poster_browse_landscape_gesture_panel'),
           // 收起后仍接收纵向手势，同时让下层信息区的播放按钮接收点击。
           behavior: HitTestBehavior.translucent,
+          supportedDevices: DesktopEnvironment.isDesktopPlatform
+              ? const {
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.stylus,
+                  PointerDeviceKind.invertedStylus,
+                  PointerDeviceKind.trackpad,
+                }
+              : null,
           onVerticalDragStart: (_) => _collapseController.stop(),
           onVerticalDragUpdate: _handleVerticalDragUpdate,
           onVerticalDragEnd: _handleVerticalDragEnd,

@@ -70,7 +70,7 @@ class PosterBrowseTextPresenter {
 
     for (final resolution
         in item.resolutions
-            .map((resolution) => resolution.trim())
+            .map((resolution) => resolution.trim().toUpperCase())
             .where((resolution) => resolution.isNotEmpty)
             .take(2)) {
       texts.add(resolution);
