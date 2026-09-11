@@ -113,6 +113,9 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
     final media = MediaQuery.of(context);
     final desktop = DesktopEnvironment.isDesktopPlatform;
     final isLandscape = media.size.width > media.size.height;
+    final horizontalPadding = isLandscape ? 26.0 : 16.0;
+    // 滚动视口靠近面板边缘，原有右侧留白移到标题和滚动内容内部。
+    final contentRightPadding = desktop ? horizontalPadding - 4 : 0.0;
     final panelHeight = (media.size.height * 0.88).clamp(520.0, 920.0);
     final panelDialogHeight = (media.size.height * 0.86).clamp(500.0, 840.0);
     final panelDialogWidth = (media.size.width * 0.72).clamp(700.0, 980.0);
@@ -124,89 +127,98 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
         top: false,
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            isLandscape ? 26 : 16,
+            horizontalPadding,
             isLandscape ? 20 : 12,
-            isLandscape ? 26 : 16,
+            horizontalPadding - contentRightPadding,
             isLandscape ? 22 : 16,
           ),
           child: Column(
             children: [
-              if (!isLandscape) ...[
-                Container(
-                  key: const ValueKey<String>('media-detail-drag-handle'),
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.textMuted.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      l10n.mediaDetailsTitle,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.2,
+              Padding(
+                padding: EdgeInsets.only(right: contentRightPadding),
+                child: Column(
+                  children: [
+                    if (!isLandscape) ...[
+                      Container(
+                        key: const ValueKey<String>('media-detail-drag-handle'),
+                        width: 38,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: colors.textMuted.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
                       ),
-                    ),
-                  ),
-                  InkWell(
-                    onTap: () {
-                      if (AppSheetTransitions.maybeClose<void>(context)) {
-                        return;
-                      }
-                      Navigator.of(context).maybePop();
-                    },
-                    borderRadius: BorderRadius.circular(20),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(
-                        Icons.close_rounded,
-                        color: colors.textSecondary,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              ValueListenableBuilder<int>(
-                valueListenable: _indexNotifier,
-                builder: (context, index, _) {
-                  final current = widget.variants[index];
-                  final label = Text(
-                    '${current.title}  ${index + 1}/${widget.variants.length}',
-                    style: TextStyle(
-                      color: colors.textMuted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  );
-                  if (!desktop || widget.variants.length < 2) return label;
-                  return Row(
-                    children: [
-                      IconButton(
-                        tooltip: l10n.playStatsPreviousPage,
-                        onPressed: () => _changePage(-1),
-                        icon: const Icon(Icons.chevron_left),
-                      ),
-                      Expanded(child: Center(child: label)),
-                      IconButton(
-                        tooltip: l10n.playStatsNextPage,
-                        onPressed: () => _changePage(1),
-                        icon: const Icon(Icons.chevron_right),
-                      ),
+                      const SizedBox(height: 8),
                     ],
-                  );
-                },
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            l10n.mediaDetailsTitle,
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () {
+                            if (AppSheetTransitions.maybeClose<void>(context)) {
+                              return;
+                            }
+                            Navigator.of(context).maybePop();
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.close_rounded,
+                              color: colors.textSecondary,
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    ValueListenableBuilder<int>(
+                      valueListenable: _indexNotifier,
+                      builder: (context, index, _) {
+                        final current = widget.variants[index];
+                        final label = Text(
+                          '${current.title}  ${index + 1}/${widget.variants.length}',
+                          style: TextStyle(
+                            color: colors.textMuted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        );
+                        if (!desktop || widget.variants.length < 2) {
+                          return label;
+                        }
+                        return Row(
+                          children: [
+                            IconButton(
+                              tooltip: l10n.playStatsPreviousPage,
+                              onPressed: () => _changePage(-1),
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            Expanded(child: Center(child: label)),
+                            IconButton(
+                              tooltip: l10n.playStatsNextPage,
+                              onPressed: () => _changePage(1),
+                              icon: const Icon(Icons.chevron_right),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ),
               ),
-              const SizedBox(height: 10),
               Expanded(
                 child: PageView.builder(
                   controller: _pageController,
@@ -226,7 +238,7 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                       child: SingleChildScrollView(
                         // 自动滚动条绘制在视口右侧，内容内缩避免压住字段值。
                         padding: desktop
-                            ? const EdgeInsets.only(right: 12)
+                            ? EdgeInsets.only(right: contentRightPadding + 12)
                             : EdgeInsets.zero,
                         key: PageStorageKey<String>(
                           'media-detail-page-${variant.key}',
