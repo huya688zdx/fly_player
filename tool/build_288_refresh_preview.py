@@ -19,9 +19,6 @@ OUTPUT_VIDEO = GENERATED_ROOT / "refresh_reworked_preview.mp4"
 ASSET_ANIMATION = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_reworked.webp"
 ASSET_STATIC = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_reworked_static.png"
 ASSET_ROOT = PROJECT_ROOT / "assets" / "refresh"
-NATURAL_TRANSITION_ATLAS = (
-    PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_natural_transition_01_24.png"
-)
 SOURCE_VIDEO = Path(r"F:\mp\bili_video_d_1787919698203.mp4")
 SOURCE_VIDEO_2 = Path(r"F:\mp\bili_video_d_1787920057392.mp4")
 SOURCE_VIDEO_FIRST_FRAME = 472
@@ -115,10 +112,6 @@ def place_subject(
         round(target[1] - anchor[1] * scale[1]),
     ))
     return canvas
-
-
-def render_human_pose(subject: Image.Image) -> Image.Image:
-    return place_subject(subject, (1.36, 1.36), (subject.width / 2, subject.height), (256, 464))
 
 
 def original_video_subject(
@@ -255,10 +248,7 @@ def load_video_range(
 
 
 def build_frames() -> tuple[list[Image.Image], list[str]]:
-    subjects = extract_grid_subjects(
-        NATURAL_TRANSITION_ATLAS, columns=6, rows=4, minimum_component_area=80,
-    )
-    arms = extract_grid_subjects(ASSET_ROOT / "shoujo_bird_arms_04_reworked.png", 2, 2, 80)
+    human_atlas = Image.open(ASSET_ROOT / "shoujo_bird_human_performance_00_25.png").convert("RGBA")
     closure = extract_grid_subjects(ASSET_ROOT / "shoujo_bird_closure_08_reworked.png", 4, 2, 80)
     growth_atlas = Image.open(ASSET_ROOT / "shoujo_bird_wing_unfold_00_04.png").convert("RGBA")
     first_video = load_video_range(SOURCE_VIDEO, SOURCE_VIDEO_FIRST_FRAME, 547)
@@ -271,24 +261,28 @@ def build_frames() -> tuple[list[Image.Image], list[str]]:
         frames.extend([frame] * ticks)
         phases.extend([phase] * ticks)
 
-    human_holds = [9, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5]
-    for index in range(11):
-        hold(render_human_pose(subjects[index]), human_holds[index], f"human_{index}")
-        if index in (3, 5):
-            # 新图集最后一格已接近原抱臂端点，沿用原端点，避免重复换样。
-            for added in ((0, 1) if index == 3 else (2,)):
-                subject = arms[added]
-                height = (350, 350, 342, 334)[added]
-                scale = height / subject.height
-                frame = place_subject(subject, (scale, scale), (subject.width / 2, subject.height), (256, 464))
-                hold(frame, 3, f"human_arm_{added}")
+    # 同一母版的连续画稿已按支撑脚定位；播放时不随裙摆重新居中或缩放。
+    # 注视、后撤、看手、抱拢、下蹲依次发生，闭眼只在抱拢后出现。
+    human_holds = [
+        ("human_0", 7), ("human_1", 4), ("human_backstep", 3),
+        ("human_2", 3), ("human_3", 3), ("human_4", 3), ("human_5", 3),
+        ("human_6", 3), ("human_hands_separate", 3), ("human_arms_cross", 3),
+        ("human_7", 4), ("human_8", 4), ("human_9", 3), ("human_knees_bend", 3),
+        ("human_10", 3), ("human_11", 3), ("human_12", 3),
+        ("human_crouch_lower", 3), ("human_13", 3), ("human_crouch_tuck", 3),
+        ("human_14", 4), ("closure_0", 3), ("closure_1", 3),
+        ("closure_2", 3), ("closure_3", 3), ("closure_4", 4),
+    ]
+    for index, (phase, ticks) in enumerate(human_holds):
+        left, top = index % 6 * FRAME_SIZE, index // 6 * FRAME_SIZE
+        frame = human_atlas.crop((left, top, left + FRAME_SIZE, top + FRAME_SIZE))
+        hold(frame, ticks, phase)
 
-    # 遮住鞋尖、解除支撑、闭合之后再收小；每个形态已有独立画稿。
-    heights = [204, 200, 195, 185, 185, 180, 130, 94]
-    bottoms = [464, 464, 458, 452, 447, 440, 403, 376]
-    for index, subject in enumerate(closure):
-        scale = heights[index] / subject.height
-        frame = place_subject(subject, (scale, scale), (subject.width / 2, subject.height), (252, bottoms[index]))
+    # 人物完全包入后接回已有茧稿；入口高度接住新画稿，随后沿用收小位置。
+    for index, height, bottom in ((5, 166, 440), (6, 130, 403), (7, 94, 376)):
+        subject = closure[index]
+        scale = height / subject.height
+        frame = place_subject(subject, (scale, scale), (subject.width / 2, subject.height), (252, bottom))
         hold(frame, 6 if index == 5 else 4, f"closure_{index}")
     # 裸茧和四张展开姿势已在共同画布中定位，保留画出的折翼和身体反应。
     # 不再逐帧拟合身体宽高，也不按翼展重缩放。
