@@ -510,7 +510,7 @@ internal fun nativePanelShouldShowCompletedOverlay(
     autoNextSuppressedForCurrent: Boolean = false,
 ): Boolean {
     if (playbackEnded) return true
-    // keep-open 下自然播完不会进 ENDED 相位，只能靠末秒位置兜底；
+    // 未收到 ENDED 相位时，以末秒位置兜底；
     // 用户取消本集连播倒计时后连播视同不生效，否则完成弹层被永久拦截。
     if (autoPlayEnabled && hasNextEpisode && !autoNextSuppressedForCurrent) return false
     if (durationMs <= 0L || positionMs <= 0L) return false
@@ -1219,6 +1219,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 默认关：离开应用不自动进小窗，只有手动点小窗按钮才进；用户可在设置里开启「划走自动小窗」。
     private var pipAutoEnter = false
     private var mediaSessionStarted = false
+    private var lastMediaPlaybackState = -1
     // playerSurface.release() 仍可能投递最后一次状态回调。销毁开始后必须拒绝这些回调，
     // 否则它会重新启动已停止的前台媒体服务，把通知栏播放卡片“复活”。
     private var activityDestroying = false
@@ -9633,12 +9634,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val title = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
         if (title.isEmpty()) return
         val canNext = hasNextEpisode()
+        val playbackState = nativeMediaPlaybackState(state)
         val now = android.os.SystemClock.elapsedRealtime()
         val changed = lastMediaPlaying != !state.paused ||
+            lastMediaPlaybackState != playbackState ||
             lastMediaTitle != title ||
             lastMediaCanNext != canNext
         if (!mediaSessionStarted || changed || now - lastMediaPushElapsedMs >= 1000L) {
             lastMediaPlaying = !state.paused
+            lastMediaPlaybackState = playbackState
             lastMediaTitle = title
             lastMediaCanNext = canNext
             lastMediaPushElapsedMs = now
@@ -10073,6 +10077,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             artworkUrl = artUrl,
             artworkHeaders = artHeaders,
             isPlaying = !state.paused,
+            playbackState = nativeMediaPlaybackState(state),
             positionMs = state.positionMs,
             durationMs = state.durationMs,
             speed = state.speed.toFloat(),

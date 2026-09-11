@@ -3,6 +3,8 @@ package com.geqian.flyplayer.fly_player
 import android.content.Context
 import android.content.res.Resources
 import android.app.Application
+import android.support.v4.media.session.PlaybackStateCompat
+import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -891,6 +893,25 @@ class NativePlayerActivityPanelModelsTest {
     fun destroyedPlayerRejectsLatePlaybackStateCallbacks() {
         assertEquals(true, nativePanelShouldApplyPlaybackState(activityDestroying = false))
         assertEquals(false, nativePanelShouldApplyPlaybackState(activityDestroying = true))
+    }
+
+    @Test
+    fun systemMediaCardTracksBufferingPauseAndCompletion() {
+        val playing = MpvPlayerState(
+            ready = true, paused = false, playbackPhase = "playing",
+        )
+        assertEquals(PlaybackStateCompat.STATE_PLAYING, nativeMediaPlaybackState(playing))
+        assertEquals(PlaybackStateCompat.STATE_BUFFERING, nativeMediaPlaybackState(playing.copy(buffering = true)))
+        assertEquals(PlaybackStateCompat.STATE_PAUSED, nativeMediaPlaybackState(playing.copy(paused = true, buffering = true)))
+        assertEquals(PlaybackStateCompat.STATE_STOPPED, nativeMediaPlaybackState(playing.copy(playbackPhase = "ended")))
+    }
+
+    @Test
+    fun systemMediaCardDoesNotReportFailedPlaybackAsPlaying() {
+        val failed = MpvPlayerState(
+            ready = true, paused = false, playbackPhase = "error", error = "媒体加载失败",
+        )
+        assertEquals(PlaybackStateCompat.STATE_ERROR, nativeMediaPlaybackState(failed))
     }
 
     @Test

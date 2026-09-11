@@ -37,6 +37,9 @@ object NativeMediaCommandCoordinator {
     @Volatile
     private var handlerRef: WeakReference<Handler>? = null
 
+    val hasHandler: Boolean
+        get() = handlerRef?.get() != null
+
     fun attach(handler: Handler) {
         handlerRef = WeakReference(handler)
     }
