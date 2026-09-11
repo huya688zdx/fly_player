@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.os.SystemClock
 import android.support.v4.media.MediaMetadataCompat
@@ -20,8 +21,24 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import com.bumptech.glide.Glide
+import com.bumptech.glide.request.FutureTarget
+import com.geqian.flyplayer.fly_player.mpv.MpvPlaybackPhase
+import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+
+/** 系统卡片按内核阶段显示，避免把缓冲、结束和错误误报为正在播放。 */
+internal fun nativeMediaPlaybackState(state: MpvPlayerState): Int = when {
+    state.error != null || state.playbackPhase == MpvPlaybackPhase.ERROR.wireValue ->
+        PlaybackStateCompat.STATE_ERROR
+    state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue -> PlaybackStateCompat.STATE_STOPPED
+    !state.ready || state.playbackPhase == MpvPlaybackPhase.PREPARING.wireValue ->
+        PlaybackStateCompat.STATE_BUFFERING
+    state.paused -> PlaybackStateCompat.STATE_PAUSED
+    state.buffering || state.playbackPhase == MpvPlaybackPhase.SEEKING.wireValue ->
+        PlaybackStateCompat.STATE_BUFFERING
+    else -> PlaybackStateCompat.STATE_PLAYING
+}
 
 /**
  * 原生播放壳（[NativePlayerActivity]）专用的前台播放服务 + 系统媒体会话。
@@ -45,8 +62,7 @@ class NativePlaybackMediaService : Service() {
     private var artworkBitmap: Bitmap? = null
     private var artworkKey: String = ""
 
-    @Volatile
-    private var artworkInFlightKey: String? = null
+    private var artworkRequest: FutureTarget<Bitmap>? = null
 
     @Volatile
     private var released = false
@@ -81,16 +97,27 @@ class NativePlaybackMediaService : Service() {
                         NativeMediaCommandCoordinator.dispatchAction(
                             NativeMediaCommandCoordinator.ACTION_REWIND,
                         )
+
+                    override fun onCustomAction(action: String?, extras: Bundle?) =
+                        NativeMediaCommandCoordinator.dispatchAction(action)
                 },
             )
-            isActive = true
+            setSessionActivity(contentIntent())
+            // 未收到有效播放快照前，不向系统暴露空会话。
+            isActive = false
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (released) return START_NOT_STICKY
+        // 退出后迟到的通知按钮/状态 Intent 不能重新留下无播放器的媒体会话。
+        if (intent?.action != ACTION_STOP && !NativeMediaCommandCoordinator.hasHandler) {
+            mediaSession.isActive = false
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_UPDATE -> {
-                if (released) return START_NOT_STICKY
                 val next = SessionState.fromIntent(intent)
                 if (next != null) {
                     val prev = state
@@ -104,8 +131,11 @@ class NativePlaybackMediaService : Service() {
                         prev == null ||
                         prev.title != next.title ||
                         prev.subtitle != next.subtitle ||
+                        prev.artworkUrl != next.artworkUrl ||
+                        prev.artworkHeaders != next.artworkHeaders ||
                         prev.durationMs != next.durationMs ||
                         prev.isPlaying != next.isPlaying ||
+                        prev.playbackState != next.playbackState ||
                         prev.canNext != next.canNext
                     if (heavy) {
                         pushSession(next)
@@ -122,6 +152,7 @@ class NativePlaybackMediaService : Service() {
                 // 提前置位，让此刻仍在途的封面加载回调（syncArtwork）短路，避免 stopSelf 真正
                 // 触发 onDestroy 之前，延迟到达的封面结果重新 startForeground 把通知复活。
                 released = true
+                mediaSession.isActive = false
                 stopForegroundCompat()
                 getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
                 stopSelf()
@@ -137,7 +168,7 @@ class NativePlaybackMediaService : Service() {
 
     override fun onDestroy() {
         released = true
-        artworkInFlightKey = null
+        clearArtwork()
         artworkExecutor.shutdownNow()
         if (::mediaSession.isInitialized) {
             mediaSession.isActive = false
@@ -180,13 +211,24 @@ class NativePlaybackMediaService : Service() {
             PlaybackStateCompat.ACTION_REWIND or
             (if (s.durationMs > 0L) PlaybackStateCompat.ACTION_SEEK_TO else 0L) or
             (if (s.canNext) PlaybackStateCompat.ACTION_SKIP_TO_NEXT else 0L)
-        val playState =
-            if (s.isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
-        val speed = if (s.isPlaying) s.speed.coerceAtLeast(0.1f) else 0f
+        val speed = if (s.playbackState == PlaybackStateCompat.STATE_PLAYING) {
+            s.speed.coerceAtLeast(0.1f)
+        } else 0f
         return PlaybackStateCompat.Builder()
             .setActions(actions)
+            // Android 13+ 从会话动作生成按钮，单加通知 Action 不会显示快进/快退。
+            .addCustomAction(
+                NativeMediaCommandCoordinator.ACTION_REWIND,
+                localizedString(R.string.notification_action_rewind_10s),
+                android.R.drawable.ic_media_rew,
+            )
+            .addCustomAction(
+                NativeMediaCommandCoordinator.ACTION_FORWARD,
+                localizedString(R.string.notification_action_forward_10s),
+                android.R.drawable.ic_media_ff,
+            )
             .setState(
-                playState,
+                s.playbackState,
                 s.positionMs.coerceAtLeast(0L),
                 speed,
                 SystemClock.elapsedRealtime(),
@@ -195,12 +237,16 @@ class NativePlaybackMediaService : Service() {
     }
 
     private fun buildNotification(s: SessionState): Notification {
+        val canPause = s.isPlaying && (
+            s.playbackState == PlaybackStateCompat.STATE_PLAYING ||
+                s.playbackState == PlaybackStateCompat.STATE_BUFFERING
+            )
         val rewind = NotificationCompat.Action(
             android.R.drawable.ic_media_rew,
             localizedString(R.string.notification_action_rewind_10s),
             commandIntent(NativeMediaCommandCoordinator.ACTION_REWIND, 21),
         )
-        val playPause = if (s.isPlaying) {
+        val playPause = if (canPause) {
             NotificationCompat.Action(
                 android.R.drawable.ic_media_pause,
                 localizedString(R.string.notification_action_pause),
@@ -228,7 +274,7 @@ class NativePlaybackMediaService : Service() {
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setShowWhen(false)
-            .setOngoing(s.isPlaying)
+            .setOngoing(canPause)
             .setLargeIcon(artworkBitmap)
             .addAction(rewind)
             .addAction(playPause)
@@ -284,46 +330,45 @@ class NativePlaybackMediaService : Service() {
     private fun syncArtwork(s: SessionState) {
         val key =
             "${s.artworkUrl}|${NativeImageRequestHeaders.fingerprint(s.artworkHeaders)}"
-        if (s.artworkUrl.isBlank()) {
-            artworkKey = ""
-            artworkBitmap = null
-            return
-        }
-        if (key == artworkKey && artworkBitmap != null) return
-        if (key == artworkInFlightKey) return
+        if (key == artworkKey) return
+        // 切换视频时先清旧图；即便新封面为空或下载失败，也不能沿用上一部的封面。
+        clearArtwork()
         artworkKey = key
-        artworkInFlightKey = key
+        if (s.artworkUrl.isBlank()) return
         val model =
             NativeSafeImageGlide.model(
                 applicationContext,
                 s.artworkUrl,
                 s.artworkHeaders,
             )
+        val request = Glide.with(applicationContext)
+            .asBitmap()
+            .load(model)
+            .submit(ARTWORK_SIZE, ARTWORK_SIZE)
+        artworkRequest = request
         artworkExecutor.execute {
-            val bitmap = runCatching {
-                Glide.with(applicationContext)
-                    .asBitmap()
-                    .load(model)
-                    .submit(ARTWORK_SIZE, ARTWORK_SIZE)
-                    .get()
-            }.getOrElse { err ->
-                Log.w(TAG, "artwork load failed: ${err.message}")
-                null
-            }
-            if (released || artworkInFlightKey != key || bitmap == null) {
-                if (artworkInFlightKey == key) artworkInFlightKey = null
+            val bitmap = runCatching { request.get() }.getOrElse {
+                if (!request.isCancelled) Log.w(TAG, "媒体通知封面加载失败")
                 return@execute
             }
-            artworkInFlightKey = null
             // 回主线程刷新会话/通知。
             android.os.Handler(mainLooper).post {
-                if (released || artworkKey != key) return@post
+                if (released || artworkRequest !== request) return@post
                 artworkBitmap = bitmap
                 val current = state ?: return@post
                 mediaSession.setMetadata(buildMetadata(current, bitmap))
                 startForegroundCompat(buildNotification(current))
             }
         }
+    }
+
+    private fun clearArtwork() {
+        artworkRequest?.let { request ->
+            request.cancel(true)
+            Glide.with(applicationContext).clear(request)
+        }
+        artworkRequest = null
+        artworkBitmap = null
     }
 
     // ---- 前台/通道 ----
@@ -370,6 +415,7 @@ class NativePlaybackMediaService : Service() {
         val artworkUrl: String,
         val artworkHeaders: Map<String, String>,
         val isPlaying: Boolean,
+        val playbackState: Int,
         val positionMs: Long,
         val durationMs: Long,
         val speed: Float,
@@ -390,6 +436,7 @@ class NativePlaybackMediaService : Service() {
                             intent.getStringExtra("artworkAuth").orEmpty(),
                         ),
                     isPlaying = intent.getBooleanExtra("isPlaying", false),
+                    playbackState = intent.getIntExtra("playbackState", PlaybackStateCompat.STATE_NONE),
                     positionMs = intent.getLongExtra("positionMs", 0L),
                     durationMs = intent.getLongExtra("durationMs", 0L),
                     speed = intent.getFloatExtra("speed", 1f),
@@ -417,6 +464,7 @@ class NativePlaybackMediaService : Service() {
             artworkUrl: String,
             artworkHeaders: Map<String, String>,
             isPlaying: Boolean,
+            playbackState: Int,
             positionMs: Long,
             durationMs: Long,
             speed: Float,
@@ -432,6 +480,7 @@ class NativePlaybackMediaService : Service() {
                     NativeImageRequestHeaders.toFlatList(artworkHeaders),
                 )
                 putExtra("isPlaying", isPlaying)
+                putExtra("playbackState", playbackState)
                 putExtra("positionMs", positionMs)
                 putExtra("durationMs", durationMs)
                 putExtra("speed", speed)
