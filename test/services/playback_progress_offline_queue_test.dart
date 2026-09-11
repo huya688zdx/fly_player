@@ -54,23 +54,58 @@ void main() {
           'ts': ts,
           'duration': 300,
         };
-        await PlaybackProgressOfflineQueue.enqueue(progress(90));
+        final results = <PlaybackProgressResult>[];
+        await PlaybackProgressOfflineQueue.enqueue(
+          progress(90),
+          onResult: results.add,
+        );
         await Future.wait([
-          NativeReentrySupport.recordProgress(nas, progress(120)),
-          NativeReentrySupport.recordProgress(nas, progress(125)),
+          NativeReentrySupport.recordProgress(
+            nas,
+            progress(120),
+            onResult: results.add,
+          ),
+          NativeReentrySupport.recordProgress(
+            nas,
+            progress(125),
+            onResult: results.add,
+          ),
         ]);
         expect(requests.map((p) => p['ts']), [120, 125]);
         expect(requests.first.containsKey('video_guid'), isFalse);
         status = 503;
-        await NativeReentrySupport.recordProgress(nas, progress(150));
+        await NativeReentrySupport.recordProgress(
+          nas,
+          progress(150),
+          onResult: results.add,
+        );
         final prefs = await SharedPreferences.getInstance();
         expect(
           prefs.getString('playback_progress_offline_queue_v1'),
           isNotNull,
         );
+        status = 401;
+        await NativeReentrySupport.recordProgress(
+          nas,
+          progress(155),
+          onResult: results.add,
+        );
+        expect(prefs.getString('playback_progress_offline_queue_v1'), isNull);
         status = 200;
-        await NativeReentrySupport.recordProgress(nas, progress(160));
-        expect(requests.map((p) => p['ts']), [120, 125, 150, 160]);
+        await NativeReentrySupport.recordProgress(
+          nas,
+          progress(160),
+          onResult: results.add,
+        );
+        expect(requests.map((p) => p['ts']), [120, 125, 150, 155, 160]);
+        expect(results, <PlaybackProgressResult>[
+          PlaybackProgressResult.queued,
+          PlaybackProgressResult.synced,
+          PlaybackProgressResult.synced,
+          PlaybackProgressResult.queued,
+          PlaybackProgressResult.failed,
+          PlaybackProgressResult.synced,
+        ]);
         expect(prefs.getString('playback_progress_offline_queue_v1'), isNull);
       } finally {
         await server.close(force: true);

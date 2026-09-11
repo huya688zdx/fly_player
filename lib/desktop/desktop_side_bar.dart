@@ -4,7 +4,9 @@ import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_catalog.dart';
 import '../theme/app_theme.dart';
 import 'desktop_hover_region.dart';
+import 'desktop_environment.dart';
 import 'desktop_tokens.dart';
+import 'playback/external_playback_host.dart';
 
 /// 桌面侧栏（宽 216，对应原型 styles.css 的 .side-nav）。
 ///
@@ -29,6 +31,7 @@ class DesktopSideBar extends StatelessWidget {
     this.otherCount = 0,
     this.onOpenFavorites,
     this.onOpenDownloads,
+    this.onOpenExternalPlayback,
     this.onOpenCatalog,
     this.onOpenAllItems,
     this.onOpenByType,
@@ -56,6 +59,7 @@ class DesktopSideBar extends StatelessWidget {
   /// 内容区入口（收藏 / 下载）。
   final void Function(BuildContext context)? onOpenFavorites;
   final void Function(BuildContext context)? onOpenDownloads;
+  final void Function(BuildContext context)? onOpenExternalPlayback;
 
   /// 打开某个媒体库入口（内容区）。
   final void Function(BuildContext context, MediaCatalog catalog)?
@@ -75,6 +79,9 @@ class DesktopSideBar extends StatelessWidget {
         selectedTabIndex == 0 && contentRoutePath == '/screen/favorites';
     final downloadsSelected =
         selectedTabIndex == 0 && contentRoutePath == '/screen/downloads';
+    final externalSelected =
+        selectedTabIndex == 0 &&
+        contentRoutePath == '/screen/external-playback';
 
     return SizedBox(
       width: DesktopTokens.sidebarWidth,
@@ -97,7 +104,8 @@ class DesktopSideBar extends StatelessWidget {
                       selected:
                           selectedTabIndex == 0 &&
                           !favoritesSelected &&
-                          !downloadsSelected,
+                          !downloadsSelected &&
+                          !externalSelected,
                       onTap: () => onTabSelected(0),
                     ),
                     _DesktopSideBarRow(
@@ -113,6 +121,18 @@ class DesktopSideBar extends StatelessWidget {
                       selected: downloadsSelected,
                       onTap: () => onOpenDownloads?.call(context),
                     ),
+                    if (DesktopEnvironment.isWindows)
+                      ValueListenableBuilder<ExternalPlaybackStatus?>(
+                        valueListenable: ExternalPlaybackHost.status,
+                        builder: (context, status, _) => _DesktopSideBarRow(
+                          icon: status?.canControl == true
+                              ? Icons.connected_tv_rounded
+                              : Icons.desktop_windows_outlined,
+                          label: '外部播放',
+                          selected: externalSelected,
+                          onTap: () => onOpenExternalPlayback?.call(context),
+                        ),
+                      ),
                     _DesktopSideBarRow(
                       icon: Icons.tune_rounded,
                       label: l10n.navSettings,
