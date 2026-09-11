@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_environment.dart';
 import 'poster_browse_display_item.dart';
 import '../../ui/media_placeholder.dart';
 
@@ -31,8 +32,19 @@ class PosterBrowsePosterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final imageHeight = width * 1.5;
     final progressValue = _progressValue;
+    final desktop = DesktopEnvironment.isDesktopPlatform;
+    final compactEpisode =
+        desktop &&
+        item.isEpisode &&
+        (item.seasonNumber > 0 || item.episodeNumber > 0);
+    final episodeLabel = [
+      if (item.seasonNumber > 0)
+        'S${item.seasonNumber.toString().padLeft(2, '0')}',
+      if (item.episodeNumber > 0)
+        'E${item.episodeNumber.toString().padLeft(2, '0')}',
+    ].join(' · ');
 
-    return Semantics(
+    final card = Semantics(
       label: item.title,
       button: true,
       child: GestureDetector(
@@ -107,7 +119,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
                 if (showSecondaryLabel && secondaryLabel.trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
                   Text(
-                    secondaryLabel.trim(),
+                    compactEpisode ? episodeLabel : secondaryLabel.trim(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -116,6 +128,18 @@ class PosterBrowsePosterCard extends StatelessWidget {
                       ).textTheme.bodySmall?.color?.withValues(alpha: 0.72),
                     ),
                   ),
+                  // 极矮窗口先保证季集编号，集名仍可通过悬停全文查看。
+                  if (compactEpisode &&
+                      width > 72 &&
+                      item.episodeTitle.trim().isNotEmpty)
+                    Text(
+                      item.episodeTitle.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: Colors.white70),
+                    ),
                 ],
               ],
             ),
@@ -123,6 +147,15 @@ class PosterBrowsePosterCard extends StatelessWidget {
         ),
       ),
     );
+    return desktop
+        ? Tooltip(
+            message: [
+              item.title,
+              secondaryLabel.trim(),
+            ].where((text) => text.isNotEmpty).join('\n'),
+            child: card,
+          )
+        : card;
   }
 
   double? get _progressValue {
