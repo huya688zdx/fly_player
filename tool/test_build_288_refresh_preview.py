@@ -186,6 +186,15 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
     def test_transition_keeps_feet_and_ball_stable(self) -> None:
         bottoms = [frame.getchannel("A").getbbox()[3] for frame, phase in zip(self.frames, self.phases) if phase.startswith("human_")]
         self.assertLessEqual(max(bottoms) - min(bottoms), 1)
+        # 后撤时画面右脚持续支撑；只测靴筒，抬起的另一只脚不能影响定位。
+        support_x = []
+        for phase in ("human_0", "human_1", "human_backstep", "human_2", "human_3", "human_4", "human_5"):
+            rgba = np.asarray(self.frames[self.phases.index(phase)]).astype(np.int16)[426:436, 252:304]
+            red, green, blue, alpha = np.moveaxis(rgba, 2, 0)
+            _, xs = np.where((red - green > 35) & (green - blue > 25) & (alpha > 200))
+            self.assertGreater(len(xs), 30, phase)
+            support_x.append(float(np.median(xs)) + 252)
+        self.assertLessEqual(np.ptp(support_x), 1, support_x)
         geometry = np.array([animation_builder.ball_geometry(frame) for frame, phase in zip(self.frames, self.phases) if phase.startswith("growth_")])
         # 稳定尺度允许出翼时有意轻沉，不能重新锁死成完全不动的身体。
         self.assertTrue(np.all(np.ptp(geometry, axis=0) <= [2, 10, 6]), geometry)
