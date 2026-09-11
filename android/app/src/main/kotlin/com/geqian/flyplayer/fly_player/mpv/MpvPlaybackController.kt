@@ -1657,8 +1657,8 @@ class MpvPlaybackController(
         if (
             !sessionSnapshot.sourceSwitchInProgress &&
             !sessionSnapshot.loadCommandInFlight &&
-            !loadState.sourceFileLoaded &&
-            next.paused &&
+            ((!loadState.sourceFileLoaded && next.paused) ||
+                (restoreCoordinator.hasReachedVideoEof && !restoreCoordinator.isSeekingOrRestoringVideo)) &&
             isNearPlaybackCompletion(next.positionMs, next.durationMs)
         ) {
             return MpvPlaybackPhase.ENDED
@@ -2344,6 +2344,8 @@ class MpvPlaybackController(
                             ),
                             "property:eof-reached=$value",
                         )
+                        // keep-open 保留尾帧时没有 end-file，仍需把 EOF 状态同步给宿主和系统卡片。
+                        updateState(state)
                     }
                 }
             }
