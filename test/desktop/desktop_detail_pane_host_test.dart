@@ -6,6 +6,10 @@ import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/app_transitions.dart';
 import 'package:fly_player/ui/player_pane_host_scope.dart';
+import 'package:fly_player/utils/app_exception.dart';
+import 'package:fly_player/widgets/common/app_error_state.dart';
+import 'package:fly_player/widgets/detail/detail_loading_skeleton.dart';
+import 'package:fly_player/widgets/detail/detail_status_page.dart';
 
 /// 测试用极简路由映射：按 URI path 分发到便携页面。
 Route<dynamic> _testRouteFactory(RouteSettings settings) {
@@ -73,6 +77,54 @@ Future<void> _flushTimers(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('详情分屏失败可返回，重试等待时也能关闭', (tester) async {
+    final controller = DesktopSplitController(enabled: true);
+    addTearDown(controller.dispose);
+    var retries = 0;
+    final state = await _pumpHost(
+      tester,
+      controller: controller,
+      locale: const Locale('zh', 'CN'),
+      onGenerateRoute: (settings) => MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => StatefulBuilder(
+          builder: (context, setState) => retries > 0
+              ? const DetailLoadingSkeleton()
+              : DetailStatusPage(
+                  child: AppErrorState(
+                    error: const AppException(
+                      kind: AppExceptionKind.transient,
+                      action: '详情加载',
+                      message: '暂时不可用',
+                    ),
+                    onRetry: () => setState(() => retries++),
+                  ),
+                ),
+        ),
+      ),
+    );
+    await state.openRoute('/detail/item?itemGuid=unavailable');
+    await tester.pumpAndSettle();
+    expect(find.text('加载失败'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('detail-status-back')));
+    await tester.pumpAndSettle();
+    expect(controller.paneVisible, isFalse);
+    await _flushTimers(tester);
+
+    await state.openRoute('/detail/item?itemGuid=unavailable');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('刷新重试'));
+    await tester.pump();
+    expect(retries, 1);
+    expect(find.byType(DetailLoadingSkeleton), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('detail-status-back')));
+    await tester.pumpAndSettle();
+    expect(controller.paneVisible, isFalse);
+    expect(state.currentRouteName, isNull);
+    expect(tester.takeException(), isNull);
+    await _flushTimers(tester);
+  });
+
   testWidgets('桌面详情原位淡入 200ms，返回原位淡出 180ms', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);

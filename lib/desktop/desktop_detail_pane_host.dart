@@ -307,6 +307,10 @@ class _PaneRouteSyncObserver extends NavigatorObserver {
 
   @override
   void didReplace({Route<Object?>? newRoute, Route<Object?>? oldRoute}) {
+    // 搜索直达以同名选项页替换入口页时，副屏目标和栈深均未改变。
+    if (newRoute != null && newRoute.settings.name == oldRoute?.settings.name) {
+      return;
+    }
     final old = oldRoute;
     if (old != null) onRouteRemoved(old);
   }
