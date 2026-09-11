@@ -33,12 +33,9 @@ class ThemeSettingsPresetCard extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: AppAmbientPage.sharesBackgroundOf(context)
-              ? (selected ? currentColors.selection : currentColors.surface)
-                    .withValues(alpha: selected ? 0.12 : 0.16)
-              : (selected
-                    ? currentColors.selectionSoft
-                    : currentColors.surface),
+          color: selected
+              ? currentColors.selection.withValues(alpha: 0.12)
+              : AppAmbientPage.cardColorOf(context, currentColors.surface),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected
