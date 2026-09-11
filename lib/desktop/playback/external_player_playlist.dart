@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../../api/feiniu_api.dart';
+import '../../controllers/local_download_source_resolver.dart';
 import '../../media_backend/media_backend.dart';
+import '../../models/download_task_record.dart';
 import '../../playback/playback_source.dart';
 import '../../providers/nas_provider.dart';
+import '../../services/download_task_service.dart';
 import '../../services/native_reentry_support.dart';
 
 class ExternalPlaylistEpisode {
@@ -29,53 +33,97 @@ class ExternalPlayerPlaylist {
     required MediaBackend backend,
     required NasProvider nas,
     List<Map<String, dynamic>>? fallback,
+    bool offline = false,
     required void Function(String) onWarning,
   }) async {
     final entries = <String, ExternalPlaylistEpisode>{};
-    try {
-      final seriesGuid = await NativeReentrySupport.resolveSeriesGuid(
-        FeiniuApi(nas),
-        source.toMap(),
-        source.seasonGuid,
-      );
-      final seasons = [...await backend.getItemSeasons(seriesGuid)]
-        ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
-      for (final season in seasons) {
-        final episodes = [...await backend.getSeasonEpisodes(season.id)]
-          ..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
-        final label = season.seasonNumber == 0
-            ? '特别篇'
-            : '第${season.seasonNumber}季';
-        for (final episode in episodes) {
-          if (episode.id.isEmpty) continue;
-          entries[episode.id] = ExternalPlaylistEpisode(
-            itemGuid: episode.id,
-            title: '$label 第${episode.episodeNumber}集 ${episode.title}',
-            seasonNumber: season.seasonNumber,
-            episodeNumber: episode.episodeNumber,
-            seasonGuid: season.id,
-          );
+    final fallbackEpisodes = fallback ?? <Map<String, dynamic>>[];
+    final isEpisode =
+        source.mediaType.toLowerCase() == 'episode' ||
+        (source.seasonGuid.trim().isNotEmpty && source.episodeNumber > 0);
+    if (isEpisode) {
+      for (final episode in fallbackEpisodes) {
+        final id = '${episode['itemGuid'] ?? episode['guid'] ?? ''}'.trim();
+        if (id.isEmpty) continue;
+        final seasonNumber =
+            (episode['seasonNumber'] as num?)?.toInt() ?? source.seasonNumber;
+        entries.putIfAbsent(
+          id,
+          () => ExternalPlaylistEpisode(
+            itemGuid: id,
+            title:
+                '第$seasonNumber季 第${episode['episodeNumber'] ?? ''}集 '
+                '${episode['title'] ?? ''}',
+            seasonNumber: seasonNumber,
+            episodeNumber: (episode['episodeNumber'] as num?)?.toInt() ?? 0,
+            seasonGuid: '${episode['seasonGuid'] ?? source.seasonGuid}',
+          ),
+        );
+      }
+      if (offline || source.isDownloadedFile) {
+        for (final episode in _downloadedEpisodesForSource(
+          source,
+          fallbackEpisodes,
+        )) {
+          entries.putIfAbsent(episode.itemGuid, () => episode);
         }
       }
-    } catch (_) {
-      onWarning('部分季的播放列表未能加载，本次保留已获取的剧集');
     }
-    for (final episode in fallback ?? <Map<String, dynamic>>[]) {
-      final id = '${episode['itemGuid'] ?? episode['guid'] ?? ''}'.trim();
-      if (id.isEmpty) continue;
-      entries.putIfAbsent(
-        id,
-        () => ExternalPlaylistEpisode(
-          itemGuid: id,
-          title:
-              '第${source.seasonNumber}季 第${episode['episodeNumber'] ?? ''}集 '
-              '${episode['title'] ?? ''}',
-          seasonNumber:
-              (episode['seasonNumber'] as num?)?.toInt() ?? source.seasonNumber,
-          episodeNumber: (episode['episodeNumber'] as num?)?.toInt() ?? 0,
-          seasonGuid: '${episode['seasonGuid'] ?? source.seasonGuid}',
-        ),
-      );
+    if (!offline && isEpisode) {
+      Future<void> loadRemoteEpisodes() async {
+        final deadline = Stopwatch()..start();
+        Future<T> readMetadata<T>(Future<T> Function() read) {
+          if (!source.isDownloadedFile) return read();
+          final remaining = localDownloadMetadataTimeout - deadline.elapsed;
+          if (remaining <= Duration.zero) {
+            throw TimeoutException('本地播放的在线目录查询超时');
+          }
+          return read().timeout(remaining);
+        }
+
+        final seriesGuid = await readMetadata(() async {
+          if (backend.capabilities.usesLegacyFeiniuFlow) {
+            return NativeReentrySupport.resolveSeriesGuid(
+              FeiniuApi(nas),
+              source.toMap(),
+              source.seasonGuid,
+            );
+          }
+          return source.seriesGuid.isNotEmpty
+              ? source.seriesGuid
+              : (await backend.getItemDetail(source.itemGuid)).seriesId;
+        });
+        final seasons = [
+          ...await readMetadata(() => backend.getItemSeasons(seriesGuid)),
+        ]..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+        for (final season in seasons) {
+          final episodes = [
+            ...await readMetadata(() => backend.getSeasonEpisodes(season.id)),
+          ]..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+          final label = season.seasonNumber == 0
+              ? '特别篇'
+              : '第${season.seasonNumber}季';
+          for (final episode in episodes) {
+            if (episode.id.isEmpty) continue;
+            entries[episode.id] = ExternalPlaylistEpisode(
+              itemGuid: episode.id,
+              title: '$label 第${episode.episodeNumber}集 ${episode.title}',
+              seasonNumber: season.seasonNumber,
+              episodeNumber: episode.episodeNumber,
+              seasonGuid: season.id,
+            );
+          }
+        }
+      }
+
+      try {
+        final loading = loadRemoteEpisodes();
+        await (source.isDownloadedFile
+            ? loading.timeout(localDownloadMetadataTimeout)
+            : loading);
+      } catch (_) {
+        onWarning('部分季的播放列表未能加载，本次保留已获取的剧集');
+      }
     }
     entries.putIfAbsent(
       source.itemGuid,
@@ -87,7 +135,69 @@ class ExternalPlayerPlaylist {
         seasonGuid: source.seasonGuid,
       ),
     );
-    return entries.values.toList();
+    return entries.values.toList()..sort((a, b) {
+      final season = a.seasonNumber.compareTo(b.seasonNumber);
+      if (season != 0) return season;
+      final episode = a.episodeNumber.compareTo(b.episodeNumber);
+      if (episode != 0) return episode;
+      return a.itemGuid.compareTo(b.itemGuid);
+    });
+  }
+
+  static Iterable<ExternalPlaylistEpisode> _downloadedEpisodesForSource(
+    MpvMediaSource source,
+    List<Map<String, dynamic>>? fallback,
+  ) {
+    final service = DownloadTaskService.instance;
+    var current = service.downloadedRecordForItem(
+      source.itemGuid,
+      mediaGuid: source.mediaGuid,
+    );
+    current ??= service.downloadedRecordForItem(source.itemGuid);
+    final sourceUri = Uri.tryParse(source.url);
+    if (current == null && sourceUri?.scheme == 'file') {
+      current = service.downloadedRecordForFilePath(
+        sourceUri!.toFilePath(windows: Platform.isWindows),
+      );
+    }
+
+    final groupIds = <String>{
+      source.seasonGuid.trim(),
+      for (final episode in fallback ?? <Map<String, dynamic>>[])
+        '${episode['seasonGuid'] ?? episode['groupId'] ?? ''}'.trim(),
+    }..remove('');
+    for (final group in service.groupsByStatus(DownloadTaskStatus.downloaded)) {
+      final containsCurrent =
+          current != null &&
+          group.records.any((record) => record.id == current!.id);
+      final matchesFallbackGroup =
+          current == null &&
+          source.episodeNumber > 0 &&
+          group.records.any(
+            (record) =>
+                groupIds.contains(record.groupId.trim()) &&
+                (record.itemGuid == source.itemGuid ||
+                    record.episodeNumber == source.episodeNumber),
+          );
+      if (!containsCurrent && !matchesFallbackGroup) continue;
+      return group.records
+          .where(
+            (record) =>
+                record.episodeNumber > 0 && record.itemGuid.trim().isNotEmpty,
+          )
+          .map(
+            (record) => ExternalPlaylistEpisode(
+              itemGuid: record.itemGuid.trim(),
+              title:
+                  '第${record.seasonNumber}季 第${record.episodeNumber}集 '
+                  '${service.displayTitleForRecord(record)}',
+              seasonNumber: record.seasonNumber,
+              episodeNumber: record.episodeNumber,
+              seasonGuid: record.groupId.trim(),
+            ),
+          );
+    }
+    return const <ExternalPlaylistEpisode>[];
   }
 
   static Future<String> write({

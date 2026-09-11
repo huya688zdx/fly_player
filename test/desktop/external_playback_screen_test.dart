@@ -5,17 +5,35 @@ import 'package:fly_player/desktop/playback/external_playback_host.dart';
 import 'package:fly_player/desktop/playback/external_playback_screen.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/desktop/playback/external_playback_notice.dart';
+import 'package:fly_player/models/playback_stream.dart';
+import 'package:fly_player/providers/nas_provider.dart';
+import 'package:fly_player/ui/media_detail_components.dart';
+import 'package:provider/provider.dart';
+
+class _ArtworkNas extends ChangeNotifier implements NasProvider {
+  @override
+  String get baseUrl => 'https://nas.invalid';
+  @override
+  String get token => 'test-token';
+  @override
+  String get accessCode => '';
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   testWidgets('就绪设置同步到控制页，进度更新保留未应用草稿，窄窗口不溢出', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1400, 1600));
+    final nas = _ArtworkNas();
     addTearDown(() async {
+      nas.dispose();
       ExternalPlaybackHost.status.value = null;
       await tester.binding.setSurfaceSize(null);
     });
     void publish(DanmakuSettings settings, {bool ready = true}) {
       ExternalPlaybackHost.status.value = ExternalPlaybackStatus(
-        source: const MpvMediaSource(
+        source: MpvMediaSource(
           itemGuid: 'item',
           mediaGuid: 'media',
           videoGuid: 'video',
@@ -23,6 +41,19 @@ void main() {
           headers: {},
           title: '外部播放',
           subtitleTrackGuid: '',
+          posterPath: '/v/poster.jpg',
+          playbackMode: PlayerPlaybackMode.serverSession,
+          resolution: '720',
+          bitrate: 1000000,
+          qualities: [
+            for (final resolution in ['1080', '720'])
+              PlaybackQualityOption.fromJson({
+                'media_guid': 'media',
+                'video_guid': 'video',
+                'resolution': resolution,
+                'bitrate': 1000000,
+              }, source: PlaybackQualitySource.serverSession),
+          ],
         ),
         position: const Duration(seconds: 5),
         duration: const Duration(minutes: 20),
@@ -39,14 +70,25 @@ void main() {
 
     publish(DanmakuSettings.defaults, ready: false);
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppThemeBuilder.build(AppThemePreset.ocean),
-        home: const ExternalPlaybackScreen(),
+      ChangeNotifierProvider<NasProvider>.value(
+        value: nas,
+        child: MaterialApp(
+          theme: AppThemeBuilder.build(AppThemePreset.ocean),
+          home: const ExternalPlaybackScreen(),
+        ),
       ),
     );
     final applied = DanmakuSettings.defaults.copyWith(fontScale: 1.2);
     publish(applied);
     await tester.pump();
+    final artwork = tester
+        .widget<DetailHeroImage>(find.byType(DetailHeroImage))
+        .images;
+    expect(Uri.parse(artwork.urls.first).host, 'nas.invalid');
+    expect(
+      artwork.headers.values.any((value) => value.contains('test-token')),
+      isTrue,
+    );
     Slider fontSlider() => tester.widget<Slider>(find.byType(Slider).at(1));
     expect(fontSlider().value, 1.2);
     fontSlider().onChanged!(1.3);
@@ -61,6 +103,21 @@ void main() {
     await tester.tap(find.text('片源与字幕'));
     await tester.pumpAndSettle();
     expect(find.text('关闭字幕'), findsOneWidget);
+    final selected = tester
+        .widgetList<ChoiceChip>(find.byType(ChoiceChip))
+        .where((chip) => chip.selected)
+        .single;
+    expect((selected.label as Text).data, startsWith('720'));
+    showExternalPlaybackNotice(
+      tester.element(find.byType(ExternalPlaybackScreen)),
+      'Bad state: 播放失败',
+      error: true,
+    );
+    await tester.pumpAndSettle();
+    final notice = tester.widget<SnackBar>(find.byType(SnackBar));
+    expect(notice.behavior, SnackBarBehavior.floating);
+    expect(notice.width, lessThanOrEqualTo(420));
+    expect(find.text('播放失败'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

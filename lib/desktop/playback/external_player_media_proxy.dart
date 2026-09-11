@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -11,6 +12,7 @@ final class ExternalPlayerMediaProxy {
     this._client,
     Uri source,
     Map<String, String> headers,
+    this._headersForUrl,
   ) {
     final random = Random.secure();
     _path =
@@ -20,6 +22,8 @@ final class ExternalPlayerMediaProxy {
 
   final HttpServer _server;
   final HttpClient _client;
+  final Map<String, String> Function(Uri)? _headersForUrl;
+  final _playlistResources = <Uri, String>{};
   final _loaders = <String, Future<ExternalPlayerMedia> Function()>{};
   late final String _path;
   bool _closed = false;
@@ -36,6 +40,7 @@ final class ExternalPlayerMediaProxy {
   static Future<ExternalPlayerMediaProxy> start({
     required Uri source,
     required Map<String, String> headers,
+    Map<String, String> Function(Uri)? headersForUrl,
   }) async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     // 沿用应用的 PrivateNetworkHttpOverrides，不扩大 NAS 证书信任范围。
@@ -47,6 +52,7 @@ final class ExternalPlayerMediaProxy {
       client,
       source,
       Map.of(headers),
+      headersForUrl,
     );
     server.listen((request) => unawaited(proxy._serve(request)));
     return proxy;
@@ -95,7 +101,10 @@ final class ExternalPlayerMediaProxy {
         upstream = await _client.getUrl(target);
         upstream.followRedirects = false;
         if (target.origin == entry.source.origin) {
-          entry.headers.forEach((name, value) {
+          final headers = entry.headers.isEmpty
+              ? entry.headers
+              : _headersForUrl?.call(target) ?? entry.headers;
+          headers.forEach((name, value) {
             if (!{
               HttpHeaders.hostHeader,
               HttpHeaders.connectionHeader,
@@ -129,6 +138,28 @@ final class ExternalPlayerMediaProxy {
           continue;
         }
         response.statusCode = media.statusCode;
+        final contentType =
+            media.headers.contentType?.mimeType.toLowerCase() ?? '';
+        final isPlaylist =
+            media.statusCode == HttpStatus.ok &&
+            (target.path.toLowerCase().endsWith('.m3u8') ||
+                contentType.contains('mpegurl'));
+        if (isPlaylist) {
+          final body = await utf8.decoder
+              .bind(media)
+              .join()
+              .timeout(const Duration(seconds: 15));
+          final rewritten = _rewritePlaylist(body, target, entry);
+          final bytes = utf8.encode(rewritten);
+          response.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/vnd.apple.mpegurl',
+          );
+          response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+          response.contentLength = bytes.length;
+          if (request.method != 'HEAD') response.add(bytes);
+          break;
+        }
         for (final name in [
           HttpHeaders.contentTypeHeader,
           HttpHeaders.contentLengthHeader,
@@ -165,6 +196,44 @@ final class ExternalPlayerMediaProxy {
         // 拖动或退出时播放器会主动取消旧的取流请求。
       }
     }
+  }
+
+  String _rewritePlaylist(
+    String body,
+    Uri playlist,
+    ExternalPlayerMedia entry,
+  ) {
+    String localUrl(String value) {
+      final resource = playlist.resolve(value);
+      if (!{'http', 'https'}.contains(resource.scheme)) {
+        throw const FormatException('不支持的播放清单资源地址');
+      }
+      return _playlistResources.putIfAbsent(
+        resource,
+        () => addMedia(
+          () async => (
+            source: resource,
+            // 跨源的清单资源不能携带原 NAS 的鉴权信息。
+            headers: resource.origin == entry.source.origin
+                ? entry.headers
+                : <String, String>{},
+          ),
+        ),
+      );
+    }
+
+    return body
+        .split('\n')
+        .map((line) {
+          final trimmed = line.trim();
+          if (trimmed.isEmpty) return line;
+          if (!trimmed.startsWith('#')) return localUrl(trimmed);
+          return line.replaceAllMapped(
+            RegExp(r'URI="([^"]+)"'),
+            (match) => 'URI="${localUrl(match[1]!)}"',
+          );
+        })
+        .join('\n');
   }
 
   Future<void> _serveFile(File file, HttpRequest request) async {
