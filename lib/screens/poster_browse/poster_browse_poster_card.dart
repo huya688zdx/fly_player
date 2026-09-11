@@ -44,7 +44,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
         'E${item.episodeNumber.toString().padLeft(2, '0')}',
     ].join(' · ');
 
-    final card = Semantics(
+    return Semantics(
       label: item.title,
       button: true,
       child: GestureDetector(
@@ -128,7 +128,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
                       ).textTheme.bodySmall?.color?.withValues(alpha: 0.72),
                     ),
                   ),
-                  // 极矮窗口先保证季集编号，集名仍可通过悬停全文查看。
+                  // 极矮窗口先保证季集编号，完整集名在上方信息区查看。
                   if (compactEpisode &&
                       width > 72 &&
                       item.episodeTitle.trim().isNotEmpty)
@@ -147,15 +147,6 @@ class PosterBrowsePosterCard extends StatelessWidget {
         ),
       ),
     );
-    return desktop
-        ? Tooltip(
-            message: [
-              item.title,
-              secondaryLabel.trim(),
-            ].where((text) => text.isNotEmpty).join('\n'),
-            child: card,
-          )
-        : card;
   }
 
   double? get _progressValue {

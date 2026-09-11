@@ -148,16 +148,30 @@ void main() {
     }
   });
 
-  test('空 headers 的公开图片缓存仍可持久化', () async {
+  test('动画回调等待时，公开图片和页面缓存仍会延迟持久化', () async {
     messenger.setMockMethodCallHandler(channel, (call) async => _samplePixels);
-
-    await DynamicThemeSeedExtractor.extract(
-      imageUrl: 'https://public.example/poster.jpg',
+    final binding = TestWidgetsFlutterBinding.instance;
+    final callbackId = binding.scheduleFrameCallback(
+      (_) {},
+      scheduleNewFrame: false,
     );
-    final prefs = await SharedPreferences.getInstance();
-    await DynamicThemeSeedExtractor.flushPendingWrites(prefs: prefs);
-
-    expect(DynamicThemeSeedExtractor.countPersistentCacheEntries(prefs), 1);
+    try {
+      await DynamicThemeRuntimeController.instance.getOrResolve(
+        key: 'pending-animation',
+        imageUrl: 'https://public.example/poster.jpg',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      final prefs = await SharedPreferences.getInstance();
+      expect(DynamicThemeSeedExtractor.countPersistentCacheEntries(prefs), 1);
+      expect(
+        DynamicThemeRuntimeController.instance.countPersistentCacheEntries(
+          prefs,
+        ),
+        1,
+      );
+    } finally {
+      binding.cancelFrameCallbackWithId(callbackId);
+    }
   });
 
   test('页面运行时缓存同样按 headers 隔离', () async {
