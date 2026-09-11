@@ -1943,7 +1943,7 @@ class _StoragePageTabs extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -2316,7 +2316,7 @@ class _PlaybackEntryPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colors.backgroundElevated,
+        color: AppAmbientPage.cardColorOf(context, colors.backgroundElevated),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -2474,7 +2474,7 @@ class _DownloadEntryPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colors.backgroundElevated,
+        color: AppAmbientPage.cardColorOf(context, colors.backgroundElevated),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -2876,7 +2876,7 @@ class _SectionCard extends StatelessWidget {
     final colors = context.appColors;
     return Container(
       decoration: BoxDecoration(
-        color: colors.backgroundElevated,
+        color: AppAmbientPage.cardColorOf(context, colors.backgroundElevated),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: colors.borderSubtle),
       ),

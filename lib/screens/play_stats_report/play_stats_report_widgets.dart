@@ -8,6 +8,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../services/play_stats/play_stats.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_info_popover.dart';
+import '../../widgets/common/app_ambient_page.dart';
 import 'play_stats_report_formatters.dart';
 
 class PlayStatsReportPalette {
@@ -90,16 +91,21 @@ class PlayStatsReportSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: colors.surface.withValues(alpha: 0.92),
+        color: AppAmbientPage.cardColorOf(
+          context,
+          colors.surface.withValues(alpha: 0.92),
+        ),
         borderRadius: BorderRadius.circular(26),
         border: Border.all(color: colors.borderSubtle),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: colors.overlayScrim.withValues(alpha: 0.12),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
+        boxShadow: AppAmbientPage.sharesBackgroundOf(context)
+            ? null
+            : <BoxShadow>[
+                BoxShadow(
+                  color: colors.overlayScrim.withValues(alpha: 0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -167,21 +173,28 @@ class PlayStatsHeroCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: <Color>[
-            colors.accent.withValues(alpha: 0.28),
-            colors.surfaceStrong.withValues(alpha: 0.96),
-            colors.backgroundElevated.withValues(alpha: 0.92),
-          ],
+          colors: AppAmbientPage.sharesBackgroundOf(context)
+              ? <Color>[
+                  AppAmbientPage.cardColorOf(context, colors.surfaceSubtle),
+                  AppAmbientPage.cardColorOf(context, colors.surface),
+                ]
+              : <Color>[
+                  colors.accent.withValues(alpha: 0.28),
+                  colors.surfaceStrong.withValues(alpha: 0.96),
+                  colors.backgroundElevated.withValues(alpha: 0.92),
+                ],
         ),
         borderRadius: BorderRadius.circular(30),
         border: Border.all(color: colors.borderStrong.withValues(alpha: 0.7)),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: colors.accent.withValues(alpha: 0.14),
-            blurRadius: 28,
-            offset: const Offset(0, 18),
-          ),
-        ],
+        boxShadow: AppAmbientPage.sharesBackgroundOf(context)
+            ? null
+            : <BoxShadow>[
+                BoxShadow(
+                  color: colors.accent.withValues(alpha: 0.14),
+                  blurRadius: 28,
+                  offset: const Offset(0, 18),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2284,7 +2297,7 @@ class PlayStatsEmptyState extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -2341,7 +2354,10 @@ class _HeroStatBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: colors.surface.withValues(alpha: 0.64),
+        color: AppAmbientPage.cardColorOf(
+          context,
+          colors.surface.withValues(alpha: 0.64),
+        ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -2391,7 +2407,10 @@ class _MetricPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
-        color: colors.surface.withValues(alpha: 0.72),
+        color: AppAmbientPage.cardColorOf(
+          context,
+          colors.surface.withValues(alpha: 0.72),
+        ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: tone.withValues(alpha: 0.28)),
       ),
