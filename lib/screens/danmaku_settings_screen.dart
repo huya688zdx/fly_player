@@ -155,9 +155,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppAmbientPage.sharesBackgroundOf(context)
-            ? buildSecondaryHostAppBar(context, title: pageTitle)
-            : AppBar(title: pageTitle),
+        appBar: buildSecondaryHostAppBar(context, title: pageTitle),
         body: SafeArea(
           top: false,
           child: _loading

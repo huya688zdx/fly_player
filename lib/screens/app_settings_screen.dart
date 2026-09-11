@@ -1497,18 +1497,16 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
             ],
           ),
         ),
-        // 桌面分组透出共用背景；行间分割线避开图标栏。
+        // 设置分组透出氛围背景；行间分割线避开图标栏。
         Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: AppAmbientPage.sharesBackgroundOf(context)
-                  ? <Color>[
-                      colors.surfaceSubtle.withValues(alpha: 0.22),
-                      colors.surface.withValues(alpha: 0.12),
-                    ]
-                  : <Color>[colors.surfaceSubtle, colors.surface],
+              colors: <Color>[
+                colors.surfaceSubtle.withValues(alpha: 0.22),
+                colors.surface.withValues(alpha: 0.12),
+              ],
             ),
             border: Border.all(color: colors.borderSubtle),
             borderRadius: BorderRadius.circular(12),

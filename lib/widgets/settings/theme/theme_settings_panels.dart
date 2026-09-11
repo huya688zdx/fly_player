@@ -404,9 +404,7 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppAmbientPage.sharesBackgroundOf(context)
-            ? colors.surface.withValues(alpha: 0.16)
-            : colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: colors.borderSubtle),
       ),

@@ -412,15 +412,6 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
                 ),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: colors.borderSubtle),
-                boxShadow: AppAmbientPage.sharesBackgroundOf(context)
-                    ? null
-                    : <BoxShadow>[
-                        BoxShadow(
-                          color: colors.overlayScrim.withValues(alpha: 0.1),
-                          blurRadius: 14,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
               )
             : BoxDecoration(
                 gradient: isDocked

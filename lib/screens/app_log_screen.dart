@@ -216,19 +216,6 @@ class _LogSummaryCard extends StatelessWidget {
         color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: colors.borderSubtle),
-        gradient: AppAmbientPage.sharesBackgroundOf(context)
-            ? null
-            : LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: <Color>[
-                  colors.surface,
-                  Color.alphaBlend(
-                    colors.selection.withValues(alpha: 0.08),
-                    colors.surfaceSubtle,
-                  ),
-                ],
-              ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
