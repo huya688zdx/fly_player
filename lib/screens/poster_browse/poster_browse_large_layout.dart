@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 
 import '../../desktop/desktop_environment.dart';
-import '../../desktop/desktop_horizontal_wheel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../media_backend/media_item_card.dart';
 import 'poster_browse_display_item.dart';
+import 'poster_browse_desktop_navigation.dart';
 import 'poster_browse_landscape_gesture_panel.dart';
 import 'poster_browse_media_info.dart';
 import 'poster_browse_row_status.dart';
@@ -68,13 +69,6 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
 
   double _collapseProgress = 0;
   double _horizontalDragDistance = 0;
-  int? _wheelTargetIndex;
-
-  @override
-  void didUpdateWidget(covariant PosterBrowseLargeLayout oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _wheelTargetIndex = null;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,6 +80,14 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
     final content = GestureDetector(
       key: const ValueKey('poster_browse_full_horizontal_swipe_surface'),
       behavior: HitTestBehavior.opaque,
+      supportedDevices: DesktopEnvironment.isDesktopPlatform
+          ? const {
+              PointerDeviceKind.touch,
+              PointerDeviceKind.stylus,
+              PointerDeviceKind.invertedStylus,
+              PointerDeviceKind.trackpad,
+            }
+          : null,
       onHorizontalDragStart: currentItems.length > 1
           ? (_) => _horizontalDragDistance = 0
           : null,
@@ -139,7 +141,10 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
             final cardWidth =
                 ((expandedTrackHeight -
                             _trackVerticalPadding -
-                            _cardVerticalBudget) /
+                            (_cardVerticalBudget +
+                                (DesktopEnvironment.isDesktopPlatform
+                                    ? 20
+                                    : 0))) /
                         1.5)
                     .clamp(_minCardWidth, _maxCardWidth)
                     .toDouble();
@@ -233,19 +238,14 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         ),
       ),
     );
-    return Listener(
-      onPointerSignal: currentItems.length > 1
-          ? (event) => handleDesktopHorizontalWheel(event, (delta) {
-              final current = _wheelTargetIndex ?? widget.focusedIndex;
-              final target = (current + delta.sign.toInt()).clamp(
-                0,
-                currentItems.length - 1,
-              );
-              if (target == current) return;
-              _wheelTargetIndex = target;
-              widget.onSelectItem(target);
-            })
-          : null,
+    return PosterBrowseDesktopNavigation(
+      selectedRow: widget.selectedRow,
+      rowCount: widget.rows.length,
+      focusedIndex: widget.focusedIndex,
+      itemCount: currentItems.length,
+      onSelectRow: widget.onSelectRow,
+      onSelectItem: widget.onSelectItem,
+      onBack: widget.onBack,
       child: content,
     );
   }
@@ -331,7 +331,10 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
   }) {
     final selectorExtent = (48 + selectorSpacing) * (1 - collapseProgress);
     return (viewportHeight - topInset - bottomInset - 48 - selectorExtent)
-        .clamp(0.0, _maxTrackHeight)
+        .clamp(
+          0.0,
+          _maxTrackHeight + (DesktopEnvironment.isDesktopPlatform ? 24 : 0),
+        )
         .toDouble();
   }
 
