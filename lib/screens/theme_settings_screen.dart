@@ -225,9 +225,7 @@ class _ToneCustomizationCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-        color: AppAmbientPage.sharesBackgroundOf(context)
-            ? colors.surface.withValues(alpha: 0.16)
-            : colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -546,9 +544,7 @@ class _CurrentCustomThemeRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: AppAmbientPage.sharesBackgroundOf(context)
-              ? colors.surface.withValues(alpha: 0.16)
-              : colors.surface,
+          color: AppAmbientPage.cardColorOf(context, colors.surface),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: provider.isCurrentCustomActive
@@ -690,9 +686,7 @@ class _EmptySavedThemesCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppAmbientPage.sharesBackgroundOf(context)
-            ? colors.surface.withValues(alpha: 0.16)
-            : colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.borderSubtle),
       ),
