@@ -86,7 +86,10 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 icon: const Icon(Icons.connected_tv_outlined),
                 tooltip: AppLocalizations.of(context).posterBrowseEntryTooltip,
                 onPressed: () {
-                  Navigator.of(context).pushNamed('/screen/poster-browse');
+                  Navigator.of(
+                    context,
+                    rootNavigator: DesktopEnvironment.isDesktopPlatform,
+                  ).pushNamed('/screen/poster-browse');
                 },
               ),
           ],

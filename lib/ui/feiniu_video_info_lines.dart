@@ -19,7 +19,7 @@ VideoInfoLines feiniuVideoInfoLines(
 
 String _videoLine(VideoStreamInfo? video) {
   if (video == null) return '';
-  final res = video.resolutionType.trim().isEmpty ? '' : video.resolutionType;
+  final res = video.resolutionType.trim().toUpperCase();
   final codec = video.codecName.trim().isEmpty
       ? ''
       : video.codecName.toUpperCase();
