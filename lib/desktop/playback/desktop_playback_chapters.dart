@@ -49,6 +49,56 @@ desktopChapterSkipBounds(
   return (introStart: introStart, introEnd: introEnd, outroStart: outroStart);
 }
 
+/// 设置页和播放提示共用实际生效的范围；固定时长必须单独开启。
+({
+  Duration? introStart,
+  Duration? introEnd,
+  Duration? outroStart,
+  bool introFromChapter,
+  bool outroFromChapter,
+})
+desktopPlaybackSkipBounds(
+  List<DesktopPlayerChapter> chapters,
+  Duration duration, {
+  required bool chapterEnabled,
+  required bool fixedDurationEnabled,
+  required int introMinutes,
+  required int outroMinutes,
+}) {
+  final detected = desktopChapterSkipBounds(
+    chapterEnabled ? chapters : const [],
+    duration,
+  );
+  var introStart = detected.introStart;
+  var introEnd = detected.introEnd;
+  var outroStart = detected.outroStart;
+  if (fixedDurationEnabled && duration > Duration.zero) {
+    if (introEnd == null) {
+      introStart = Duration.zero;
+      introEnd = Duration(minutes: introMinutes);
+    }
+    outroStart ??= duration - Duration(minutes: outroMinutes);
+  }
+  if (introEnd != null &&
+      (introEnd <= const Duration(seconds: 2) || introEnd >= duration)) {
+    introStart = introEnd = null;
+  }
+  if (outroStart != null &&
+      (outroStart <= Duration.zero || outroStart >= duration)) {
+    outroStart = null;
+  }
+  if (introEnd != null && outroStart != null && introEnd >= outroStart) {
+    introStart = introEnd = outroStart = null;
+  }
+  return (
+    introStart: introStart,
+    introEnd: introEnd,
+    outroStart: outroStart,
+    introFromChapter: detected.introEnd != null,
+    outroFromChapter: detected.outroStart != null,
+  );
+}
+
 /// 每个媒体只读一次章节，文件头尚未就绪时最多补读一次。
 /// 换源和退出均使旧读取失效，并取消尚未开始的补读。
 class DesktopPlaybackChapters
