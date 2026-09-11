@@ -258,9 +258,14 @@ void main() {
     expect(snapshot.value.visible, isFalse);
   });
 
-  testWidgets('顶栏单行标题与工具入口对齐，书签截图只出现一次且可点击', (tester) async {
-    final player = Player(platformPlayer: _ControlsPlayer());
+  testWidgets('控制条工具可点击，Emby 缩略图随进度条悬停和拖动显示', (tester) async {
+    final platformPlayer = _ControlsPlayer();
+    platformPlayer.state = platformPlayer.state.copyWith(
+      duration: const Duration(minutes: 2),
+    );
+    final player = Player(platformPlayer: platformPlayer);
     final calls = <String>[];
+    Duration? sought;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -268,6 +273,17 @@ void main() {
             player: player,
             videoState: _ControlsVideoState(),
             showBuffer: false,
+            seekThumbnails: const [
+              MpvSeekThumbnail(
+                positionMs: 0,
+                url: 'https://emby.test/chapter/0',
+              ),
+              MpvSeekThumbnail(
+                positionMs: 60000,
+                url: 'https://emby.test/chapter/1',
+              ),
+            ],
+            thumbnailHeaders: const {'Cookie': 'entry-token=test-token'},
             title: '异国日记 第1季 第13集 明日将至',
             resolution: '原画',
             playing: true,
@@ -295,7 +311,7 @@ void main() {
             onToggle: () => calls.add('播放暂停'),
             onPrevious: () => calls.add('上一集'),
             onNext: () => calls.add('下一集'),
-            onSeek: (_) async {},
+            onSeek: (position) async => sought = position,
             onVolume: (_) {},
             onMute: () => calls.add('静音'),
             onRate: (_) {},
@@ -346,6 +362,33 @@ void main() {
     await tester.tap(find.byTooltip('选集').first);
     expect(calls.skip(12), ['播放暂停', '上一集', '下一集']);
     expect(find.byType(DesktopPlayerMotionIcon), findsNWidgets(15));
+    final timeline = find.byWidgetPredicate(
+      (widget) =>
+          widget is GestureDetector &&
+          widget.onHorizontalDragUpdate != null &&
+          widget.onTapUp != null,
+    );
+    // 控件树中进度条在音量滑块之前。
+    final rect = tester.getRect(timeline.first);
+    final mouse = await tester.createGesture(kind: ui.PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(Offset(rect.left + rect.width * 0.25, rect.center.dy));
+    await tester.pump();
+    NetworkImage preview() =>
+        tester.widget<Image>(find.byType(Image).first).image as NetworkImage;
+    expect(preview().url, 'https://emby.test/chapter/0');
+    expect(preview().headers, {'Cookie': 'entry-token=test-token'});
+    expect(find.text('00:30'), findsOneWidget);
+    final drag = await tester.startGesture(
+      Offset(rect.left + 2, rect.center.dy),
+    );
+    await drag.moveTo(Offset(rect.left + rect.width * 0.75, rect.center.dy));
+    await tester.pump();
+    expect(preview().url, 'https://emby.test/chapter/1');
+    expect(find.text('01:30'), findsOneWidget);
+    await drag.up();
+    expect(sought, const Duration(seconds: 90));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await player.dispose();
