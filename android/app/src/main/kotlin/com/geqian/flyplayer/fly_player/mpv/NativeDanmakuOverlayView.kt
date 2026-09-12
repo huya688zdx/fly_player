@@ -676,7 +676,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     }
 
     fun setPayload(payload: Map<String, Any?>) {
-        val generation = ++payloadGeneration
+        val hasComments = payload.containsKey("commentsCompact") || payload.containsKey("comments")
+        // 只有新的评论载荷可以淘汰旧评论解析；纯设置沿单线程队列顺序应用，不能取消尚未落地的评论。
+        val generation = if (hasComments) ++payloadGeneration else payloadGeneration
         payloadExecutor.execute {
             val nextPayload = preprocessPayload(payload)
             mainHandler.post {
