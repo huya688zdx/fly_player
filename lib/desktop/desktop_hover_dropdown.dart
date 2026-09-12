@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/common/track_option_sheet.dart';
@@ -17,11 +18,15 @@ class DesktopDropdownOptionGroup {
     required this.items,
     required this.selectedId,
     required this.onSelected,
+    this.disabledIds = const <String>{},
+    this.leadingById = const <String, Widget>{},
   });
 
   final List<TrackOptionSheetItem> items;
   final String? selectedId;
   final ValueChanged<String> onSelected;
+  final Set<String> disabledIds;
+  final Map<String, Widget> leadingById;
 }
 
 /// 下拉面板的内容描述：多个选项组之间用分隔线隔开（如图 2 的「排序字段 +
@@ -62,7 +67,7 @@ class DesktopHoverDropdownSpec {
   final String? title;
   final List<DesktopDropdownOptionGroup> groups;
 
-  /// 面板固定宽度（紧凑下拉样式，条目过长省略号截断）。
+  /// 面板首选宽度；窄 Overlay 内收缩，条目过长省略号截断。
   final double width;
   final double maxHeight;
 }
@@ -110,6 +115,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
   final LayerLink _link = LayerLink();
   final OverlayPortalController _portal = OverlayPortalController();
+  final FocusNode _menuFocus = FocusNode();
 
   Timer? _graceTimer;
   Timer? _unmountTimer;
@@ -131,6 +137,12 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     if (_visible) return;
     setState(() => _visible = true);
     _notifyOpenChanged();
+    if (_tapMode) {
+      // autofocus 不会接管已有文本框焦点；淡出尚未卸载时重新展开也需重取。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _visible && _tapMode) _menuFocus.requestFocus();
+      });
+    }
   }
 
   /// 收起（悬停移出 / 点选完成 / 点击面板外 / 触发件被点击打开 sheet 前）。
@@ -138,6 +150,11 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     _graceTimer?.cancel();
     _graceTimer = null;
     if (!_visible) return;
+    if (_menuFocus.hasFocus) {
+      _menuFocus.unfocus(
+        disposition: UnfocusDisposition.previouslyFocusedChild,
+      );
+    }
     setState(() => _visible = false);
     _notifyOpenChanged();
     _unmountTimer?.cancel();
@@ -149,6 +166,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
   /// 点击式触发件开合入口。
   void toggle() {
+    if (!_enabled) return;
     if (_visible) {
       _close();
     } else {
@@ -204,6 +222,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
   void dispose() {
     _graceTimer?.cancel();
     _unmountTimer?.cancel();
+    _menuFocus.dispose();
     super.dispose();
   }
 
@@ -272,7 +291,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                 onExit: _tapMode ? null : (_) => _handlePanelExit(),
                 child: DesktopFloatingPanel(
                   child: SizedBox(
-                    width: spec.width,
+                    width: placement.width,
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
                       child: Column(
@@ -325,12 +344,32 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                                       const SizedBox(height: 4),
                                     ],
                                     for (final item in spec.groups[i].items)
-                                      _HoverDropdownOptionRow(
+                                      DesktopDropdownOptionRow(
                                         item: item,
+                                        enabled: !spec.groups[i].disabledIds
+                                            .contains(item.id),
+                                        leading:
+                                            spec.groups[i].leadingById[item.id],
                                         selected:
                                             item.id ==
                                             spec.groups[i].selectedId,
                                         onTap: () {
+                                          final currentGroup = widget
+                                              .spec
+                                              ?.groups
+                                              .elementAtOrNull(i);
+                                          if (!mounted ||
+                                              !_visible ||
+                                              currentGroup == null ||
+                                              currentGroup.disabledIds.contains(
+                                                item.id,
+                                              ) ||
+                                              !currentGroup.items.any(
+                                                (current) =>
+                                                    current.id == item.id,
+                                              )) {
+                                            return;
+                                          }
                                           _close();
                                           spec.groups[i].onSelected(item.id);
                                         },
@@ -354,11 +393,24 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
     if (!_tapMode) return panel;
     // 只消费外部点击，保留关闭行为；不再用全屏屏障拦截背景滚轮。
-    return TapRegion(
-      enabled: _visible,
-      consumeOutsideTaps: true,
-      onTapOutside: (_) => _close(),
-      child: panel,
+    return Focus(
+      focusNode: _menuFocus,
+      canRequestFocus: _visible,
+      onKeyEvent: (_, event) {
+        if (_visible &&
+            event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          _close();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: TapRegion(
+        enabled: _visible,
+        consumeOutsideTaps: true,
+        onTapOutside: (_) => _close(),
+        child: panel,
+      ),
     );
   }
 
@@ -393,7 +445,11 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
       maxExtent.isNegative ? 0.0 : maxExtent,
     );
 
-    final maxLeft = (overlaySize.width - spec.width - 12).clamp(
+    final width = spec.width.clamp(
+      0.0,
+      (overlaySize.width - 24).clamp(0.0, double.infinity),
+    );
+    final maxLeft = (overlaySize.width - width - 12).clamp(
       12.0,
       double.infinity,
     );
@@ -402,6 +458,7 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
       dx: left - triggerRect.left,
       above: above,
       maxHeight: maxHeight,
+      width: width,
     );
   }
 }
@@ -429,30 +486,40 @@ class _DropdownPlacement {
     required this.dx,
     required this.above,
     required this.maxHeight,
+    required this.width,
   });
 
   final double dx;
   final bool above;
   final double maxHeight;
+  final double width;
 }
 
-class _HoverDropdownOptionRow extends StatefulWidget {
-  const _HoverDropdownOptionRow({
+/// 原桌面下拉的紧凑选项行，也供其他桌面小窗复用。
+class DesktopDropdownOptionRow extends StatefulWidget {
+  const DesktopDropdownOptionRow({
+    super.key,
     required this.item,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
+    this.leading,
+    this.destructive = false,
   });
 
   final TrackOptionSheetItem item;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
+  final Widget? leading;
+  final bool destructive;
 
   @override
-  State<_HoverDropdownOptionRow> createState() =>
+  State<DesktopDropdownOptionRow> createState() =>
       _HoverDropdownOptionRowState();
 }
 
-class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
+class _HoverDropdownOptionRowState extends State<DesktopDropdownOptionRow> {
   bool _hovered = false;
 
   @override
@@ -460,88 +527,112 @@ class _HoverDropdownOptionRowState extends State<_HoverDropdownOptionRow> {
     final item = widget.item;
     final selected = widget.selected;
     final colors = context.appColors;
-    final titleColor = selected ? colors.selection : colors.textPrimary;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            color: selected
-                ? colors.selectionSoft
-                : _hovered
-                ? colors.selection.withValues(alpha: 0.08)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: InkWell(
-            onTap: widget.onTap,
-            borderRadius: BorderRadius.circular(10),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: titleColor,
-                            fontSize: 13,
-                            fontWeight: selected
-                                ? FontWeight.w700
-                                : FontWeight.w500,
+    final titleColor = widget.destructive
+        ? colors.danger
+        : selected
+        ? colors.selection
+        : colors.textPrimary;
+    return Semantics(
+      enabled: widget.enabled,
+      selected: selected,
+      child: Opacity(
+        opacity: widget.enabled ? 1 : .45,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: MouseRegion(
+            cursor: widget.enabled
+                ? SystemMouseCursors.click
+                : SystemMouseCursors.basic,
+            onEnter: widget.enabled
+                ? (_) => setState(() => _hovered = true)
+                : null,
+            onExit: (_) => setState(() => _hovered = false),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOutCubic,
+              decoration: BoxDecoration(
+                color: selected
+                    ? colors.selectionSoft
+                    : _hovered && widget.enabled
+                    ? colors.selection.withValues(alpha: 0.08)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: InkWell(
+                onTap: widget.enabled ? widget.onTap : null,
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 9,
+                  ),
+                  child: Row(
+                    children: [
+                      if (widget.leading != null) ...[
+                        widget.leading!,
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: titleColor,
+                                fontSize: 13,
+                                fontWeight: selected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
+                            ),
+                            if (item.subtitle.trim().isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                item.subtitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 10.5,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (selected)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Icon(
+                            Icons.check_rounded,
+                            size: 18,
+                            color: colors.selection,
                           ),
                         ),
-                        if (item.subtitle.trim().isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            item.subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: colors.textSecondary,
-                              fontSize: 10.5,
-                            ),
+                      if (item.onDelete != null)
+                        IconButton(
+                          onPressed: widget.enabled ? item.onDelete : null,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
                           ),
-                        ],
-                      ],
-                    ),
+                          iconSize: 17,
+                          color: _hovered
+                              ? colors.textPrimary
+                              : colors.textMuted,
+                          icon: const Icon(Icons.delete_outline),
+                          tooltip: MaterialLocalizations.of(
+                            context,
+                          ).deleteButtonTooltip,
+                        ),
+                    ],
                   ),
-                  if (selected)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: Icon(
-                        Icons.check_rounded,
-                        size: 18,
-                        color: colors.selection,
-                      ),
-                    ),
-                  if (item.onDelete != null)
-                    IconButton(
-                      onPressed: item.onDelete,
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.all(4),
-                      constraints: const BoxConstraints(
-                        minWidth: 28,
-                        minHeight: 28,
-                      ),
-                      iconSize: 17,
-                      color: _hovered ? colors.textPrimary : colors.textMuted,
-                      icon: const Icon(Icons.delete_outline),
-                      tooltip: MaterialLocalizations.of(
-                        context,
-                      ).deleteButtonTooltip,
-                    ),
-                ],
+                ),
               ),
             ),
           ),
