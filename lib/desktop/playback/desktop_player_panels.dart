@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show File;
+import 'dart:io' show File, Platform;
 
 import 'package:flutter/material.dart';
 import '../../media_backend/detail/media_season_summary.dart';
@@ -549,8 +549,10 @@ class _DesktopDanmakuSettingsPanelState
                   ),
                   const SizedBox(height: 10),
                   _SettingsSwitchTile(
-                    title: '避让画面中心',
-                    subtitle: '优先把弹幕限制在画面上部',
+                    title: Platform.isWindows ? '主体穿透遮挡' : '避让画面中心',
+                    subtitle: Platform.isWindows
+                        ? '用本地 AI 蒙版扣除人物区域内的弹幕'
+                        : '优先把弹幕限制在画面上部',
                     value: _settings.avoidCenterArea,
                     onChanged: (value) =>
                         _update(_settings.copyWith(avoidCenterArea: value)),

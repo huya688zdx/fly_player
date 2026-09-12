@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "desktop_danmaku_segmenter.h"
 #include "potplayer_bridge.h"
 #include "system_media_controls.h"
 #include "win32_window.h"
@@ -30,6 +31,7 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+  std::unique_ptr<DesktopDanmakuSegmenter> desktop_danmaku_segmenter_;
   std::unique_ptr<PotPlayerBridge> potplayer_bridge_;
   std::unique_ptr<SystemMediaControls> system_media_controls_;
 };

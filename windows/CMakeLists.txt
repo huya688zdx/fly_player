@@ -75,6 +75,13 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+# 桌面 AI 弹幕遮罩复用 Android 同一份固定 512 MNN 模型，避免仓库重复存放。
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mnn/bin/MNN.dll"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../android/app/src/full/assets/models/mnn_seg/isnet-anime-512-fp16.mnn"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/models" COMPONENT Runtime)
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
