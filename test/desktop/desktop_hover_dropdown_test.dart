@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/desktop/desktop_floating_panel.dart';
@@ -105,6 +106,137 @@ void main() {
     expect(panelTop, greaterThan(triggerTop));
 
     await gesture.removePointer();
+  });
+
+  testWidgets('窄 Overlay 收缩面板宽度并保持边距', (tester) async {
+    tester.view.physicalSize = const Size(240, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpScaffold(tester, spec: buildSpec());
+    await hoverPointer(tester, const Offset(60, 36));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byType(DesktopFloatingPanel));
+    expect(rect.width, 216);
+    expect(rect.left, 12);
+    expect(rect.right, 228);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('点击式下拉可由 Escape 关闭', (tester) async {
+    final key = GlobalKey<DesktopHoverDropdownState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: DesktopHoverDropdown(
+              key: key,
+              activation: DesktopDropdownActivation.tap,
+              spec: buildSpec(),
+              child: TextButton(
+                onPressed: () => key.currentState?.toggle(),
+                child: const Text('打开'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+  });
+
+  testWidgets('快速重新展开仍可 Escape 关闭且归还输入焦点', (tester) async {
+    final key = GlobalKey<DesktopHoverDropdownState>();
+    final inputFocus = FocusNode();
+    addTearDown(inputFocus.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              TextField(focusNode: inputFocus, autofocus: true),
+              DesktopHoverDropdown(
+                key: key,
+                activation: DesktopDropdownActivation.tap,
+                spec: buildSpec(),
+                child: const Text('触发件'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(inputFocus.hasFocus, isTrue);
+    key.currentState!.toggle();
+    await tester.pumpAndSettle();
+    expect(inputFocus.hasFocus, isFalse);
+    key.currentState!.hide();
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(inputFocus.hasFocus, isTrue);
+    key.currentState!.toggle();
+    await tester.pumpAndSettle();
+    expect(inputFocus.hasFocus, isFalse);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    expect(inputFocus.hasFocus, isTrue);
+  });
+
+  testWidgets('公开紧凑行保留样式并支持禁用、图标和危险操作', (tester) async {
+    var tapped = 0;
+    var deleted = 0;
+    final colors = AppThemeBuilder.build(
+      AppThemePreset.latte,
+    ).extension<AppThemeColors>()!;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppThemeBuilder.build(AppThemePreset.latte),
+        home: Scaffold(
+          body: DesktopDropdownOptionRow(
+            item: TrackOptionSheetItem(
+              id: 'remove',
+              title: '移除来源',
+              subtitle: '需要重新授权',
+              onDelete: () => deleted++,
+            ),
+            selected: false,
+            onTap: () => tapped++,
+            enabled: false,
+            destructive: true,
+            leading: const Icon(Icons.cloud_outlined),
+          ),
+        ),
+      ),
+    );
+    final title = tester.widget<Text>(find.text('移除来源'));
+    final subtitle = tester.widget<Text>(find.text('需要重新授权'));
+    expect(title.style?.fontSize, 13);
+    expect(title.style?.color, colors.danger);
+    expect(subtitle.style?.fontSize, 10.5);
+    final box = tester.widget<AnimatedContainer>(
+      find.byType(AnimatedContainer),
+    );
+    expect(
+      (box.decoration as BoxDecoration).borderRadius,
+      BorderRadius.circular(10),
+    );
+    expect(find.byIcon(Icons.cloud_outlined), findsOneWidget);
+    expect(tester.widget<InkWell>(find.byType(InkWell).first).onTap, isNull);
+    expect(
+      tester.widget<IconButton>(find.byType(IconButton)).onPressed,
+      isNull,
+    );
+    await tester.tap(find.text('移除来源'));
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    expect(tapped, 0);
+    expect(deleted, 0);
   });
 
   testWidgets('点选条目上抛 id 并收起面板', (tester) async {

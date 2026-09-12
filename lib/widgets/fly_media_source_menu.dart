@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../desktop/desktop_environment.dart';
+import '../desktop/desktop_hover_dropdown.dart';
 import '../screens/fly_account_screen.dart';
 import '../screens/fly_catalog_screen.dart';
 import '../screens/play_stats_report_screen.dart';
@@ -9,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
 import '../ui/app_popup_theme.dart';
 import 'common/app_option_list.dart';
+import 'common/track_option_sheet.dart';
 
 enum _SourceAction { switchSource, account, catalog, stats }
 
@@ -25,8 +28,93 @@ class FlyMediaSourceMenu extends StatefulWidget {
 }
 
 class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
+  static const _actions = [
+    (_SourceAction.account, Icons.account_circle_outlined, '账号与媒体来源'),
+    (_SourceAction.catalog, Icons.video_library_outlined, '已同步节目'),
+    (_SourceAction.stats, Icons.bar_chart_rounded, '观看统计'),
+  ];
+
+  final _desktopMenu = GlobalKey<DesktopHoverDropdownState>();
+  String? _desktopOpenedAccountKey;
   bool switching = false;
   bool menuOpen = false;
+
+  void _toggleDesktopMenu() {
+    final account = context.read<FlyAccountController>();
+    if (switching || account.busy) return;
+    if (!menuOpen) {
+      setState(() => _desktopOpenedAccountKey = account.accountKey);
+    }
+    _desktopMenu.currentState?.toggle();
+  }
+
+  DesktopHoverDropdownSpec _desktopSpec(FlyAccountController account) {
+    final colors = context.appColors;
+    final accountKey = _desktopOpenedAccountKey ?? account.accountKey;
+    final canSelect =
+        account.accountKey == accountKey && !account.busy && !switching;
+    final bindings = account.bindings
+        .where((binding) => binding['status'] != 'unbound')
+        .toList();
+    return DesktopHoverDropdownSpec(
+      title: '媒体来源',
+      groups: [
+        if (bindings.isNotEmpty)
+          DesktopDropdownOptionGroup(
+            items: [
+              for (final binding in bindings)
+                TrackOptionSheetItem(
+                  id: binding['id'] as String,
+                  title: binding['label'] as String? ?? '媒体来源',
+                  subtitle: binding['status'] == 'reauth_required'
+                      ? '需要重新授权'
+                      : '',
+                ),
+            ],
+            selectedId: account.activeBindingId,
+            disabledIds: {
+              for (final binding in bindings)
+                if (!canSelect || binding['status'] != 'active')
+                  binding['id'] as String,
+            },
+            leadingById: {
+              for (final binding in bindings)
+                binding['id'] as String: _sourceIcon(
+                  (binding['server'] as Map?)?['kind']?.toString(),
+                  colors.textSecondary,
+                ),
+            },
+            onSelected: (id) => unawaited(
+              _select(
+                _SourceChoice(accountKey, _SourceAction.switchSource, id),
+              ),
+            ),
+          ),
+        DesktopDropdownOptionGroup(
+          items: [
+            for (final action in _actions)
+              TrackOptionSheetItem(id: action.$1.name, title: action.$3),
+          ],
+          selectedId: null,
+          disabledIds: {
+            if (!canSelect)
+              for (final action in _actions) action.$1.name,
+          },
+          leadingById: {
+            for (final action in _actions)
+              action.$1.name: Icon(
+                action.$2,
+                size: 20,
+                color: colors.textSecondary,
+              ),
+          },
+          onSelected: (id) => unawaited(
+            _select(_SourceChoice(accountKey, _SourceAction.values.byName(id))),
+          ),
+        ),
+      ],
+    );
+  }
 
   Future<void> _openMenu() async {
     if (!mounted) return;
@@ -83,11 +171,6 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
     final bindings = account.bindings
         .where((binding) => binding['status'] != 'unbound')
         .toList();
-    const actions = [
-      (_SourceAction.account, Icons.account_circle_outlined, '账号与媒体来源'),
-      (_SourceAction.catalog, Icons.video_library_outlined, '已同步节目'),
-      (_SourceAction.stats, Icons.bar_chart_rounded, '观看统计'),
-    ];
     final canSelect =
         account.accountKey == accountKey && !account.busy && !switching;
     return AppOptionSheetPanel(
@@ -101,13 +184,13 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
         key: const ValueKey('media-source-options'),
         shrinkWrap: true,
         padding: EdgeInsets.zero,
-        itemCount: bindings.length + actions.length,
+        itemCount: bindings.length + _actions.length,
         separatorBuilder: (_, index) =>
             SizedBox(height: index == bindings.length - 1 ? 16 : 4),
         itemBuilder: (context, index) {
           final binding = index < bindings.length ? bindings[index] : null;
           final action = binding == null
-              ? actions[index - bindings.length]
+              ? _actions[index - bindings.length]
               : null;
           final enabled =
               canSelect && (binding == null || binding['status'] == 'active');
@@ -164,6 +247,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
   }
 
   Future<void> _select(_SourceChoice choice) async {
+    if (!mounted) return;
     final account = context.read<FlyAccountController>();
     // Option sheet routes can outlive the account that opened them.
     if (account.accountKey != choice.accountKey || account.busy || switching) {
@@ -201,10 +285,15 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
     final active = account.activeBinding;
     final label = (active?['label'] as String?)?.trim();
     final enabled = !switching && !account.busy;
-    return Tooltip(
+    final desktop = DesktopEnvironment.isDesktopPlatform;
+    final trigger = Tooltip(
       message: '切换媒体来源',
       child: InkWell(
-        onTap: enabled ? () => unawaited(_openMenu()) : null,
+        onTap: enabled
+            ? desktop
+                  ? _toggleDesktopMenu
+                  : () => unawaited(_openMenu())
+            : null,
         borderRadius: BorderRadius.circular(8),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 250),
@@ -250,6 +339,17 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
           ),
         ),
       ),
+    );
+    if (!desktop) return trigger;
+    return DesktopHoverDropdown(
+      key: _desktopMenu,
+      activation: DesktopDropdownActivation.tap,
+      spec: _desktopSpec(account),
+      onOpenChanged: (open) {
+        menuOpen = open;
+        if (!open) _desktopOpenedAccountKey = null;
+      },
+      child: trigger,
     );
   }
 }
