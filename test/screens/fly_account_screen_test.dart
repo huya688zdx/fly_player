@@ -22,12 +22,17 @@ import 'package:fly_player/ui/app_info_popover.dart';
 import 'package:fly_player/utils/app_top_tip.dart';
 import 'package:fly_player/widgets/common/app_modal_surface.dart';
 import 'package:fly_player/widgets/common/app_option_list.dart';
+import 'package:fly_player/widgets/common/track_option_sheet.dart';
 
 const _captureDirectory = String.fromEnvironment('FLY_UI_CAPTURE_DIR');
 const _captureFont = String.fromEnvironment('FLY_UI_FONT');
 const _captureKey = ValueKey('fly-account-widget-preview');
 
-Future<void> _capture(WidgetTester tester, String name) async {
+Future<void> _capture(
+  WidgetTester tester,
+  String name, {
+  Finder? region,
+}) async {
   if (_captureDirectory.isEmpty) return;
   final previousShadows = debugDisableShadows;
   void repaint(RenderObject object) {
@@ -43,7 +48,17 @@ Future<void> _capture(WidgetTester tester, String name) async {
       final boundary = tester.renderObject<RenderRepaintBoundary>(
         find.byKey(_captureKey),
       );
-      final image = await boundary.toImage(pixelRatio: 2);
+      final bounds = region == null
+          ? null
+          : tester.getRect(region).shift(-boundary.localToGlobal(Offset.zero));
+      // Render the actual panel at the reference crop's width. This is a
+      // comparison scale, not a claim about the Android device's pixel ratio.
+      final image = bounds == null
+          ? await boundary.toImage(pixelRatio: 2)
+          : await (boundary.debugLayer! as OffsetLayer).toImage(
+              bounds,
+              pixelRatio: 691 / bounds.width,
+            );
       try {
         final data = await image.toByteData(format: ui.ImageByteFormat.png);
         final output = File('$_captureDirectory/$name-widget.png');
@@ -448,6 +463,66 @@ void main() {
     });
   }
 
+  for (final preset in [AppThemePreset.midnight, AppThemePreset.forest]) {
+    testWidgets('安卓字幕参考同内容正常字号 ${preset.name}', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: _captureKey,
+          child: _app(
+            account,
+            preset: preset,
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => TrackOptionSheet.show(
+                    context,
+                    title: '选择字幕',
+                    selectedId: 'default',
+                    items: const [
+                      TrackOptionSheetItem(id: 'off', title: '字幕关'),
+                      TrackOptionSheetItem(
+                        id: 'default',
+                        title: '未知语言-默认',
+                        subtitle: 'SUP',
+                      ),
+                      TrackOptionSheetItem(
+                        id: 'alternate',
+                        title: '未知语言',
+                        subtitle: 'SUP 1',
+                      ),
+                    ],
+                  ),
+                  child: const Text('打开字幕参考'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开字幕参考'));
+      await tester.pumpAndSettle();
+      final tiles = tester
+          .widgetList<AppOptionListTile>(find.byType(AppOptionListTile))
+          .toList();
+      expect(tiles.map((tile) => tile.selected), [false, true, false]);
+      expect(tiles.map((tile) => tile.title), ['字幕关', '未知语言-默认', '未知语言']);
+      expect(tester.takeException(), isNull);
+      await _capture(
+        tester,
+        'subtitle-reference-${preset.name}',
+        region: find.byKey(const ValueKey('app-modal-surface-track-options')),
+      );
+      await tester.tap(find.text('字幕关'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AppOptionSheetPanel), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('窄屏大字与键盘下表单可滚动且确认可见', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(360, 740);
@@ -481,6 +556,7 @@ Widget _app(
   NavigatorObserver? observer,
   AppThemePreset preset = AppThemePreset.midnight,
   double textScale = 1,
+  Widget? home,
 }) => ChangeNotifierProvider<FlyAccountController>.value(
   value: account,
   child: MaterialApp(
@@ -511,26 +587,28 @@ Widget _app(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     navigatorObservers: [if (observer != null) observer],
-    home: pushed
-        ? Builder(
-            builder: (context) => Scaffold(
-              body: Column(
-                children: [
-                  const Text('原媒体首页'),
-                  TextButton(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => const FlyBindingsScreen(),
+    home:
+        home ??
+        (pushed
+            ? Builder(
+                builder: (context) => Scaffold(
+                  body: Column(
+                    children: [
+                      const Text('原媒体首页'),
+                      TextButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => const FlyBindingsScreen(),
+                          ),
+                        ),
+                        child: const Text('管理来源'),
                       ),
-                    ),
-                    child: const Text('管理来源'),
+                    ],
                   ),
-                ],
-              ),
-            ),
-          )
-        : const FlyBindingsScreen(),
+                ),
+              )
+            : const FlyBindingsScreen()),
   ),
 );
 
