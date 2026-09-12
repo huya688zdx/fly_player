@@ -132,6 +132,7 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
                 children: [
                   Card(
                     margin: EdgeInsets.zero,
+                    elevation: 0,
                     color: AppAmbientPage.cardColorOf(context, colors.surface),
                     child: Padding(
                       padding: const EdgeInsets.all(16),

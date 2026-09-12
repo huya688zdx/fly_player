@@ -10,6 +10,8 @@ import 'package:fly_player/services/play_stats/play_stats_database.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/widgets/fly_media_source_menu.dart';
 import 'package:fly_player/widgets/common/app_option_list.dart';
+import 'package:fly_player/utils/app_top_tip.dart';
+import 'package:fly_player/theme/app_theme.dart';
 
 FlyDataSession _session(String user) => FlyDataSession(
   serverUrl: 'https://fly.example',
@@ -56,10 +58,12 @@ class _MenuAccount extends FlyAccountController {
     ];
   }
   final activations = <String>[];
+  final activationAddresses = <String?>[];
   bool fail = false;
   @override
   Future<void> activate(Map<String, dynamic> binding, {String? address}) async {
     activations.add(binding['id'] as String);
+    activationAddresses.add(address);
     if (fail) throw StateError('媒体服务器暂时无法连接');
     activeBindingId = binding['id'] as String;
     notifyListeners();
@@ -91,27 +95,57 @@ void main() {
     account = _MenuAccount();
   });
   tearDown(() {
+    AppTopTip().dispose();
     account.dispose();
     SecureCredentialStore.resetBackendForTesting();
   });
-  Future<void> mount(WidgetTester tester) => tester.pumpWidget(
-    ChangeNotifierProvider<FlyAccountController>.value(
-      value: account,
-      child: const MaterialApp(
-        home: Scaffold(
-          appBar: null,
-          body: Align(
-            alignment: Alignment.topLeft,
-            child: FlyMediaSourceMenu(),
+  Future<void> mount(WidgetTester tester, {AppThemeColors? pageColors}) =>
+      tester.pumpWidget(
+        ChangeNotifierProvider<FlyAccountController>.value(
+          value: account,
+          child: MaterialApp(
+            home: AppRuntimeColorScope(
+              colors: pageColors,
+              hasRuntimeColors: pageColors != null,
+              child: const Scaffold(
+                appBar: null,
+                body: Align(
+                  alignment: Alignment.topLeft,
+                  child: FlyMediaSourceMenu(),
+                ),
+              ),
+            ),
           ),
         ),
-      ),
-    ),
-  );
+      );
+
+  testWidgets('landscape source menu keeps the calling page colors', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final colors = AppThemeBuilder.build(
+      AppThemePreset.forest,
+    ).extension<AppThemeColors>()!;
+    await mount(tester, pageColors: colors);
+    await tester.tap(find.byTooltip('切换媒体来源'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.element(find.byKey(const ValueKey('media-source-emby'))).appColors,
+      colors,
+    );
+  });
 
   testWidgets('home source menu changes source without another login or page', (
     tester,
   ) async {
+    final server = account.bindings[1]['server'] as Map;
+    (server['addresses'] as List).add({
+      'purpose': 'client_remote',
+      'base_url': 'https://remote.example/emby',
+    });
     await mount(tester);
     expect(find.text('家里的飞牛'), findsOneWidget);
     await tester.tap(find.byTooltip('切换媒体来源'));
@@ -119,6 +153,9 @@ void main() {
     await tester.tap(find.text('我的 Emby'));
     await tester.pumpAndSettle();
     expect(account.activations, ['emby']);
+    expect(account.activationAddresses, [null]);
+    expect(find.text('选择播放连接'), findsNothing);
+    expect(find.text('连接设置'), findsNothing);
     expect(find.text('我的 Emby'), findsOneWidget);
     expect(find.byType(FlyMediaSourceMenu), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -136,6 +173,9 @@ void main() {
       expect(account.activeBindingId, 'feiniu');
       expect(find.text('家里的飞牛'), findsOneWidget);
       expect(find.textContaining('媒体服务器暂时无法连接'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('媒体服务器暂时无法连接'), findsNothing);
     },
   );
 
