@@ -20,6 +20,7 @@ import 'external_playback_host.dart';
 import 'external_playback_mini_controller.dart';
 import 'external_playback_notice.dart';
 import 'external_player_playlist.dart';
+import 'external_player_subtitles.dart';
 
 /// PotPlayer 外部会话的独立控制页，只展示宿主实际回报的状态。
 class ExternalPlaybackScreen extends StatefulWidget {
@@ -72,23 +73,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   List<SubtitleTrackOption> _textSubtitles(MpvMediaSource source) {
-    const supported = <String>{'ass', 'srt', 'vtt'};
-    return source.subtitleTracks.where((track) {
-      final localPath = source.localSubtitleFiles[track.guid]?.trim() ?? '';
-      final fileName = localPath.replaceAll('\\', '/').split('/').last;
-      final extension = fileName.contains('.')
-          ? fileName.split('.').last.toLowerCase()
-          : '';
-      final format = extension.isNotEmpty
-          ? extension
-          : (track.format.isNotEmpty ? track.format : track.codecName)
-                .trim()
-                .toLowerCase();
-      final hasLocalFile = localPath.isNotEmpty;
-      return track.isBitmap != 1 &&
-          supported.contains(format) &&
-          (track.isExternal == 1 || track.extraFile == 1 || hasLocalFile);
-    }).toList();
+    return ExternalPlayerSubtitles.selectableTracks(source);
   }
 
   MediaImageRequest _posterRequest(

@@ -122,15 +122,37 @@ void main() {
     expect(tester.takeException(), isNull);
     // 模拟拖到工作区底边后展开，操作区必须仍然全部可见。
     bounds = const Rect.fromLTWH(550, 950, 360, 64);
-    await tester.tap(find.byTooltip('展开操作'));
+    expect(find.byType(Tooltip), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('external-mini-展开操作')));
     await tester.pumpAndSettle();
     expect(bounds.left, 550);
     expect(bounds.bottom, 1040);
     tester.view.physicalSize = bounds.size;
     await tester.pumpAndSettle();
-    expect(find.byTooltip('前进 10 秒'), findsOneWidget);
+    expect(find.byKey(const ValueKey('external-mini-前进 10 秒')), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('返回完整界面'));
+    await tester.tap(find.byKey(const ValueKey('external-mini-弹幕与字幕调节')));
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = bounds.size;
+    await tester.pumpAndSettle();
+    expect(bounds.size, const Size(360, 492));
+    expect(bounds.bottom, 1040);
+    expect(find.text('不透明度'), findsOneWidget);
+    expect(find.byType(Slider), findsNWidgets(5));
+    tester.widget<Slider>(find.byType(Slider).at(1)).onChanged!(1.4);
+    await tester.pump();
+    ExternalPlaybackHost.status.value = ExternalPlaybackHost.status.value!
+        .withPhase(ExternalPlaybackPhase.ready);
+    await tester.pump();
+    expect(tester.widget<Slider>(find.byType(Slider).at(1)).value, 1.4);
+    // 折叠调节区不会丢失未应用的草稿。
+    await tester.tap(find.byKey(const ValueKey('external-mini-弹幕与字幕调节')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('external-mini-弹幕与字幕调节')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Slider>(find.byType(Slider).at(1)).value, 1.4);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const ValueKey('external-mini-返回完整界面')));
     await tester.pumpAndSettle();
     tester.view.physicalSize = original.size;
     await tester.pumpAndSettle();

@@ -27,8 +27,10 @@ class ExternalPlaybackMiniHost extends StatefulWidget {
 class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
   static const _collapsedSize = Size(360, 64);
   static const _expandedSize = Size(360, 196);
+  static const _settingsSize = Size(360, 492);
   bool _active = false;
   bool _expanded = false;
+  bool _settingsExpanded = false;
   bool _changing = false;
   Size? _pageSize;
   Rect? _bounds;
@@ -62,6 +64,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
       setState(() {
         _active = true;
         _expanded = false;
+        _settingsExpanded = false;
       });
       ExternalPlaybackMiniController.active.value = true;
       await WidgetsBinding.instance.endOfFrame;
@@ -104,6 +107,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
     setState(() {
       _active = false;
       _expanded = false;
+      _settingsExpanded = false;
       _pageSize = null;
       _bounds = null;
     });
@@ -115,18 +119,38 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
     _changing = true;
     try {
       final size = _expanded ? _collapsedSize : _expandedSize;
-      final bounds = await windowManager.getBounds();
-      var position = bounds.topLeft;
-      if (!_expanded) {
-        // 在底边附近展开时向上让位，防止常用操作落到屏幕外。
-        final bottom = await calcWindowPosition(size, Alignment.bottomLeft);
-        if (position.dy > bottom.dy) position = Offset(position.dx, bottom.dy);
+      await _resize(size);
+      if (mounted) {
+        setState(() {
+          _expanded = !_expanded;
+          _settingsExpanded = false;
+        });
       }
-      await windowManager.setBounds(position & size);
-      if (mounted) setState(() => _expanded = !_expanded);
     } finally {
       _changing = false;
     }
+  }
+
+  Future<void> _toggleSettings() async {
+    if (!_active || !_expanded || _changing) return;
+    _changing = true;
+    try {
+      await _resize(_settingsExpanded ? _expandedSize : _settingsSize);
+      if (mounted) setState(() => _settingsExpanded = !_settingsExpanded);
+    } finally {
+      _changing = false;
+    }
+  }
+
+  Future<void> _resize(Size size) async {
+    final bounds = await windowManager.getBounds();
+    var position = bounds.topLeft;
+    if (size.height > bounds.height) {
+      // 在底边附近展开时向上让位，防止常用操作落到屏幕外。
+      final bottom = await calcWindowPosition(size, Alignment.bottomLeft);
+      if (position.dy > bottom.dy) position = Offset(position.dx, bottom.dy);
+    }
+    await windowManager.setBounds(position & size);
   }
 
   @override
@@ -180,7 +204,9 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
             child: Overlay.wrap(
               child: ExternalPlaybackMiniPlayer(
                 expanded: _expanded,
+                settingsExpanded: _settingsExpanded,
                 onToggleExpanded: _toggleExpanded,
+                onToggleSettings: _toggleSettings,
                 onRestore: _exit,
               ),
             ),
