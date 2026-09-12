@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
 import 'app_motion.dart';
+import 'app_popup_theme.dart';
 
 /// 桌面「独立浮窗」式公共弹层：主题面板 + 遮罩 + 淡入缩放动效。
 ///
@@ -31,6 +32,10 @@ class AppCenteredModal {
     String barrierLabel = 'app-centered-modal',
     bool useRootNavigator = false,
   }) {
+    final popupTheme = AppPopupTheme.capture(
+      context,
+      useRootNavigator: useRootNavigator,
+    );
     return showGeneralDialog<T>(
       context: context,
       useRootNavigator: useRootNavigator,
@@ -38,10 +43,12 @@ class AppCenteredModal {
       barrierLabel: barrierLabel,
       barrierColor: barrierColor,
       transitionDuration: AppMotion.sheetTransition,
-      pageBuilder: (dialogContext, _, __) => _AppCenteredModalPanel(
-        alignment: alignment,
-        insetPadding: insetPadding,
-        child: Builder(builder: builder),
+      pageBuilder: (dialogContext, _, __) => popupTheme.wrap(
+        _AppCenteredModalPanel(
+          alignment: alignment,
+          insetPadding: insetPadding,
+          child: Builder(builder: builder),
+        ),
       ),
       transitionBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
