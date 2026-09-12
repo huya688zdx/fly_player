@@ -15,6 +15,32 @@ import '../../services/app_log_service.dart';
 import 'desktop_danmaku_lane_tracker.dart';
 import 'desktop_danmaku_clock.dart';
 import 'desktop_danmaku_raster_cache.dart';
+import 'desktop_danmaku_segmenter.dart';
+
+@visibleForTesting
+({Rect source, Rect destination}) resolveDesktopDanmakuMaskRects({
+  required Size frameSize,
+  required Size maskSize,
+  required Size canvasSize,
+  required BoxFit fit,
+}) {
+  final fitted = applyBoxFit(fit, frameSize, canvasSize);
+  final frameSource = Alignment.center.inscribe(
+    fitted.source,
+    Offset.zero & frameSize,
+  );
+  final source = Rect.fromLTRB(
+    frameSource.left * maskSize.width / frameSize.width,
+    frameSource.top * maskSize.height / frameSize.height,
+    frameSource.right * maskSize.width / frameSize.width,
+    frameSource.bottom * maskSize.height / frameSize.height,
+  );
+  final destination = Alignment.center.inscribe(
+    fitted.destination,
+    Offset.zero & canvasSize,
+  );
+  return (source: source, destination: destination);
+}
 
 class DesktopDanmakuPayload {
   const DesktopDanmakuPayload({
@@ -81,11 +107,15 @@ class DesktopDanmakuOverlay extends StatefulWidget {
     required this.player,
     required this.comments,
     required this.settings,
+    required this.fit,
+    required this.seekRevision,
   });
 
   final Player player;
   final List<DanmakuComment> comments;
   final DanmakuSettings settings;
+  final BoxFit fit;
+  final int seekRevision;
 
   @override
   State<DesktopDanmakuOverlay> createState() => _DesktopDanmakuOverlayState();
@@ -115,6 +145,13 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
   int _rasterTotalUs = 0;
   int _peakUs = 0;
   Duration _lastStatsAt = Duration.zero;
+  Timer? _maskTimer;
+  DesktopDanmakuMask? _mask;
+  bool _maskInFlight = false;
+  int _maskGeneration = 0;
+  bool _maskFailureLogged = false;
+  int _lastMaskInferenceMs = 0;
+  int _lastMaskTotalMs = 0;
 
   @override
   void initState() {
@@ -132,7 +169,11 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
     SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     _positionSubscription = widget.player.stream.position.listen((position) {
       final jumped = _motionClock.synchronize(position);
-      if (jumped) _laneTracker.reset();
+      if (jumped) {
+        _laneTracker.reset();
+        _maskGeneration++;
+        _replaceMask(null);
+      }
       // 连续播放只由 Ticker 请求绘制，消除异步消息插入的不等距帧。
       if (jumped || !_motionClock.advancing) _repaint.value += 1;
     });
@@ -152,12 +193,85 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
       _rate = rate.isFinite && rate > 0 ? rate : 1;
       _motionClock.rate = _rate;
     });
+    _updateMaskTimer();
   }
 
   @override
   void didUpdateWidget(covariant DesktopDanmakuOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     _updateTicker();
+    if (oldWidget.seekRevision != widget.seekRevision) {
+      _maskGeneration++;
+      _replaceMask(null);
+    }
+    if (oldWidget.settings.aiSampleIntervalMs !=
+        widget.settings.aiSampleIntervalMs) {
+      _maskTimer?.cancel();
+      _maskTimer = null;
+    }
+    _updateMaskTimer();
+  }
+
+  void _updateMaskTimer() {
+    final shouldRun =
+        Platform.isWindows &&
+        widget.settings.enabled &&
+        widget.settings.avoidCenterArea &&
+        widget.comments.isNotEmpty;
+    if (!shouldRun) {
+      _maskTimer?.cancel();
+      _maskTimer = null;
+      _maskGeneration++;
+      _replaceMask(null);
+      return;
+    }
+    if (_maskTimer != null) return;
+    unawaited(_updateMask());
+    _maskTimer = Timer.periodic(
+      Duration(
+        milliseconds: widget.settings.aiSampleIntervalMs.clamp(200, 500),
+      ),
+      (_) => unawaited(_updateMask()),
+    );
+  }
+
+  Future<void> _updateMask() async {
+    if (_maskInFlight || !_playing || _buffering) return;
+    _maskInFlight = true;
+    final generation = _maskGeneration;
+    try {
+      final next = await DesktopDanmakuSegmenter.segment(
+        widget.player,
+        outputWidth: widget.settings.aiInputWidth,
+      );
+      if (!mounted || generation != _maskGeneration) {
+        next?.dispose();
+        return;
+      }
+      if (next != null) {
+        _maskFailureLogged = false;
+        _lastMaskInferenceMs = next.inferenceMs;
+        _lastMaskTotalMs = next.totalMs;
+      }
+      _replaceMask(next);
+    } catch (error) {
+      if (mounted && generation == _maskGeneration) {
+        _replaceMask(null);
+        if (!_maskFailureLogged) {
+          _maskFailureLogged = true;
+          debugPrint('[desktop-danmaku] AI 遮罩暂不可用：$error');
+        }
+      }
+    } finally {
+      _maskInFlight = false;
+    }
+  }
+
+  void _replaceMask(DesktopDanmakuMask? next) {
+    if (identical(_mask, next)) return;
+    _mask?.dispose();
+    _mask = next;
+    _repaint.value += 1;
   }
 
   void _updateTicker() {
@@ -216,6 +330,8 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
             '单阶段峰值=${(_peakUs / 1000).toStringAsFixed(2)}ms，'
             '刷新回调间隔峰值=${(_tickGapPeakUs / 1000).toStringAsFixed(2)}ms，'
             '弹幕目标帧率=${widget.settings.targetFrameRateHz}，'
+            'AI推理=${_lastMaskInferenceMs}ms，'
+            'AI取帧至蒙版=${_lastMaskTotalMs}ms，'
             '播放位置=${_currentPosition().inSeconds}s；'
             '统计整个Flutter页面，不代表视频解码帧率，也不能单独归因于弹幕。',
       ),
@@ -251,6 +367,9 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
   void dispose() {
     SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
     _recordFrameStats();
+    _maskTimer?.cancel();
+    _maskGeneration++;
+    _mask?.dispose();
     _ticker.dispose();
     unawaited(_positionSubscription.cancel());
     unawaited(_playingSubscription.cancel());
@@ -276,6 +395,8 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
             rasterCache: _rasterCache,
             laneTracker: _laneTracker,
             devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+            maskProvider: () => _mask,
+            fit: widget.fit,
             repaint: _repaint,
           ),
           size: Size.infinite,
@@ -293,6 +414,8 @@ class _DesktopDanmakuPainter extends CustomPainter {
     required this.rasterCache,
     required this.laneTracker,
     required this.devicePixelRatio,
+    required this.maskProvider,
+    required this.fit,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -304,10 +427,15 @@ class _DesktopDanmakuPainter extends CustomPainter {
   final DanmakuRasterCache rasterCache;
   final DanmakuLaneTracker laneTracker;
   final double devicePixelRatio;
+  final DesktopDanmakuMask? Function() maskProvider;
+  final BoxFit fit;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty || comments.isEmpty) return;
+    final mask = maskProvider();
+    final useMask = settings.avoidCenterArea && mask != null;
+    if (useMask) canvas.saveLayer(Offset.zero & size, Paint());
     final preciseNowMs = positionProvider().inMicroseconds / 1000;
     final nowMs = preciseNowMs.floor();
     final scrollLifetimeMs = (9000 / settings.speed).round();
@@ -319,7 +447,7 @@ class _DesktopDanmakuPainter extends CustomPainter {
     if (settings.avoidSubtitleArea) {
       areaHeight = math.min(areaHeight, size.height * 0.76);
     }
-    if (settings.avoidCenterArea) {
+    if (settings.avoidCenterArea && !Platform.isWindows) {
       areaHeight = math.min(areaHeight, size.height * 0.46);
     }
     final rawLaneCount = math.max(1, (areaHeight / laneHeight).floor());
@@ -444,6 +572,30 @@ class _DesktopDanmakuPainter extends CustomPainter {
         _imagePaint,
       );
     }
+    if (useMask) {
+      final sourceSize = Size(
+        mask.frameWidth.toDouble(),
+        mask.frameHeight.toDouble(),
+      );
+      final maskRects = resolveDesktopDanmakuMaskRects(
+        frameSize: sourceSize,
+        maskSize: Size(
+          mask.image.width.toDouble(),
+          mask.image.height.toDouble(),
+        ),
+        canvasSize: size,
+        fit: fit,
+      );
+      canvas.drawImageRect(
+        mask.image,
+        maskRects.source,
+        maskRects.destination,
+        Paint()
+          ..blendMode = BlendMode.dstOut
+          ..filterQuality = FilterQuality.medium,
+      );
+      canvas.restore();
+    }
   }
 
   bool _typeEnabled(DanmakuCommentType type) => switch (type) {
@@ -468,6 +620,8 @@ class _DesktopDanmakuPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _DesktopDanmakuPainter oldDelegate) {
-    return oldDelegate.comments != comments || oldDelegate.settings != settings;
+    return oldDelegate.comments != comments ||
+        oldDelegate.settings != settings ||
+        oldDelegate.fit != fit;
   }
 }
