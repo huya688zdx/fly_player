@@ -1142,12 +1142,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var mediaLoadPending = false
     private var playbackResolveRequestGeneration = 0
 
-    private data class PlaybackResolveRequest(val requestGeneration: Int, val mediaGeneration: Int)
+    private data class PlaybackResolveRequest(
+        val requestGeneration: Int,
+        val mediaGeneration: Int,
+        val scope: String,
+    )
+    private val pendingPlaybackResolves = HashSet<Int>()
+    private val discardedPlaybackLinks = LinkedHashSet<Pair<String, String>>()
 
     // User intent is ordered at dispatch time. Merely asking for another source
     // does not invalidate callbacks/preloads for the media still playing.
     private fun beginPlaybackResolveRequest(): PlaybackResolveRequest =
-        PlaybackResolveRequest(++playbackResolveRequestGeneration, mediaLoadGeneration)
+        PlaybackResolveRequest(++playbackResolveRequestGeneration, mediaLoadGeneration, playbackSessionScope)
+            .also { pendingPlaybackResolves.add(it.requestGeneration) }
 
     private fun invalidatePlaybackResolveRequests() {
         ++playbackResolveRequestGeneration
@@ -1155,7 +1162,72 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun canApplyPlaybackResolveRequest(request: PlaybackResolveRequest): Boolean =
         request.requestGeneration == playbackResolveRequestGeneration &&
-            request.mediaGeneration == mediaLoadGeneration && !isDestroyed
+            request.mediaGeneration == mediaLoadGeneration && !activityDestroying && !isDestroyed
+
+    private fun playbackResultArgs(result: Any?): Map<String, Any?>? =
+        ((result as? Map<*, *>)?.get("loadArgs") as? String)
+            ?.let { runCatching { jsonObjectToMap(JSONObject(it)) }.getOrNull() }
+
+    private fun finishPlaybackResolveRequest(request: PlaybackResolveRequest, result: Any?): Boolean {
+        pendingPlaybackResolves.remove(request.requestGeneration)
+        val accepted = canApplyPlaybackResolveRequest(request)
+        if (!accepted) {
+            val args = playbackResultArgs(result)
+            val link = args?.get("playLink")?.toString()?.trim().orEmpty()
+            val scope = args?.get("playbackSessionScope")?.toString().orEmpty()
+            if (link.isNotEmpty() && request.scope.isNotEmpty() && (scope.isEmpty() || scope == request.scope)) {
+                discardedPlaybackLinks.add(request.scope to link)
+            }
+        }
+        return accepted
+    }
+
+    private fun takeDiscardedPlaybackLinks(): List<Pair<String, String>> {
+        // 等新请求和弹幕文件解析结束，才能判断旧回包是否复用了将要播放的链接。
+        if (pendingPlaybackResolves.isNotEmpty() || (mediaLoadPending && !activityDestroying)) return emptyList()
+        val currentPlayer = retainedPlayer.get()
+        if (currentPlayer != null && currentPlayer !== this) {
+            // 旧 Activity 的晚回包交给现存播放器判定，保护它正在加载或复用的来源。
+            currentPlayer.discardedPlaybackLinks.addAll(discardedPlaybackLinks)
+            discardedPlaybackLinks.clear()
+            return currentPlayer.takeDiscardedPlaybackLinks()
+        }
+        val heldLinks = setOf(
+            loadArgsMap["playLink"]?.toString()?.trim(),
+            playbackResultArgs(nextEpisodePreloadResult)?.get("playLink")?.toString()?.trim(),
+        )
+        val unused = discardedPlaybackLinks.filter { (scope, link) ->
+            scope == playbackSessionScope && link !in heldLinks
+        }
+        discardedPlaybackLinks.clear()
+        return unused
+    }
+
+    private fun releaseDiscardedPlaybackLinks() {
+        for ((scope, link) in takeDiscardedPlaybackLinks()) {
+            NativePlayerReverseBridge.dispatch(
+                "releaseServerSession",
+                mapOf("playLink" to link, "playbackSessionScope" to scope),
+            )
+        }
+    }
+
+    private fun completePlaybackResolveRequest(
+        request: PlaybackResolveRequest,
+        result: Any?,
+        autoPlayAfterLoad: Boolean = false,
+    ) {
+        if (finishPlaybackResolveRequest(request, result)) {
+            applyEpisodeResult(result, autoPlayAfterLoad)
+        }
+        releaseDiscardedPlaybackLinks()
+    }
+
+    private fun failPlaybackResolveRequest(request: PlaybackResolveRequest): Boolean {
+        val accepted = finishPlaybackResolveRequest(request, null)
+        releaseDiscardedPlaybackLinks()
+        return accepted
+    }
     private var episodePickerRequestPending = false
     private var episodePanelPositionCurrent = true
     // 已成功落地过一次完整的选集数据（季列表/视图/剧集）。此后 loadEpisodePickerData 的回包
@@ -2985,6 +3057,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         selectEpisodeCatalog(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
         refreshSeekThumbnails()
+        releaseDiscardedPlaybackLinks()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
         selectedAudioGuid = effectiveLoadArgs["audioTrackGuid"]?.toString().orEmpty()
         pendingSubtitleResolveGuid = null
@@ -6697,7 +6770,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             if (usePreload) {
                 clearNextEpisodePreload()
-                applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
+                completePlaybackResolveRequest(request, result, autoPlayAfterLoad)
                 setControlsVisible(true)
                 return
             }
@@ -6718,14 +6791,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     "[DANMAKU][NATIVE_SWITCH] resolvePlayback result target=$itemGuid ${nativePanelDanmakuFileDebug(result)}",
                 )
                 runOnUiThread {
-                    if (!canApplyPlaybackResolveRequest(request)) return@runOnUiThread
-                    applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
+                    completePlaybackResolveRequest(request, result, autoPlayAfterLoad)
                 }
             },
             onError = {
                 Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] resolvePlayback error target=$itemGuid")
                 runOnUiThread {
-                    if (!canApplyPlaybackResolveRequest(request)) return@runOnUiThread
+                    if (!failPlaybackResolveRequest(request)) return@runOnUiThread
                     episodeSwitchInFlight = false
                     showTransientHint(localizedString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
@@ -6759,12 +6831,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "startPositionMs" to playerSurface.state.positionMs,
             ),
             onResult = { result -> runOnUiThread {
-                if (!canApplyPlaybackResolveRequest(request)) return@runOnUiThread
-                applyEpisodeResult(result)
+                completePlaybackResolveRequest(request, result)
             } },
             onError = {
                 runOnUiThread {
-                    if (!canApplyPlaybackResolveRequest(request)) return@runOnUiThread
+                    if (!failPlaybackResolveRequest(request)) return@runOnUiThread
                     episodeSwitchInFlight = false
                     showTransientHint(localizedString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
@@ -6934,12 +7005,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             method = "reloadServerSession",
             args = args,
             onResult = { result -> runOnUiThread {
-                if (!canApplyPlaybackResolveRequest(request)) return@runOnUiThread
-                applyEpisodeResult(result)
+                completePlaybackResolveRequest(request, result)
             } },
             onError = {
                 runOnUiThread {
-                    if (!canApplyPlaybackResolveRequest(request)) return@runOnUiThread
+                    if (!failPlaybackResolveRequest(request)) return@runOnUiThread
                     showTransientHint(localizedString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
                 }
@@ -10459,6 +10529,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to playLink))
         }
         activityDestroying = true
+        releaseDiscardedPlaybackLinks()
         NativeMediaCommandCoordinator.detach(this)
         // 先停媒体服务，再释放 playerSurface。释放内核可能同步/异步回调最终状态，不能让
         // 任何后续清理异常或迟到回调阻止通知被移除、重新把服务拉起。
