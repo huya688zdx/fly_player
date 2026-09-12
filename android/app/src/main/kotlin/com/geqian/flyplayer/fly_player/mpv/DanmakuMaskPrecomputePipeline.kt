@@ -7,6 +7,7 @@ import android.os.HandlerThread
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 /**
@@ -39,7 +40,7 @@ class DanmakuMaskPrecomputePipeline(
     private val positionMsProvider: () -> Long,
     private val playbackSpeedProvider: () -> Double,
     private val decodeSourceProvider: () -> DanmakuPlanBDecodeSource?,
-    private val onStep: (MaskStep) -> Unit,
+    private val onStep: (DanmakuMaskPrecomputePipeline, MaskStep) -> Unit,
     private val onSourceFailure: (DanmakuPlanBDecodeSource, String) -> Unit,
 ) {
     /**
@@ -59,6 +60,7 @@ class DanmakuMaskPrecomputePipeline(
         val stepMs: Long,
         val inputWidth: Int,
         val reused: Boolean,
+        internal val generation: Long,
     )
 
     // NOT THREAD_PRIORITY_BACKGROUND: that bucket lands the thread (and the MNN worker
@@ -82,6 +84,11 @@ class DanmakuMaskPrecomputePipeline(
     // decoder + runtime warm so resume is cheap.
     @Volatile
     private var producing = false
+
+    private val requestedGeneration = AtomicLong(0L)
+
+    @Volatile
+    private var activeGeneration = 0L
 
     // --- resources (created lazily on the pipeline thread) ---
     private var runtime: DanmakuSegmentationRuntime? = null
@@ -118,9 +125,10 @@ class DanmakuMaskPrecomputePipeline(
     private val tick: Runnable =
         Runnable {
             if (released || !producing) return@Runnable
-            runCatching { produceOnce() }
+            val generation = activeGeneration
+            runCatching { produceOnce(generation) }
                 .onFailure { Log.w(TAG, "produce step failed", it) }
-            if (!released && producing) {
+            if (isCurrentGeneration(generation)) {
                 handler.post(tickReschedule)
             }
         }
@@ -130,6 +138,7 @@ class DanmakuMaskPrecomputePipeline(
     private val tickReschedule: Runnable =
         Runnable {
             if (released || !producing) return@Runnable
+            if (!isCurrentGeneration(activeGeneration)) return@Runnable
             val pos = positionMsProvider()
             val aheadMs = if (pos >= 0L && lastProducedPtsMs >= 0L) lastProducedPtsMs - pos else 0L
             val aheadCap = aheadMaxMs()
@@ -143,30 +152,41 @@ class DanmakuMaskPrecomputePipeline(
     /** Start or resume producing. Safe to call repeatedly. */
     fun start() {
         if (released) return
+        val generation = requestedGeneration.get()
         handler.post {
-            if (released) return@post
-            if (!producing) {
-                producing = true
-                // Force a fresh prime against the current position on (re)start.
-                nextStepMs = -1L
+            synchronized(this) {
+                if (released || generation != requestedGeneration.get()) return@synchronized
+                if (!producing) {
+                    producing = true
+                    activeGeneration = generation
+                    // 恢复生产时重新对齐当前位置，检查和赋值不能被暂停请求打断。
+                    nextStepMs = -1L
+                }
+                handler.removeCallbacks(tick)
+                handler.removeCallbacks(tickReschedule)
+                handler.post(tick)
             }
-            handler.removeCallbacks(tick)
-            handler.removeCallbacks(tickReschedule)
-            handler.post(tick)
         }
     }
 
     /** Stop producing but keep the decoder + runtime warm. */
+    @Synchronized
     fun pause() {
         if (released) return
+        val generation = requestedGeneration.incrementAndGet()
+        producing = false
         handler.post {
-            producing = false
+            if (released || generation != requestedGeneration.get()) return@post
+            if (producing && activeGeneration == generation) return@post
             handler.removeCallbacks(tick)
             handler.removeCallbacks(tickReschedule)
         }
     }
 
+    fun isCurrentStep(step: MaskStep): Boolean = isCurrentGeneration(step.generation)
+
     /** Tear down everything and quit the thread. */
+    @Synchronized
     fun release() {
         if (released) return
         released = true
@@ -246,15 +266,19 @@ class DanmakuMaskPrecomputePipeline(
         return next
     }
 
-    private fun produceOnce() {
-        val pos = positionMsProvider()
-        if (pos < 0L) {
+    private fun produceOnce(generation: Long) {
+        if (positionMsProvider() < 0L) {
             // Position unknown yet — back off briefly without producing.
-            scheduleIdle()
+            scheduleIdle(generation)
             return
         }
-        val runtime = ensureRuntime() ?: run { scheduleIdle(); return }
-        val extractor = ensureExtractor() ?: run { scheduleIdle(); return }
+        val runtime = ensureRuntime() ?: run { scheduleIdle(generation); return }
+        val extractor = ensureExtractor() ?: run { scheduleIdle(generation); return }
+        val pos = positionMsProvider()
+        if (pos < 0L) {
+            scheduleIdle(generation)
+            return
+        }
 
         // Seek / first-prime detection: if our cursor is unset, fell behind playback,
         // or playback jumped backward, re-prime from just ahead of the current pos.
@@ -263,7 +287,7 @@ class DanmakuMaskPrecomputePipeline(
         // Pacing: stop producing once the buffer comfortably covers the lookahead.
         val aheadMs = if (lastProducedPtsMs >= 0L) lastProducedPtsMs - pos else Long.MIN_VALUE
         if (aheadMs >= aheadMaxMs()) {
-            scheduleIdle()
+            scheduleIdle(generation)
             return
         }
 
@@ -282,7 +306,7 @@ class DanmakuMaskPrecomputePipeline(
                 onSourceFailure(failedSource, "first_frame_failed")
                 return
             }
-            scheduleIdle()
+            scheduleIdle(generation)
             return
         }
         if (firstFrameStartedAtMs > 0L) {
@@ -433,16 +457,23 @@ class DanmakuMaskPrecomputePipeline(
                 stepMs = stepMs,
                 inputWidth = inW,
                 reused = reuse,
+                generation = generation,
             )
-        if (!released) {
-            onStep(step)
+        if (isCurrentStep(step)) {
+            onStep(this, step)
         } else {
             maskBitmap?.takeIf { !it.isRecycled }?.recycle()
         }
     }
 
-    private fun scheduleIdle() {
-        if (released || !producing) return
+    private fun isCurrentGeneration(generation: Long): Boolean =
+        !released &&
+            producing &&
+            generation == requestedGeneration.get() &&
+            generation == activeGeneration
+
+    private fun scheduleIdle(generation: Long) {
+        if (!isCurrentGeneration(generation)) return
         handler.removeCallbacks(tick)
         handler.removeCallbacks(tickReschedule)
         handler.postDelayed(tick, IDLE_TICK_MS)
