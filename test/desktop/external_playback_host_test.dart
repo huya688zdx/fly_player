@@ -42,6 +42,20 @@ void main() {
     final nas = NasProvider();
     final backend = MediaBackendProvider(nas);
     final calls = <MethodCall>[];
+    String? rejectedCommand;
+    var rejectWithError = false;
+    var delayControl = false;
+    var controlSamples = 0;
+    void Function()? pendingSnapshotControl;
+    void applyControl(void Function() update) {
+      if (delayControl) {
+        pendingSnapshotControl = update;
+        controlSamples = 0;
+      } else {
+        update();
+      }
+    }
+
     final subtitles = <String>[];
     Completer<void>? miniControlCompletion;
     final state = <String, Object>{
@@ -55,27 +69,43 @@ void main() {
       PotPlayerSession.channel,
       (call) async {
         calls.add(call);
+        if (call.method == rejectedCommand) {
+          if (rejectWithError) {
+            throw PlatformException(code: 'potplayer_file_changed');
+          }
+          return false;
+        }
         final arguments = call.arguments as Map;
         if (call.method == 'launch') return 71;
         expect(arguments['pid'], 71);
-        if (call.method == 'snapshot') return Map.of(state);
+        if (call.method == 'snapshot') {
+          if (pendingSnapshotControl != null && ++controlSamples >= 3) {
+            pendingSnapshotControl!();
+            pendingSnapshotControl = null;
+          }
+          return Map.of(state);
+        }
         if (call.method == 'configure') {
           await miniControlCompletion?.future;
           if (arguments.containsKey('mediaUrl')) {
             expect(arguments['mediaUrl'], video.path);
           }
-          state['state'] = arguments['paused'] == true ? 1 : 2;
+          applyControl(
+            () => state['state'] = arguments['paused'] == true ? 1 : 2,
+          );
         } else if (call.method == 'activate') {
           if (arguments.containsKey('positionMs')) {
             expect(arguments['focus'], false);
-            state['positionMs'] = arguments['positionMs'] as int;
+            applyControl(
+              () => state['positionMs'] = arguments['positionMs'] as int,
+            );
           }
         } else if (call.method == 'subtitle') {
           expect(arguments['mediaUrl'], video.path);
           expect(calls.any((call) => call.method == 'snapshot'), isTrue);
           subtitles.add(await File(arguments['path'] as String).readAsString());
         }
-        return null;
+        return true;
       },
     );
     addTearDown(() async {
@@ -139,6 +169,27 @@ void main() {
       expect(subtitles.single, contains('[Events]'));
       expect(subtitles.single, isNot(contains('Dialogue:')));
       expect(ExternalPlaybackHost.status.value!.position.inSeconds, 5);
+      for (final method in ['configure', 'activate']) {
+        rejectedCommand = method;
+        Future<bool> control() => method == 'configure'
+            ? ExternalPlaybackHost.setPaused(true, itemGuid: 'local-probe')
+            : ExternalPlaybackHost.seek(
+                const Duration(seconds: 32),
+                itemGuid: 'local-probe',
+              );
+        expect(await control(), isFalse);
+        rejectWithError = true;
+        await expectLater(control(), throwsA(isA<PlatformException>()));
+        rejectWithError = false;
+        rejectedCommand = null;
+      }
+      rejectedCommand = 'configure';
+      expect(
+        await ExternalPlaybackHost(hostContext).resume(itemGuid: 'local-probe'),
+        isFalse,
+      );
+      rejectedCommand = null;
+      delayControl = true;
       expect(
         await ExternalPlaybackHost.setPaused(true, itemGuid: 'local-probe'),
         isTrue,
@@ -158,6 +209,7 @@ void main() {
         isTrue,
       );
       expect(ExternalPlaybackHost.status.value!.position.inSeconds, 32);
+      delayControl = false;
       expect(
         await ExternalPlaybackHost.applyDanmaku(
           itemGuid: 'local-probe',

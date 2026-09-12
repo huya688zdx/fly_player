@@ -170,6 +170,45 @@ void main() {
   });
 
   group('DesktopDetailPaneHost', () {
+    testWidgets('页面直接 push 同名路由、移除下层与替换均按真实实例同步', (tester) async {
+      final controller = DesktopSplitController(enabled: true);
+      addTearDown(controller.dispose);
+      final state = await _pumpHost(tester, controller: controller);
+      await state.openRoute('/screen/search');
+      await tester.pumpAndSettle();
+      final navigator = Navigator.of(tester.element(find.text('SEARCH_PAGE')));
+      Route<void> duplicate(String text) => MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/direct'),
+        builder: (_) => Scaffold(body: Text(text)),
+      );
+      final lower = duplicate('LOWER');
+      navigator.push(lower);
+      await tester.pumpAndSettle();
+      navigator.push(duplicate('UPPER'));
+      await tester.pumpAndSettle();
+      navigator.removeRoute(lower);
+      await tester.pumpAndSettle();
+      expect(state.currentRouteName, '/direct');
+      expect(find.text('UPPER'), findsOneWidget);
+      await state.backInPane();
+      await tester.pumpAndSettle();
+      expect(state.currentRouteName, '/screen/search');
+      navigator.pushReplacement(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/screen/search'),
+          builder: (_) => const Text('REPLACED'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(state.currentRouteName, '/screen/search');
+      expect(find.text('REPLACED'), findsOneWidget);
+      await state.backInPane();
+      await tester.pumpAndSettle();
+      expect(state.currentRouteName, isNull);
+      expect(controller.paneVisible, isFalse);
+      await _flushTimers(tester);
+    });
+
     testWidgets('openRoute 在 pane 内打开目标页并返回 true，scope 暴露同一控制器', (
       tester,
     ) async {

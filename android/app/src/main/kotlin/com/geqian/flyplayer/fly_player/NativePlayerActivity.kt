@@ -1135,9 +1135,99 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var episodePanelSeasons: List<Map<String, Any?>> = emptyList()
     private var episodePanelLoadToken = 0
     // 同一部剧按需缓存已访问季；同季在途请求合并，换剧后旧结果失效。
-    private val seasonEpisodesCache = HashMap<String, List<Map<String, Any?>>>()
+    private val episodeCatalog = NativeEpisodeCatalog()
+    private val seasonEpisodesCache get() = episodeCatalog.episodes
     private val seasonEpisodeRequests = HashMap<String, MutableList<(List<Map<String, Any?>>) -> Unit>>()
-    private var episodeCatalogGeneration = 0
+    private var mediaLoadGeneration = 0
+    private var mediaLoadPending = false
+    private var playbackResolveRequestGeneration = 0
+
+    private data class PlaybackResolveRequest(
+        val requestGeneration: Int,
+        val mediaGeneration: Int,
+        val scope: String,
+    )
+    private val pendingPlaybackResolves = HashSet<Int>()
+    private val discardedPlaybackLinks = LinkedHashSet<Pair<String, String>>()
+
+    // User intent is ordered at dispatch time. Merely asking for another source
+    // does not invalidate callbacks/preloads for the media still playing.
+    private fun beginPlaybackResolveRequest(): PlaybackResolveRequest =
+        PlaybackResolveRequest(++playbackResolveRequestGeneration, mediaLoadGeneration, playbackSessionScope)
+            .also { pendingPlaybackResolves.add(it.requestGeneration) }
+
+    private fun invalidatePlaybackResolveRequests() {
+        ++playbackResolveRequestGeneration
+    }
+
+    private fun canApplyPlaybackResolveRequest(request: PlaybackResolveRequest): Boolean =
+        request.requestGeneration == playbackResolveRequestGeneration &&
+            request.mediaGeneration == mediaLoadGeneration && !activityDestroying && !isDestroyed
+
+    private fun playbackResultArgs(result: Any?): Map<String, Any?>? =
+        ((result as? Map<*, *>)?.get("loadArgs") as? String)
+            ?.let { runCatching { jsonObjectToMap(JSONObject(it)) }.getOrNull() }
+
+    private fun finishPlaybackResolveRequest(request: PlaybackResolveRequest, result: Any?): Boolean {
+        pendingPlaybackResolves.remove(request.requestGeneration)
+        val accepted = canApplyPlaybackResolveRequest(request)
+        if (!accepted) {
+            val args = playbackResultArgs(result)
+            val link = args?.get("playLink")?.toString()?.trim().orEmpty()
+            val scope = args?.get("playbackSessionScope")?.toString().orEmpty()
+            if (link.isNotEmpty() && request.scope.isNotEmpty() && (scope.isEmpty() || scope == request.scope)) {
+                discardedPlaybackLinks.add(request.scope to link)
+            }
+        }
+        return accepted
+    }
+
+    private fun takeDiscardedPlaybackLinks(): List<Pair<String, String>> {
+        // 等新请求和弹幕文件解析结束，才能判断旧回包是否复用了将要播放的链接。
+        if (pendingPlaybackResolves.isNotEmpty() || (mediaLoadPending && !activityDestroying)) return emptyList()
+        val currentPlayer = retainedPlayer.get()
+        if (currentPlayer != null && currentPlayer !== this) {
+            // 旧 Activity 的晚回包交给现存播放器判定，保护它正在加载或复用的来源。
+            currentPlayer.discardedPlaybackLinks.addAll(discardedPlaybackLinks)
+            discardedPlaybackLinks.clear()
+            return currentPlayer.takeDiscardedPlaybackLinks()
+        }
+        val heldLinks = setOf(
+            loadArgsMap["playLink"]?.toString()?.trim(),
+            playbackResultArgs(nextEpisodePreloadResult)?.get("playLink")?.toString()?.trim(),
+        )
+        val unused = discardedPlaybackLinks.filter { (scope, link) ->
+            scope == playbackSessionScope && link !in heldLinks
+        }
+        discardedPlaybackLinks.clear()
+        return unused
+    }
+
+    private fun releaseDiscardedPlaybackLinks() {
+        for ((scope, link) in takeDiscardedPlaybackLinks()) {
+            NativePlayerReverseBridge.dispatch(
+                "releaseServerSession",
+                mapOf("playLink" to link, "playbackSessionScope" to scope),
+            )
+        }
+    }
+
+    private fun completePlaybackResolveRequest(
+        request: PlaybackResolveRequest,
+        result: Any?,
+        autoPlayAfterLoad: Boolean = false,
+    ) {
+        if (finishPlaybackResolveRequest(request, result)) {
+            applyEpisodeResult(result, autoPlayAfterLoad)
+        }
+        releaseDiscardedPlaybackLinks()
+    }
+
+    private fun failPlaybackResolveRequest(request: PlaybackResolveRequest): Boolean {
+        val accepted = finishPlaybackResolveRequest(request, null)
+        releaseDiscardedPlaybackLinks()
+        return accepted
+    }
     private var episodePickerRequestPending = false
     private var episodePanelPositionCurrent = true
     // 已成功落地过一次完整的选集数据（季列表/视图/剧集）。此后 loadEpisodePickerData 的回包
@@ -2720,6 +2810,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         val effectiveLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
+        selectEpisodeCatalog(effectiveLoadArgs)
+        val loadGeneration = ++mediaLoadGeneration
+        mediaLoadPending = true
         mediaTitle = resolveTitle(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
         // 完整 loadArgs 进入（初始启动主链路）：安装 Flutter 下发的本地化文案表；
@@ -2766,13 +2859,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         enableImmersiveMode()
         // 网络监听放在视图构建之后：回调里 post 到 rootContainer，避免早于 rootContainer 初始化。
         registerNetworkMonitor()
+        // This Activity callback must be installed even if a newer Intent
+        // supersedes the first asynchronous payload before it finishes.
+        registerBackHandler()
 
         // 弹幕优先走文件（Flutter 拉好后落临时文件，避开 Intent 的 TransactionTooLarge），其次直接
         // JSON extra（小量/调试）；文件体积可能达数 MB，读取+JSON 解析放后台线程，避免阻塞主线程首帧。
         resolveDanmakuPayloadAsync(EXTRA_DANMAKU_PAYLOAD, EXTRA_DANMAKU_FILE) { danmakuPayload ->
+            if (loadGeneration != mediaLoadGeneration || isDestroyed) return@resolveDanmakuPayloadAsync
             applyLoadArgs(effectiveLoadArgs, danmakuPayload)
             scheduleControlsAutoHide()
-            registerBackHandler()
             maybeAutoEnterSplit()
         }
     }
@@ -2808,22 +2904,42 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             Log.w(TAG, "onNewIntent missing/invalid loadArgs; keeping current playback")
             return
         }
+        // Reopening the current item is also a newer playback intent, even when
+        // it takes the no-reload shortcut and leaves media generation unchanged.
+        invalidatePlaybackResolveRequests()
         // 副栏点到「正在播放的同一集」时不重载（自己播自己）。换别的集才换源。
-        val newGuid = loadArgs["itemGuid"]?.toString().orEmpty()
-        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
-        if (!wasParked && newGuid.isNotEmpty() && newGuid == currentGuid &&
-            loadArgs["mediaGuid"] == loadArgsMap["mediaGuid"] &&
-            loadArgs["playbackSessionScope"]?.toString().orEmpty() == playbackSessionScope) {
-            Log.d(TAG, "onNewIntent same item=$newGuid already playing; skip reload")
+        if (canKeepCurrentPlayback(loadArgs, wasParked)) {
+            Log.d(TAG, "onNewIntent same item=${loadArgs["itemGuid"]} already playing; skip reload")
             setControlsVisible(true)
             return
         }
+        // Invalidate old catalog callbacks before replacing the retained scope
+        // or awaiting the new Intent's danmaku file. Catalog retains old owner.
+        selectEpisodeCatalog(loadArgs)
+        val loadGeneration = ++mediaLoadGeneration
+        mediaLoadPending = true
         playbackSessionScope = loadArgs["playbackSessionScope"]?.toString().orEmpty()
         NativeMediaCommandCoordinator.attach(this)
         // 同 onCreate：弹幕文件解析放后台线程，避免大文件阻塞主线程。
         resolveDanmakuPayloadAsync(EXTRA_DANMAKU_PAYLOAD, EXTRA_DANMAKU_FILE) { danmakuPayload ->
+            if (loadGeneration != mediaLoadGeneration || isDestroyed) return@resolveDanmakuPayloadAsync
             applyLoadArgs(loadArgs, danmakuPayload)
             setControlsVisible(true)
+        }
+    }
+
+    private fun canKeepCurrentPlayback(loadArgs: Map<String, Any?>, wasParked: Boolean): Boolean {
+        val newGuid = loadArgs["itemGuid"]?.toString().orEmpty()
+        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        if (wasParked || mediaLoadPending || newGuid.isEmpty() || newGuid != currentGuid ||
+            loadArgs["mediaGuid"] != loadArgsMap["mediaGuid"] ||
+            loadArgs["playbackSessionScope"]?.toString().orEmpty() != playbackSessionScope) return false
+        // A movie has no episode catalog. Reuse the actual playing identity;
+        // only explicit, contradictory directory metadata requires reloading.
+        return listOf("seriesGuid", "seasonGuid").none { key ->
+            val current = loadArgsMap[key]?.toString().orEmpty()
+            val next = loadArgs[key]?.toString().orEmpty()
+            current.isNotEmpty() && next.isNotEmpty() && current != next
         }
     }
 
@@ -2906,8 +3022,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
+    private fun selectEpisodeCatalog(loadArgs: Map<String, Any?>) {
+        if (episodeCatalog.select(loadArgs)) return
+        ++episodePanelLoadToken
+        seasonEpisodeRequests.clear()
+        episodePickerRequestPending = false
+        episodePickerLoadedOnce = false
+        episodePanelLoading = false
+        episodePanelSeasons = emptyList()
+        episodePanelEpisodes = emptyList()
+        episodePanelSelectedSeasonGuid = ""
+        clearNextEpisodePreload()
+    }
+
     /** onCreate 与 onNewIntent 共用：装载（或换）一路 source + 弹幕，并刷新标题/上下文。 */
     private fun applyLoadArgs(loadArgs: Map<String, Any?>, danmakuPayload: Map<String, Any?>?) {
+        mediaLoadPending = false
         val effectiveLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
         // 捕获换源前的集身份：用于判断是否「真的切了集」（vs 同集切画质/版本/音轨字幕重载）。
         // 必须在 loadArgsMap 被覆盖前取。
@@ -2927,13 +3057,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to previousPlayLink))
         }
         mediaTitle = resolveTitle(effectiveLoadArgs)
-        val previousSeries = loadArgsMap["seriesGuid"]?.toString().orEmpty()
-        val previousSeason = loadArgsMap["seasonGuid"]?.toString().orEmpty()
-        val sameEpisodeSeries =
-            (previousSeries.isNotEmpty() && previousSeries == effectiveLoadArgs["seriesGuid"]?.toString()) ||
-            (previousSeason.isNotEmpty() && previousSeason == effectiveLoadArgs["seasonGuid"]?.toString())
+        selectEpisodeCatalog(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
         refreshSeekThumbnails()
+        releaseDiscardedPlaybackLinks()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
         selectedAudioGuid = effectiveLoadArgs["audioTrackGuid"]?.toString().orEmpty()
         pendingSubtitleResolveGuid = null
@@ -2943,13 +3070,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         refreshRateApplied = false // 换源后按新片 fps 重新匹配刷新率
         ++episodePanelLoadToken
         episodePickerRequestPending = false
-        if (!sameEpisodeSeries) {
-            ++episodeCatalogGeneration
-            seasonEpisodesCache.clear()
-            seasonEpisodeRequests.clear()
-            episodePanelSeasons = emptyList()
-            episodePickerLoadedOnce = false
-        }
         val currentSeason = loadArgsMap["seasonGuid"]?.toString().orEmpty()
         val cachedEpisodes = seasonEpisodesCache[currentSeason]
         if (!cachedEpisodes.isNullOrEmpty()) {
@@ -2964,6 +3084,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         lastProgressEnded = false
         resetPlaybackProgressTracking() // 换源后重置「已开播」兜底，让 loading 重新从切换态开始
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
+        flutterDanmakuSourcesLoading = false
+        ++flutterDanmakuSourcesGeneration
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
         // 图标入口不重复显示文字；切画质/换源后同步无障碍说明即可。
         if (this::qualityButton.isInitialized) qualityButton.contentDescription = currentQualityLabel()
@@ -4198,6 +4320,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showEpisodePanel() {
+        if (mediaLoadPending) return
         episodePanelLoading = false
         episodePanelEpisodes = episodeList()
         episodePanelSelectedSeasonGuid = loadArgsMap["seasonGuid"]?.toString().orEmpty()
@@ -4385,6 +4508,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         panelVisible && panelStack.size == 1 && panelStack.lastOrNull()?.onSeasonSelectorClick != null
 
     private fun switchSeason(seasonGuid: String) {
+        if (mediaLoadPending) return
         // 作废任何在途的 loadEpisodePickerData（如打开面板时的静默刷新）：它只用 token 守卫，
         // 不 bump 的话其回调会把 selectedSeasonGuid 重置回正在播放季 → 切季后"跳回去"。
         val token = ++episodePanelLoadToken
@@ -4455,6 +4579,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun requestEpisodePickerData(seasonGuid: String?, showLoading: Boolean) {
+        if (mediaLoadPending) return
         if (episodePickerRequestPending) return
         episodePickerRequestPending = true
         val token = ++episodePanelLoadToken
@@ -4493,17 +4618,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         seasonGuid: String,
         onLoaded: (List<Map<String, Any?>>) -> Unit,
     ) {
+        if (mediaLoadPending) return
         seasonEpisodeRequests[seasonGuid]?.let {
             it.add(onLoaded)
             return
         }
         val callbacks = mutableListOf(onLoaded)
         seasonEpisodeRequests[seasonGuid] = callbacks
-        val generation = episodeCatalogGeneration
+        val generation = episodeCatalog.generation
         fun complete(episodes: List<Map<String, Any?>>) {
-            if (generation != episodeCatalogGeneration || isDestroyed) return
+            if (isDestroyed || !episodeCatalog.complete(generation, seasonGuid, episodes)) return
             seasonEpisodeRequests.remove(seasonGuid)
-            if (episodes.isNotEmpty()) seasonEpisodesCache[seasonGuid] = episodes
             callbacks.forEach { it(episodes) }
         }
         NativePlayerReverseBridge.dispatch(
@@ -6588,6 +6713,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showEpisodePicker() {
+        if (mediaLoadPending) return
         val episodes = episodeList()
         if (episodes.isEmpty()) {
             showTransientHint(localizedString(R.string.player_no_episode_info))
@@ -6626,6 +6752,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 重建 Activity（onDestroy+releaseMpv+重建 mpv），连续切集时 mpv/surface 交叠会闪退。
      */
     private fun requestEpisode(itemGuid: String, autoPlayAfterLoad: Boolean = true) {
+        if (mediaLoadPending) return
+        val request = beginPlaybackResolveRequest()
         expandedEpisodeVersionGuid = null
         episodeSwitchInFlight = true
         clearCompletion()
@@ -6645,7 +6773,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             if (usePreload) {
                 clearNextEpisodePreload()
-                applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
+                completePlaybackResolveRequest(request, result, autoPlayAfterLoad)
                 setControlsVisible(true)
                 return
             }
@@ -6666,12 +6794,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     "[DANMAKU][NATIVE_SWITCH] resolvePlayback result target=$itemGuid ${nativePanelDanmakuFileDebug(result)}",
                 )
                 runOnUiThread {
-                    applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
+                    completePlaybackResolveRequest(request, result, autoPlayAfterLoad)
                 }
             },
             onError = {
                 Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] resolvePlayback error target=$itemGuid")
                 runOnUiThread {
+                    if (!failPlaybackResolveRequest(request)) return@runOnUiThread
                     episodeSwitchInFlight = false
                     showTransientHint(localizedString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
@@ -6686,12 +6815,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 切到别版本会播转码且沿用旧版本字幕。
      */
     private fun requestVersion(mediaGuid: String, hint: String? = null) {
+        if (mediaLoadPending) return
         val itemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         if (itemGuid.isEmpty() || mediaGuid.isEmpty()) {
             showTransientHint(localizedString(R.string.player_switch_version_unavailable))
             scheduleControlsAutoHide()
             return
         }
+        val request = beginPlaybackResolveRequest()
         expandedEpisodeVersionGuid = null
         showNetworkLoadingHint(hint ?: localizedString(R.string.player_switch_version_loading))
         cancelControlsAutoHide()
@@ -6702,9 +6833,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "qualityMediaGuid" to mediaGuid,
                 "startPositionMs" to playerSurface.state.positionMs,
             ),
-            onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
+            onResult = { result -> runOnUiThread {
+                completePlaybackResolveRequest(request, result)
+            } },
             onError = {
                 runOnUiThread {
+                    if (!failPlaybackResolveRequest(request)) return@runOnUiThread
                     episodeSwitchInFlight = false
                     showTransientHint(localizedString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
@@ -6729,10 +6863,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             scheduleControlsAutoHide()
             return
         }
+        // Reverse resolvers return source DTOs without the host-only scope.
+        // Only a callback accepted in this load generation may inherit it.
+        val responseScope = loadArgs["playbackSessionScope"]?.toString().orEmpty()
+        if (responseScope.isNotEmpty() && responseScope != playbackSessionScope) return
+        val scopedLoadArgs = HashMap(loadArgs).apply { put("playbackSessionScope", playbackSessionScope) }
+        selectEpisodeCatalog(scopedLoadArgs)
+        val loadGeneration = ++mediaLoadGeneration
+        mediaLoadPending = true
         val danmakuFile = (map["danmakuFile"] as? String)?.trim().orEmpty()
         // 弹幕文件读取+JSON 解析放后台线程，避免大文件（数百KB~数MB）阻塞主线程，与原生弹幕的
         // Choreographer 帧调度竞争。
         parseJsonFileAsync(danmakuFile) { danmakuPayload ->
+            if (loadGeneration != mediaLoadGeneration || isDestroyed) return@parseJsonFileAsync
             val compactCount = (danmakuPayload?.get("commentsCompact") as? List<*>)?.size
             val verboseCount = (danmakuPayload?.get("comments") as? List<*>)?.size
             Log.d(
@@ -6741,7 +6884,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     "danmakuFile=${danmakuFile.isNotEmpty()} payload=${danmakuPayload != null} " +
                     "compact=${compactCount ?: -1} comments=${verboseCount ?: -1} sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
             )
-            val effectiveLoadArgs = nativePanelLoadArgsForEpisodeSwitch(loadArgs, autoPlayAfterLoad)
+            val effectiveLoadArgs = nativePanelLoadArgsForEpisodeSwitch(scopedLoadArgs, autoPlayAfterLoad)
             applyLoadArgs(effectiveLoadArgs, danmakuPayload)
             if (autoPlayAfterLoad) playWithFocus()
             setControlsVisible(true)
@@ -6840,6 +6983,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         qualityIndex: Int?,
         hint: String,
     ) {
+        if (mediaLoadPending) return
         // 回传当前完整 loadArgs（含 mediaGuid/videoGuid/分辨率/qualities/轨道等），Flutter 据此
         // 重建快照走 reloadServerPlaySession：保留未指定项（切音轨不动画质、切画质保留音轨/字幕）。
         val loadArgsJson = runCatching { JSONObject(loadArgsMap).toString() }
@@ -6850,6 +6994,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             scheduleControlsAutoHide()
             return
         }
+        val request = beginPlaybackResolveRequest()
         showNetworkLoadingHint(hint)
         cancelControlsAutoHide()
         val args = HashMap<String, Any?>()
@@ -6862,9 +7007,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         NativePlayerReverseBridge.dispatch(
             method = "reloadServerSession",
             args = args,
-            onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
+            onResult = { result -> runOnUiThread {
+                completePlaybackResolveRequest(request, result)
+            } },
             onError = {
                 runOnUiThread {
+                    if (!failPlaybackResolveRequest(request)) return@runOnUiThread
                     showTransientHint(localizedString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
                 }
@@ -7517,6 +7665,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     // 设置持久化 + 首帧就绪后把已存设置套用一次（每次换源置 true 以重套）。
     private lateinit var settingsStore: NativePlayerSettingsStore
+    private val danmakuSourceStore by lazy {
+        NativeDanmakuSourceStore(settingsStore) { row ->
+            danmakuSourceIdentity(row.optString("type"), row.optLong("episodeId"), row.optString("uri"))
+        }
+    }
     private var pendingPersistedSettings = true
 
     private fun addPanelRow(view: View) {
@@ -8056,6 +8209,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun preloadNextEpisodeIfNeeded() {
+        if (mediaLoadPending) return
+        val requestGeneration = mediaLoadGeneration
         if (!nativePanelCanPreloadNextEpisode(autoPlayEnabled, nextEpisodePreloadEnabled)) return
         val nextGuid = nextEpisodeGuidOrNull() ?: return
         if (nextGuid == nextEpisodePreloadGuid && (nextEpisodePreloadInFlight || nextEpisodePreloadResult != null)) {
@@ -8079,6 +8234,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     "[DANMAKU][NATIVE_SWITCH] preloadResult next=$nextGuid ${nativePanelDanmakuFileDebug(result)}",
                 )
                 runOnUiThread {
+                    if (requestGeneration != mediaLoadGeneration || isDestroyed) return@runOnUiThread
                     if (nextEpisodePreloadGuid == nextGuid) {
                         nextEpisodePreloadResult = result
                         nextEpisodePreloadInFlight = false
@@ -8088,6 +8244,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             onError = {
                 Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] preloadError next=$nextGuid")
                 runOnUiThread {
+                    if (requestGeneration != mediaLoadGeneration || isDestroyed) return@runOnUiThread
                     if (nextEpisodePreloadGuid == nextGuid) clearNextEpisodePreload()
                 }
             },
@@ -8955,6 +9112,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 与原生 prefs 的「已保存来源」分属两套存储，弹幕源面板合并展示二者。
     private var flutterDanmakuSources: List<Map<String, Any?>>? = null
     private var flutterDanmakuSourcesLoading = false
+    private var flutterDanmakuSourcesGeneration = 0
 
     /** 透传给 Flutter 的媒体身份（让 Flutter 用自己的 _buildMediaKey 算 mediaKey）。 */
     private fun danmakuMediaArgs(): Map<String, Any?> = mapOf(
@@ -8987,13 +9145,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 进弹幕源页时拉一次 Flutter 弹幕源库；拿到后仅当仍停在该页时刷新。 */
     private fun ensureFlutterDanmakuSourcesLoaded() {
+        if (mediaLoadPending) return
         if (flutterDanmakuSources != null || flutterDanmakuSourcesLoading) return
         flutterDanmakuSourcesLoading = true
+        val generation = ++flutterDanmakuSourcesGeneration
+        val loadGeneration = mediaLoadGeneration
         NativePlayerReverseBridge.dispatch(
             method = "listSavedDanmakuSources",
             args = danmakuMediaArgs(),
             onResult = { res ->
                 runOnUiThread {
+                    if (generation != flutterDanmakuSourcesGeneration || loadGeneration != mediaLoadGeneration || isDestroyed) return@runOnUiThread
                     flutterDanmakuSourcesLoading = false
                     flutterDanmakuSources = (res as? List<*>)
                         ?.mapNotNull { it as? Map<String, Any?> }
@@ -9003,6 +9165,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             },
             onError = {
                 runOnUiThread {
+                    if (generation != flutterDanmakuSourcesGeneration || loadGeneration != mediaLoadGeneration || isDestroyed) return@runOnUiThread
                     flutterDanmakuSourcesLoading = false
                     flutterDanmakuSources = emptyList()
                 }
@@ -9046,51 +9209,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun saveDanmakuSource(rec: DanmakuSource) {
         if (rec.mediaKey.isEmpty()) return
-        val raw = settingsStore.loadString(NativePlayerSettingsStore.KEY_DANMAKU_SOURCES)
-        val existing = runCatching { if (raw != null) JSONArray(raw) else JSONArray() }
-            .getOrDefault(JSONArray())
-        val identity = danmakuSourceIdentity(rec.type, rec.episodeId, rec.uri)
-        val kept = JSONArray()
-        for (i in 0 until existing.length()) {
-            val o = existing.optJSONObject(i) ?: continue
-            val same = o.optString("mediaKey") == rec.mediaKey &&
-                danmakuSourceIdentity(o.optString("type"), o.optLong("episodeId"), o.optString("uri")) == identity
-            if (!same) kept.put(o) // 去重：同 mediaKey 同来源覆盖
-        }
-        kept.put(JSONObject().apply {
+        danmakuSourceStore.upsert(JSONObject().apply {
             put("mediaKey", rec.mediaKey); put("type", rec.type); put("label", rec.label)
             put("episodeId", rec.episodeId); put("animeTitle", rec.animeTitle)
             put("episodeTitle", rec.episodeTitle); put("episodeNumber", rec.episodeNumber)
             put("uri", rec.uri); put("updatedAt", rec.updatedAt)
         })
-        settingsStore.saveString(NativePlayerSettingsStore.KEY_DANMAKU_SOURCES, kept.toString())
     }
 
     private fun removeDanmakuSource(rec: DanmakuSource) {
-        val raw = settingsStore.loadString(NativePlayerSettingsStore.KEY_DANMAKU_SOURCES) ?: return
-        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return
+        if (mediaLoadPending) return
+        if (rec.mediaKey.isEmpty()) return
         val identity = danmakuSourceIdentity(rec.type, rec.episodeId, rec.uri)
-        val kept = JSONArray()
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val same = o.optString("mediaKey") == rec.mediaKey &&
-                danmakuSourceIdentity(o.optString("type"), o.optLong("episodeId"), o.optString("uri")) == identity
-            if (!same) kept.put(o)
-        }
+        val complete = danmakuSourceStore.removalCompletion(rec.mediaKey, identity)
+        val loadGeneration = mediaLoadGeneration
+        fun canRefresh() = loadGeneration == mediaLoadGeneration && rec.mediaKey == danmakuMediaKey() && !isDestroyed
         // 两侧同时删除，避免原生列表删掉后，统一来源库又把同一来源显示出来。
         NativePlayerReverseBridge.dispatch(
             method = "removeSavedDanmakuSource",
             args = HashMap(danmakuMediaArgs()).apply { put("sourceKey", identity) },
             onResult = { res -> runOnUiThread {
-                if (res == true) {
-                    settingsStore.saveString(NativePlayerSettingsStore.KEY_DANMAKU_SOURCES, kept.toString())
+                val removed = complete(res)
+                // Success still updates the captured media's mirror after a
+                // switch; it cannot invalidate or repaint the new media's UI.
+                if (!canRefresh()) return@runOnUiThread
+                if (removed) {
+                    ++flutterDanmakuSourcesGeneration
                     flutterDanmakuSources = null
-                    renderTopPanel()
+                    flutterDanmakuSourcesLoading = false
+                    if (panelStack.lastOrNull()?.title == localizedString(R.string.player_text_0076)) renderTopPanel()
                 } else {
                     showTransientHint("弹幕源删除失败")
                 }
             } },
-            onError = { runOnUiThread { showTransientHint("弹幕源删除失败") } },
+            onError = { runOnUiThread { if (canRefresh()) showTransientHint("弹幕源删除失败") } },
         )
     }
 
@@ -10378,6 +10530,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf("playLink" to playLink))
         }
         activityDestroying = true
+        releaseDiscardedPlaybackLinks()
         NativeMediaCommandCoordinator.detach(this)
         // 先停媒体服务，再释放 playerSurface。释放内核可能同步/异步回调最终状态，不能让
         // 任何后续清理异常或迟到回调阻止通知被移除、重新把服务拉起。

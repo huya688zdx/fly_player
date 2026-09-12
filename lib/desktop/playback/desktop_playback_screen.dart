@@ -335,6 +335,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _weakNetwork.dispose();
     final session = widget.session;
     final retain =
+        session.retainedByHost &&
+        !session.disposed &&
         session.ready &&
         _errorMessage == null &&
         !_playbackCompleted &&
@@ -964,7 +966,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           remaining > Duration.zero &&
           remaining <= const Duration(seconds: 5);
       if (nearEnd) {
-        _startAutoNextCountdown();
+        _startAutoNextCountdown(position: position);
       } else if (!_player.state.completed &&
           remaining > const Duration(seconds: 5)) {
         _cancelAutoNext(suppress: false);
@@ -1584,7 +1586,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _directLinkTimer?.cancel();
     _controlsHideTimer?.cancel();
     _resumePromptTimer?.cancel();
-    _startAutoNextCountdown();
+    _startAutoNextCountdown(completed: true);
     _updateView(() {
       _playbackCompleted = _autoNextSeconds == 0;
       _controlsVisible = false;
@@ -1637,21 +1639,54 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
   }
 
-  void _startAutoNextCountdown() {
-    if (_autoNextSeconds > 0 ||
+  void _startAutoNextCountdown({Duration? position, bool completed = false}) {
+    if (_isLoading ||
+        _errorMessage != null ||
         _autoNextSuppressed ||
         !_autoPlayEnabled ||
         _nextEpisode == null ||
         widget.resolveEpisode == null ||
         _abLoopStart != null) {
+      _cancelAutoNext(suppress: false);
       return;
     }
-    _updateView(() => _autoNextSeconds = 5);
+    // 片尾只是预提示：剩余时间来自媒体位置，暂停/缓冲不能按墙钟跳过片尾。
+    if (!completed) {
+      if (_autoNextTimer?.isActive == true) return;
+      final remaining =
+          _player.state.duration - (position ?? _player.state.position);
+      final seconds =
+          (remaining.inMicroseconds /
+                  Duration.microsecondsPerSecond /
+                  _validPlaybackRate(_playbackRate))
+              .ceil()
+              .clamp(1, 10);
+      if (seconds != _autoNextSeconds) {
+        _updateView(() => _autoNextSeconds = seconds);
+      }
+      return;
+    }
+    if (_autoNextTimer?.isActive == true) return;
+    final generation = _sourceChangeGeneration;
+    // 已显示片尾预提示时，EOF 后保留最后一秒；无预提示的 EOF 保留原五秒窗口。
+    _updateView(() => _autoNextSeconds = _autoNextSeconds > 0 ? 1 : 5);
     _autoNextTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
+      if (!mounted || generation != _sourceChangeGeneration) {
         timer.cancel();
         return;
       }
+      if (_autoNextSuppressed ||
+          !_autoPlayEnabled ||
+          _nextEpisode == null ||
+          widget.resolveEpisode == null ||
+          _abLoopStart != null ||
+          _errorMessage != null ||
+          _isLoading ||
+          !_player.state.completed) {
+        _cancelAutoNext(suppress: false);
+        return;
+      }
+      if (_pausedByUser || _isBuffering) return;
       if (_autoNextSeconds <= 1) {
         timer.cancel();
         _updateView(() => _autoNextSeconds = 0);
@@ -1770,6 +1805,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   Future<void> _seekTo(Duration position) {
+    _cancelAutoNext(suppress: false);
+    // seek 前内核可能仍是 completed；新位置即使在片尾也必须允许下一次 EOF。
+    if (mounted && _playbackCompleted) {
+      _updateView(() => _playbackCompleted = false);
+    }
     _weakNetwork.markSeek();
     _danmakuSeekRevision++;
     _viewRevision.value++;
@@ -1873,6 +1913,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         );
         if (!_isCurrentSourceChange(generation)) return;
         _updateView(() => _abLoopStart = position);
+        _cancelAutoNext(suppress: false);
         _skipPromptKindNotifier.value = null;
         _showPlayerMessage(
           _l10n.playerAbLoopPointSet(_formatDuration(position)),

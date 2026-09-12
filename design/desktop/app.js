@@ -587,6 +587,7 @@ const player = {
   mini:false, perf:false, drawerTab:'set', epsView:'list', holdT:null, holding:false, osdT:null, cdT:null, cdLeft:10,
 };
 let nextCardShown = false;
+let nextCancelledForEpisode = false;
 const DANM = ['这段运镜绝了','前方高能预警','BGM 一响 眼泪下来了','哈哈哈哈弹幕护体','名场面打卡 ✓','导演出来挨夸','4K 真的值','谁懂这句台词的含金量','补个标：2026 夏','二刷预定','这里的伏笔第三集收','灯光师加鸡腿'];
 const DM_COLORS = ['#FFFFFF','#FFFFFF','#FFFFFF','#FFFFFF','#8EC9FF','#FFE28A','#A8F0C0','#FFB3C7'];
 const QUALITIES = ['4K HDR10+','4K 高码率','1080p REMUX','1080p WEB-DL'];
@@ -605,6 +606,7 @@ function chapterAt(t){ let cur=null; player.chapters.forEach(c=>{ if (t>=c.t) cu
 
 function openPlayer(id, s, e){
   const it = byId(id); if (!it) return;
+  nextCancelledForEpisode = false;
   player.item = it; player.open = true;
   const isTv = it.type==='tv';
   player.s = s || (it.cur ? it.cur.s : 1);
@@ -664,7 +666,7 @@ function drawProgress(){
   $('#plSkip').hidden = !(op && opEnd && player.t >= op.t + 2 && player.t < opEnd - 2);
   $('#plSkipT').textContent = fmt(Math.max(0, opEnd - player.t));
   /* 自动连播：片尾 30s 起浮现倒计时卡（对应 auto_play_enabled） */
-  if (player.item && player.item.type==='tv' && player.playing && player.t > player.dur - 30) showNextCard();
+  if (!nextCancelledForEpisode && player.item && player.item.type==='tv' && player.playing && player.t > player.dur - 30) showNextCard();
   else hideNextCard();
 }
 function seek(sec){
@@ -1177,7 +1179,7 @@ $('#plSkip').onclick = () => {
   if (op && end){ seek(end.t); wake(); showOsd(`已跳过片头 <small>进入 ${end.name} · ${fmt(end.t)}</small>`); }
 };
 $('#plnGo').onclick = () => { hideNextCard(); stepEp(1); };
-$('#plnCancel').onclick = () => { hideNextCard(); toast('已取消本集自动连播','pauseC'); };
+$('#plnCancel').onclick = () => { nextCancelledForEpisode = true; hideNextCard(); toast('已取消本集自动连播','pauseC'); };
 
 /* 画面滚轮：音量；Alt+滚轮：亮度（对应安卓上下滑动调音量/亮度） */
 $('#plScene').addEventListener('wheel', e => {

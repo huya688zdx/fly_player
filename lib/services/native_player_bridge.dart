@@ -164,7 +164,8 @@ class NativePlayerBridge {
       MediaSessionReloadIntent intent,
     )?
     onReloadServerSession,
-    Future<void> Function(String playLink)? onReleaseServerSession,
+    Future<void> Function(String playLink, {String? scope})?
+    onReleaseServerSession,
     Future<String?> Function(String loadArgs, int positionMs)?
     onResolveSegmentedSubtitle,
     Future<void> Function()? onUnbind,
@@ -194,7 +195,12 @@ class NativePlayerBridge {
         case 'releaseServerSession':
           final args = (call.arguments as Map?) ?? const {};
           final link = (args['playLink'] ?? '').toString().trim();
-          if (link.isNotEmpty) await onReleaseServerSession?.call(link);
+          if (link.isNotEmpty) {
+            await onReleaseServerSession?.call(
+              link,
+              scope: args['playbackSessionScope']?.toString(),
+            );
+          }
           return null;
         case 'resolvePlayback':
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
