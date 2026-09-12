@@ -18,6 +18,7 @@ void main() {
 
     expect(find.byType(FlyLoginScreen), findsOneWidget);
     expect(find.text('登录飞翔'), findsOneWidget);
+    await tester.ensureVisible(find.text('暂用原本地媒体连接'));
     await tester.tap(find.text('暂用原本地媒体连接'));
     await tester.pumpAndSettle();
 
