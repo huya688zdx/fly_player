@@ -426,8 +426,8 @@ data class DanmakuDynamicOcclusionState(
     // mask extrapolation in the renderer. 0 = no motion.
     val maskVelocityX: Double = 0.0,
     val maskVelocityY: Double = 0.0,
-    // Plan B: video PTS (ms) this mask was computed for; overlay PTS-syncs to it. 0 = none.
-    val maskPtsMs: Long = 0L,
+    // Plan B: video PTS (ms); 0 is valid. null retains the untimed live/cache path.
+    val maskPtsMs: Long? = null,
     val maskEmptyStep: Boolean = false,
     // Plan B v2: this mask starts a new scene (cut detected). The renderer won't
     // extrapolate it (or across it). false = continuous with the previous mask.
@@ -2516,13 +2516,13 @@ class DanmakuDynamicOcclusionController(
         // frame, not a future PTS; clear any stale Plan B PTS so the overlay uses the
         // extrapolation fallback (not the PTS buffer). Aspect=0 → overlay maps to full
         // view (the rendered-surface mask already includes letterbox bars).
-        latestMaskPtsMs = 0L
+        latestMaskPtsMs = null
         currentPlanBVideoAspect = 0.0
         // Live-capture path (network sources): masks are for the current frame, not a
         // future PTS. Clear any stale Plan B PTS so the overlay uses the extrapolation
         // fallback (not the PTS buffer). Aspect=0 → overlay maps to full view (the
         // rendered-surface mask already includes letterbox bars).
-        latestMaskPtsMs = 0L
+        latestMaskPtsMs = null
         currentPlanBVideoAspect = 0.0
         val captureUnavailableReason = captureUnavailableReason()
         if (captureUnavailableReason != null) {
@@ -2817,9 +2817,9 @@ class DanmakuDynamicOcclusionController(
 
     // --- Plan B mask metadata (shared by the producer pipeline + live-capture path) ---
     // PTS (video ms) the latest mask was computed for. The pipeline tags each mask so the
-    // overlay PTS-syncs to it; the live-capture path sets 0 (no PTS sync).
+    // overlay PTS-syncs to it; the live-capture path sets null (no PTS sync).
     @Volatile
-    private var latestMaskPtsMs = 0L
+    private var latestMaskPtsMs: Long? = null
 
     // Video display aspect (w/h) attached to the most recent mask. >0 for pipeline masks
     // (raw-frame mask → overlay maps it to the letterboxed video rect); 0 for the
@@ -8155,7 +8155,7 @@ class DanmakuDynamicOcclusionController(
         }
         val backendWireValue =
             latestState.backend.takeIf { it.isNotBlank() } ?: currentBackendOrFallback().wireValue
-        emitState(
+        val replay =
             DanmakuDynamicOcclusionState(
                 enabled = config.enabled,
                 available = true,
@@ -8175,7 +8175,9 @@ class DanmakuDynamicOcclusionController(
                 degradationLevel = currentDegradationLevel().wireValue,
                 effectiveSampleIntervalMs = currentSampleIntervalMs(),
                 effectiveInputWidth = effectiveInputWidth(),
-            ),
+            )
+        emitState(
+            DanmakuMaskTimestampPolicy.preserveTimedSample(latestState, replay),
             latestRuntimeMaskBitmap,
         )
     }
