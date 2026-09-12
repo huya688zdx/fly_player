@@ -2390,7 +2390,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun setDanmakuEnabled(enabled: Boolean) {
         danmakuEnabled = enabled
         danmakuSettings["enabled"] = enabled
-        if (this::playerSurface.isInitialized) playerSurface.setDanmakuVisible(enabled)
+        if (this::playerSurface.isInitialized) {
+            playerSurface.setDanmakuVisible(enabled)
+            playerSurface.setDanmakuSettings(danmakuSettings)
+        }
         refreshDanmakuToggleIcon()
         showTransientHint(
             if (enabled) {
@@ -2975,7 +2978,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (effectiveDanmaku != null) {
             captureDanmakuSettings(effectiveDanmaku) // 同步镜像，供弹幕设置子页初值/后续整集发送
             applyPersistedDanmakuPrefs() // 原生持久化的显示偏好优先于 payload 自带设置
-            // 单次推送（comments + 偏好合并）：二次 settings 推送会 bump generation 把弹幕丢掉。
+            // comments 与当前偏好作为同一份起播快照下发。
             Log.d(
                 "NativePlayerActivity",
                 "[DANMAKU][NATIVE_SWITCH] setDanmakuPayload item=$nextItemGuid " +
@@ -8447,9 +8450,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /**
      * 返回「带 comments 的 payload + 当前开关/已存显示偏好」合并副本，用于**一次性** setDanmakuPayload。
      *
-     * 关键：不能先 setDanmakuPayload(comments) 再 setDanmakuSettings(prefs)——后者是不带 comments
-     * 的新一轮推送，会 ++payloadGeneration，把前一条仍在后台解析的「带 comments」任务作废
-     * （NativeDanmakuOverlayView.setPayload 的 generation 校验），导致弹幕永远进不了 overlay。
+     * comments 与显示偏好在同一份起播快照中进入 overlay，避免评论先按 payload 自带旧偏好落地。
      */
     private fun payloadWithPersistedDanmakuPrefs(payload: Map<String, Any?>): Map<String, Any?> {
         val merged = HashMap<String, Any?>(payload)
@@ -9289,7 +9290,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             applyPersistedDanmakuPrefs() // 手动加载的弹幕也套用持久化显示偏好
             // 先更新运行期开关，再生成 payload；否则后台解析完成后会把 enabled=false 覆盖回来。
             setDanmakuEnabled(true)
-            // 单次推送（comments + 偏好合并）：二次 settings 推送会 bump generation 把弹幕丢掉。
+            // comments 与当前偏好作为同一份手动加载快照下发。
             playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(payload))
             // 记入「已保存来源」
             pendingDanmakuSource?.let { saveDanmakuSource(it.copy(updatedAt = System.currentTimeMillis())) }
