@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../desktop/desktop_environment.dart';
+import '../desktop/desktop_context_menu.dart';
+import '../desktop/desktop_floating_panel.dart';
+import '../desktop/desktop_hover_dropdown.dart';
 import '../services/fly_data/fly_account_controller.dart';
 import '../theme/app_theme.dart';
-import '../ui/app_centered_modal.dart';
 import '../ui/app_info_popover.dart';
 import '../ui/app_sheet_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
@@ -95,7 +97,7 @@ Future<bool> activateFlyBinding(
         }
       }
     }
-    final selected = await TrackOptionSheet.show(
+    final selected = await _showFlyOptions(
       context,
       title: '连接设置',
       selectedId: selectedId,
@@ -519,7 +521,7 @@ class FlyBindingsScreen extends StatelessWidget {
         );
         return;
       }
-      serverId = await TrackOptionSheet.show(
+      serverId = await _showFlyOptions(
         context,
         title: '选择已登记服务器',
         items: [
@@ -572,14 +574,25 @@ class FlyBindingsScreen extends StatelessWidget {
     FlyAccountController account,
   ) async {
     final accountKey = account.accountKey;
-    final kind = await showAppActionSheet<String>(
-      context,
-      title: '媒体服务器类型',
-      options: [
-        for (final kind in ['feiniu', 'emby', 'jellyfin'])
-          AppActionSheetOption(value: kind, label: _backendLabel(kind)),
-      ],
-    );
+    const kinds = ['feiniu', 'emby', 'jellyfin'];
+    final selection = DesktopEnvironment.isDesktopPlatform
+        ? _showFlyOptions(
+            context,
+            title: '媒体服务器类型',
+            items: [
+              for (final kind in kinds)
+                TrackOptionSheetItem(id: kind, title: _backendLabel(kind)),
+            ],
+          )
+        : showAppActionSheet<String>(
+            context,
+            title: '媒体服务器类型',
+            options: [
+              for (final kind in kinds)
+                AppActionSheetOption(value: kind, label: _backendLabel(kind)),
+            ],
+          );
+    final kind = await selection;
     if (kind == null || !context.mounted) return;
     if (account.accountKey != accountKey) {
       _showChangedAccount(context);
@@ -703,9 +716,7 @@ Future<Map<String, String>?> flyForm(
   Set<String> secretKeys = const {},
   Set<String> optionalKeys = const {},
 }) {
-  final desktop =
-      DesktopEnvironment.isDesktopPlatform &&
-      MediaQuery.sizeOf(context).width >= 900;
+  final desktop = DesktopEnvironment.isDesktopPlatform;
   Widget form(BuildContext _) => _FlyAccountForm(
     title: title,
     fields: fields,
@@ -714,10 +725,9 @@ Future<Map<String, String>?> flyForm(
     floating: desktop,
   );
   if (desktop) {
-    return AppCenteredModal.show<Map<String, String>>(
+    return _showFlyDesktopPanel<Map<String, String>>(
       context,
-      barrierColor: context.appColors.overlayScrim,
-      insetPadding: const EdgeInsets.all(20),
+      title: title,
       builder: form,
     );
   }
@@ -726,6 +736,112 @@ Future<Map<String, String>?> flyForm(
     barrierColor: context.appColors.overlayScrim,
     barrierLabel: title,
     builder: form,
+  );
+}
+
+Future<String?> _showFlyOptions(
+  BuildContext context, {
+  required String title,
+  required List<TrackOptionSheetItem> items,
+  String? selectedId,
+}) {
+  if (!DesktopEnvironment.isDesktopPlatform) {
+    return TrackOptionSheet.show(
+      context,
+      title: title,
+      items: items,
+      selectedId: selectedId,
+    );
+  }
+  return _showFlyDesktopPanel<String>(
+    context,
+    title: title,
+    builder: (context) => _FlyDesktopPanel(
+      title: title,
+      child: ListView.separated(
+        shrinkWrap: true,
+        padding: EdgeInsets.zero,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 4),
+        itemBuilder: (context, index) => DesktopDropdownOptionRow(
+          item: items[index],
+          selected: items[index].id == selectedId,
+          onTap: () => AppSheetTransitions.close(context, items[index].id),
+        ),
+      ),
+    ),
+  );
+}
+
+// Same centered glass-panel route as the desktop catalog filters. Platform
+// chooses the shell; window dimensions only constrain its available space.
+Future<T?> _showFlyDesktopPanel<T>(
+  BuildContext context, {
+  required String title,
+  required WidgetBuilder builder,
+}) => AppSheetTransitions.showAdaptiveSheet<T>(
+  context,
+  barrierLabel: title,
+  barrierColor: context.appColors.overlayScrim.withValues(alpha: .18),
+  builder: (context) => Padding(
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: SafeArea(
+      minimum: const EdgeInsets.all(24),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 470,
+              maxHeight: constraints.maxHeight * .9,
+            ),
+            child: builder(context),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
+class _FlyDesktopPanel extends StatelessWidget {
+  const _FlyDesktopPanel({required this.title, required this.child});
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => DesktopFloatingPanel(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: context.appColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                icon: const Icon(Icons.close_rounded, size: 18),
+                onPressed: () => AppSheetTransitions.close(context),
+              ),
+            ],
+          ),
+        ),
+        Flexible(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+            child: child,
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -762,59 +878,61 @@ class _FlyAccountFormState extends State<_FlyAccountForm> {
   }
 
   @override
-  Widget build(BuildContext context) => ConstrainedBox(
-    constraints: const BoxConstraints(maxWidth: 470),
-    child: AppOptionSheetPanel(
-      title: widget.title,
-      floating: widget.floating,
-      child: Form(
-        key: _form,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Flexible(
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final entry in widget.fields.entries)
-                      _field(
-                        controllers[entry.key]!,
-                        entry.value,
-                        secret: widget.secretKeys.contains(entry.key),
-                        optional: widget.optionalKeys.contains(entry.key),
-                      ),
-                  ],
-                ),
+  Widget build(BuildContext context) {
+    final content = Form(
+      key: _form,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final entry in widget.fields.entries)
+                    _field(
+                      controllers[entry.key]!,
+                      entry.value,
+                      secret: widget.secretKeys.contains(entry.key),
+                      optional: widget.optionalKeys.contains(entry.key),
+                    ),
+                ],
               ),
             ),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
-                  ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () {
-                      if (_form.currentState?.validate() != true) return;
-                      Navigator.pop(context, {
-                        for (final entry in controllers.entries)
-                          entry.key: entry.value.text,
-                      });
-                    },
-                    child: const Text('确定'),
-                  ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () {
+                    if (_form.currentState?.validate() != true) return;
+                    Navigator.pop(context, {
+                      for (final entry in controllers.entries)
+                        entry.key: entry.value.text,
+                    });
+                  },
+                  child: const Text('确定'),
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+        ],
       ),
-    ),
-  );
+    );
+    if (widget.floating) {
+      return _FlyDesktopPanel(title: widget.title, child: content);
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 470),
+      child: AppOptionSheetPanel(title: widget.title, child: content),
+    );
+  }
 }
