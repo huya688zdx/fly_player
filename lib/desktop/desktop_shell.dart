@@ -12,7 +12,9 @@ import '../media_backend/media_catalog.dart';
 import '../models/media_item.dart';
 import '../models/play_info.dart';
 import '../playback/playback_source.dart';
+import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
+import '../providers/nas_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
 import '../screens/app_settings_screen.dart';
 import '../screens/media_list_screen.dart';
@@ -152,7 +154,8 @@ class _DesktopShellState extends State<DesktopShell>
   int _sidebarTv = 0;
   int _sidebarFavorite = 0;
   int _sidebarOther = 0;
-  bool _sidebarDataLoaded = false;
+  Object? _sidebarSessionKey;
+  int _sidebarLoadGeneration = 0;
 
   late int _selectedTab = widget.initialTab;
 
@@ -182,10 +185,51 @@ class _DesktopShellState extends State<DesktopShell>
       _splitController.paneFraction,
     );
     _splitController.addListener(_onSplitLayoutChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // MediaBackendProvider caches its getter but does not forward session
+    // notifications. Observe the actual session owners, including same-kind
+    // bindings and legacy NAS credential/address changes.
+    final nas = Provider.of<NasProvider?>(context);
+    final session = Provider.of<BackendSessionProvider?>(context);
+    final key = _sidebarIdentity(nas, session);
+    if (key == _sidebarSessionKey) return;
+    _sidebarSessionKey = key;
+    final generation = ++_sidebarLoadGeneration;
+    _sidebarCatalogs = const <MediaCatalog>[];
+    _sidebarTotal = 0;
+    _sidebarMovie = 0;
+    _sidebarTv = 0;
+    _sidebarFavorite = 0;
+    _sidebarOther = 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadSidebarCatalogData();
+      unawaited(_loadSidebarCatalogData(generation));
     });
   }
+
+  static Object _sidebarIdentity(
+    NasProvider? nas,
+    BackendSessionProvider? session,
+  ) => (
+    session?.currentKind,
+    session?.currentConnection,
+    nas?.baseUrl,
+    nas?.userName,
+    nas?.token,
+    nas?.accessCode,
+  );
+
+  bool _isCurrentSidebarLoad(int generation) =>
+      mounted &&
+      generation == _sidebarLoadGeneration &&
+      _sidebarSessionKey ==
+          _sidebarIdentity(
+            context.read<NasProvider?>(),
+            context.read<BackendSessionProvider?>(),
+          );
 
   @override
   void dispose() {
@@ -216,15 +260,15 @@ class _DesktopShellState extends State<DesktopShell>
     });
   }
 
-  Future<void> _loadSidebarCatalogData() async {
-    if (_sidebarDataLoaded) return;
+  Future<void> _loadSidebarCatalogData(int generation) async {
+    if (!_isCurrentSidebarLoad(generation)) return;
     try {
       final backend = context.read<MediaBackendProvider>().backend;
       final results = await Future.wait(<Future<Object?>>[
         backend.getCatalogs(),
         backend.getHomeSummary(),
       ]);
-      if (!mounted) return;
+      if (!_isCurrentSidebarLoad(generation)) return;
       final summary = results[1] as Map<String, dynamic>;
       setState(() {
         _sidebarCatalogs = results[0] as List<MediaCatalog>;
@@ -233,7 +277,6 @@ class _DesktopShellState extends State<DesktopShell>
         _sidebarTv = _summaryIntOf(summary, 'tv');
         _sidebarFavorite = _summaryIntOf(summary, 'favorite');
         _sidebarOther = _summaryIntOf(summary, 'other');
-        _sidebarDataLoaded = true;
       });
     } catch (_) {
       // 测试环境 / 未连接 / 后端不支持：侧栏分组静默降级为无计数。

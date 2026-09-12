@@ -21,6 +21,10 @@ class PlayStatsMetadataBackfillService {
   final Set<String> _preferredVideoIds = <String>{};
   Future<void>? _activeRun;
 
+  Future<void> drainPendingWrites() async {
+    await _activeRun;
+  }
+
   /// 根据数据库与仓储依赖构造回填服务。
   PlayStatsMetadataBackfillService({
     required PlayStatsDatabase database,
@@ -51,12 +55,14 @@ class PlayStatsMetadataBackfillService {
       return active;
     }
     final future = _run(gateway: gateway, limit: limit);
-    _activeRun = future.whenComplete(() {
-      if (identical(_activeRun, future)) {
+    late final Future<void> tracked;
+    tracked = future.whenComplete(() {
+      if (identical(_activeRun, tracked)) {
         _activeRun = null;
       }
     });
-    return _activeRun!;
+    _activeRun = tracked;
+    return tracked;
   }
 
   Future<void> _run({
