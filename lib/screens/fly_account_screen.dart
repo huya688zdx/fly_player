@@ -4,21 +4,59 @@ import 'package:provider/provider.dart';
 import '../desktop/desktop_environment.dart';
 import '../services/fly_data/fly_account_controller.dart';
 import '../theme/app_theme.dart';
+import '../ui/app_centered_modal.dart';
+import '../ui/app_info_popover.dart';
+import '../ui/app_sheet_transitions.dart';
+import '../ui/secondary_host_navigation.dart';
+import '../utils/app_confirm_dialog.dart';
+import '../utils/app_top_tip.dart';
+import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_ambient_page.dart';
+import '../widgets/common/app_option_list.dart';
+import '../widgets/common/track_option_sheet.dart';
 import 'connection_screen.dart';
 import 'fly_data_settings_screen.dart';
 
 part 'fly_account_widgets.dart';
+
+bool _bindingStillCurrent(
+  FlyAccountController account,
+  String accountKey,
+  Object? bindingId,
+  Object? revision,
+) =>
+    account.accountKey == accountKey &&
+    account.bindings.any(
+      (item) => item['id'] == bindingId && item['revision'] == revision,
+    );
+
+void _showChangedAccount(BuildContext context) {
+  if (!context.mounted) return;
+  AppTopTip().show(
+    context,
+    message: '账号或媒体来源已改变，请重新打开设置。',
+    color: context.appColors.surfaceStrong,
+  );
+}
 
 /// Shared by the home source selector and the account page.
 /// Navigation belongs to the caller; failure or cancellation stays put.
 Future<bool> activateFlyBinding(
   BuildContext context,
   FlyAccountController account,
-  Map<String, dynamic> binding,
-) async {
-  if (account.busy) return false;
+  Map<String, dynamic> binding, {
+  bool chooseAddress = false,
+}) async {
+  if (account.busy || !context.mounted) return false;
+  final accountKey = account.accountKey;
+  final bindingId = binding['id'], revision = binding['revision'];
+  bool current() =>
+      _bindingStillCurrent(account, accountKey, bindingId, revision);
   try {
+    if (!chooseAddress) {
+      await account.activate(binding);
+      return current();
+    }
     final server = binding['server'] as Map? ?? const {};
     final addresses =
         (server['addresses'] as List? ?? const [])
@@ -33,42 +71,56 @@ Future<bool> activateFlyBinding(
               (b['priority'] as num?)?.toInt() ?? 0,
             ),
           );
-    String? selected;
-    if (addresses.length == 1) {
-      selected = addresses.single['base_url'] as String;
-    } else if (addresses.length > 1) {
-      selected = await showDialog<String>(
-        context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('选择播放连接'),
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, 12),
-              child: Text('选择当前网络可访问的地址。'),
-            ),
-            for (final address in addresses)
-              SimpleDialogOption(
-                onPressed: () =>
-                    Navigator.pop(context, address['base_url'] as String),
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(_addressIcon(address['purpose'])),
-                  title: Text(_addressLabel(address['purpose'])),
-                  subtitle: Text(address['base_url'] as String),
-                ),
-              ),
-          ],
-        ),
+    if (addresses.isEmpty) {
+      AppTopTip().show(
+        context,
+        message: '暂无可手动选择的播放地址，请刷新媒体来源后重试。',
+        color: context.appColors.surfaceStrong,
       );
-      if (selected == null || !context.mounted) return false;
+      return false;
     }
-    if (!context.mounted) return false;
+    String? selectedId;
+    final connection = account.backendSession.currentConnection;
+    if (connection != null &&
+        connection.accountKey == accountKey &&
+        connection.bindingId == bindingId &&
+        connection.bindingRevision == revision) {
+      String normalized(String value) =>
+          value.trim().replaceFirst(RegExp(r'/+$'), '');
+      for (final address in addresses) {
+        final url = address['base_url'] as String;
+        if (normalized(url) == normalized(connection.serverUrl)) {
+          selectedId = url;
+          break;
+        }
+      }
+    }
+    final selected = await TrackOptionSheet.show(
+      context,
+      title: '连接设置',
+      selectedId: selectedId,
+      items: [
+        for (final address in addresses)
+          TrackOptionSheetItem(
+            id: address['base_url'] as String,
+            title: _addressLabel(address['purpose']),
+            subtitle: address['base_url'] as String,
+          ),
+      ],
+    );
+    if (selected == null || !context.mounted || account.busy) return false;
+    if (!current()) {
+      _showChangedAccount(context);
+      return false;
+    }
     await account.activate(binding, address: selected);
-    return true;
+    return current();
   } catch (error) {
     if (context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(FlyAccountController.safeMessage(error))),
+      AppTopTip().show(
+        context,
+        message: FlyAccountController.safeMessage(error),
+        color: context.appColors.surfaceStrong,
       );
     }
     return false;
@@ -205,32 +257,36 @@ class FlyBindingsScreen extends StatelessWidget {
     Map<String, dynamic> binding,
     String action,
   ) async {
+    if (account.busy || !context.mounted) return;
+    final accountKey = account.accountKey;
+    final bindingId = binding['id'], revision = binding['revision'];
     switch (action) {
       case 'address':
-        await activateFlyBinding(context, account, binding);
+        await activateFlyBinding(
+          context,
+          account,
+          binding,
+          chooseAddress: true,
+        );
       case 'reauthorize':
         await _bindingForm(context, account, binding: binding);
       case 'sync':
         await _run(() => account.syncCatalog(binding));
       case 'unbind':
-        final yes = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('移除媒体来源'),
-            content: const Text('停止同步此来源并清除其媒体凭据，已有播放历史保留。'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('移除'),
-              ),
-            ],
-          ),
+        final yes = await showAppConfirmDialog(
+          context,
+          title: '移除媒体来源',
+          content: '停止同步此来源并清除其媒体凭据，已有播放历史保留。',
+          cancelText: '取消',
+          confirmText: '移除',
         );
-        if (yes == true) await _run(() => account.unbind(binding));
+        if (yes && context.mounted) {
+          if (!_bindingStillCurrent(account, accountKey, bindingId, revision)) {
+            _showChangedAccount(context);
+            return;
+          }
+          await _run(() => account.unbind(binding));
+        }
     }
   }
 
@@ -240,6 +296,7 @@ class FlyBindingsScreen extends StatelessWidget {
     if (account.session == null) return const FlyLoginScreen();
     final session = account.session!;
     final colors = context.appColors;
+    final accountKey = account.accountKey;
     return _page('账号与媒体来源', [
       _FlySurface(
         child: Row(
@@ -267,7 +324,7 @@ class FlyBindingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '飞翔账号 · App 与 NAS 共用',
+                    '飞翔账号 · 与管理后台共用',
                     style: TextStyle(color: colors.textMuted, fontSize: 12),
                   ),
                 ],
@@ -283,7 +340,7 @@ class FlyBindingsScreen extends StatelessWidget {
       const SizedBox(height: 28),
       _FlySectionTitle(
         title: '我的媒体来源',
-        subtitle: '选择一个来源，回到熟悉的媒体库继续观看。',
+        subtitle: '已同步绑定，选择来源即可连接。',
         action: IconButton(
           tooltip: '刷新媒体来源',
           onPressed: account.busy ? null : () => _run(account.refresh),
@@ -316,8 +373,18 @@ class FlyBindingsScreen extends StatelessWidget {
           busy: account.busy,
           onEnter: () => _enterSource(context, account, binding),
           onReauthorize: () => _bindingForm(context, account, binding: binding),
-          onAction: (action) =>
-              _sourceAction(context, account, binding, action),
+          onAction: (action) {
+            if (!_bindingStillCurrent(
+              account,
+              accountKey,
+              binding['id'],
+              binding['revision'],
+            )) {
+              _showChangedAccount(context);
+              return;
+            }
+            _sourceAction(context, account, binding, action);
+          },
         ),
         const SizedBox(height: 12),
       ],
@@ -366,7 +433,11 @@ class FlyBindingsScreen extends StatelessWidget {
                       final values = await flyForm(context, '添加飞翔服务地址', {
                         'url': 'HTTPS / VPN / 局域网根地址',
                       });
-                      if (values != null) {
+                      if (values != null && context.mounted) {
+                        if (account.accountKey != accountKey) {
+                          _showChangedAccount(context);
+                          return;
+                        }
                         await _run(() => account.switchAddress(values['url']!));
                       }
                     },
@@ -428,34 +499,44 @@ class FlyBindingsScreen extends StatelessWidget {
     FlyAccountController account, {
     Map<String, dynamic>? binding,
   }) async {
+    final accountKey = account.accountKey;
+    final bindingId = binding?['id'], revision = binding?['revision'];
+    bool current() =>
+        account.accountKey == accountKey &&
+        (binding == null ||
+            _bindingStillCurrent(account, accountKey, bindingId, revision));
     String? serverId = binding?['server_id'] as String?;
     if (serverId == null) {
       if (account.servers.isEmpty) {
         await _run(account.refresh);
         if (!context.mounted) return;
       }
-      serverId = await showDialog<String>(
-        context: context,
-        builder: (context) => SimpleDialog(
-          title: const Text('选择已登记服务器'),
-          children: [
-            if (account.servers.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Text('没有可用服务器，请管理员先登记。'),
-              ),
-            for (final server in account.servers)
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, server['id'] as String),
-                child: Text(
-                  '${server['name']} · ${_backendLabel(server['kind'])}',
-                ),
-              ),
-          ],
-        ),
+      if (account.servers.isEmpty) {
+        AppTopTip().show(
+          context,
+          message: '没有可用服务器，请管理员先登记。',
+          color: context.appColors.surfaceStrong,
+        );
+        return;
+      }
+      serverId = await TrackOptionSheet.show(
+        context,
+        title: '选择已登记服务器',
+        items: [
+          for (final server in account.servers)
+            TrackOptionSheetItem(
+              id: server['id'] as String,
+              title: server['name'] as String? ?? '媒体服务器',
+              subtitle: _backendLabel(server['kind']),
+            ),
+        ],
       );
     }
     if (serverId == null || !context.mounted) return;
+    if (!current()) {
+      _showChangedAccount(context);
+      return;
+    }
     final values = await flyForm(
       context,
       binding == null ? '绑定媒体账号' : '重新授权',
@@ -466,7 +547,11 @@ class FlyBindingsScreen extends StatelessWidget {
       },
       secretKeys: {'password'},
     );
-    if (values == null) return;
+    if (values == null || !context.mounted) return;
+    if (!current()) {
+      _showChangedAccount(context);
+      return;
+    }
     if (binding == null) {
       await _run(
         () => account.createBinding({'server_id': serverId, ...values}),
@@ -486,20 +571,20 @@ class FlyBindingsScreen extends StatelessWidget {
     BuildContext context,
     FlyAccountController account,
   ) async {
-    final kind = await showDialog<String>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('媒体服务器类型'),
-        children: [
-          for (final kind in ['feiniu', 'emby', 'jellyfin'])
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, kind),
-              child: Text(_backendLabel(kind)),
-            ),
-        ],
-      ),
+    final accountKey = account.accountKey;
+    final kind = await showAppActionSheet<String>(
+      context,
+      title: '媒体服务器类型',
+      options: [
+        for (final kind in ['feiniu', 'emby', 'jellyfin'])
+          AppActionSheetOption(value: kind, label: _backendLabel(kind)),
+      ],
     );
     if (kind == null || !context.mounted) return;
+    if (account.accountKey != accountKey) {
+      _showChangedAccount(context);
+      return;
+    }
     final values = await flyForm(
       context,
       '登记服务器',
@@ -512,7 +597,11 @@ class FlyBindingsScreen extends StatelessWidget {
       },
       optionalKeys: {'client_lan', 'client_remote', 'vpn'},
     );
-    if (values != null) {
+    if (values != null && context.mounted) {
+      if (account.accountKey != accountKey) {
+        _showChangedAccount(context);
+        return;
+      }
       await _run(
         () => account.createServer({
           'kind': kind,
@@ -563,6 +652,7 @@ Widget _field(
   String? hint,
   bool secret = false,
   bool enabled = true,
+  bool optional = false,
   TextInputType? keyboard,
   ValueChanged<String>? onSubmitted,
 }) => Builder(
@@ -579,7 +669,9 @@ Widget _field(
         keyboardType: keyboard,
         onFieldSubmitted: onSubmitted,
         validator: (value) =>
-            value == null || value.trim().isEmpty ? '请填写$label' : null,
+            !optional && (value == null || value.trim().isEmpty)
+            ? '请填写$label'
+            : null,
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
@@ -594,6 +686,10 @@ Widget _field(
             borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide(color: colors.borderSubtle),
           ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: colors.accent),
+          ),
         ),
       ),
     );
@@ -606,57 +702,119 @@ Future<Map<String, String>?> flyForm(
   Map<String, String> fields, {
   Set<String> secretKeys = const {},
   Set<String> optionalKeys = const {},
-}) async {
-  final controllers = {
-    for (final key in fields.keys) key: TextEditingController(),
-  };
-  try {
-    return await showDialog<Map<String, String>>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: 470,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final entry in fields.entries)
-                  _field(
-                    controllers[entry.key]!,
-                    entry.value,
-                    secret: secretKeys.contains(entry.key),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (controllers.entries.any(
-                (e) =>
-                    !optionalKeys.contains(e.key) &&
-                    e.value.text.trim().isEmpty,
-              )) {
-                return;
-              }
-              Navigator.pop(context, {
-                for (final e in controllers.entries) e.key: e.value.text,
-              });
-            },
-            child: const Text('确定'),
-          ),
-        ],
-      ),
+}) {
+  final desktop =
+      DesktopEnvironment.isDesktopPlatform &&
+      MediaQuery.sizeOf(context).width >= 900;
+  Widget form(BuildContext _) => _FlyAccountForm(
+    title: title,
+    fields: fields,
+    secretKeys: secretKeys,
+    optionalKeys: optionalKeys,
+    floating: desktop,
+  );
+  if (desktop) {
+    return AppCenteredModal.show<Map<String, String>>(
+      context,
+      barrierColor: context.appColors.overlayScrim,
+      insetPadding: const EdgeInsets.all(20),
+      builder: form,
     );
-  } finally {
+  }
+  return AppSheetTransitions.showBottomSurface<Map<String, String>>(
+    context,
+    barrierColor: context.appColors.overlayScrim,
+    barrierLabel: title,
+    builder: form,
+  );
+}
+
+/// Form state stays alive through the shared modal's closing transition.
+class _FlyAccountForm extends StatefulWidget {
+  const _FlyAccountForm({
+    required this.title,
+    required this.fields,
+    required this.secretKeys,
+    required this.optionalKeys,
+    required this.floating,
+  });
+  final String title;
+  final Map<String, String> fields;
+  final Set<String> secretKeys, optionalKeys;
+  final bool floating;
+
+  @override
+  State<_FlyAccountForm> createState() => _FlyAccountFormState();
+}
+
+class _FlyAccountFormState extends State<_FlyAccountForm> {
+  final _form = GlobalKey<FormState>();
+  late final controllers = {
+    for (final key in widget.fields.keys) key: TextEditingController(),
+  };
+
+  @override
+  void dispose() {
     for (final controller in controllers.values) {
       controller.dispose();
     }
+    super.dispose();
   }
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 470),
+    child: AppOptionSheetPanel(
+      title: widget.title,
+      floating: widget.floating,
+      child: Form(
+        key: _form,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final entry in widget.fields.entries)
+                      _field(
+                        controllers[entry.key]!,
+                        entry.value,
+                        secret: widget.secretKeys.contains(entry.key),
+                        optional: widget.optionalKeys.contains(entry.key),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () {
+                      if (_form.currentState?.validate() != true) return;
+                      Navigator.pop(context, {
+                        for (final entry in controllers.entries)
+                          entry.key: entry.value.text,
+                      });
+                    },
+                    child: const Text('确定'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

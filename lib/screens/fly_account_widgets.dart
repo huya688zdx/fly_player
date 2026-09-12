@@ -14,12 +14,6 @@ String _addressLabel(Object? purpose) => switch (purpose) {
   _ => '其他连接',
 };
 
-IconData _addressIcon(Object? purpose) => switch (purpose) {
-  'client_lan' => Icons.lan_outlined,
-  'vpn' => Icons.vpn_lock_outlined,
-  _ => Icons.public_rounded,
-};
-
 class _FlyAccountPage extends StatelessWidget {
   const _FlyAccountPage({required this.title, required this.children});
 
@@ -35,9 +29,8 @@ class _FlyAccountPage extends StatelessWidget {
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
           title: Text(
             title,
             style: TextStyle(
@@ -149,7 +142,7 @@ class _FlyLoginPage extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              '与 NAS 共用一个账号，管理媒体来源和观看记录。',
+                              '使用飞翔管理后台的账号，管理媒体来源和观看记录。',
                               style: TextStyle(
                                 color: colors.textSecondary,
                                 fontSize: 13,
@@ -187,19 +180,14 @@ class _FlySurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return Container(
-      padding: padding,
+    return Card(
+      margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppAmbientPage.cardColorOf(context, colors.surface),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: selected
-              ? colors.selection.withValues(alpha: 0.65)
-              : colors.borderSubtle,
-        ),
+      color: AppAmbientPage.cardColorOf(
+        context,
+        selected ? colors.selectionSoft : colors.surface,
       ),
-      child: child,
+      child: Padding(padding: padding, child: child),
     );
   }
 }
@@ -223,13 +211,37 @@ class _FlySectionTitle extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  AppInfoPopoverAnchor(
+                    title: '媒体来源',
+                    description:
+                        '先登录飞翔，再选择已同步绑定的媒体来源。已绑定的来源无需再次输入媒体账号或地址，播放器会自动尝试可用连接。',
+                    detail:
+                        '需要指定网络地址时，打开来源设置中的“连接设置”。只有媒体服务要求重新授权时才需要再次登录媒体账号。',
+                    child: Tooltip(
+                      message: '媒体来源说明',
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Icon(
+                          Icons.info_outline_rounded,
+                          size: 18,
+                          color: colors.textMuted,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 6),
               Text(
@@ -350,26 +362,40 @@ class _FlySourceCard extends StatelessWidget {
                   ],
                 ),
               ),
-              PopupMenuButton<String>(
+              IconButton(
                 tooltip: '来源设置',
-                enabled: !busy,
-                onSelected: onAction,
                 icon: const Icon(Icons.more_horiz_rounded),
-                itemBuilder: (_) => [
-                  if (available)
-                    const PopupMenuItem(
-                      value: 'address',
-                      child: Text('更换连接地址'),
-                    ),
-                  const PopupMenuItem(
-                    value: 'reauthorize',
-                    child: Text('重新授权'),
-                  ),
-                  if (status != 'unbound') ...[
-                    const PopupMenuItem(value: 'sync', child: Text('同步节目资料')),
-                    const PopupMenuItem(value: 'unbind', child: Text('移除媒体来源')),
-                  ],
-                ],
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final action = await showAppActionSheet<String>(
+                          context,
+                          title: binding['label'] as String? ?? '来源设置',
+                          options: [
+                            if (available)
+                              const AppActionSheetOption(
+                                value: 'address',
+                                label: '连接设置',
+                              ),
+                            const AppActionSheetOption(
+                              value: 'reauthorize',
+                              label: '重新授权',
+                            ),
+                            if (status != 'unbound') ...[
+                              const AppActionSheetOption(
+                                value: 'sync',
+                                label: '同步节目资料',
+                              ),
+                              const AppActionSheetOption(
+                                value: 'unbind',
+                                label: '移除媒体来源',
+                                destructive: true,
+                              ),
+                            ],
+                          ],
+                        );
+                        if (action != null && context.mounted) onAction(action);
+                      },
               ),
             ],
           ),
