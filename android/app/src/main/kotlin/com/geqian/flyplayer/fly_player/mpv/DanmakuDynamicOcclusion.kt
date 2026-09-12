@@ -1118,6 +1118,7 @@ class DanmakuDynamicOcclusionController(
     @Volatile
     private var warmStartDelayUntilUptimeMs = 0L
 
+    @Volatile
     private var latestState = DanmakuDynamicOcclusionState.disabled()
     private var latestRect: DanmakuNormalizedRect? = null
     private var latestTrackingRect: DanmakuNormalizedRect? = null
@@ -1365,7 +1366,7 @@ class DanmakuDynamicOcclusionController(
         replaceRuntimeMaskBitmap(null)
         consecutiveEmptyFrames = 0
         // Force a fresh segmentation on the next sample (don't reuse a stale baseline).
-        lastInferredLumaGrid = null
+        lastSuccessfulLumaGrid = null
         consecutiveStaticSkips = 0
         previousFrameLumaSignature = null
         sceneCutRecoveryActive = false
@@ -2642,11 +2643,10 @@ class DanmakuDynamicOcclusionController(
     private var prevMotionLumaGrid: IntArray? = null
     private var prevMotionLumaUptimeMs = 0L
 
-    // Static-scene skip: the luma grid at the last frame we actually ran segmentation
-    // on. If the current frame barely differs, the mask hasn't meaningfully changed —
-    // skip the (CPU-heavy, throttling-inducing) seg and keep the last mask. Re-infer at
-    // least every N skips so slow drift / a missed change can't freeze the mask forever.
-    private var lastInferredLumaGrid: IntArray? = null
+    // 静止复用只比较最近成功应用遮罩的画面；空结果使基线失效，等待下一次成功推理。
+    // 连续复用仍有上限，避免缓慢变化被无限忽略。
+    @Volatile
+    private var lastSuccessfulLumaGrid: IntArray? = null
     private var consecutiveStaticSkips = 0
 
     @Volatile
@@ -2858,7 +2858,7 @@ class DanmakuDynamicOcclusionController(
                         positionMsProvider = positionProviderMs,
                         playbackSpeedProvider = playbackSpeedProvider,
                         decodeSourceProvider = { currentPlanBDecodeSource() },
-                        onStep = { step -> mainHandler.post { emitPipelineStep(step) } },
+                        onStep = { pipeline, step -> mainHandler.post { emitPipelineStep(pipeline, step) } },
                         onSourceFailure = { failedSource, reason ->
                             mainHandler.post { handlePlanBSourceFailure(failedSource, reason) }
                         },
@@ -2895,8 +2895,15 @@ class DanmakuDynamicOcclusionController(
         pipeline?.release()
     }
 
-    private fun emitPipelineStep(step: DanmakuMaskPrecomputePipeline.MaskStep) {
-        if (disposed) {
+    private fun emitPipelineStep(
+        pipeline: DanmakuMaskPrecomputePipeline,
+        step: DanmakuMaskPrecomputePipeline.MaskStep,
+    ) {
+        // 主线程排队期间也可能发生暂停、跳转或切源，交付时必须再核验归属。
+        val currentStep = synchronized(precomputePipelineLock) {
+            precomputePipeline === pipeline && pipeline.isCurrentStep(step)
+        }
+        if (disposed || !currentStep) {
             step.mask?.takeIf { !it.isRecycled }?.recycle()
             return
         }
@@ -2982,9 +2989,11 @@ class DanmakuDynamicOcclusionController(
         // we already have a mask, skip the heavy seg and keep the current mask. This
         // cuts sustained CPU load (the main cause of thermal throttling → stutter) on
         // dialogue/static shots, which dominate.
-        val baseline = lastInferredLumaGrid
+        val baseline = lastSuccessfulLumaGrid
+        val maskState = latestState
         val isStatic =
             baseline != null &&
+                maskState.enabled && maskState.available &&
                 latestMaskValues != null &&
                 consecutiveStaticSkips < DANMAKU_AI_STATIC_SKIP_MAX_CONSECUTIVE &&
                 gridMeanAbsDiff(baseline, lumaGrid) < DANMAKU_AI_STATIC_SKIP_LUMA_DIFF
@@ -2998,7 +3007,6 @@ class DanmakuDynamicOcclusionController(
             return
         }
         consecutiveStaticSkips = 0
-        lastInferredLumaGrid = lumaGrid
         val maskResult =
             runCatching { buildFullFrameMaskResult(runtime.run(bitmap)) }
                 .getOrElse { error ->
@@ -3044,7 +3052,11 @@ class DanmakuDynamicOcclusionController(
                     motionCompensation = null,
                     updateTrackingState = false,
                 )
+                // 只有已经应用的成功遮罩才能作为静止复用基线。
+                lastSuccessfulLumaGrid = lumaGrid
             } else {
+                // 空结果需要下一帧重新推理，不能因保留了旧数组而跳过恢复。
+                lastSuccessfulLumaGrid = null
                 applyEmptyResult(
                     sampleId = sampleId,
                     backend = inferenceBackend,
