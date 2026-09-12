@@ -567,12 +567,16 @@ class NativeReentrySupport {
 
   static Future<void> releaseServerSession(
     NasProvider nas,
-    String playLink,
-  ) async {
-    if (playLink.trim().isEmpty) return;
+    String playLink, {
+    bool Function()? isCurrent,
+  }) async {
+    if (playLink.trim().isEmpty || isCurrent?.call() == false) return;
     try {
       await PlaybackProgressOfflineQueue.flush(nas);
-      await FeiniuApi(nas).quitServerPlaySession(playLink);
+      if (isCurrent?.call() == false) return;
+      await FeiniuApi(
+        nas,
+      ).quitServerPlaySession(playLink, isCurrent: isCurrent);
     } catch (_) {
       // 释放失败不能阻止退出，服务端仍可通过超时回收。
     }
