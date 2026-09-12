@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
+import 'package:fly_player/desktop/desktop_floating_panel.dart';
+import 'package:fly_player/desktop/desktop_hover_dropdown.dart';
 import 'package:fly_player/desktop/playback/external_playback_host.dart';
 import 'package:fly_player/desktop/playback/external_playback_screen.dart';
 import 'package:fly_player/playback/playback_source.dart';
@@ -40,7 +42,6 @@ void main() {
           url: 'local.mkv',
           headers: {},
           title: '外部播放',
-          subtitleTrackGuid: '',
           posterPath: '/v/poster.jpg',
           playbackMode: PlayerPlaybackMode.serverSession,
           resolution: '720',
@@ -102,12 +103,39 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('片源与字幕'));
     await tester.pumpAndSettle();
+    expect(find.text('由 PotPlayer 选择'), findsOneWidget);
+    final qualityDropdown = tester.widget<DesktopHoverDropdown>(
+      find.byType(DesktopHoverDropdown).first,
+    );
+    expect(qualityDropdown.spec!.groups.single.selectedId, '1');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopHoverDropdown).first,
+        matching: find.byType(OutlinedButton),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    expect(find.textContaining('1080'), findsOneWidget);
+    await tester.tap(find.textContaining('720').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    await tester.tap(find.text('由 PotPlayer 选择'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    expect(tester.getSize(find.byType(DesktopFloatingPanel)).width, 360);
+    await tester.tap(find.text('关闭字幕'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    publish(applied);
+    await tester.pump();
     expect(find.text('关闭字幕'), findsOneWidget);
-    final selected = tester
-        .widgetList<ChoiceChip>(find.byType(ChoiceChip))
-        .where((chip) => chip.selected)
-        .single;
-    expect((selected.label as Text).data, startsWith('720'));
+    await tester.tap(find.text('关闭字幕'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('由 PotPlayer 选择'));
+    await tester.pumpAndSettle();
+    expect(find.text('由 PotPlayer 选择'), findsOneWidget);
+    expect(find.text('关闭字幕'), findsNothing);
     showExternalPlaybackNotice(
       tester.element(find.byType(ExternalPlaybackScreen)),
       'Bad state: 播放失败',
