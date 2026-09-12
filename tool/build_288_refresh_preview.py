@@ -247,6 +247,35 @@ def load_video_range(
     return decoded_frames
 
 
+def apply_human_arm_revisions(
+    original_atlas: Image.Image,
+    revisions: dict[int, tuple[Image.Image, Image.Image]],
+) -> Image.Image:
+    """在原稿坐标接收 B/C 局部稿；端点及蒙版外像素直接沿用原稿。"""
+    if original_atlas.mode != "RGBA" or original_atlas.size != (6 * FRAME_SIZE, 5 * FRAME_SIZE):
+        raise ValueError("收臂基准必须是原尺寸 RGBA 图集")
+    if set(revisions) - {8, 9}:
+        raise ValueError("本轮只允许修改 B/C，不能替换 A/D 端点")
+    result = original_atlas.copy()
+    for index, (revised, mask) in revisions.items():
+        if revised.mode != "RGBA" or revised.size != (FRAME_SIZE, FRAME_SIZE):
+            raise ValueError("局部稿必须保持原始 512×512 RGBA 坐标，不能自动缩放或重新定位")
+        if mask.mode != "L" or mask.size != revised.size:
+            raise ValueError("局部蒙版必须是同尺寸灰度图")
+        selected = np.asarray(mask)
+        if not np.isin(selected, (0, 255)).all():
+            raise ValueError("修稿范围必须用黑白蒙版明确标记，不通过混合两张画稿补动作")
+        # 当前收臂连接区均在腰部以上，下摆和靴子不属于此次修订范围。
+        if np.any(selected[320:]):
+            raise ValueError("本次局部蒙版不能覆盖下摆或靴子区域（y≥320）")
+        x, y = index % 6 * FRAME_SIZE, index // 6 * FRAME_SIZE
+        frame = original_atlas.crop((x, y, x + FRAME_SIZE, y + FRAME_SIZE))
+        # 直接替换选区内 RGBA，包括应被清掉的旧轮廓；范围外不重新采样。
+        frame.paste(revised, (0, 0), mask)
+        result.paste(frame, (x, y))
+    return result
+
+
 def build_frames() -> tuple[list[Image.Image], list[str]]:
     human_atlas = Image.open(ASSET_ROOT / "shoujo_bird_human_performance_00_25.png").convert("RGBA")
     closure = extract_grid_subjects(ASSET_ROOT / "shoujo_bird_closure_08_reworked.png", 4, 2, 80)
