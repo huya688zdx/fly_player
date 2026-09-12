@@ -178,14 +178,20 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
             _field(
               url,
               '飞翔服务地址',
-              hint: 'HTTPS、VPN 或局域网地址',
+              hint: '飞翔管理后台提供的服务地址',
               enabled: !account.busy,
               keyboard: TextInputType.url,
             ),
-            _field(username, '飞翔账号', enabled: !account.busy),
+            _field(
+              username,
+              '飞翔账号',
+              hint: '与飞翔管理后台共用',
+              enabled: !account.busy,
+            ),
             _field(
               password,
               '密码',
+              hint: '飞翔账号的密码',
               secret: true,
               enabled: !account.busy,
               onSubmitted: (_) => _login(account),
@@ -200,12 +206,13 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               children: [_field(device, '当前设备名称', enabled: !account.busy)],
             ),
             const SizedBox(height: 16),
-            FilledButton(
+            FilledButton.icon(
               onPressed: account.busy ? null : () => _login(account),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
               ),
-              child: const Text('登录飞翔'),
+              icon: const Icon(Icons.login_rounded, size: 20),
+              label: const Text('登录飞翔'),
             ),
             if (account.busy)
               const Padding(
@@ -214,11 +221,22 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               ),
             if (account.message != null) _FlyMessage(account.message!),
             const SizedBox(height: 16),
-            TextButton(
+            OutlinedButton.icon(
               onPressed: account.busy
                   ? null
                   : () => account.enterLegacyMode().catchError((Object _) {}),
-              child: const Text('暂用原本地媒体连接'),
+              icon: const Icon(Icons.lan_outlined, size: 18),
+              label: const Text('暂用原本地媒体连接'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '仅在这台设备连接媒体，稍后可切回飞翔账号。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: context.appColors.textMuted,
+                fontSize: 12,
+                height: 1.5,
+              ),
             ),
           ],
         ),
