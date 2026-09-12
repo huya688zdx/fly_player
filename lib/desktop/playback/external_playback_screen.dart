@@ -13,6 +13,8 @@ import '../../services/playback_progress_offline_queue.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
+import '../../widgets/common/track_option_sheet.dart';
+import '../desktop_hover_dropdown.dart';
 import 'external_playback_controls.dart';
 import 'external_playback_host.dart';
 import 'external_playback_mini_controller.dart';
@@ -30,6 +32,9 @@ class ExternalPlaybackScreen extends StatefulWidget {
 }
 
 class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
+  static const _potPlayerSubtitleId = 'potplayer-default';
+  final _qualityDropdownKey = GlobalKey<DesktopHoverDropdownState>();
+  final _subtitleDropdownKey = GlobalKey<DesktopHoverDropdownState>();
   DanmakuSettings? _draft;
   DanmakuSettings? _applied;
   String? _draftSubtitleGuid;
@@ -1086,6 +1091,21 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final selectedTrackIsUnavailable =
         source.subtitleTrackGuid?.trim().isNotEmpty == true &&
         !subtitles.any((track) => track.guid == source.subtitleTrackGuid);
+    final subtitleOptions = <String, String>{
+      if (source.subtitleTrackGuid == null)
+        _potPlayerSubtitleId: '由 PotPlayer 选择',
+      '': '关闭字幕',
+      for (final track in subtitles) track.guid: _subtitleLabel(track),
+    };
+    final selectedSubtitleId = _draftSubtitleGuid ?? _potPlayerSubtitleId;
+    final subtitleLabel =
+        subtitleOptions[selectedSubtitleId] ??
+        (source.subtitleTracks.any(
+              (track) =>
+                  track.guid == source.subtitleTrackGuid && track.isBitmap == 1,
+            )
+            ? '当前位图字幕（在 PotPlayer 中切换）'
+            : '当前内封字幕（在 PotPlayer 中切换）');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1103,27 +1123,36 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             style: TextStyle(color: colors.textMuted, fontSize: 12),
           )
         else
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: source.qualities.indexed.map((entry) {
-              final index = entry.$1;
-              final quality = entry.$2;
-              final selected = index == currentQualityIndex;
-              return ChoiceChip(
-                selected: selected,
-                label: Text(_qualityLabel(quality)),
-                onSelected: !selected && !_busy && status.canControl
-                    ? (_) => _run(
+          _buildTrackDropdown(
+            dropdownKey: _qualityDropdownKey,
+            valueLabel: currentQualityIndex == null
+                ? '选择视频片源'
+                : _qualityLabel(source.qualities[currentQualityIndex]),
+            spec: !_busy && status.canControl
+                ? DesktopHoverDropdownSpec.single(
+                    title: '视频片源',
+                    width: 360,
+                    items: [
+                      for (final (index, quality) in source.qualities.indexed)
+                        TrackOptionSheetItem(
+                          id: '$index',
+                          title: _qualityLabel(quality),
+                        ),
+                    ],
+                    selectedId: currentQualityIndex?.toString(),
+                    onSelected: (id) {
+                      final index = int.parse(id);
+                      if (index == currentQualityIndex) return;
+                      _run(
                         () => ExternalPlaybackHost(context).changeQuality(
                           itemGuid: source.itemGuid,
-                          quality: quality,
+                          quality: source.qualities[index],
                         ),
                         failure: '片源切换失败，请稍后重试',
-                      )
-                    : null,
-              );
-            }).toList(),
+                      );
+                    },
+                  )
+                : null,
           ),
         const SizedBox(height: 26),
         Text(
@@ -1139,44 +1168,24 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           style: TextStyle(color: colors.textMuted, fontSize: 11),
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          key: ValueKey(_draftSubtitleGuid),
-          initialValue: _draftSubtitleGuid,
-          decoration: const InputDecoration(labelText: '字幕选择'),
-          items: [
-            if (source.subtitleTrackGuid == null)
-              const DropdownMenuItem<String>(
-                value: null,
-                child: Text('由 PotPlayer 选择'),
-              ),
-            const DropdownMenuItem<String>(value: '', child: Text('关闭字幕')),
-            if (selectedTrackIsUnavailable && source.subtitleTrackGuid != null)
-              DropdownMenuItem<String>(
-                value: source.subtitleTrackGuid,
-                enabled: false,
-                child: Text(
-                  source.subtitleTracks.any(
-                        (track) =>
-                            track.guid == source.subtitleTrackGuid &&
-                            track.isBitmap == 1,
-                      )
-                      ? '当前位图字幕（在 PotPlayer 中切换）'
-                      : '当前内封字幕（在 PotPlayer 中切换）',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ...subtitles.map(
-              (track) => DropdownMenuItem<String>(
-                value: track.guid,
-                child: Text(
-                  _subtitleLabel(track),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-          ],
-          onChanged: status.canControl
-              ? (value) => setState(() => _draftSubtitleGuid = value)
+        _buildTrackDropdown(
+          dropdownKey: _subtitleDropdownKey,
+          valueLabel: subtitleLabel,
+          spec: status.canControl
+              ? DesktopHoverDropdownSpec.single(
+                  title: '字幕选择',
+                  width: 360,
+                  items: [
+                    for (final entry in subtitleOptions.entries)
+                      TrackOptionSheetItem(id: entry.key, title: entry.value),
+                  ],
+                  selectedId: selectedSubtitleId,
+                  onSelected: (id) => setState(
+                    () => _draftSubtitleGuid = id == _potPlayerSubtitleId
+                        ? null
+                        : id,
+                  ),
+                )
               : null,
         ),
         if (selectedTrackIsUnavailable) ...[
@@ -1223,6 +1232,39 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTrackDropdown({
+    required GlobalKey<DesktopHoverDropdownState> dropdownKey,
+    required String valueLabel,
+    required DesktopHoverDropdownSpec? spec,
+  }) {
+    return DesktopHoverDropdown(
+      key: dropdownKey,
+      activation: DesktopDropdownActivation.tap,
+      spec: spec,
+      child: OutlinedButton(
+        onPressed: spec == null
+            ? null
+            : () => dropdownKey.currentState?.toggle(),
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                valueLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.expand_more_rounded, size: 18),
+          ],
+        ),
+      ),
     );
   }
 
