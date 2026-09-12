@@ -424,6 +424,7 @@ class FeiniuApi {
   }
 
   final NasProvider nasProvider;
+  static const _sessionControlGuardKey = 'feiniu.sessionControlIsCurrent';
   final Dio _dio = Dio();
   late final String _boundBaseUrl;
   final Random _random = Random();
@@ -453,6 +454,16 @@ class FeiniuApi {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          final isCurrent = options.extra[_sessionControlGuardKey];
+          if (isCurrent is bool Function() && !isCurrent()) {
+            return handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.cancel,
+                message: 'Playback session ownership changed',
+              ),
+            );
+          }
           _removeManagedNasAuthHeaders(options.headers);
           final shouldAttachNasAuth =
               _isProviderStillBoundToOrigin() &&
@@ -1977,18 +1988,30 @@ class FeiniuApi {
     'startTimestamp': startTimestamp,
   });
 
-  Future<void> quitServerPlaySession(String playLink) =>
-      _controlServerSession('media.quit', playLink, const {});
+  Future<void> quitServerPlaySession(
+    String playLink, {
+    bool Function()? isCurrent,
+  }) => _controlServerSession(
+    'media.quit',
+    playLink,
+    const {},
+    isCurrent: isCurrent,
+  );
 
   Future<void> _controlServerSession(
     String method,
     String playLink,
-    Map<String, dynamic> parameters,
-  ) async {
-    if (playLink.trim().isEmpty) return;
+    Map<String, dynamic> parameters, {
+    bool Function()? isCurrent,
+  }) async {
+    if (playLink.trim().isEmpty || isCurrent?.call() == false) return;
     final clientId = await _playbackClientIdStore.ensureClientId();
+    if (isCurrent?.call() == false) return;
     final response = await _dio.post(
       _playMediaBridgePath,
+      options: isCurrent == null
+          ? null
+          : Options(extra: {_sessionControlGuardKey: isCurrent}),
       data: {
         'req': method,
         'reqid': clientId.substring(0, min(16, clientId.length)).toUpperCase(),
