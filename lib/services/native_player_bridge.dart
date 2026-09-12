@@ -18,6 +18,7 @@ import 'native_player_localized_strings.dart';
 import 'native_reentry_support.dart';
 import 'play_stats/native_play_stats_recorder.dart';
 import 'play_stats/play_stats_service.dart';
+import 'fly_data/fly_playback_service_client.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -206,6 +207,26 @@ class NativePlayerBridge {
     _activeBindToken = token;
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'resolveFlyOped':
+          final args = (call.arguments as Map?) ?? const {};
+          if (!acceptsScope(args['statsScope'])) return null;
+          final contextId = args['playback_context_id'];
+          final generation = args['generation'];
+          if (contextId is! String || generation is! int || generation < 0) return null;
+          final result = await FlyPlaybackServiceClient.instance.resolve(
+            statsScope: statsScope, itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(), contextId: contextId, generation: generation);
+          if (!acceptsScope(args['statsScope'])) return null;
+          return result?.wire;
+        case 'validateFlyScope':
+          final args = (call.arguments as Map?) ?? const {};
+          return acceptsScope(args['statsScope']) && FlyPlaybackServiceClient.instance.sourceRef(
+            statsScope: statsScope, itemGuid: (args['itemGuid'] ?? '').toString(), mediaGuid: (args['mediaGuid'] ?? '').toString()) != null;
+        case 'recordFlyOpedAction':
+          final args = (call.arguments as Map?) ?? const {};
+          if (!acceptsScope(args['statsScope']) || args['event'] is! Map) return null;
+          unawaited(FlyPlaybackServiceClient.instance.record(Map<String, dynamic>.from(args['event'] as Map), statsScope: statsScope));
+          return null;
         case 'resolveSegmentedSubtitle':
           final args = (call.arguments as Map?) ?? const {};
           return await onResolveSegmentedSubtitle?.call(

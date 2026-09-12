@@ -5,6 +5,7 @@ import '../ui/adaptive_detail_navigator.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common/app_ambient_page.dart';
 import '../widgets/common/bird_loader.dart';
+import '../widgets/fly_assistant_panel.dart';
 import '../models/media_library_item.dart';
 import '../desktop/desktop_hover_region.dart';
 import 'fly_account_screen.dart';
@@ -322,6 +323,12 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
               Text((item['genres'] as List? ?? []).join(' / ')),
               const SizedBox(height: 16),
               Text(item['overview'] as String? ?? ''),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => showFlyAssistant(context, mediaId: widget.mediaId),
+                icon: const Icon(Icons.auto_awesome_outlined),
+                label: const Text('资料助手 · 当前节目'),
+              ),
               const SizedBox(height: 16),
               Text(
                 '目录完整性：${_completenessLabel(item['catalog_completeness'])} · 来源数：${item['source_count'] ?? 1}',

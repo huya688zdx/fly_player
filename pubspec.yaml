@@ -18,6 +18,11 @@ dependencies:
   path: ^1.9.0
   # 使用系统下载目录及应用数据目录，支持 Windows 重定向的用户文件夹。
   path_provider: ^2.1.5
+  # Existing locked Windows plugins: opt-in process-local development profile.
+  path_provider_platform_interface: 2.1.2
+  path_provider_windows: 2.3.0
+  shared_preferences_platform_interface: 2.4.1
+  shared_preferences_windows: 2.4.1
   shared_preferences: ^2.2.2
   sqflite: ^2.3.3+2
   sqflite_common_ffi: ^2.4.0
