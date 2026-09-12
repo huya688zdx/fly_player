@@ -8,6 +8,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fly_player/desktop/desktop_environment.dart';
+import 'package:fly_player/desktop/desktop_floating_panel.dart';
+import 'package:fly_player/desktop/desktop_hover_dropdown.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
@@ -91,6 +94,7 @@ void main() {
   });
   late _Account account;
   setUp(() {
+    DesktopEnvironment.debugOverridePlatform = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (_) async => null);
     SharedPreferences.setMockInitialValues({});
@@ -98,6 +102,7 @@ void main() {
     account = _Account();
   });
   tearDown(() {
+    DesktopEnvironment.debugOverridePlatform = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);
     AppTopTip().dispose();
@@ -107,6 +112,98 @@ void main() {
   });
 
   Finder activateButton() => find.textContaining(RegExp('切换到此来源|选用 / 切换媒体地址'));
+
+  for (final size in [const Size(1280, 800), const Size(640, 900)]) {
+    testWidgets('PC 来源操作和连接设置复用桌面浮窗 $size', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = true;
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      account.bindings = [_binding(multiple: true)];
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account)),
+      );
+      await tester.pumpAndSettle();
+      if (_captureDirectory.isNotEmpty) {
+        await tester.runAsync(
+          () => precacheImage(
+            const AssetImage('lib/img/feiniu_Logo.png'),
+            tester.element(find.byType(FlyBindingsScreen)),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+      final anchor = tester.getRect(find.byTooltip('来源设置'));
+      await tester.tap(find.byTooltip('来源设置'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+      expect(find.byType(AppOptionSheetPanel), findsNothing);
+      final menu = tester.getRect(find.byType(DesktopFloatingPanel));
+      expect(menu.width, lessThanOrEqualTo(292));
+      // IconButton has a 4 px outer hit-target inset around its Tooltip.
+      expect(menu.top, inInclusiveRange(anchor.bottom, anchor.bottom + 8));
+      expect(menu.right, lessThanOrEqualTo(size.width));
+      await _capture(tester, 'pc-source-menu-${size.width.toInt()}');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopFloatingPanel), findsNothing);
+      await tester.tap(find.byTooltip('来源设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('连接设置'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+      expect(find.byType(AppOptionSheetPanel), findsNothing);
+      expect(
+        tester.getSize(find.byType(DesktopFloatingPanel)).width,
+        lessThanOrEqualTo(470),
+      );
+      await _capture(tester, 'pc-connections-${size.width.toInt()}');
+      await tester.tap(find.textContaining('https://vpn.example'));
+      await tester.pumpAndSettle();
+      expect(account.activations, [('source', 'https://vpn.example')]);
+      expect(find.byType(DesktopFloatingPanel), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('PC 重新授权表单单层桌面外壳并可关闭 $size', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = true;
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('来源设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('重新授权'));
+      await tester.pumpAndSettle();
+      expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+      expect(find.byType(AppOptionSheetPanel), findsNothing);
+      final panel = tester.getRect(find.byType(DesktopFloatingPanel));
+      expect(panel.width, lessThanOrEqualTo(470));
+      expect(panel.center.dx, closeTo(size.width / 2, 1));
+      await _capture(tester, 'pc-authorization-${size.width.toInt()}');
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      expect(find.text('请填写媒体账号'), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '媒体账号'),
+        'viewer',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '媒体密码'),
+        'test-password',
+      );
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      expect(account.reauthorizations, 1);
+      expect(find.byType(DesktopFloatingPanel), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('单客户端地址直接选用，成功后返回原媒体首页', (tester) async {
     await tester.pumpWidget(_app(account, pushed: true));
@@ -201,6 +298,38 @@ void main() {
   });
 
   for (final scope in ['current', 'other-account', 'other-binding']) {
+    testWidgets('PC 连接设置只勾选本账号本来源 $scope', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = true;
+      account.bindings = [_binding(multiple: true)];
+      (account.backendSession as _Backend).connection = MediaBackendConnection(
+        kind: MediaBackendKind.feiniu,
+        serverUrl: 'https://vpn.example/',
+        accountKey: scope == 'other-account' ? 'other' : account.accountKey,
+        bindingId: scope == 'other-binding' ? 'other' : 'source',
+        bindingRevision: 1,
+      );
+      await tester.pumpWidget(_app(account));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('来源设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('连接设置'));
+      await tester.pumpAndSettle();
+      final selected = tester
+          .widgetList<DesktopDropdownOptionRow>(
+            find.byType(DesktopDropdownOptionRow),
+          )
+          .where((row) => row.selected)
+          .toList();
+      expect(selected, hasLength(scope == 'current' ? 1 : 0));
+      if (selected.isNotEmpty) {
+        expect(selected.single.item.id, 'https://vpn.example');
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(account.activations, isEmpty);
+      expect(find.byType(DesktopFloatingPanel), findsNothing);
+    });
+
     testWidgets('连接设置仅标记当前账号与来源的地址 $scope', (tester) async {
       account.bindings = [_binding(multiple: true)];
       (account.backendSession as _Backend).connection = MediaBackendConnection(

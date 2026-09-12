@@ -363,16 +363,14 @@ class _FlySourceCard extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: '来源设置',
-                icon: const Icon(Icons.more_horiz_rounded),
-                onPressed: busy
-                    ? null
-                    : () async {
-                        final action = await showAppActionSheet<String>(
-                          context,
-                          title: binding['label'] as String? ?? '来源设置',
-                          options: [
+              Builder(
+                builder: (buttonContext) => IconButton(
+                  tooltip: '来源设置',
+                  icon: const Icon(Icons.more_horiz_rounded),
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          final options = [
                             if (available)
                               const AppActionSheetOption(
                                 value: 'address',
@@ -393,10 +391,45 @@ class _FlySourceCard extends StatelessWidget {
                                 destructive: true,
                               ),
                             ],
-                          ],
-                        );
-                        if (action != null && context.mounted) onAction(action);
-                      },
+                          ];
+                          String? action;
+                          if (DesktopEnvironment.isDesktopPlatform) {
+                            final box =
+                                buttonContext.findRenderObject() as RenderBox;
+                            await showDesktopContextMenu(
+                              buttonContext,
+                              position: box.localToGlobal(
+                                Offset(0, box.size.height),
+                              ),
+                              entries: [
+                                for (final option in options)
+                                  DesktopContextMenuEntry(
+                                    label: option.label,
+                                    icon: switch (option.value) {
+                                      'address' =>
+                                        Icons.settings_ethernet_rounded,
+                                      'reauthorize' => Icons.key_rounded,
+                                      'sync' => Icons.sync_rounded,
+                                      _ => Icons.link_off_rounded,
+                                    },
+                                    destructive: option.destructive,
+                                    onSelected: () => action = option.value,
+                                  ),
+                              ],
+                            );
+                          } else {
+                            action = await showAppActionSheet<String>(
+                              context,
+                              title: binding['label'] as String? ?? '来源设置',
+                              options: options,
+                            );
+                          }
+                          final selectedAction = action;
+                          if (selectedAction != null && context.mounted) {
+                            onAction(selectedAction);
+                          }
+                        },
+                ),
               ),
             ],
           ),
