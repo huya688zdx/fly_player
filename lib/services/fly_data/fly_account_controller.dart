@@ -179,6 +179,19 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
+  Future<void> returnToFlyMode() {
+    _syncEpoch++;
+    return _run(() async {
+      if (!legacyMode) return;
+      _retry?.cancel();
+      // A local media connection must not become a selected Fly binding or
+      // claim its statistics. Keep saved access; source selection owns reuse.
+      await PlayStatsService.instance.bindOwnerScope('');
+      activeBindingId = '';
+      legacyMode = false;
+    });
+  }
+
   Future<void> refresh() => _run(_refresh);
   Future<void> _refresh() async {
     if (session == null) return;

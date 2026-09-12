@@ -68,94 +68,158 @@ class _FlyLoginPage extends StatelessWidget {
 
   final Widget child;
 
+  Widget _brand(BuildContext context, {required bool desktop}) {
+    final colors = context.appColors;
+    final logo = ClipRRect(
+      borderRadius: BorderRadius.circular(desktop ? 22 : 14),
+      child: Image.asset(
+        'lib/img/app_logo.png',
+        width: desktop ? 80 : 48,
+        height: desktop ? 80 : 48,
+      ),
+    );
+    final title = Text(
+      '飞翔',
+      style: TextStyle(
+        color: colors.textPrimary,
+        fontSize: desktop ? 36 : 25,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+    if (!desktop) {
+      return Row(
+        children: [
+          logo,
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                Text(
+                  '连接你的媒体，继续你的观看',
+                  style: TextStyle(color: colors.textMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        logo,
+        const SizedBox(height: 24),
+        title,
+        const SizedBox(height: 12),
+        Text(
+          '连接你的媒体，\n继续你的观看',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 24,
+            height: 1.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          '使用一个飞翔账号，管理已绑定的媒体来源，让观看记录随账号同步。',
+          style: TextStyle(
+            color: colors.textSecondary,
+            fontSize: 14,
+            height: 1.8,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _form(BuildContext context) {
+    final colors = context.appColors;
+    return _FlySurface(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '登录飞翔账号',
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '使用飞翔管理后台的账号。飞牛影视、Emby 等媒体账号在登录后管理。',
+            style: TextStyle(
+              color: colors.textSecondary,
+              fontSize: 13,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 24),
+          child,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final desktop = DesktopEnvironment.isDesktopPlatform &&
+                  constraints.maxWidth >= 900;
+              final content = desktop
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          key: const Key('flyLoginDesktopBrand'),
+                          width: 280,
+                          child: _brand(context, desktop: true),
+                        ),
+                        const SizedBox(width: 56),
+                        SizedBox(
+                          key: const Key('flyLoginDesktopForm'),
+                          width: 460,
+                          child: _form(context),
+                        ),
+                      ],
+                    )
+                  : ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 460),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: _brand(context, desktop: false),
+                          ),
+                          const SizedBox(height: 24),
+                          _form(context),
+                        ],
+                      ),
+                    );
               return SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.all(desktop ? 32 : 20),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    minHeight: (constraints.maxHeight - 40).clamp(
-                      0,
-                      double.infinity,
-                    ),
+                    minHeight: (constraints.maxHeight - (desktop ? 64 : 40))
+                        .clamp(0, double.infinity),
                   ),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 460),
-                      child: _FlySurface(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: Image.asset(
-                                    'lib/img/app_logo.png',
-                                    width: 48,
-                                    height: 48,
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '飞翔',
-                                        style: TextStyle(
-                                          color: colors.textPrimary,
-                                          fontSize: 25,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      Text(
-                                        '连接你的媒体，继续你的观看',
-                                        style: TextStyle(
-                                          color: colors.textMuted,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              '登录飞翔账号',
-                              style: TextStyle(
-                                color: colors.textPrimary,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '使用飞翔管理后台的账号，管理媒体来源和观看记录。',
-                              style: TextStyle(
-                                color: colors.textSecondary,
-                                fontSize: 13,
-                                height: 1.6,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            child,
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: Center(child: content),
                 ),
               );
             },
