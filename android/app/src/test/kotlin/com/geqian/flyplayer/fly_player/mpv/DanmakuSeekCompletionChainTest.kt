@@ -188,6 +188,40 @@ class DanmakuSeekCompletionChainTest {
     }
 
     @Test
+    fun `seek 到零且边沿整个丢失时连续推进样本仍能完成 epoch`() {
+        val coordinator = MpvPlaybackRestoreCoordinator()
+        coordinator.onLoadRequested(startPositionMs = 0L, hasPendingExternalSubtitle = false)
+        coordinator.onSourceFileLoaded()
+        val clock =
+            DanmakuTimelineClock().apply {
+                reset(positionMs = 10_000f, nowNs = 0L, paused = false)
+            }
+
+        coordinator.onSeekQueued(positionMs = 0L, seekEpoch = 1L)
+        clock.hintSeek(positionMs = 0f, nowNs = 1_000_000_000L, seekEpoch = 1L)
+
+        coordinator.onTimePosition(positionMs = 50L)
+        coordinator.onTimePosition(positionMs = 250L)
+        coordinator.onTimePosition(positionMs = 450L)
+        coordinator.onTimePosition(positionMs = 650L)
+
+        val firstSampleAfterFallback =
+            clock.update(
+                positionMs = 650f,
+                sampleTimeNs = 1_200_000_000L,
+                nowNs = 1_200_000_000L,
+                phase = coordinator.timelinePhase(),
+                playbackSpeed = 1f,
+                activeSeekEpoch = coordinator.activeSeekEpoch,
+                completedSeekEpoch = coordinator.completedSeekEpoch,
+            )
+
+        assertEquals(1L, coordinator.completedSeekEpoch)
+        assertEquals(DanmakuTimelineCorrection.REBUILD, firstSampleAfterFallback.correction)
+        assertEquals(DanmakuTimelineState.PLAYING, clock.state)
+    }
+
+    @Test
     fun `不推进的样本会重置兜底计数`() {
         val coordinator = MpvPlaybackRestoreCoordinator()
         coordinator.onLoadRequested(startPositionMs = 0L, hasPendingExternalSubtitle = false)
