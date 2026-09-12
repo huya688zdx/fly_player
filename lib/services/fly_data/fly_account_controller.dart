@@ -10,7 +10,7 @@ import '../../providers/nas_provider.dart';
 import '../media_backend_connection_store.dart';
 import '../play_stats/play_stats_service.dart';
 import 'fly_data_service.dart';
-import 'fly_media_identity.dart';
+import 'fly_media_address_selector.dart';
 import 'fly_data_sync_store.dart';
 
 /// Account, binding and address operations are serialized. Playback uses only
@@ -278,22 +278,19 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     final server = Map<String, dynamic>.from(access['server'] as Map);
     final addresses = (server['addresses'] as List)
         .map((e) => Map<String, dynamic>.from(e as Map))
-        .where((e) => e['purpose'] != 'nas_api')
         .toList();
-    addresses.sort(
-      (a, b) => ((a['priority'] as num?)?.toInt() ?? 0).compareTo(
-        (b['priority'] as num?)?.toInt() ?? 0,
-      ),
-    );
-    if (addresses.isEmpty) throw StateError('管理员需登记客户端 LAN、HTTPS 或 VPN 媒体地址。');
-    final selected = address ?? addresses.first['base_url'] as String;
-    if (!addresses.any((e) => e['base_url'] == selected)) {
-      throw StateError('媒体地址不在已授权的地址集中。');
-    }
-    await verifyFlyMediaAddress(
-      address: selected,
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    // Preferences only order freshly authorized addresses. A removed endpoint
+    // must never regain access just because it worked on a previous network.
+    final selected = await selectFlyMediaAddress(
+      addresses: addresses,
       kind: server['kind'] as String,
       expectedId: (server['remote_server_id'] ?? '').toString(),
+      preferredAddress: prefs.getString(
+        'fly.address.$accountKey.${binding['id']}',
+      ),
+      explicitAddress: address,
     );
     final connection = MediaBackendConnection.fromJson({
       'kind': server['kind'],
@@ -310,7 +307,6 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     await _applyConnection(connection);
     activeBindingId = binding['id'] as String;
     legacyMode = false;
-    final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fly.active.$accountKey', activeBindingId);
     await prefs.setString('fly.address.$accountKey.$activeBindingId', selected);
     scheduleSync();
