@@ -759,6 +759,8 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             mainHandler.post { setOcclusionState(state, runtimeMaskBitmap) }
             return
         }
+        // UI 已进入跳转等待、播放线程尚未处理 seek 时，旧回调不能重新填入缓冲。
+        if (timelineClock.state == DanmakuTimelineState.SEEK_HOLD && state.maskPtsMs > 0L) return
         // Anchor mask motion extrapolation to this sample.
         maskVelocityX = state.maskVelocityX
         maskVelocityY = state.maskVelocityY
