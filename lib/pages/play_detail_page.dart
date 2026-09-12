@@ -2096,10 +2096,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   Duration? get _externalPlaybackPosition {
     if (!DesktopEnvironment.isWindows) return null;
-    final active = ExternalPlaybackHost.status.value;
-    return active?.source.itemGuid == _currentItemGuid
-        ? active!.position
-        : null;
+    return ExternalPlaybackHost(
+      context,
+    ).positionForLaunch(itemGuid: _currentItemGuid);
   }
 
   Future<void> _openPlayer() async {
