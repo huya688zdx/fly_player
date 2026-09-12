@@ -7,6 +7,7 @@ import '../../theme/app_theme.dart';
 import 'desktop_player_dialogs.dart';
 import 'desktop_player_panels.dart';
 import 'external_playback_host.dart';
+import 'external_playback_mini_controller.dart';
 import 'external_playback_notice.dart';
 
 void _externalPlaybackMessage(BuildContext context, String message) {
@@ -230,12 +231,11 @@ class _ExternalPlaybackControlsState extends State<ExternalPlaybackControls> {
       final colors = context.appColors;
       final itemGuid = status.source.itemGuid;
       return Container(
-        margin: const EdgeInsets.only(top: 14),
-        padding: const EdgeInsets.all(14),
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: colors.surfaceSubtle,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: colors.borderSubtle),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,13 +261,13 @@ class _ExternalPlaybackControlsState extends State<ExternalPlaybackControls> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             Wrap(
               spacing: 6,
-              runSpacing: 4,
+              runSpacing: 2,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                FilledButton.tonalIcon(
+                TextButton.icon(
                   onPressed: _busy || !status.canControl
                       ? null
                       : () => _control(
@@ -292,6 +292,33 @@ class _ExternalPlaybackControlsState extends State<ExternalPlaybackControls> {
                     size: 18,
                   ),
                   label: const Text('打开控制页'),
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: ExternalPlaybackMiniController.available,
+                  builder: (context, available, _) =>
+                      ValueListenableBuilder<bool>(
+                        valueListenable: ExternalPlaybackMiniController.active,
+                        builder: (context, active, _) => TextButton.icon(
+                          onPressed:
+                              available &&
+                                  ExternalPlaybackHost.status.value != null
+                              ? () async {
+                                  try {
+                                    await ExternalPlaybackMiniController.enter();
+                                  } catch (_) {
+                                    _message('无法打开极简模式，请重试');
+                                  }
+                                }
+                              : null,
+                          icon: Icon(
+                            active
+                                ? Icons.picture_in_picture_alt
+                                : Icons.push_pin_outlined,
+                            size: 18,
+                          ),
+                          label: Text(active ? '极简模式中' : '极简模式'),
+                        ),
+                      ),
                 ),
               ],
             ),

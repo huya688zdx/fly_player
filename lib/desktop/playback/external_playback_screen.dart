@@ -15,6 +15,7 @@ import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
 import 'external_playback_controls.dart';
 import 'external_playback_host.dart';
+import 'external_playback_mini_controller.dart';
 import 'external_playback_notice.dart';
 import 'external_player_playlist.dart';
 
@@ -246,58 +247,68 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      body: SafeArea(
-        child: ValueListenableBuilder<ExternalPlaybackStatus?>(
-          valueListenable: ExternalPlaybackHost.status,
-          builder: (context, status, _) {
-            if (status == null) return _buildIdle(context);
-            _syncMedia(status);
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final compact = constraints.maxWidth < 980;
-                return SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(
-                    compact ? 20 : 36,
-                    24,
-                    compact ? 20 : 36,
-                    36,
-                  ),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1420),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildPageHeader(context, status),
-                          const SizedBox(height: 22),
-                          _buildNowPlaying(context, status),
-                          const SizedBox(height: 22),
-                          if (compact) ...[
-                            _buildControlPanel(context, status),
-                            const SizedBox(height: 18),
-                            _buildPlaylist(context, status),
-                          ] else
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: _buildControlPanel(context, status),
-                                ),
-                                const SizedBox(width: 22),
-                                SizedBox(
-                                  width: 310,
-                                  child: _buildPlaylist(context, status),
-                                ),
-                              ],
-                            ),
-                        ],
+      body: SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          trackHeight: 3,
+          thumbShape: const RoundSliderThumbShape(
+            enabledThumbRadius: 7,
+            disabledThumbRadius: 7,
+          ),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+        ),
+        child: SafeArea(
+          child: ValueListenableBuilder<ExternalPlaybackStatus?>(
+            valueListenable: ExternalPlaybackHost.status,
+            builder: (context, status, _) {
+              if (status == null) return _buildIdle(context);
+              _syncMedia(status);
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 980;
+                  return SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      compact ? 16 : 28,
+                      18,
+                      compact ? 16 : 28,
+                      28,
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1420),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildPageHeader(context, status),
+                            const SizedBox(height: 16),
+                            _buildNowPlaying(context, status),
+                            const SizedBox(height: 16),
+                            if (compact) ...[
+                              _buildControlPanel(context, status),
+                              const SizedBox(height: 14),
+                              _buildPlaylist(context, status),
+                            ] else
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: _buildControlPanel(context, status),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  SizedBox(
+                                    width: 296,
+                                    child: _buildPlaylist(context, status),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
-            );
-          },
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -309,21 +320,21 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: _Panel(
-          padding: const EdgeInsets.all(36),
+          padding: const EdgeInsets.all(28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.open_in_new_off_rounded,
-                size: 48,
+                size: 40,
                 color: colors.textMuted,
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               Text(
                 '当前没有外部播放',
                 style: TextStyle(
                   color: colors.textPrimary,
-                  fontSize: 22,
+                  fontSize: 20,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -333,7 +344,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: colors.textSecondary, height: 1.6),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               Wrap(
                 alignment: WrapAlignment.center,
                 spacing: 10,
@@ -379,7 +390,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 '外部播放',
                 style: TextStyle(
                   color: colors.textPrimary,
-                  fontSize: 26,
+                  fontSize: 21,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -420,6 +431,8 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           ),
         ),
         const SizedBox(width: 8),
+        _buildMiniModeButton(),
+        const SizedBox(width: 4),
         IconButton(
           onPressed: () => Navigator.of(
             context,
@@ -428,6 +441,42 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           icon: const Icon(Icons.tune_rounded),
         ),
       ],
+    );
+  }
+
+  Widget _buildMiniModeButton() {
+    final compact = MediaQuery.sizeOf(context).width < 680;
+    return ValueListenableBuilder<bool>(
+      valueListenable: ExternalPlaybackMiniController.available,
+      builder: (context, available, _) => ValueListenableBuilder<bool>(
+        valueListenable: ExternalPlaybackMiniController.active,
+        builder: (context, active, _) {
+          final VoidCallback? action =
+              available && ExternalPlaybackHost.status.value != null
+              ? () async {
+                  try {
+                    await ExternalPlaybackMiniController.enter();
+                  } catch (_) {
+                    _message('无法打开极简模式，请重试');
+                  }
+                }
+              : null;
+          final icon = active
+              ? Icons.picture_in_picture_alt
+              : Icons.push_pin_outlined;
+          return compact
+              ? IconButton(
+                  onPressed: action,
+                  tooltip: active ? '极简模式已开启' : '打开极简模式',
+                  icon: Icon(icon, size: 18),
+                )
+              : TextButton.icon(
+                  onPressed: action,
+                  icon: Icon(icon, size: 17),
+                  label: Text(active ? '极简模式中' : '极简模式'),
+                );
+        },
+      ),
     );
   }
 
@@ -451,31 +500,30 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         ? status.playlist[currentIndex + 1]
         : null;
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [colors.surfaceStrong, colors.surfaceSubtle],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colors.borderStrong),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Wrap(
-            spacing: 20,
-            runSpacing: 18,
+            spacing: 14,
+            runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Container(
-                width: 88,
-                height: 96,
+                width: 72,
+                height: 80,
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
                   color: colors.accentSoft,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(11),
                 ),
                 child: DetailHeroImage(images: poster),
               ),
@@ -494,18 +542,18 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                         letterSpacing: 1.6,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 5),
                     Text(
                       source.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: colors.textPrimary,
-                        fontSize: 24,
+                        fontSize: 20,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 5),
                     Text(
                       [
                         if (source.seasonNumber > 0)
@@ -555,7 +603,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 tooltip: '下一集',
                 icon: const Icon(Icons.skip_next_rounded),
               ),
-              OutlinedButton.icon(
+              TextButton.icon(
                 onPressed: !_busy && status.canControl
                     ? () => _run(
                         () => ExternalPlaybackHost.activateCurrent(
@@ -568,7 +616,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
           Row(
             children: [
               SizedBox(
@@ -607,11 +655,13 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             ],
           ),
           if (status.progressMessage.isNotEmpty || status.error != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             _buildSessionMessage(context, status),
           ],
           const SizedBox(height: 8),
-          if (status.lastSyncedAt != null)
+          if (status.lastSyncedAt != null &&
+              status.progressMessage.isEmpty &&
+              status.error == null)
             Text(
               '最近一次服务器同步：${_clock(status.lastSyncedAt!)}',
               style: TextStyle(color: colors.textMuted, fontSize: 11),
@@ -632,59 +682,79 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final failed =
         status.error != null ||
         status.progressResult == PlaybackProgressResult.failed;
+    final requiresAction =
+        failed ||
+        status.progressResult == PlaybackProgressResult.queued ||
+        status.phase == ExternalPlaybackPhase.disconnected ||
+        status.phase == ExternalPlaybackPhase.ended;
     final synced = status.progressResult == PlaybackProgressResult.synced;
     final messageColor = failed
         ? colors.danger
         : synced
         ? colors.success
         : colors.textSecondary;
+    final displayMessage = !requiresAction && status.lastSyncedAt != null
+        ? '$message · ${_clock(status.lastSyncedAt!)}'
+        : message;
+    final content = Row(
+      children: [
+        Icon(
+          failed
+              ? Icons.error_outline_rounded
+              : synced
+              ? Icons.check_circle_outline_rounded
+              : Icons.info_outline_rounded,
+          size: requiresAction ? 18 : 15,
+          color: messageColor,
+        ),
+        SizedBox(width: requiresAction ? 10 : 7),
+        Expanded(
+          child: Text(
+            displayMessage,
+            style: TextStyle(
+              color: requiresAction ? colors.textPrimary : colors.textSecondary,
+              fontSize: requiresAction ? null : 11,
+            ),
+          ),
+        ),
+        if (status.phase == ExternalPlaybackPhase.disconnected ||
+            status.phase == ExternalPlaybackPhase.ended)
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => _run(
+                    () => ExternalPlaybackHost(context).reconnect(),
+                    failure: '重新连接 PotPlayer 失败',
+                  ),
+            child: const Text('重新连接'),
+          )
+        else if (status.canControl &&
+            (status.progressResult == PlaybackProgressResult.failed ||
+                status.progressResult == PlaybackProgressResult.queued))
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => _run(
+                    ExternalPlaybackHost.retryProgress,
+                    failure: '重试进度回报失败',
+                  ),
+            child: const Text('重试回报'),
+          ),
+      ],
+    );
+    if (!requiresAction) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        child: content,
+      );
+    }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
         color: messageColor.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: messageColor.withValues(alpha: 0.28)),
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
-        children: [
-          Icon(
-            failed
-                ? Icons.error_outline_rounded
-                : synced
-                ? Icons.check_circle_outline_rounded
-                : Icons.info_outline_rounded,
-            size: 18,
-            color: messageColor,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(message, style: TextStyle(color: colors.textPrimary)),
-          ),
-          if (status.phase == ExternalPlaybackPhase.disconnected ||
-              status.phase == ExternalPlaybackPhase.ended)
-            TextButton(
-              onPressed: _busy
-                  ? null
-                  : () => _run(
-                      () => ExternalPlaybackHost(context).reconnect(),
-                      failure: '重新连接 PotPlayer 失败',
-                    ),
-              child: const Text('重新连接'),
-            )
-          else if (status.canControl &&
-              (status.progressResult == PlaybackProgressResult.failed ||
-                  status.progressResult == PlaybackProgressResult.queued))
-            TextButton(
-              onPressed: _busy
-                  ? null
-                  : () => _run(
-                      ExternalPlaybackHost.retryProgress,
-                      failure: '重试进度回报失败',
-                    ),
-              child: const Text('重试回报'),
-            ),
-        ],
-      ),
+      child: content,
     );
   }
 
@@ -698,7 +768,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+            padding: const EdgeInsets.symmetric(horizontal: 18),
             child: Row(
               children: [
                 _TabButton(
@@ -707,7 +777,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                   label: '弹幕',
                   onTap: () => setState(() => _tabIndex = 0),
                 ),
-                const SizedBox(width: 24),
+                const SizedBox(width: 20),
                 _TabButton(
                   selected: _tabIndex == 1,
                   icon: Icons.video_settings_rounded,
@@ -719,15 +789,15 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           ),
           Divider(height: 1, color: colors.borderSubtle),
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 22, 22, 0),
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
             child: _tabIndex == 0
                 ? _buildDanmaku(context, status)
                 : _buildTracks(context, status),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Divider(height: 1, color: colors.borderSubtle),
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
             child: Row(
               children: [
                 Icon(
@@ -1173,7 +1243,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+            padding: const EdgeInsets.fromLTRB(16, 15, 16, 11),
             child: Row(
               children: [
                 Expanded(
@@ -1221,7 +1291,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             )
           else
             ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 430),
+              constraints: const BoxConstraints(maxHeight: 400),
               child: ListView.builder(
                 shrinkWrap: true,
                 itemCount: episodes.length,
@@ -1265,7 +1335,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ),
             ),
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
             child: Text(
               '切集后会重新解析该集的片源、字幕和弹幕；连续播放由 PotPlayer 的播放列表设置控制。',
               style: TextStyle(color: colors.textMuted, fontSize: 10),
@@ -1354,7 +1424,7 @@ class _Panel extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: colors.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.borderSubtle),
       ),
       clipBehavior: Clip.antiAlias,
@@ -1382,7 +1452,7 @@ class _TabButton extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 17),
+        padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
