@@ -7,6 +7,7 @@ import '../screens/play_stats_report_screen.dart';
 import '../services/fly_data/fly_account_controller.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
+import '../ui/app_popup_theme.dart';
 import 'common/app_option_list.dart';
 
 enum _SourceAction { switchSource, account, catalog, stats }
@@ -35,6 +36,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
     final media = MediaQuery.of(context);
     final floating = media.size.width > media.size.height;
     final colors = context.appColors;
+    final popupTheme = AppPopupTheme.capture(context);
     final body = ListenableBuilder(
       listenable: account,
       builder: (sheetContext, _) =>
@@ -52,7 +54,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
                 insetPadding: const EdgeInsets.all(24),
                 child: SizedBox(
                   width: (media.size.width * .62).clamp(520.0, 760.0),
-                  child: body,
+                  child: popupTheme.wrap(body),
                 ),
               ),
             )

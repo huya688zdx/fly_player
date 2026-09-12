@@ -182,6 +182,7 @@ class _FlySurface extends StatelessWidget {
     final colors = context.appColors;
     return Card(
       margin: EdgeInsets.zero,
+      elevation: 0,
       clipBehavior: Clip.antiAlias,
       color: AppAmbientPage.cardColorOf(
         context,
