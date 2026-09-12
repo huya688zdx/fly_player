@@ -56,5 +56,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/
-    - assets/refresh/
+    - assets/refresh/shoujo_bird_loading.webp
+    - assets/refresh/shoujo_bird_loading_static.png
     - lib/img/

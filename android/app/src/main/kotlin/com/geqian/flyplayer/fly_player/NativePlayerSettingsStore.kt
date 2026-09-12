@@ -1,6 +1,7 @@
 package com.geqian.flyplayer.fly_player
 
 import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONObject
 
 /**
@@ -12,9 +13,8 @@ import org.json.JSONObject
  *
  * 取/存都按「白名单」合并：只认 [defaults] 里存在的 key，避免脏数据塞进镜像。
  */
-class NativePlayerSettingsStore(context: Context) {
-
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+class NativePlayerSettingsStore internal constructor(private val prefs: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
 
     /** 读取分组：以 [defaults] 为底，仅覆盖其中已存在的 key（类型沿用 JSON 解析结果）。 */
     fun loadMap(key: String, defaults: Map<String, Any?>): LinkedHashMap<String, Any?> {
@@ -40,10 +40,19 @@ class NativePlayerSettingsStore(context: Context) {
     fun loadString(key: String): String? = prefs.getString(key, null)
 
     fun saveString(key: String, value: String) {
-        runCatching { prefs.edit().putString(key, value).apply() }
+        updateString(key) { value }
+    }
+
+    /** SharedPreferences makes individual writes atomic, not read/modify/write. */
+    internal fun updateString(key: String, transform: (String?) -> String): Boolean = synchronized(stringMutationLock) {
+        runCatching {
+            val next = transform(prefs.getString(key, null))
+            prefs.edit().putString(key, next).apply()
+        }.isSuccess
     }
 
     companion object {
+        private val stringMutationLock = Any()
         private const val PREFS_NAME = "native_player_settings"
         const val KEY_MPV_ADVANCED = "mpv_advanced"
         const val KEY_VIDEO_ADJUST = "video_adjust"

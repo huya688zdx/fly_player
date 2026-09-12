@@ -3,7 +3,22 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/playback/external_player_media_proxy.dart';
 
+class _LoopbackFixtureHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      super.createHttpClient(context)
+        ..findProxy = (uri) => uri.host == '127.0.0.1' || uri.host == '::1'
+            ? 'DIRECT'
+            : HttpClient.findProxyFromEnvironment(uri);
+}
+
 void main() {
+  setUp(() {
+    // Also isolate the proxy's upstream client: its origin here is a fixture.
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _LoopbackFixtureHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previous);
+  });
   test('HLS 清单、相对分片和密钥均经本机中转，并按各自地址签名', () async {
     final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => origin.close(force: true));
@@ -30,7 +45,7 @@ void main() {
       headersForUrl: (url) => {'Authx': 'GET ${url.path}'},
     );
     addTearDown(proxy.close);
-    final client = HttpClient();
+    final client = HttpClient()..findProxy = (_) => 'DIRECT';
     addTearDown(() => client.close(force: true));
     final response = await (await client.getUrl(Uri.parse(proxy.url))).close();
     final body = String.fromCharCodes(
@@ -83,7 +98,7 @@ void main() {
       },
     );
     addTearDown(proxy.close);
-    final client = HttpClient();
+    final client = HttpClient()..findProxy = (_) => 'DIRECT';
     addTearDown(() => client.close(force: true));
     final get = await client.getUrl(Uri.parse(proxy.url));
     get.headers.set('Range', 'bytes=2-4');
@@ -143,19 +158,23 @@ void main() {
     final playerUri = Uri.parse(proxy.url);
     await proxy.close();
     client.close(force: true);
-    final freshClient = HttpClient();
+    final freshClient = HttpClient()..findProxy = (_) => 'DIRECT';
     addTearDown(() => freshClient.close(force: true));
-    try {
-      final afterClose = await (await freshClient.getUrl(playerUri)).close();
-      // A system network proxy can turn connection refusal into HTTP 502.
-      // In either case the closed media proxy must not serve or fetch video.
-      expect(afterClose.statusCode, greaterThanOrEqualTo(400));
-      await afterClose.drain<void>();
-    } on SocketException {
-      // Direct connection refusal.
-    } on HttpException {
-      // The TCP connection closed before an HTTP response was available.
-    }
+    // DIRECT loopback clients preserve the closed-listener assertion even
+    // when the environment routes other HTTP requests through a proxy.
+    await expectLater(() async {
+      final request = await freshClient.getUrl(playerUri);
+      final response = await request.close();
+      await response.drain<void>();
+    }(), throwsA(isA<SocketException>()));
+    await expectLater(
+      Socket.connect(
+        playerUri.host,
+        playerUri.port,
+        timeout: const Duration(seconds: 2),
+      ).then((socket) => socket.destroy()),
+      throwsA(isA<SocketException>()),
+    );
     expect(requests.length, 2);
     expect(resolutions, 1);
   });
@@ -196,7 +215,7 @@ void main() {
       },
     );
     addTearDown(proxy.close);
-    final client = HttpClient();
+    final client = HttpClient()..findProxy = (_) => 'DIRECT';
     addTearDown(() => client.close(force: true));
     final result = await (await client.getUrl(Uri.parse(proxy.url))).close();
     expect(result.statusCode, 200);

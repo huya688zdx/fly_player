@@ -107,6 +107,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
   static MpvMediaSource? _source;
   static String? _scope;
   static bool _launching = false;
+  static Object? _launchOwner;
   static final status = ValueNotifier<ExternalPlaybackStatus?>(null);
   static Future<bool> Function(
     String?,
@@ -120,6 +121,16 @@ final class ExternalPlaybackHost implements PlaybackHost {
   static bool _changingSource = false;
   static bool _offline = false;
   static String? _danmakuFilePath;
+
+  Duration? positionForLaunch({required String itemGuid}) {
+    if (!context.mounted ||
+        _scope != playbackSessionScope(context) ||
+        !_controlsItem(itemGuid)) {
+      return null;
+    }
+    final active = status.value;
+    return active?.source.itemGuid == itemGuid ? active!.position : null;
+  }
 
   static bool _controlsItem(String itemGuid) =>
       _session?.finished == false &&
@@ -137,13 +148,17 @@ final class ExternalPlaybackHost implements PlaybackHost {
     final session = _session!;
     await session.poll();
     if (!_controlsItem(itemGuid) || !identical(_session, session)) return false;
-    await PotPlayerSession.channel.invokeMethod<void>('configure', {
+    if (!await PotPlayerSession.sendCommand('configure', {
       'pid': session.pid,
       'paused': paused,
       'mediaUrl': session.mediaUrl,
-    });
-    await session.poll();
-    return true;
+    })) {
+      return false;
+    }
+    if (!identical(_session, session) || !_controlsItem(itemGuid)) return false;
+    return await session.confirmPlayback(paused: paused) &&
+        identical(_session, session) &&
+        _controlsItem(itemGuid);
   }
 
   static Future<bool> seek(
@@ -154,17 +169,24 @@ final class ExternalPlaybackHost implements PlaybackHost {
     final session = _session!;
     await session.poll();
     if (!_controlsItem(itemGuid) || !identical(_session, session)) return false;
-    await PotPlayerSession.channel.invokeMethod<void>('activate', {
-      'pid': session.pid,
-      'positionMs': position.inMilliseconds.clamp(
+    final target = Duration(
+      milliseconds: position.inMilliseconds.clamp(
         0,
         status.value!.duration.inMilliseconds,
       ),
+    );
+    if (!await PotPlayerSession.sendCommand('activate', {
+      'pid': session.pid,
+      'positionMs': target.inMilliseconds,
       'focus': false,
       'mediaUrl': session.mediaUrl,
-    });
-    await session.poll();
-    return true;
+    })) {
+      return false;
+    }
+    if (!identical(_session, session) || !_controlsItem(itemGuid)) return false;
+    return await session.confirmPlayback(position: target) &&
+        identical(_session, session) &&
+        _controlsItem(itemGuid);
   }
 
   static Future<bool> applyDanmaku({
@@ -202,9 +224,17 @@ final class ExternalPlaybackHost implements PlaybackHost {
   }
 
   static Future<void> stop() async {
+    // Invalidate even a launch that has not received its native PID yet.
+    _launchOwner = null;
+    await _stopSession();
+  }
+
+  static Future<void> _stopSession() async {
     final session = _session;
     if (session != null) {
-      await session.poll();
+      // Startup has no authoritative sample to refresh, and polling here would
+      // make cancellation wait for the same unresponsive native boundary.
+      if (status.value?.canControl == true) await session.poll();
       await session.finish(closePlayer: true);
     }
     if (identical(_session, session)) {
@@ -243,11 +273,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
       _changingSource = true;
       status.value = active.withPhase(ExternalPlaybackPhase.preparing);
       try {
-        await PotPlayerSession.channel.invokeMethod<void>('stepPlaylist', {
+        if (!await PotPlayerSession.sendCommand('stepPlaylist', {
           'pid': session.pid,
           'mediaUrl': session.mediaUrl,
           'direction': target > current ? 1 : -1,
-        });
+        })) {
+          return false;
+        }
         final deadline = DateTime.now().add(const Duration(minutes: 2));
         while (DateTime.now().isBefore(deadline)) {
           await session.poll();
@@ -482,17 +514,28 @@ final class ExternalPlaybackHost implements PlaybackHost {
     if (!context.mounted) return false;
     if (_launching) throw StateError('外部播放器正在启动，请稍候');
     _launching = true;
+    final owner = Object();
+    _launchOwner = owner;
+    final requestedScope = playbackSessionScope(context);
     Directory? directory;
     ExternalPlayerMediaProxy? mediaProxy;
     PotPlayerSession? launched;
+    Future<void> Function()? releaseUnlaunchedSource;
     var disposed = false;
+    bool ownsLaunch() =>
+        context.mounted &&
+        identical(_launchOwner, owner) &&
+        playbackSessionScope(context) == requestedScope;
+    void checkLaunch() {
+      if (!ownsLaunch() ||
+          disposed ||
+          launched?.finished == true ||
+          (launched != null && !identical(_session, launched))) {
+        throw StateError('外部播放启动已取消');
+      }
+    }
+
     try {
-      final settings = await ExternalPlayerSettings.load();
-      final error = await ExternalPlayerSettings.validateExecutable(
-        settings.executablePath,
-      );
-      if (error != null) throw StateError(error);
-      if (!context.mounted) return false;
       void notify(String message) {
         showExternalPlaybackNotice(context, message);
       }
@@ -516,6 +559,32 @@ final class ExternalPlaybackHost implements PlaybackHost {
               serverConnection?.userId &&
           provider.sessionProvider?.currentConnection?.userName ==
               serverConnection?.userName;
+
+      final releasedLinks = <String>{};
+      Future<void> releaseSource(MpvMediaSource owned) async {
+        final link = owned.playLink?.trim() ?? '';
+        if (offline ||
+            !backend.capabilities.usesLegacyFeiniuFlow ||
+            !isCurrentSession() ||
+            link.isEmpty ||
+            !releasedLinks.add(link)) {
+          return;
+        }
+        await NativeReentrySupport.releaseServerSession(
+          effectiveNas,
+          link,
+          isCurrent: isCurrentSession,
+        );
+      }
+
+      releaseUnlaunchedSource = () => releaseSource(source);
+      final settings = await ExternalPlayerSettings.load();
+      checkLaunch();
+      final error = await ExternalPlayerSettings.validateExecutable(
+        settings.executablePath,
+      );
+      checkLaunch();
+      if (error != null) throw StateError(error);
 
       void publishPreparing() {
         status.value = ExternalPlaybackStatus(
@@ -543,9 +612,12 @@ final class ExternalPlaybackHost implements PlaybackHost {
           api: FeiniuApi(effectiveNas),
           source: source,
         );
+        checkLaunch();
       }
       directory = await Directory.systemTemp.createTemp('fly_potplayer_');
+      checkLaunch();
       final initialDanmakuSettings = await const DanmakuSettingsStore().load();
+      checkLaunch();
       var initialDanmakuPath = danmakuFilePath;
       var initialDanmakuCount = 0;
       final subtitle = await _prepareSubtitle(
@@ -562,11 +634,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
           initialDanmakuCount = count;
         },
       );
+      checkLaunch();
       if (!context.mounted || !isCurrentSession()) {
         throw StateError('播放页面或账号已切换，请重新播放');
       }
       // 新启动前结束旧会话，避免两份定时器同时回报。
-      await stop();
+      await _stopSession();
+      checkLaunch();
       _scope = sessionScope;
       _offline = offline;
       publishPreparing();
@@ -580,6 +654,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         offline: offline,
         onWarning: notify,
       );
+      checkLaunch();
       final isHttp = uri?.scheme == 'http' || uri?.scheme == 'https';
       if (catalog.length > 1 ||
           (isHttp && backend.capabilities.usesLegacyFeiniuFlow)) {
@@ -596,6 +671,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 }
               : null,
         );
+        checkLaunch();
       }
       final playerUrl =
           mediaProxy?.url ??
@@ -653,7 +729,10 @@ final class ExternalPlaybackHost implements PlaybackHost {
               if (next.playLink?.isNotEmpty == true) {
                 ownedServerSources[next.playLink!] = next;
               }
-              if (disposed || !isCurrentSession()) throw StateError('播放会话已结束');
+              if (disposed || !isCurrentSession()) {
+                await releaseSource(next);
+                throw StateError('播放会话已结束');
+              }
               await entryDirectory.create(recursive: true);
               final nextSettings = await const DanmakuSettingsStore().load();
               var nextDanmaku = result?['danmakuFile']?.toString();
@@ -710,6 +789,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
             currentUrl: playerUrl,
             titlesByUrl: titles,
           );
+          checkLaunch();
         }
       }
       if (!context.mounted || !isCurrentSession()) {
@@ -793,17 +873,6 @@ final class ExternalPlaybackHost implements PlaybackHost {
             serverReportPending = false;
           }
         },
-        releaseServerSession:
-            offline || !backend.capabilities.usesLegacyFeiniuFlow
-            ? null
-            : (link) async {
-                if (isCurrentSession()) {
-                  await NativeReentrySupport.releaseServerSession(
-                    effectiveNas,
-                    link,
-                  );
-                }
-              },
       );
       // PotPlayer 内部切轨没有可靠回调，不能把 Fly 中的原选择当成实际播放音轨。
       var reportedSource = source.copyWith(clearAudioTrackGuid: true);
@@ -866,7 +935,10 @@ final class ExternalPlaybackHost implements PlaybackHost {
       launched = PotPlayerSession(
         pid: pid,
         mediaUrl: playerUrl,
-        isCurrentSession: isCurrentSession,
+        isCurrentSession: () =>
+            isCurrentSession() &&
+            identical(_session, launched) &&
+            (startupComplete || ownsLaunch()),
         onMediaChanged: playlistPath == null
             ? null
             : (url) async {
@@ -966,6 +1038,11 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 return source.startPosition;
               },
         onProgress: (position, duration, paused) {
+          if (disposed ||
+              !isCurrentSession() ||
+              !identical(_session, launched)) {
+            return;
+          }
           if (startupComplete) {
             phase = ExternalPlaybackPhase.ready;
             statusError = null;
@@ -1011,9 +1088,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
             }
             await reporter.flushServer();
             await reporter.dispose();
-            reporter.release(source);
-            for (final other in ownedServerSources.values) {
-              if (other.playLink != source.playLink) reporter.release(other);
+            await releaseSource(source);
+            for (final other in ownedServerSources.values.toList()) {
+              await releaseSource(other);
             }
             if (!offline &&
                 isCurrentSession() &&
@@ -1041,6 +1118,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
           notify(message);
         },
       );
+      // The launch command may complete after stop; install only an owned PID.
+      // The local session still owns cleanup in the catch path below.
+      if (!ownsLaunch()) throw StateError('外部播放启动已取消');
       reporter.onLaunch(source);
       _session = launched;
       _source = source;
@@ -1052,6 +1132,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         initialPosition: source.startPosition,
         onWaiting: () => notify('PotPlayer 正在解析文件，较大的蓝光原盘可能需要一分钟左右'),
       );
+      checkLaunch();
       if (subtitle?.isNotEmpty == true) {
         try {
           await PotPlayerSession.channel.invokeMethod<void>('subtitle', {
@@ -1060,10 +1141,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
             'mediaUrl': playerUrl,
           });
         } catch (_) {
-          notify('字幕或弹幕未能载入，请在 PotPlayer 检查字幕选项');
+          if (ownsLaunch() && !disposed) {
+            notify('字幕或弹幕未能载入，请在 PotPlayer 检查字幕选项');
+          }
         }
+        checkLaunch();
       }
-      _session = launched;
+      checkLaunch();
       _source = source;
       _scope = sessionScope;
       startupComplete = true;
@@ -1171,11 +1255,15 @@ final class ExternalPlaybackHost implements PlaybackHost {
             }
           };
       publishStatus();
+      checkLaunch();
       notify('已在 PotPlayer 播放；请保持 Fly Player 运行以同步进度');
+      checkLaunch();
       return true;
     } catch (error) {
+      final cancelled = !ownsLaunch() || disposed || launched?.finished == true;
       disposed = true;
       await launched?.finish(closePlayer: true);
+      if (launched == null) await releaseUnlaunchedSource?.call();
       await mediaProxy?.close();
       await _cleanDirectory(directory);
       if (status.value?.source.itemGuid == source.itemGuid &&
@@ -1185,6 +1273,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           error: '$error',
         );
       }
+      if (cancelled) return false;
       rethrow;
     } finally {
       _launching = false;

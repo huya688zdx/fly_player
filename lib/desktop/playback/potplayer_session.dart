@@ -41,6 +41,30 @@ class PotPlayerSession with WidgetsBindingObserver {
 
   bool get finished => _finished;
 
+  // Native true means the command was delivered, not that playback changed.
+  static Future<bool> sendCommand(
+    String method,
+    Map<String, Object?> args,
+  ) async => await channel.invokeMethod<bool>(method, args) == true;
+
+  static Future<void> requireCommand(
+    String method,
+    Map<String, Object?> args,
+  ) async {
+    if (!await sendCommand(method, args)) {
+      throw PlatformException(
+        code: 'potplayer_command_failed',
+        message: 'PotPlayer 未接受控制命令：$method',
+      );
+    }
+  }
+
+  bool get _current => !_finished && isCurrentSession();
+
+  void _checkCurrent() {
+    if (!_current) throw StateError('播放会话已结束或账号已切换');
+  }
+
   Future<Map<String, dynamic>> _snapshot() async => Map<String, dynamic>.from(
     await channel.invokeMapMethod<String, dynamic>('snapshot', {'pid': pid}) ??
         const {},
@@ -67,6 +91,7 @@ class PotPlayerSession with WidgetsBindingObserver {
       }
       try {
         final state = await _snapshot();
+        _checkCurrent();
         if (state['alive'] == true) {
           sawPlayerWindow = true;
         } else if (sawPlayerWindow) {
@@ -74,21 +99,30 @@ class PotPlayerSession with WidgetsBindingObserver {
         }
         if (_matches(state) && (state['state'] == 1 || state['state'] == 2)) {
           if (!configured) {
-            await channel.invokeMethod<void>('configure', {
+            await requireCommand('configure', {
               'pid': pid,
               'paused': paused,
               'speed': speed,
               'mediaUrl': mediaUrl,
             });
+            _checkCurrent();
             configured = true;
             if (initialPosition > Duration.zero) {
-              await channel.invokeMethod<void>('activate', {
+              await requireCommand('activate', {
                 'pid': pid,
                 'positionMs': initialPosition.inMilliseconds,
+                'focus': false,
                 'mediaUrl': mediaUrl,
               });
-              continue;
+              _checkCurrent();
             }
+            // Confirm the actual state after asynchronous configure/seek.
+            continue;
+          }
+          if (state['state'] != (paused ? 1 : 2)) {
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+            _checkCurrent();
+            continue;
           }
           final positionMs = (state['positionMs'] as num?)?.toInt() ?? 0;
           // 续播命令是异步的，不能先把加载阶段的零位置回写到 NAS。
@@ -99,9 +133,11 @@ class PotPlayerSession with WidgetsBindingObserver {
           );
           if (targetMs > 0 && positionMs < minimumPositionMs) {
             await Future<void>.delayed(const Duration(milliseconds: 300));
+            _checkCurrent();
             continue;
           }
           _accept(state);
+          _checkCurrent();
           _ready = true;
           WidgetsBinding.instance.addObserver(this);
           _timer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -119,6 +155,7 @@ class PotPlayerSession with WidgetsBindingObserver {
         }
       }
       await Future<void>.delayed(const Duration(milliseconds: 300));
+      _checkCurrent();
     }
     throw StateError('未能确认 PotPlayer 正在播放此媒体，请检查播放地址或播放器权限');
   }
@@ -233,18 +270,20 @@ class PotPlayerSession with WidgetsBindingObserver {
         final targetMs = pendingPosition.inMilliseconds.clamp(0, durationMs);
         final requestedAt = _seekRequestedAt;
         if (requestedAt == null) {
-          await channel.invokeMethod<void>('activate', {
+          await requireCommand('activate', {
             'pid': pid,
             'positionMs': targetMs,
             'focus': false,
             'mediaUrl': mediaUrl,
           });
+          if (!_current) return;
           // PotPlayer 切集加载后可能暂停，续播定位后明确恢复播放。
-          await channel.invokeMethod<void>('configure', {
+          await requireCommand('configure', {
             'pid': pid,
             'paused': false,
             'mediaUrl': mediaUrl,
           });
+          if (!_current) return;
           _seekRequestedAt = DateTime.now();
           return;
         }
@@ -278,27 +317,90 @@ class PotPlayerSession with WidgetsBindingObserver {
     Duration? position,
     bool resumePlayback = true,
   }) async {
-    if (_finished || !isCurrentSession()) return false;
+    if (!_current) return false;
+    final expectedMedia = mediaUrl;
+    bool current() => _current && sameMedia(mediaUrl, expectedMedia);
     final state = await _snapshot();
-    if (!_matches(state) || !{1, 2}.contains(state['state'])) return false;
-    if (position != null && onMediaChanged != null) {
-      // 切集等待续播时，详情页的「从头播放」以本次明确选择为准。
-      _pendingPosition = position;
-      _seekRequestedAt = DateTime.now();
+    if (!current() || !_matches(state) || !{1, 2}.contains(state['state'])) {
+      return false;
     }
-    await channel.invokeMethod<void>('activate', {
-      'pid': pid,
-      if (position != null) 'positionMs': position.inMilliseconds,
-      'mediaUrl': mediaUrl,
-    });
+    if (position != null) {
+      final previousPosition = _pendingPosition;
+      final previousRequest = _seekRequestedAt;
+      if (onMediaChanged != null) {
+        // A concurrent poll must not restore the playlist's old resume target
+        // while the explicit replay command is awaiting native delivery.
+        _pendingPosition = position;
+        _seekRequestedAt = DateTime.now();
+      }
+      var delivered = false;
+      try {
+        delivered = await sendCommand('activate', {
+          'pid': pid,
+          'positionMs': position.inMilliseconds,
+          'focus': false,
+          'mediaUrl': expectedMedia,
+        });
+      } finally {
+        if (!delivered && current()) {
+          _pendingPosition = previousPosition;
+          _seekRequestedAt = previousRequest;
+        }
+      }
+      if (!delivered || !current()) return false;
+    }
     if (resumePlayback) {
-      await channel.invokeMethod<void>('configure', {
-        'pid': pid,
-        'paused': false,
-        'mediaUrl': mediaUrl,
-      });
+      if (!await sendCommand('configure', {
+            'pid': pid,
+            'paused': false,
+            'mediaUrl': expectedMedia,
+          }) ||
+          !current()) {
+        return false;
+      }
     }
-    return true;
+    // Foreground activation has its own result; it cannot invalidate playback
+    // already confirmed below or conceal a failed seek/configure command.
+    final focused = await sendCommand('activate', {
+      'pid': pid,
+      'mediaUrl': expectedMedia,
+    });
+    if (!current()) return false;
+    if (!resumePlayback && position == null) return focused;
+    if (!focused) onError('未能将 PotPlayer 窗口切到前台');
+    final confirmed = await confirmPlayback(
+      position: position,
+      paused: resumePlayback ? false : null,
+    );
+    if (confirmed && current() && position != null && onMediaChanged != null) {
+      _pendingPosition = null;
+      _seekRequestedAt = null;
+    }
+    return confirmed && current();
+  }
+
+  /// A sent Win32 message can precede its effect; confirm only actual samples.
+  Future<bool> confirmPlayback({Duration? position, bool? paused}) async {
+    final expectedMedia = mediaUrl;
+    bool current() => _current && sameMedia(mediaUrl, expectedMedia);
+    final startedAt = DateTime.now();
+    final deadline = startedAt.add(const Duration(seconds: 3));
+    while (current()) {
+      final actual = await _snapshot();
+      if (!current() || !_matches(actual)) return false;
+      final actualMs = (actual['positionMs'] as num?)?.toInt() ?? -1;
+      final targetMs = position?.inMilliseconds;
+      if ({1, 2}.contains(actual['state']) &&
+          (paused == null || actual['state'] == (paused ? 1 : 2)) &&
+          (targetMs == null ||
+              (actualMs >= 0 && (actualMs - targetMs).abs() <= 3000))) {
+        _accept(actual);
+        return current();
+      }
+      if (!DateTime.now().isBefore(deadline)) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return false;
   }
 
   Future<void> finish({
@@ -307,10 +409,14 @@ class PotPlayerSession with WidgetsBindingObserver {
   }) async {
     if (closePlayer) {
       _finished = true;
+      _timer?.cancel();
+      WidgetsBinding.instance.removeObserver(this);
       try {
         // 已结束跟踪仍可关闭本次媒体，但不关闭用户后来手动打开的其他影片。
         if (!_ready || _matches(await _snapshot())) {
-          await channel.invokeMethod<void>('close', {'pid': pid});
+          if (!await sendCommand('close', {'pid': pid})) {
+            onError('未能确认 PotPlayer 已关闭，请检查播放器窗口');
+          }
         }
       } on PlatformException {
         // 已退出或暂时无响应的进程不影响会话收尾。
