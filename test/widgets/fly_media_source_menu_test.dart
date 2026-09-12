@@ -9,6 +9,7 @@ import 'package:fly_player/services/fly_data/fly_data_service.dart';
 import 'package:fly_player/services/play_stats/play_stats_database.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/widgets/fly_media_source_menu.dart';
+import 'package:fly_player/widgets/common/app_option_list.dart';
 
 FlyDataSession _session(String user) => FlyDataSession(
   serverUrl: 'https://fly.example',
@@ -66,6 +67,11 @@ class _MenuAccount extends FlyAccountController {
 
   void switchUser() {
     service.session = _session('bob');
+    notifyListeners();
+  }
+
+  void setBusy(bool value) {
+    busy = value;
     notifyListeners();
   }
 
@@ -139,9 +145,14 @@ void main() {
       await mount(tester);
       await tester.tap(find.byTooltip('切换媒体来源'));
       await tester.pumpAndSettle();
+      final staleSelection = tester
+          .widgetList<AppOptionListTile>(find.byType(AppOptionListTile))
+          .firstWhere((tile) => tile.title == '我的 Emby')
+          .onTap;
       account.switchUser();
       await tester.pump();
-      await tester.tap(find.text('我的 Emby'));
+      // A callback captured before the account changed can still finish late.
+      staleSelection();
       await tester.pumpAndSettle();
       expect(account.activations, isEmpty);
     },
@@ -160,6 +171,133 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('账号与媒体来源'), findsOneWidget);
     expect(find.text('已同步节目'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('source menu uses the original option panel and brand assets', (
+    tester,
+  ) async {
+    await mount(tester);
+    expect(
+      find.byWidgetPredicate((widget) => widget is PopupMenuButton),
+      findsNothing,
+    );
+    await tester.tap(find.byTooltip('切换媒体来源'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AppOptionSheetPanel), findsOneWidget);
+    final tiles = tester
+        .widgetList<AppOptionListTile>(find.byType(AppOptionListTile))
+        .toList();
+    expect(tiles.where((tile) => tile.selected).single.title, '家里的飞牛');
+    expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+    final assets = tester
+        .widgetList<Image>(find.byType(Image))
+        .map((image) => image.image)
+        .whereType<AssetImage>()
+        .map((asset) => asset.assetName)
+        .toList();
+    expect(
+      assets,
+      containsAll(['lib/img/feiniu_Logo.png', 'lib/img/Emby_logo.png']),
+    );
+    expect(find.text('账号与媒体来源'), findsOneWidget);
+    expect(find.text('已同步节目'), findsOneWidget);
+    expect(find.text('观看统计'), findsOneWidget);
+  });
+
+  testWidgets('busy and reauthorization entries remain disabled', (
+    tester,
+  ) async {
+    account.bindings[1]['status'] = 'reauth_required';
+    await mount(tester);
+    await tester.tap(find.byTooltip('切换媒体来源'));
+    await tester.pumpAndSettle();
+    expect(find.text('需要重新授权'), findsOneWidget);
+    await tester.tap(find.text('我的 Emby'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(account.activations, isEmpty);
+    expect(find.byType(AppOptionSheetPanel), findsOneWidget);
+    account.setBusy(true);
+    await tester.pump();
+    await tester.tap(find.text('账号与媒体来源'), warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(AppOptionSheetPanel), findsOneWidget);
+    account.setBusy(false);
+    await tester.pump();
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('busy title cannot open another source selector', (tester) async {
+    account.setBusy(true);
+    await mount(tester);
+    await tester.tap(find.byTooltip('切换媒体来源'), warnIfMissed: false);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(AppOptionSheetPanel), findsNothing);
+    expect(account.activations, isEmpty);
+  });
+
+  testWidgets(
+    'many long sources stay scrollable inside a bounded narrow sheet',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      account.bindings.addAll(
+        List.generate(
+          24,
+          (index) => {
+            'id': 'extra-$index',
+            'label': '家里的第 $index 个影视与动画媒体库非常长的名称',
+            'status': 'active',
+            'server': {'kind': 'jellyfin'},
+          },
+        ),
+      );
+      await mount(tester);
+      await tester.tap(find.byTooltip('切换媒体来源'));
+      await tester.pumpAndSettle();
+      final panel = find.byType(AppOptionSheetPanel);
+      expect(panel, findsOneWidget);
+      expect(tester.getSize(panel).height, lessThan(640 * .82));
+      final scrollable = find.descendant(
+        of: panel,
+        matching: find.byType(Scrollable),
+      );
+      await tester.scrollUntilVisible(
+        find.text('观看统计'),
+        300,
+        scrollable: scrollable,
+      );
+      expect(find.text('观看统计').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('landscape uses the original floating option surface', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await mount(tester);
+    await tester.tap(find.byTooltip('切换媒体来源'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsOneWidget);
+    final panel = tester.widget<AppOptionSheetPanel>(
+      find.byType(AppOptionSheetPanel),
+    );
+    expect(panel.floating, isTrue);
+    expect(
+      tester.getSize(find.byType(AppOptionSheetPanel)).width,
+      lessThan(900),
+    );
+    expect(
+      tester.getSize(find.byType(AppOptionSheetPanel)).height,
+      lessThan(480),
+    );
     expect(tester.takeException(), isNull);
   });
 }
