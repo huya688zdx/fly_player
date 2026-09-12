@@ -1024,7 +1024,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 phase = ExternalPlaybackPhase.preparing;
                 publishStatus();
                 reporter.onLaunch(source);
-                if (next.subtitle?.isNotEmpty == true) {
+                if (startupComplete && next.subtitle?.isNotEmpty == true) {
                   try {
                     await PotPlayerSession.channel.invokeMethod<void>(
                       'subtitle',
@@ -1133,12 +1133,12 @@ final class ExternalPlaybackHost implements PlaybackHost {
         onWaiting: () => notify('PotPlayer 正在解析文件，较大的蓝光原盘可能需要一分钟左右'),
       );
       checkLaunch();
-      if (subtitle?.isNotEmpty == true) {
+      if (activeSubtitle?.isNotEmpty == true) {
         try {
           await PotPlayerSession.channel.invokeMethod<void>('subtitle', {
             'pid': pid,
-            'path': subtitle,
-            'mediaUrl': playerUrl,
+            'path': activeSubtitle,
+            'mediaUrl': launched.mediaUrl,
           });
         } catch (_) {
           if (ownsLaunch() && !disposed) {

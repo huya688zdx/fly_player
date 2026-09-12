@@ -1319,46 +1319,51 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           else
             ConstrainedBox(
               constraints: const BoxConstraints(maxHeight: 400),
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: episodes.length,
-                itemBuilder: (context, index) {
-                  final episode = episodes[index];
-                  final active = episode.itemGuid == status.source.itemGuid;
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 5, 8, 0),
-                    child: ListTile(
-                      selected: active,
-                      selectedTileColor: colors.selectionSoft,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      leading: Text(
-                        episode.episodeNumber > 0
-                            ? '${episode.episodeNumber}'
-                            : '·',
-                        style: TextStyle(
-                          color: active ? colors.accent : colors.textMuted,
+              // ListTile 的选中背景与水波纹也必须裁剪在列表视口内。
+              child: Material(
+                color: Colors.transparent,
+                clipBehavior: Clip.hardEdge,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: episodes.length,
+                  itemBuilder: (context, index) {
+                    final episode = episodes[index];
+                    final active = episode.itemGuid == status.source.itemGuid;
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 5, 8, 0),
+                      child: ListTile(
+                        selected: active,
+                        selectedTileColor: colors.selectionSoft,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
                         ),
+                        leading: Text(
+                          episode.episodeNumber > 0
+                              ? '${episode.episodeNumber}'
+                              : '·',
+                          style: TextStyle(
+                            color: active ? colors.accent : colors.textMuted,
+                          ),
+                        ),
+                        title: Text(
+                          episode.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: active
+                            ? Icon(
+                                Icons.graphic_eq_rounded,
+                                color: colors.accent,
+                                size: 18,
+                              )
+                            : null,
+                        onTap: !active && !_busy && status.canControl
+                            ? () => _playEpisode(status, episode)
+                            : null,
                       ),
-                      title: Text(
-                        episode.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: active
-                          ? Icon(
-                              Icons.graphic_eq_rounded,
-                              color: colors.accent,
-                              size: 18,
-                            )
-                          : null,
-                      onTap: !active && !_busy && status.canControl
-                          ? () => _playEpisode(status, episode)
-                          : null,
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           Padding(
