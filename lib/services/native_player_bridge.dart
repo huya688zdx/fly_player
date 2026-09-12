@@ -17,6 +17,7 @@ import 'native_danmaku_prefetch.dart';
 import 'native_player_localized_strings.dart';
 import 'native_reentry_support.dart';
 import 'play_stats/native_play_stats_recorder.dart';
+import 'play_stats/play_stats_service.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -180,6 +181,26 @@ class NativePlayerBridge {
     Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleRemoved,
   }) {
     final token = Object();
+    final statsScope = PlayStatsService.instance.currentScope;
+    bool acceptsScope(Object? scope) =>
+        statsScope == PlayStatsService.instance.currentScope &&
+        ((scope == null || scope == '')
+            ? !PlayStatsService.instance.hasUnifiedBinding
+            : scope == statsScope);
+    Map<String, dynamic>? scopedResult(Map<String, dynamic>? result) {
+      if (result == null ||
+          statsScope != PlayStatsService.instance.currentScope) {
+        return null;
+      }
+      final raw = result['loadArgs'];
+      if (raw is! String) return result;
+      final args = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      return {
+        ...result,
+        'loadArgs': jsonEncode({...args, 'statsScope': statsScope}),
+      };
+    }
+
     unawaited(_onUnbind?.call());
     _onUnbind = onUnbind;
     _activeBindToken = token;
@@ -198,39 +219,42 @@ class NativePlayerBridge {
           return null;
         case 'resolvePlayback':
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          if (!acceptsScope(args['statsScope'])) return null;
           final guid = (args['itemGuid'] ?? '').toString();
           if (guid.isEmpty) return null;
           debugPrint(
             '[DANMAKU][NATIVE_SWITCH] bridge resolvePlayback recv '
             'item="$guid" keys=${args.keys.toList()}',
           );
-          final resolved = await onResolvePlayback(
-            guid,
-            qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
-            qualityMediaGuid: () {
-              final v = (args['qualityMediaGuid'] ?? '').toString().trim();
-              return v.isEmpty ? null : v;
-            }(),
-            startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
-            // 字幕重载（转码/服务端托管）：带 key 即为 override，空串=关闭字幕；
-            // 不带 key（画质/选集）则 null=沿用服务端默认字幕。
-            subtitleGuid: args.containsKey('subtitleGuid')
-                ? (args['subtitleGuid'] ?? '').toString()
-                : null,
-            // 音轨重载（转码切音轨）：带 key 即 override；不带则沿用服务端默认音轨。
-            audioGuid: args.containsKey('audioGuid')
-                ? (args['audioGuid'] ?? '').toString()
-                : null,
-            // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1=继承「关闭」。
-            audioTrackIndex: (args['audioTrackIndex'] as num?)?.toInt(),
-            subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)?.toInt(),
-            // 切集按分辨率继承画质：native（转码态）传当前分辨率；空=不继承，走默认梯度。
-            preferredQualityResolution: () {
-              final v = (args['preferredQualityResolution'] ?? '')
-                  .toString()
-                  .trim();
-              return v.isEmpty ? null : v;
-            }(),
+          final resolved = scopedResult(
+            await onResolvePlayback(
+              guid,
+              qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
+              qualityMediaGuid: () {
+                final v = (args['qualityMediaGuid'] ?? '').toString().trim();
+                return v.isEmpty ? null : v;
+              }(),
+              startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
+              // 字幕重载（转码/服务端托管）：带 key 即为 override，空串=关闭字幕；
+              // 不带 key（画质/选集）则 null=沿用服务端默认字幕。
+              subtitleGuid: args.containsKey('subtitleGuid')
+                  ? (args['subtitleGuid'] ?? '').toString()
+                  : null,
+              // 音轨重载（转码切音轨）：带 key 即 override；不带则沿用服务端默认音轨。
+              audioGuid: args.containsKey('audioGuid')
+                  ? (args['audioGuid'] ?? '').toString()
+                  : null,
+              // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1=继承「关闭」。
+              audioTrackIndex: (args['audioTrackIndex'] as num?)?.toInt(),
+              subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)?.toInt(),
+              // 切集按分辨率继承画质：native（转码态）传当前分辨率；空=不继承，走默认梯度。
+              preferredQualityResolution: () {
+                final v = (args['preferredQualityResolution'] ?? '')
+                    .toString()
+                    .trim();
+                return v.isEmpty ? null : v;
+              }(),
+            ),
           );
           // 统计元数据缓存:预取/切集/切版本的解析结果都进缓存;会话切换只认 recordProgress。
           NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
@@ -248,6 +272,9 @@ class NativePlayerBridge {
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final current = (args['loadArgs'] ?? '').toString();
           if (current.isEmpty) return null;
+          if (!acceptsScope((jsonDecode(current) as Map)['statsScope'])) {
+            return null;
+          }
           // 把 channel 的「带 key=override / 空串=关闭 / 不带=保留」语义组装成中立意图：
           // audioGuid 带 key→切音轨，不带→保留；subtitleGuid 空串→关闭，非空→切轨，
           // 不带→保留；qualityIndex 不带→保留当前画质。
@@ -256,21 +283,23 @@ class NativePlayerBridge {
               ? (args['subtitleGuid'] ?? '').toString()
               : null;
           final startMs = (args['startPositionMs'] as num?)?.toInt();
-          final reloaded = await onReloadServerSession(
-            current,
-            MediaSessionReloadIntent(
-              audioTrackId: args.containsKey('audioGuid')
-                  ? (args['audioGuid'] ?? '').toString()
-                  : null,
-              subtitleTrackId:
-                  (subtitleValue != null && subtitleValue.isNotEmpty)
-                  ? subtitleValue
-                  : null,
-              subtitleDisabled: subtitleValue == '',
-              qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
-              startPosition: startMs != null
-                  ? Duration(milliseconds: startMs)
-                  : null,
+          final reloaded = scopedResult(
+            await onReloadServerSession(
+              current,
+              MediaSessionReloadIntent(
+                audioTrackId: args.containsKey('audioGuid')
+                    ? (args['audioGuid'] ?? '').toString()
+                    : null,
+                subtitleTrackId:
+                    (subtitleValue != null && subtitleValue.isNotEmpty)
+                    ? subtitleValue
+                    : null,
+                subtitleDisabled: subtitleValue == '',
+                qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
+                startPosition: startMs != null
+                    ? Duration(milliseconds: startMs)
+                    : null,
+              ),
             ),
           );
           NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
@@ -580,6 +609,7 @@ class NativePlayerBridge {
     int? outroDurationSeconds,
     NasProvider? nas,
   }) async {
+    final danmakuBindToken = _activeBindToken;
     final settings = await const DanmakuSettingsStore().load();
     if (!preferNativePlayerShell) return false;
     // 弹幕：详情页 engine 仍存活时，用 source 的媒体上下文做一次 DanDanPlay 自动匹配+
@@ -587,6 +617,8 @@ class NativePlayerBridge {
     var resolvedDanmakuFile = danmakuFilePath;
     if (resolvedDanmakuFile == null && settings.enabled) {
       resolvedDanmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+        statsScope: (loadArgs['statsScope'] ?? '').toString(),
+        isCurrent: () => identical(danmakuBindToken, _activeBindToken),
         seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
         itemTitle: (loadArgs['title'] ?? '').toString(),
         seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,

@@ -1,6 +1,8 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import 'fly_sync_identity.dart';
+
 /// 定义播放统计数据库访问层的统一接口。
 abstract class PlayStatsDatabase {
   /// 打开底层数据库连接。
@@ -43,12 +45,25 @@ class FutureOpenGate<T> {
 
 /// 基于 `sqflite` 的播放统计数据库实现。
 class SqflitePlayStatsDatabase implements PlayStatsDatabase {
+  SqflitePlayStatsDatabase({this.createWriteEpoch = true});
+
+  /// Closed-scope upload handles only update sync state, never create facts or
+  /// reset the installation's existing write context.
+  final bool createWriteEpoch;
   static const String databaseName = 'play_stats.db';
-  static const int databaseVersion = 3;
+  static const int databaseVersion = 4;
 
   Database? _database;
   String _ownerScope = '';
   final FutureOpenGate<Database> _openGate = FutureOpenGate<Database>();
+
+  String get ownerScope => _ownerScope;
+  Map<String, String> bindingReference = const {};
+  int _scopeGeneration = 0;
+  int get scopeGeneration => _scopeGeneration;
+  Future<bool> get exists async => databaseExists(
+    p.join(await getDatabasesPath(), _databaseFileNameForScope()),
+  );
 
   /// 见 [PlayStatsDatabase.open]。
   @override
@@ -66,6 +81,8 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
     final existing = _database;
     _database = null;
     _ownerScope = normalized;
+    bindingReference = const {};
+    _scopeGeneration++;
     if (existing != null && existing.isOpen) {
       await existing.close();
     }
@@ -80,25 +97,56 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   }
 
   Future<Database> _openDatabase() async {
-    final existing = _database;
-    if (existing != null) return existing;
-    final databasesPath = await getDatabasesPath();
-    final databasePath = p.join(databasesPath, _databaseFileNameForScope());
-    final database = await openDatabase(
-      databasePath,
-      version: databaseVersion,
-      onConfigure: (db) async {
-        await db.execute('PRAGMA foreign_keys = ON');
-      },
-      onCreate: (db, version) async {
-        await _applyMigrations(db, 0, version);
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        await _applyMigrations(db, oldVersion, newVersion);
-      },
-    );
-    _database = database;
-    return database;
+    while (true) {
+      final existing = _database;
+      if (existing != null) return existing;
+      final generation = scopeGeneration;
+      final filename = _databaseFileNameForScope();
+      final databasesPath = await getDatabasesPath();
+      if (generation != scopeGeneration) continue;
+      final database = await openDatabase(
+        p.join(databasesPath, filename),
+        version: databaseVersion,
+        singleInstance: createWriteEpoch,
+        onConfigure: (db) async {
+          await db.execute('PRAGMA foreign_keys = ON');
+        },
+        onCreate: (db, version) async {
+          await _applyMigrations(db, 0, version);
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          await _applyMigrations(db, oldVersion, newVersion);
+        },
+      );
+      if (generation != scopeGeneration) {
+        await database.close();
+        continue;
+      }
+      // A copied statistics DB keeps its provenance. New facts get a fresh
+      // write epoch, independently of any copied credentials.
+      if (createWriteEpoch) {
+        await database.transaction((txn) async {
+          final epoch = newFlySyncId();
+          await txn.insert('fly_datasets', {
+            'id': epoch,
+            'label': 'Fly 本机新记录',
+            'origin_kind': 'native',
+          });
+          await txn.insert('fly_write_context', {
+            'id': 1,
+            'dataset_id': epoch,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        });
+      }
+      // bindOwnerScope may run during either await above. A stale opener must
+      // not publish A's handle under B's scope token or return it to B's waiter.
+      if (generation != scopeGeneration) {
+        await database.close();
+        continue;
+      }
+      _database = database;
+      return database;
+    }
   }
 
   /// 见 [PlayStatsDatabase.transaction]。
@@ -182,6 +230,29 @@ WHERE COALESCE(country_codes_json, '') = ''
         table: 'video_stats',
         column: 'metadata_enriched',
         definition: 'INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 4 && newVersion >= 4) {
+      for (final statement in _schemaStatementsV4) {
+        await db.execute(statement);
+      }
+      final legacyDataset = newFlySyncId();
+      await db.insert('fly_datasets', {
+        'id': legacyDataset,
+        'label': '升级前历史（需要关联或确认未导入）',
+        'origin_kind': 'legacy_import',
+        'source_schema_version': oldVersion == 0 ? 3 : oldVersion,
+      });
+      await db.rawInsert(
+        '''
+INSERT INTO fly_record_provenance(history_id,dataset_id,record_revision)
+SELECT history_id,?,1 FROM play_history
+''',
+        [legacyDataset],
+      );
+      await db.rawUpdate(
+        'UPDATE fly_datasets SET export_revision = (SELECT COUNT(*) FROM play_history) WHERE id = ?',
+        [legacyDataset],
       );
     }
   }
@@ -355,5 +426,69 @@ ON video_credit_stats(person_id)
   '''
 CREATE INDEX IF NOT EXISTS idx_video_credit_stats_anime
 ON video_credit_stats(anime_id, season_id)
+''',
+];
+
+const List<String> _schemaStatementsV4 = <String>[
+  '''
+CREATE TABLE fly_scope_binding (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  scope_digest TEXT NOT NULL
+)
+''',
+  '''
+CREATE TABLE fly_datasets (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  origin_kind TEXT NOT NULL,
+  source_schema_version INTEGER NOT NULL DEFAULT 4,
+  export_revision INTEGER NOT NULL DEFAULT 0,
+  deletion_generation INTEGER NOT NULL DEFAULT 0,
+  confirmed_account TEXT NOT NULL DEFAULT ''
+)
+''',
+  '''
+CREATE TABLE fly_write_context (id INTEGER PRIMARY KEY CHECK(id=1), dataset_id TEXT NOT NULL)
+''',
+  '''
+CREATE TABLE fly_record_provenance (
+  history_id TEXT PRIMARY KEY,
+  dataset_id TEXT NOT NULL,
+  record_revision INTEGER NOT NULL DEFAULT 1,
+  envelope_json TEXT NOT NULL DEFAULT '{}'
+)
+''',
+  '''
+CREATE TABLE fly_sync_state (
+  account_key TEXT PRIMARY KEY,
+  installation_id TEXT NOT NULL,
+  stream_id TEXT NOT NULL,
+  next_seq INTEGER NOT NULL DEFAULT 1,
+  pending_json TEXT,
+  last_success_ms INTEGER
+)
+''',
+  '''
+CREATE TRIGGER fly_history_insert AFTER INSERT ON play_history BEGIN
+  INSERT INTO fly_record_provenance(history_id,dataset_id,record_revision)
+    SELECT NEW.history_id,(SELECT dataset_id FROM fly_write_context WHERE id=1),0
+    WHERE NOT EXISTS(SELECT 1 FROM fly_record_provenance WHERE history_id=NEW.history_id);
+  UPDATE fly_record_provenance SET record_revision=record_revision+1 WHERE history_id=NEW.history_id;
+  UPDATE fly_datasets SET export_revision=export_revision+1
+    WHERE id=(SELECT dataset_id FROM fly_record_provenance WHERE history_id=NEW.history_id);
+END
+''',
+  '''
+CREATE TRIGGER fly_history_update AFTER UPDATE ON play_history BEGIN
+  UPDATE fly_record_provenance SET record_revision=record_revision+1 WHERE history_id=NEW.history_id;
+  UPDATE fly_datasets SET export_revision=export_revision+1
+    WHERE id=(SELECT dataset_id FROM fly_record_provenance WHERE history_id=NEW.history_id);
+END
+''',
+  '''
+CREATE TRIGGER fly_history_delete AFTER DELETE ON play_history BEGIN
+  UPDATE fly_datasets SET export_revision=export_revision+1
+    WHERE id=(SELECT dataset_id FROM fly_record_provenance WHERE history_id=OLD.history_id);
+END
 ''',
 ];

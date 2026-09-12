@@ -223,6 +223,7 @@ class AdaptiveDetailNavigator {
     BuildContext context,
     AdaptiveDetailRequest request, {
     DetailPresentation presentation = DetailPresentation.page,
+    bool Function()? isCurrent,
   }) async {
     final routeName = request.localRouteName?.trim() ?? '';
     final guardKey = request.actionKey?.trim().isNotEmpty == true
@@ -232,18 +233,29 @@ class AdaptiveDetailNavigator {
       return AsyncActionGuard.run<T?>(
         'adaptive_detail:${presentation.name}:$guardKey',
         settleDuration: const Duration(milliseconds: 450),
-        action: () =>
-            _openInternal<T>(context, request, presentation: presentation),
+        action: () => _openInternal<T>(
+          context,
+          request,
+          presentation: presentation,
+          isCurrent: isCurrent,
+        ),
       );
     }
-    return _openInternal<T>(context, request, presentation: presentation);
+    return _openInternal<T>(
+      context,
+      request,
+      presentation: presentation,
+      isCurrent: isCurrent,
+    );
   }
 
   static Future<T?> _openInternal<T>(
     BuildContext context,
     AdaptiveDetailRequest request, {
     required DetailPresentation presentation,
+    bool Function()? isCurrent,
   }) async {
+    if (!context.mounted || isCurrent?.call() == false) return null;
     final navigator = Navigator.of(context);
     // push/pane 打开前预热目标页取色 scheme + 提前应用全局运行时主题：seed 命中
     // 缓存时详情首帧免冷跑 HCT，且转场里新旧两页已是目标配色（不再"进页后整页
@@ -257,7 +269,7 @@ class AdaptiveDetailNavigator {
         imageUrl: heroImages.isNotEmpty ? heroImages.urls.first : '',
         imageHeaders: heroImages.headers,
       );
-      if (!context.mounted) return null;
+      if (!context.mounted || isCurrent?.call() == false) return null;
     }
     final paneHost = PlayerPaneHostScope.maybeOf(context);
     final localRouteName = request.localRouteName;
@@ -277,9 +289,8 @@ class AdaptiveDetailNavigator {
     // Phase 4.1：整页详情（非 pane）push 前预取 hero 大图，让 decode/raster 抢在转场期间起步，
     // 落地少一个冷光栅尖峰。fire-and-forget、错误吞掉，绝不阻塞导航。嵌入(pane)路径不预取
     // （副引擎独立 ImageCache，主引擎预取无效，由低清占位兜底）。
-    if (context.mounted) {
-      _maybePrecacheHero(context, request, presentation);
-    }
+    if (!context.mounted || isCurrent?.call() == false) return null;
+    _maybePrecacheHero(context, request, presentation);
     return navigator.push<T>(request.buildRoute(presentation) as Route<T>);
   }
 

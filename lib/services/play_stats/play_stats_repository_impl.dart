@@ -1,7 +1,9 @@
 import 'play_stats_database.dart';
 import 'play_stats_models.dart';
+import 'play_stats_identity.dart';
 import 'play_stats_repositories.dart';
 import 'play_stats_updaters.dart';
+import 'dart:convert';
 
 /// 默认的播放统计仓储实现，负责写入历史并更新聚合表。
 class DefaultPlayStatsRepository implements PlayStatsRepository {
@@ -33,6 +35,36 @@ class DefaultPlayStatsRepository implements PlayStatsRepository {
         executor: txn,
       );
       await _playHistoryStore.insert(session.history, executor: txn);
+      if (_database is SqflitePlayStatsDatabase) {
+        final ref = (_database).bindingReference;
+        if (ref.isNotEmpty) {
+          final row = (await txn.query(
+            'fly_record_provenance',
+            where: 'history_id = ?',
+            whereArgs: [session.history.historyId],
+          )).single;
+          final envelope = Map<String, dynamic>.from(
+            jsonDecode(row['envelope_json'] as String) as Map,
+          );
+          envelope['source_ref'] ??= {
+            ...ref,
+            'remote_item_id': session.meta.videoId,
+            if (session.meta.animeId.isNotEmpty &&
+                !PlayStatsIdentityResolver.isDerivedAnimeId(
+                  session.meta.animeId,
+                ))
+              'remote_series_id': session.meta.animeId,
+            if (session.meta.seasonId.isNotEmpty)
+              'remote_season_id': session.meta.seasonId,
+          };
+          await txn.update(
+            'fly_record_provenance',
+            {'envelope_json': jsonEncode(envelope)},
+            where: 'history_id = ?',
+            whereArgs: [session.history.historyId],
+          );
+        }
+      }
       await _videoStatsUpdater.apply(
         session,
         previousHistory: previousHistory,

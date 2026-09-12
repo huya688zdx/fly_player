@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +13,11 @@ import 'package:fly_player/desktop/desktop_shell.dart';
 import 'package:fly_player/desktop/desktop_split_controller.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/main.dart';
+import 'package:fly_player/media_backend/media_backend.dart';
+import 'package:fly_player/media_backend/media_backend_kind.dart';
+import 'package:fly_player/media_backend/media_catalog.dart';
+import 'package:fly_player/media_backend/media_image_ref.dart';
+import 'package:fly_player/media_backend/session/media_backend_connection.dart';
 import 'package:fly_player/providers/app_locale_provider.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/providers/backend_session_provider.dart';
@@ -81,6 +88,90 @@ void main() {
   });
 
   group('DesktopShell', () {
+    for (final initialKind in [
+      MediaBackendKind.feiniu,
+      MediaBackendKind.emby,
+    ]) {
+      testWidgets('侧栏切换 ${initialKind.name} 到另一绑定后清空旧库并刷新计数', (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        final session = _SidebarSession(initialKind);
+        final oldBackend = _SidebarBackend()..complete('old-library', 35, 46);
+        final nextBackend = _SidebarBackend();
+        await tester.pumpWidget(
+          _desktopApp(
+            pages: const [Text('影视内容页'), Text('设置内容页')],
+            backendSession: session,
+            createBackendProvider: (nas, session) => _SidebarBackendProvider(
+              nas,
+              session,
+              {'old': oldBackend, 'next': nextBackend},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        DesktopSideBar sidebar() => tester.widget(find.byType(DesktopSideBar));
+        expect(sidebar().catalogs.single.id, 'old-library');
+        expect(sidebar().movieCount, 35);
+        expect(sidebar().tvCount, 46);
+
+        session.select('next', MediaBackendKind.emby);
+        await tester.pump();
+        expect(sidebar().catalogs, isEmpty);
+        expect(sidebar().movieCount, 0);
+        expect(sidebar().tvCount, 0);
+        expect(nextBackend.catalogRequests, 1);
+
+        nextBackend.complete('next-library', 3, 7);
+        await tester.pumpAndSettle();
+        expect(sidebar().catalogs.single.id, 'next-library');
+        expect(sidebar().movieCount, 3);
+        expect(sidebar().tvCount, 7);
+        expect(sidebar().totalItems, 10);
+        await tester.tap(find.text('next-library'));
+        await tester.pumpAndSettle();
+        final route = tester
+            .widgetList<Text>(find.byType(Text))
+            .map((widget) => widget.data ?? '')
+            .singleWhere((text) => text.startsWith('content:/screen/category'));
+        expect(Uri.decodeComponent(route), contains('next-library'));
+        expect(Uri.decodeComponent(route), isNot(contains('old-library')));
+      });
+    }
+
+    testWidgets('侧栏切换绑定后旧会话迟到响应不能覆盖当前库', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final session = _SidebarSession(MediaBackendKind.feiniu);
+      final oldBackend = _SidebarBackend();
+      final nextBackend = _SidebarBackend()..complete('next-library', 3, 7);
+      await tester.pumpWidget(
+        _desktopApp(
+          pages: const [Text('影视内容页'), Text('设置内容页')],
+          backendSession: session,
+          createBackendProvider: (nas, session) => _SidebarBackendProvider(
+            nas,
+            session,
+            {'old': oldBackend, 'next': nextBackend},
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(oldBackend.catalogRequests, 1);
+      session.select('next', MediaBackendKind.emby);
+      await tester.pumpAndSettle();
+      DesktopSideBar sidebar() => tester.widget(find.byType(DesktopSideBar));
+      expect(sidebar().catalogs.map((catalog) => catalog.id), ['next-library']);
+
+      oldBackend.complete('old-library', 35, 46);
+      await tester.pumpAndSettle();
+      expect(sidebar().catalogs.map((catalog) => catalog.id), ['next-library']);
+      expect(sidebar().movieCount, 3);
+      expect(sidebar().tvCount, 7);
+    });
+
     testWidgets('1400px：侧栏可见、tab 可切换、收藏在内容区打开（侧栏常驻）', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;
@@ -415,23 +506,27 @@ Widget _desktopApp({
   NavigatorObserver? observer,
   List<Widget>? pages,
   AppThemePreset themePreset = AppThemePreset.midnight,
+  BackendSessionProvider? backendSession,
+  MediaBackendProvider Function(NasProvider, BackendSessionProvider)?
+  createBackendProvider,
 }) {
   return MultiProvider(
     providers: [
       // 搜索弹窗构建时读取 NAS / 后端能力，与 _mainNavigationApp 同栈注入。
       ChangeNotifierProvider<NasProvider>(create: (_) => NasProvider()),
       ChangeNotifierProvider<BackendSessionProvider>(
-        create: (_) => BackendSessionProvider(),
+        create: (_) => backendSession ?? BackendSessionProvider(),
       ),
       ChangeNotifierProxyProvider2<
         NasProvider,
         BackendSessionProvider,
         MediaBackendProvider
       >(
-        create: (context) => MediaBackendProvider(
-          context.read<NasProvider>(),
-          context.read<BackendSessionProvider>(),
-        ),
+        create: (context) =>
+            (createBackendProvider ?? MediaBackendProvider.new)(
+              context.read<NasProvider>(),
+              context.read<BackendSessionProvider>(),
+            ),
         update: (context, nas, session, previous) =>
             previous ?? MediaBackendProvider(nas, session),
       ),
@@ -525,5 +620,75 @@ class _RecordingNavigatorObserver extends NavigatorObserver {
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     pushedNames.add(route.settings.name);
+  }
+}
+
+class _SidebarSession extends BackendSessionProvider {
+  _SidebarSession(MediaBackendKind kind) : super(autoLoad: false) {
+    select('old', kind);
+  }
+
+  MediaBackendConnection? _connection;
+
+  @override
+  MediaBackendConnection? get currentConnection => _connection;
+
+  @override
+  MediaBackendKind get currentKind => _connection!.kind;
+
+  void select(String bindingId, MediaBackendKind kind) {
+    _connection = MediaBackendConnection(
+      kind: kind,
+      accountKey: 'test-account',
+      bindingId: bindingId,
+      serverUrl: 'https://$bindingId.invalid',
+      accessToken: 'test-token-$bindingId',
+    );
+    notifyListeners();
+  }
+}
+
+class _SidebarBackendProvider extends MediaBackendProvider {
+  _SidebarBackendProvider(
+    super.nasProvider,
+    super.sessionProvider,
+    this.backends,
+  );
+
+  final Map<String, MediaBackend> backends;
+
+  @override
+  MediaBackend get backend =>
+      backends[sessionProvider!.currentConnection!.bindingId]!;
+}
+
+class _SidebarBackend extends Fake implements MediaBackend {
+  final _catalogs = Completer<List<MediaCatalog>>();
+  final _summary = Completer<Map<String, dynamic>>();
+  int catalogRequests = 0;
+
+  @override
+  Future<List<MediaCatalog>> getCatalogs() {
+    catalogRequests++;
+    return _catalogs.future;
+  }
+
+  @override
+  Future<Map<String, dynamic>> getHomeSummary() => _summary.future;
+
+  void complete(String library, int movies, int series) {
+    _catalogs.complete([
+      MediaCatalog(
+        id: library,
+        title: library,
+        type: '',
+        primaryImage: MediaImageRef.empty,
+      ),
+    ]);
+    _summary.complete({
+      'movie': movies,
+      'tv': series,
+      'total': movies + series,
+    });
   }
 }

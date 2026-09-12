@@ -20,6 +20,7 @@ import '../models/play_info.dart';
 import '../playback/platform_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
+import '../services/play_stats/play_stats_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/detail_top_tip.dart';
@@ -188,6 +189,8 @@ class TvSeasonPlaybackLauncher {
               };
               final settings = await const DanmakuSettingsStore().load();
               final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+                statsScope: (loadArgs['statsScope'] ?? '').toString(),
+                isCurrent: () => context.mounted,
                 seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
                 itemTitle: (loadArgs['title'] ?? '').toString(),
                 seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
@@ -242,6 +245,8 @@ class TvSeasonPlaybackLauncher {
         // 弹幕预取（与 maybeLaunch 内逻辑一致，resolveToFile 内部按 settings.enabled 判断）。
         final settings = await const DanmakuSettingsStore().load();
         final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+          statsScope: (loadArgs['statsScope'] ?? '').toString(),
+          isCurrent: () => context.mounted,
           seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
           itemTitle: (loadArgs['title'] ?? '').toString(),
           seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
@@ -339,6 +344,7 @@ class TvSeasonPlaybackLauncher {
       preferredQualityResolution: preferredQualityResolution ?? '',
     );
 
+    final statsScope = PlayStatsService.instance.currentScope;
     final resolution = await backend.getPlayback(request);
     final assembled = await backend.playbackSourceBridge.assemblePlaybackSource(
       request: request,
@@ -346,7 +352,10 @@ class TvSeasonPlaybackLauncher {
       context: resolution.backendContext,
       l10n: l10n,
     );
-    final source = assembled.source;
+    if (statsScope != PlayStatsService.instance.currentScope) {
+      throw StateError('媒体账号已切换，请重新播放。');
+    }
+    final source = assembled.source.copyWith(statsScope: statsScope);
     final playInfo = assembled.legacySidecar;
     return (
       source: source,

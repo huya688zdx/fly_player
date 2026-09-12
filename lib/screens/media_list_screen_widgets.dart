@@ -3,6 +3,9 @@ part of 'media_list_screen.dart';
 extension _MediaListScreenWidgets on _MediaListScreenState {
   Widget _buildScreen(BuildContext context) {
     final isDesktopTier = MediaLayoutProfile.of(context).isDesktopTier;
+    final fly = context.watch<FlyAccountController?>();
+    final usesFlyAccount =
+        !widget.secondaryHost && fly?.session != null && !fly!.legacyMode;
     final provider = context.read<NasProvider>();
     final imageCredentials = mediaImageCredentialsForBackend(
       backendKind: context
@@ -47,13 +50,18 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: widget.secondaryHost
-                ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
-                : _confirmLogout,
-          ),
-          title: Text(AppLocalizations.of(context).homeTitle),
+          automaticallyImplyLeading: false,
+          leading: usesFlyAccount
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: widget.secondaryHost
+                      ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
+                      : _confirmLogout,
+                ),
+          title: usesFlyAccount
+              ? const FlyMediaSourceMenu()
+              : Text(AppLocalizations.of(context).homeTitle),
           actions: <Widget>[
             if (isDesktopTier)
               Padding(

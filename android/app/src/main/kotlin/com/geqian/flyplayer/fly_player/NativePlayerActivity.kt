@@ -2992,6 +2992,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 真的切了集、但这一集没取到弹幕（自动匹配失败/该入口未回传 danmakuFile 等）：
             // 必须清掉上一集的弹幕，否则旧集弹幕会一直串台到新集（看完下一集/跳集仍是旧弹幕）。
             danmakuSettings["sourceKey"] = ""
+            danmakuSettings["sourceLabel"] = ""
             Log.d(
                 "NativePlayerActivity",
                 "[DANMAKU][NATIVE_SWITCH] clearDanmaku previous=$previousItemGuid next=$nextItemGuid reason=no_payload",
@@ -5512,6 +5513,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun episodeResolveArgs(itemGuid: String): Map<String, Any?> {
         val args = HashMap<String, Any?>()
         args["itemGuid"] = itemGuid
+        args["statsScope"] = loadArgsMap["statsScope"]
         inheritAudioTrackIndex()?.let { args["audioTrackIndex"] = it }
         inheritSubtitleTrackIndex()?.let { args["subtitleTrackIndex"] = it }
         // 画质继承：仅转码态带上当前分辨率，下一集选同分辨率转码档（找不到回默认）。原画/直链
@@ -6700,6 +6702,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             args = mapOf(
                 "itemGuid" to itemGuid,
                 "qualityMediaGuid" to mediaGuid,
+                "statsScope" to loadArgsMap["statsScope"],
                 "startPositionMs" to playerSurface.state.positionMs,
             ),
             onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
@@ -8393,6 +8396,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         "avoidSubtitleArea" to true,
         "playbackSpeed" to 1.0,
         "sourceKey" to "",
+        "sourceLabel" to "",
     )
 
     // 在线弹幕搜索（DanDanPlay）状态
@@ -8418,6 +8422,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 换源/切集时，把新一集弹幕 payload 里带的 settings/sourceKey 并入镜像。 */
     private fun captureDanmakuSettings(payload: Map<String, Any?>) {
+        if (payload.containsKey("sourceKey")) {
+            danmakuSettings["sourceLabel"] = payload["sourceLabel"]?.toString().orEmpty()
+        }
         for (k in danmakuSettings.keys.toList()) {
             if (payload.containsKey(k)) danmakuSettings[k] = payload[k]
         }
@@ -8626,8 +8633,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildDanmakuSourcePage() {
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0239)))
         val sourceKey = danmakuSettings["sourceKey"]?.toString().orEmpty()
+        val sourceLabel = danmakuSettings["sourceLabel"]?.toString()?.trim().orEmpty()
         addPanelRow(panelCardGroup(TextView(this).apply {
-            text = if (sourceKey.isNotEmpty()) sourceKey else localizedString(R.string.player_text_0240)
+            text = when {
+                sourceLabel.isNotEmpty() -> sourceLabel
+                sourceKey.startsWith("nas:") -> "NAS 已确认弹幕"
+                sourceKey.startsWith("dandan:") -> "弹弹play"
+                sourceKey.isNotEmpty() -> sourceKey
+                else -> localizedString(R.string.player_text_0240)
+            }
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setPadding(dp(16), dp(16), dp(16), dp(16))
@@ -10358,6 +10372,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         args["isPaused"] = paused
         args["pausedHeartbeat"] = pausedHeartbeat
         args["itemGuid"] = loadArgsMap["itemGuid"]
+        args["statsScope"] = loadArgsMap["statsScope"]
         args["mediaGuid"] = loadArgsMap["mediaGuid"]
         args["videoGuid"] = loadArgsMap["videoGuid"]
         // 回写「当前实际选中」的轨道（用户切过则为新值），供续播恢复到正确的音轨/字幕。

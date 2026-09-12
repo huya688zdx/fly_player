@@ -42,6 +42,7 @@ import '../services/app_log_service.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/manual_subtitle_store.dart';
 import '../services/native_danmaku_prefetch.dart';
+import '../services/play_stats/play_stats_service.dart';
 import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
 import '../services/download_task_service.dart';
@@ -2100,6 +2101,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   Future<void> _openPlayer() async {
+    final statsScope = PlayStatsService.instance.currentScope;
     final itemGuid = _currentItemGuid;
     final actionKey = 'play_detail_player:${itemGuid.trim()}';
     if (_playerRouteActive || AsyncActionGuard.isRunning(actionKey)) {
@@ -2290,6 +2292,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 : resume.position);
 
         final source = MpvMediaSource(
+          statsScope: statsScope,
           loadNonce: createMpvLoadNonce(),
           itemGuid: itemGuid,
           seriesGuid: widget.seriesGuid.trim().isNotEmpty
@@ -2587,6 +2590,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           String? danmakuFile;
           if (danmakuSettings.enabled) {
             danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+              statsScope: source.statsScope,
+              isCurrent: () => mounted && _currentItemGuid == source.itemGuid,
               seriesTitle: source.seriesTitle,
               itemTitle: source.title,
               seasonNumber: source.seasonNumber,

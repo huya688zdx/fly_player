@@ -4,12 +4,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/main.dart';
 import 'package:fly_player/screens/connection_screen.dart';
+import 'package:fly_player/screens/fly_account_screen.dart';
+import 'package:fly_player/services/secure_credential_store.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
+    SecureCredentialStore.setBackendForTesting(MemorySecureCredentialBackend());
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
 
     await tester.pumpWidget(const FlyPlayerApp());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FlyLoginScreen), findsOneWidget);
+    expect(find.text('登录飞翔'), findsOneWidget);
+    await tester.tap(find.text('暂用原本地媒体连接'));
     await tester.pumpAndSettle();
 
     expect(find.byType(ConnectionScreen), findsOneWidget);

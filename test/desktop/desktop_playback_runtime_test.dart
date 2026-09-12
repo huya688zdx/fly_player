@@ -673,7 +673,7 @@ void main() {
 
     final payload = await DesktopDanmakuPayload.load(file.path);
 
-    expect(payload.sourceLabel, 'dandan:42');
+    expect(payload.sourceLabel, '弹弹play');
     expect(payload.comments.map((item) => item.text), <String>['滚动', '顶部']);
     expect(payload.comments.last.timeMs, 2100);
   });
