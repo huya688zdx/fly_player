@@ -195,6 +195,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   String _danmakuSourceLabel = '';
   bool _danmakuLoading = false;
   int _danmakuLoadGeneration = 0;
+  int _danmakuSeekRevision = 0;
   Map<String, String> _mpvSettings = Map<String, String>.from(
     MpvSettingsCatalog.defaults,
   );
@@ -1770,6 +1771,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Future<void> _seekTo(Duration position) {
     _weakNetwork.markSeek();
+    _danmakuSeekRevision++;
+    _viewRevision.value++;
     return _player.seek(position < Duration.zero ? Duration.zero : position);
   }
 
@@ -3533,6 +3536,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                           player: _player,
                           comments: _danmakuComments,
                           settings: _danmakuSettings,
+                          fit: _fit,
+                          seekRevision: _danmakuSeekRevision,
                         ),
                       ),
                     IgnorePointer(
