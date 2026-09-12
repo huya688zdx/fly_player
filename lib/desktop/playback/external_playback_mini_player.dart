@@ -5,18 +5,23 @@ import 'package:window_manager/window_manager.dart';
 import '../../theme/app_theme.dart';
 import '../desktop_floating_panel.dart';
 import 'external_playback_host.dart';
+import 'external_playback_mini_settings.dart';
 
 /// 常用控制直接操作当前 PotPlayer 会话，不另起播放或进度计时。
 class ExternalPlaybackMiniPlayer extends StatefulWidget {
   const ExternalPlaybackMiniPlayer({
     super.key,
     required this.expanded,
+    this.settingsExpanded = false,
     required this.onToggleExpanded,
+    this.onToggleSettings,
     required this.onRestore,
   });
 
   final bool expanded;
+  final bool settingsExpanded;
   final Future<void> Function() onToggleExpanded;
+  final Future<void> Function()? onToggleSettings;
   final Future<void> Function() onRestore;
 
   @override
@@ -67,7 +72,8 @@ class _ExternalPlaybackMiniPlayerState
     valueListenable: ExternalPlaybackHost.status,
     builder: (context, status, _) {
       final colors = context.appColors;
-      final enabled = !_busy && status?.canControl == true;
+      // 命令执行时仅阻止重复提交，保持整组按钮的颜色和布局稳定。
+      final enabled = status?.canControl == true;
       final title = status?.source.title ?? '当前播放已结束';
       final itemGuid = status?.source.itemGuid ?? '';
       final current =
@@ -115,8 +121,8 @@ class _ExternalPlaybackMiniPlayerState
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Row(
                             children: [
-                              Tooltip(
-                                message: '拖动悬浮条',
+                              Semantics(
+                                label: '拖动悬浮条',
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onPanStart: (_) =>
@@ -349,6 +355,16 @@ class _ExternalPlaybackMiniPlayerState
                                       : '弹幕已关',
                                 ),
                               ),
+                              _button(
+                                Icons.tune_rounded,
+                                '弹幕与字幕调节',
+                                widget.onToggleSettings == null
+                                    ? null
+                                    : () => _windowAction(
+                                        widget.onToggleSettings!,
+                                      ),
+                                primary: widget.settingsExpanded,
+                              ),
                               TextButton.icon(
                                 style: TextButton.styleFrom(
                                   textStyle: const TextStyle(fontSize: 11),
@@ -374,11 +390,7 @@ class _ExternalPlaybackMiniPlayerState
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Text(
-                            _busy
-                                ? '正在处理…'
-                                : _error ??
-                                      status?.progressMessage ??
-                                      '返回完整界面选择影片',
+                            _error ?? status?.progressMessage ?? '返回完整界面选择影片',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -390,6 +402,17 @@ class _ExternalPlaybackMiniPlayerState
                           ),
                         ),
                       ],
+                      if (status != null)
+                        Visibility(
+                          visible: widget.expanded && widget.settingsExpanded,
+                          maintainState: true,
+                          child: ExternalPlaybackMiniSettings(
+                            key: ValueKey(
+                              '${status.source.itemGuid}:${status.source.mediaGuid}',
+                            ),
+                            status: status,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -409,7 +432,9 @@ class _ExternalPlaybackMiniPlayerState
   }) {
     final colors = context.appColors;
     return IconButton(
-      tooltip: label,
+      key: ValueKey(
+        'external-mini-${icon == Icons.pause_rounded || icon == Icons.play_arrow_rounded ? 'play-pause' : label}',
+      ),
       onPressed: action,
       style: IconButton.styleFrom(
         fixedSize: const Size(32, 32),
@@ -419,8 +444,10 @@ class _ExternalPlaybackMiniPlayerState
         foregroundColor: primary ? colors.accent : colors.textSecondary,
         backgroundColor: primary ? colors.accentSoft : Colors.transparent,
         iconSize: primary ? 21 : 18,
+        overlayColor: Colors.transparent,
+        splashFactory: NoSplash.splashFactory,
       ),
-      icon: Icon(icon),
+      icon: Icon(icon, semanticLabel: label),
     );
   }
 }
