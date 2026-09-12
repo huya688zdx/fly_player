@@ -57,6 +57,9 @@ Future<String> selectFlyMediaAddress({
       ..clear()
       ..add(explicit);
   } else {
+    if (ordered.isEmpty) {
+      throw StateError('尚未登记客户端连接地址，请让管理员添加局域网、HTTPS 或 VPN 媒体地址。');
+    }
     final preferred = _safeBaseUrl(preferredAddress);
     if (preferred != null && ordered.remove(preferred)) {
       ordered.insert(0, preferred);
