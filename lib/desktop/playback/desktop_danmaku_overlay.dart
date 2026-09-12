@@ -84,7 +84,7 @@ class DesktopDanmakuPayload {
       }
       comments.sort((left, right) => left.timeMs.compareTo(right.timeMs));
       return DesktopDanmakuPayload(
-        sourceLabel: '${decoded['sourceKey'] ?? file.uri.pathSegments.last}',
+        sourceLabel: _sourceLabel(decoded, file.uri.pathSegments.last),
         comments: List<DanmakuComment>.unmodifiable(comments),
       );
     }
@@ -93,6 +93,15 @@ class DesktopDanmakuPayload {
       sourceLabel: result.sourceLabel,
       comments: result.comments,
     );
+  }
+
+  static String _sourceLabel(Map payload, String fallback) {
+    final label = '${payload['sourceLabel'] ?? ''}'.trim();
+    if (label.isNotEmpty) return label;
+    final key = '${payload['sourceKey'] ?? ''}';
+    if (key.startsWith('nas:')) return 'NAS 已确认弹幕';
+    if (key.startsWith('dandan:')) return '弹弹play';
+    return key.isEmpty ? fallback : key;
   }
 }
 

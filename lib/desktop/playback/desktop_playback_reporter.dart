@@ -33,6 +33,7 @@ class DesktopPlaybackReporter {
     final metadata = source.toMap();
     final progress = <String, dynamic>{
       'itemGuid': source.itemGuid,
+      'statsScope': source.statsScope,
       'ts': position.inSeconds.clamp(0, duration.inSeconds),
       'duration': duration.inSeconds,
       'isPaused': paused,

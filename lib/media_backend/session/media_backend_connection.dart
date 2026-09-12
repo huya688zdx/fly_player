@@ -12,9 +12,17 @@ class MediaBackendConnection {
     this.rememberSecret = true,
     this.updatedAtMillis = 0,
     this.entryToken = '',
+    this.bindingId = '',
+    this.accountKey = '',
+    this.bindingRevision = 0,
   });
 
   final MediaBackendKind kind;
+  final String bindingId;
+  final String accountKey;
+  final int bindingRevision;
+  String get storageId =>
+      bindingId.isEmpty ? kind.name : '$accountKey|$bindingId';
   final String serverUrl;
   final String displayName;
   final String userName;
@@ -37,6 +45,9 @@ class MediaBackendConnection {
 
   Map<String, Object?> toJson() => <String, Object?>{
     'kind': kind.name,
+    if (bindingId.isNotEmpty) 'bindingId': bindingId,
+    if (accountKey.isNotEmpty) 'accountKey': accountKey,
+    if (bindingRevision != 0) 'bindingRevision': bindingRevision,
     'serverUrl': serverUrl,
     'displayName': displayName,
     'userName': userName,
@@ -72,6 +83,9 @@ class MediaBackendConnection {
     }
     return MediaBackendConnection(
       kind: kind,
+      bindingId: (json['bindingId'] ?? '').toString(),
+      accountKey: (json['accountKey'] ?? '').toString(),
+      bindingRevision: (json['bindingRevision'] as num?)?.toInt() ?? 0,
       serverUrl: (json['serverUrl'] ?? '').toString(),
       displayName: (json['displayName'] ?? '').toString(),
       userName: (json['userName'] ?? '').toString(),
@@ -88,6 +102,9 @@ class MediaBackendConnection {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is MediaBackendConnection &&
+          other.bindingId == bindingId &&
+          other.accountKey == accountKey &&
+          other.bindingRevision == bindingRevision &&
           other.kind == kind &&
           other.serverUrl == serverUrl &&
           other.displayName == displayName &&
@@ -101,6 +118,9 @@ class MediaBackendConnection {
 
   @override
   int get hashCode => Object.hash(
+    bindingId,
+    accountKey,
+    bindingRevision,
     kind,
     serverUrl,
     displayName,

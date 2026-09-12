@@ -25,6 +25,8 @@ import 'media_backend/media_backend_kind.dart';
 import 'providers/backend_session_provider.dart';
 import 'providers/media_backend_provider.dart';
 import 'providers/nas_provider.dart';
+import 'services/fly_data/fly_account_controller.dart';
+import 'screens/fly_account_screen.dart';
 import 'providers/parallel_window_settings_provider.dart';
 import 'providers/startup_preferences_provider.dart';
 import 'screens/app_settings_screen.dart';
@@ -383,6 +385,12 @@ class FlyPlayerApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => NasProvider()),
         ChangeNotifierProvider(create: (_) => BackendSessionProvider()),
+        ChangeNotifierProvider(
+          create: (context) => FlyAccountController(
+            nas: context.read<NasProvider>(),
+            backendSession: context.read<BackendSessionProvider>(),
+          ),
+        ),
         ChangeNotifierProxyProvider2<
           NasProvider,
           BackendSessionProvider,
@@ -643,6 +651,14 @@ class _ProviderGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fly = context.watch<FlyAccountController?>();
+    if (fly != null && !fly.legacyMode) {
+      if (!fly.ready) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      if (fly.session == null) return const FlyLoginScreen();
+      if (fly.activeBindingId.isEmpty) return const FlyBindingsScreen();
+    }
     final provider = context.watch<NasProvider>();
     final session = context.watch<BackendSessionProvider>();
     final colors = context.appColors;
@@ -698,7 +714,10 @@ class AppEntry extends StatelessWidget {
         session.currentKind.isServerFamily && session.isConfigured;
     return StartupDestinationGate(
       decisionReady: nas.isReady && session.isReady,
-      canOpenDestination: nas.isConfigured || serverFamilyReady,
+      canOpenDestination:
+          nas.isConfigured ||
+          serverFamilyReady ||
+          context.watch<FlyAccountController?>()?.session != null,
       child: _ProviderGate(child: MainNavigation(initialTab: initialTab)),
     );
   }

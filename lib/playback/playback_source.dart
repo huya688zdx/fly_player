@@ -40,6 +40,7 @@ enum PlayerPlaybackMode {
 
 class MpvMediaSource {
   final int loadNonce;
+  final String statsScope;
   final String itemGuid;
   final String seriesGuid;
   final String seasonGuid;
@@ -105,6 +106,7 @@ class MpvMediaSource {
 
   const MpvMediaSource({
     this.loadNonce = 0,
+    this.statsScope = '',
     required this.itemGuid,
     this.seriesGuid = '',
     this.seasonGuid = '',
@@ -164,6 +166,7 @@ class MpvMediaSource {
 
   MpvMediaSource copyWith({
     int? loadNonce,
+    String? statsScope,
     String? itemGuid,
     String? seriesGuid,
     String? seasonGuid,
@@ -228,6 +231,7 @@ class MpvMediaSource {
   }) {
     return MpvMediaSource(
       loadNonce: loadNonce ?? this.loadNonce,
+      statsScope: statsScope ?? this.statsScope,
       itemGuid: itemGuid ?? this.itemGuid,
       seriesGuid: seriesGuid ?? this.seriesGuid,
       seasonGuid: seasonGuid ?? this.seasonGuid,
@@ -534,6 +538,7 @@ class MpvMediaSource {
   Map<String, Object?> toMap() {
     return <String, Object?>{
       'loadNonce': loadNonce,
+      'statsScope': statsScope,
       'itemGuid': itemGuid,
       'seriesGuid': seriesGuid,
       'seasonGuid': seasonGuid,
@@ -718,6 +723,7 @@ class MpvMediaSource {
 
     return MpvMediaSource(
       loadNonce: intOf(raw['loadNonce']),
+      statsScope: (raw['statsScope'] ?? '').toString(),
       itemGuid: (raw['itemGuid'] ?? '').toString(),
       seriesGuid: (raw['seriesGuid'] ?? '').toString(),
       seasonGuid: (raw['seasonGuid'] ?? '').toString(),

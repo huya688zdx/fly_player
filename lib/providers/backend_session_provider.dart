@@ -226,4 +226,11 @@ class BackendSessionProvider extends ChangeNotifier
         _clearLoadFailure();
         if (!_disposed) notifyListeners();
       });
+
+  Future<void> clearActive() => _enqueueMutation(() async {
+    await MediaBackendConnectionStore.clearActive();
+    _snapshot = await MediaBackendConnectionStore.load();
+    _isReady = true;
+    if (!_disposed) notifyListeners();
+  });
 }

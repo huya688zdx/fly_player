@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,14 +13,23 @@ class MediaBackendConnectionSnapshot {
   const MediaBackendConnectionSnapshot({
     required this.activeKind,
     required this.connections,
+    this.activeStorageId = '',
   });
 
   final MediaBackendKind activeKind;
   final List<MediaBackendConnection> connections;
+  final String activeStorageId;
 
-  MediaBackendConnection get activeConnection =>
-      connectionFor(activeKind) ??
-      MediaBackendConnection(kind: activeKind, serverUrl: '');
+  MediaBackendConnection get activeConnection {
+    if (activeStorageId.isNotEmpty) {
+      for (final connection in connections) {
+        if (connection.storageId == activeStorageId) return connection;
+      }
+      return MediaBackendConnection(kind: activeKind, serverUrl: '');
+    }
+    return connectionFor(activeKind) ??
+        MediaBackendConnection(kind: activeKind, serverUrl: '');
+  }
 
   MediaBackendConnection? connectionFor(MediaBackendKind kind) {
     for (final connection in connections) {
@@ -34,6 +44,11 @@ class MediaBackendConnectionStore {
 
   static const activeKindKey = 'media_backend_active_kind_v1';
   static const connectionsKey = 'media_backend_connections_v1';
+  static const activeConnectionKey = 'media_backend_active_connection_v2';
+  static Future<void> clearActive() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(activeConnectionKey, 'signed-out');
+  }
 
   static const _legacyBaseUrlKey = 'base_url';
   static const _legacyResolvedBaseUrlKey = 'resolved_base_url';
@@ -67,6 +82,7 @@ class MediaBackendConnectionStore {
 
     return MediaBackendConnectionSnapshot(
       activeKind: activeKind,
+      activeStorageId: targetPrefs.getString(activeConnectionKey) ?? '',
       connections: List<MediaBackendConnection>.unmodifiable(mergedConnections),
     );
   }
@@ -80,6 +96,7 @@ class MediaBackendConnectionStore {
     await _persistConnectionCredentials(connection);
 
     await targetPrefs.setString(activeKindKey, connection.kind.name);
+    await targetPrefs.setString(activeConnectionKey, connection.storageId);
     await _writeConnections(targetPrefs, connections);
   }
 
@@ -101,7 +118,7 @@ class MediaBackendConnectionStore {
     final connections = <MediaBackendConnection>[];
     var replaced = false;
     for (final current in snapshot.connections) {
-      if (current.kind == connection.kind) {
+      if (current.storageId == connection.storageId) {
         connections.add(connection);
         replaced = true;
       } else {
@@ -224,6 +241,9 @@ class MediaBackendConnectionStore {
   ) {
     return <String, Object?>{
       'kind': connection.kind.name,
+      'bindingId': connection.bindingId,
+      'accountKey': connection.accountKey,
+      'bindingRevision': connection.bindingRevision,
       'serverUrl': connection.serverUrl,
       'displayName': connection.displayName,
       'userName': connection.userName,
@@ -242,7 +262,7 @@ class MediaBackendConnectionStore {
     required bool hasSecret,
     required bool hasEntryToken,
   }) async {
-    final keys = _credentialKeys(connection.kind);
+    final keys = _credentialKeys(connection);
     final accessToken = await _restoreCredential(
       keys.accessToken,
       legacyValue: connection.accessToken,
@@ -260,6 +280,9 @@ class MediaBackendConnectionStore {
     );
     return MediaBackendConnection(
       kind: connection.kind,
+      bindingId: connection.bindingId,
+      accountKey: connection.accountKey,
+      bindingRevision: connection.bindingRevision,
       serverUrl: connection.serverUrl,
       displayName: connection.displayName,
       userName: connection.userName,
@@ -321,7 +344,7 @@ class MediaBackendConnectionStore {
   static Future<void> _persistConnectionCredentials(
     MediaBackendConnection connection,
   ) async {
-    final keys = _credentialKeys(connection.kind);
+    final keys = _credentialKeys(connection);
     await _writeOrDelete(keys.accessToken, connection.accessToken);
     await _writeOrDelete(
       keys.secret,
@@ -338,13 +361,36 @@ class MediaBackendConnectionStore {
     }
   }
 
-  static _ConnectionCredentialKeys _credentialKeys(MediaBackendKind kind) {
-    final prefix = 'media_backend_connection.${kind.name}';
+  static _ConnectionCredentialKeys _credentialKeys(
+    MediaBackendConnection connection,
+  ) {
+    final namespace = connection.bindingId.isEmpty
+        ? connection.kind.name
+        : sha256.convert(utf8.encode(connection.storageId)).toString();
+    final prefix = 'media_backend_connection.$namespace';
     return _ConnectionCredentialKeys(
       accessToken: '$prefix.access_token',
       secret: '$prefix.secret',
       entryToken: '$prefix.entry_token',
     );
+  }
+
+  static Future<void> removeBinding(String accountKey, String bindingId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final snapshot = await load(prefs: prefs);
+    final retained = <MediaBackendConnection>[];
+    for (final connection in snapshot.connections) {
+      if (connection.accountKey == accountKey &&
+          connection.bindingId == bindingId) {
+        final keys = _credentialKeys(connection);
+        for (final key in [keys.accessToken, keys.secret, keys.entryToken]) {
+          await SecureCredentialStore.delete(key);
+        }
+      } else {
+        retained.add(connection);
+      }
+    }
+    await _writeConnections(prefs, retained);
   }
 }
 

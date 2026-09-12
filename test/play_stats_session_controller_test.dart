@@ -1,9 +1,24 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fake_async/fake_async.dart';
 
 import 'package:fly_player/services/play_stats/play_stats_session_controller.dart';
 import 'package:fly_player/services/play_stats/play_stats.dart';
 
 void main() {
+  test(
+    'draining an unused controller has no dependency on its creation event loop',
+    () async {
+      late DefaultPlayStatsSessionController controller;
+      fakeAsync((clock) {
+        controller = DefaultPlayStatsSessionController(
+          repository: _FakePlayStatsRepository(),
+        );
+      });
+      await controller.drainPendingWrites().timeout(
+        const Duration(milliseconds: 100),
+      );
+    },
+  );
   test('counts views using episode 20% and movie 10% thresholds', () async {
     final repository = _FakePlayStatsRepository();
     final controller = DefaultPlayStatsSessionController(

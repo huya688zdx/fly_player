@@ -119,9 +119,10 @@ void main() {
   final l10n = lookupAppLocalizations(const Locale('zh'));
   late Directory tempDir;
 
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     tempDir = Directory.systemTemp.createTempSync('local_dl_resolver_test');
+    await AppLogService.instance.initialize();
   });
 
   tearDown(() {

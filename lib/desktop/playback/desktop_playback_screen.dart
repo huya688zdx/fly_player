@@ -657,6 +657,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     bool enableOnSuccess = false,
   }) async {
     final generation = ++_danmakuLoadGeneration;
+    final source = _source;
     widget.session.danmakuFilePath = preferredPath;
     if (mounted) {
       _updateView(() {
@@ -670,15 +671,20 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       if (path.isEmpty) {
         path =
             await NativeDanmakuPrefetch.resolveToFile(
-              seriesTitle: _source.seriesTitle,
-              itemTitle: _source.title,
-              seasonNumber: _source.seasonNumber,
-              episodeNumber: _source.episodeNumber,
-              tmdbId: _source.tmdbId,
+              statsScope: source.statsScope,
+              isCurrent: () =>
+                  mounted &&
+                  generation == _danmakuLoadGeneration &&
+                  identical(source, _source),
+              seriesTitle: source.seriesTitle,
+              itemTitle: source.title,
+              seasonNumber: source.seasonNumber,
+              episodeNumber: source.episodeNumber,
+              tmdbId: source.tmdbId,
               settings: _danmakuSettings,
-              itemGuid: _source.itemGuid,
-              mediaGuid: _source.mediaGuid,
-              seasonGuid: _source.seasonGuid,
+              itemGuid: source.itemGuid,
+              mediaGuid: source.mediaGuid,
+              seasonGuid: source.seasonGuid,
             ) ??
             '';
       }

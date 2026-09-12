@@ -15,6 +15,35 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
+  testWidgets('来源策略融入原设置且选择仅 NAS 后立即保存', (tester) async {
+    DanmakuSettings? saved;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DanmakuSettingsScreen(
+          saveSettings: (value) async {
+            saved = value;
+          },
+          settingsLoader: () async => DanmakuSettings.defaults,
+          savedSourceLoader: () async => const <DanmakuSavedSource>[],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final entry = find.text('仅 NAS');
+    expect(entry, findsOneWidget);
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(saved?.sourceStrategy, DanmakuSourceStrategy.nasOnly);
+    expect(
+      find.text(DanmakuSourceStrategy.nasOnly.description),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Android 弹幕设置使用沉浸卡片且保存失败时恢复原值', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));

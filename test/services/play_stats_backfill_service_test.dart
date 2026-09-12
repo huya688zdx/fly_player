@@ -13,6 +13,32 @@ import 'package:fly_player/services/play_stats/play_stats_repositories.dart';
 import 'package:sqflite/sqflite.dart';
 
 void main() {
+  test(
+    'drained metadata run releases its active future for the next account/run',
+    () async {
+      final gateway = _FakeBackfillGateway({
+        'video-1': {'type': 'movie', 'title': 'First'},
+      });
+      final database = _FakeDatabase();
+      final service = PlayStatsMetadataBackfillService(
+        database: database,
+        videoStatsRepository: _FakeVideoStatsRepository(
+          _Harness._existingRecord,
+        ),
+        videoCreditStatsRepository: _FakeVideoCreditStatsRepository(),
+      );
+      await service.backfillNow(
+        gateway: gateway,
+        preferredVideoIds: ['video-1'],
+      );
+      await service.drainPendingWrites();
+      await service.backfillNow(
+        gateway: gateway,
+        preferredVideoIds: ['video-1'],
+      );
+      expect(gateway.detailRequests, ['video-1', 'video-1']);
+    },
+  );
   group('回填判型只认 type == movie', () {
     // 两个用例喂完全相同的详情载荷，只有 type 不同：能观察到的差异就只可能来自判型。
     Map<String, dynamic> itemDetail(String type) => <String, dynamic>{

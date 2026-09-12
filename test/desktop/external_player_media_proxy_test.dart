@@ -145,10 +145,19 @@ void main() {
     client.close(force: true);
     final freshClient = HttpClient();
     addTearDown(() => freshClient.close(force: true));
-    await expectLater(
-      freshClient.getUrl(playerUri),
-      throwsA(isA<SocketException>()),
-    );
+    try {
+      final afterClose = await (await freshClient.getUrl(playerUri)).close();
+      // A system network proxy can turn connection refusal into HTTP 502.
+      // In either case the closed media proxy must not serve or fetch video.
+      expect(afterClose.statusCode, greaterThanOrEqualTo(400));
+      await afterClose.drain<void>();
+    } on SocketException {
+      // Direct connection refusal.
+    } on HttpException {
+      // The TCP connection closed before an HTTP response was available.
+    }
+    expect(requests.length, 2);
+    expect(resolutions, 1);
   });
 
   test('跨源重定向不携带 NAS 鉴权信息', () async {

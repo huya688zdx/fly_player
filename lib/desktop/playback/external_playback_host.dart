@@ -1213,6 +1213,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
     bool requireSubtitle = false,
     void Function(String path, int count)? onDanmakuPrepared,
   }) async {
+    final sourceAtStart = _source;
+    final sessionAtStart = _session;
     final settings =
         danmakuSettings ?? await const DanmakuSettingsStore().load();
     var payload = settings.enabled ? danmakuFilePath : null;
@@ -1221,6 +1223,10 @@ final class ExternalPlaybackHost implements PlaybackHost {
         !offline &&
         source.danmakuAutoSearchAllowed) {
       payload = await NativeDanmakuPrefetch.resolveToFile(
+        statsScope: source.statsScope,
+        isCurrent: () =>
+            identical(sourceAtStart, _source) &&
+            identical(sessionAtStart, _session),
         seriesTitle: source.seriesTitle,
         itemTitle: source.title,
         seasonNumber: source.seasonNumber,

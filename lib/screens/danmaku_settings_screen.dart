@@ -207,41 +207,95 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    _DanmakuSectionTitle(
-                      title: l10n.danmakuSourcePriorityTitle,
-                      subtitle: l10n.danmakuSourcePrioritySubtitle,
+                    const _DanmakuSectionTitle(
+                      title: '弹幕来源',
+                      subtitle: '手动导入文件优先，网络来源按以下策略加载。',
                     ),
                     const SizedBox(height: 10),
                     _DanmakuCard(
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: _DanmakuChoiceButton(
-                              label: l10n.danmakuPreferLocal,
-                              selected: _settings.preferLocalSource,
-                              onTap: () {
-                                _save(
-                                  _settings.copyWith(preferLocalSource: true),
-                                );
-                              },
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                for (final strategy
+                                    in DanmakuSourceStrategy.values)
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 3,
+                                      ),
+                                      child: _DanmakuChoiceButton(
+                                        label: strategy.label,
+                                        selected:
+                                            _settings.sourceStrategy ==
+                                            strategy,
+                                        onTap: () => _save(
+                                          _settings.copyWith(
+                                            sourceStrategy: strategy,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _DanmakuChoiceButton(
-                              label: l10n.danmakuPreferNetwork,
-                              selected: !_settings.preferLocalSource,
-                              onTap: () {
-                                _save(
-                                  _settings.copyWith(preferLocalSource: false),
-                                );
-                              },
+                            const SizedBox(height: 12),
+                            Text(
+                              _settings.sourceStrategy.description,
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.5,
+                                color: context.appColors.textSecondary,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 18),
+                    if (_settings.sourceStrategy ==
+                        DanmakuSourceStrategy.original) ...[
+                      _DanmakuSectionTitle(
+                        title: l10n.danmakuSourcePriorityTitle,
+                        subtitle: l10n.danmakuSourcePrioritySubtitle,
+                      ),
+                      const SizedBox(height: 10),
+                      _DanmakuCard(
+                        child: Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: _DanmakuChoiceButton(
+                                label: l10n.danmakuPreferLocal,
+                                selected: _settings.preferLocalSource,
+                                onTap: () {
+                                  _save(
+                                    _settings.copyWith(preferLocalSource: true),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _DanmakuChoiceButton(
+                                label: l10n.danmakuPreferNetwork,
+                                selected: !_settings.preferLocalSource,
+                                onTap: () {
+                                  _save(
+                                    _settings.copyWith(
+                                      preferLocalSource: false,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                    ],
                     _DanmakuSectionTitle(
                       title: l10n.danmakuDisplayStyleTitle,
                       subtitle: l10n.danmakuDisplayStyleSubtitle,

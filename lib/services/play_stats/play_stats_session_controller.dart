@@ -1,5 +1,6 @@
 import '../../services/play_stats/play_stats_models.dart';
 import '../../services/play_stats/play_stats_repositories.dart';
+import 'fly_sync_identity.dart';
 
 /// 定义片头片尾播放行为跟踪器的最小接口。
 abstract class OpEdTracker {
@@ -85,6 +86,7 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
 
   _ActivePlayStatsSession? _currentSession;
   Future<void> _persistQueue = Future<void>.value();
+  Future<void>? _latestPersistResult;
 
   /// 根据仓储实现与可选片头片尾跟踪器构造控制器。
   DefaultPlayStatsSessionController({
@@ -323,7 +325,12 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
       onError: (_, __) => persist(),
     );
     _persistQueue = next.catchError((_) {});
+    _latestPersistResult = next;
     return next;
+  }
+
+  Future<void> drainPendingWrites() async {
+    await _latestPersistResult;
   }
 
   double _viewThresholdFor(String videoKind) {
@@ -506,7 +513,6 @@ class _ActivePlayStatsSession {
   });
 
   factory _ActivePlayStatsSession.fromContext(PlayStatsStartContext context) {
-    final nowId = DateTime.now().microsecondsSinceEpoch;
     final clickDelta =
         context.startSource == PlayStartSource.manual ||
             context.startSource == PlayStartSource.manualSwitch
@@ -525,7 +531,7 @@ class _ActivePlayStatsSession {
         ? (startPositionMs / mediaDurationMs).clamp(0.0, 1.0)
         : 0.0;
     return _ActivePlayStatsSession(
-      historyId: 'history_$nowId',
+      historyId: newFlySyncId(),
       meta: context.meta,
       startSource: context.startSource,
       startedAtMs: context.startedAtMs,

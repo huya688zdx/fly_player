@@ -40,8 +40,10 @@ class NativePlayStatsRecorder {
 
   final Map<String, PlayStatsVideoMeta> _metaCache =
       <String, PlayStatsVideoMeta>{};
+  final Map<String, String> _scopeCache = {};
   final Set<String> _excludedGuids = <String>{};
   String _activeItemGuid = '';
+  String _activeScope = '';
   int _samplesSinceFlush = 0;
   Timer? _idleTimer;
 
@@ -51,9 +53,11 @@ class NativePlayStatsRecorder {
   /// 起播挂点:缓存元数据并开 manual 会话。
   Future<void> onLaunch(Map<String, dynamic> loadArgs) async {
     try {
+      if (!_acceptsEventScope(loadArgs)) return;
       cacheSource(loadArgs);
       final itemGuid = (loadArgs['itemGuid'] ?? '').toString().trim();
       if (itemGuid.isEmpty || _excludedGuids.contains(itemGuid)) return;
+      if (!_matchesScope(itemGuid)) return;
       await _startSession(
         itemGuid,
         startSource: PlayStartSource.manual,
@@ -68,6 +72,16 @@ class NativePlayStatsRecorder {
   void cacheSource(Map<String, dynamic> loadArgs) {
     final itemGuid = (loadArgs['itemGuid'] ?? '').toString().trim();
     if (itemGuid.isEmpty) return;
+    final capturedScope = (loadArgs['statsScope'] ?? '').toString();
+    if (_sessionControllerOverride == null &&
+        capturedScope.isNotEmpty &&
+        capturedScope != PlayStatsService.instance.currentScope) {
+      return;
+    }
+    _scopeCache[itemGuid] =
+        (loadArgs['statsScope'] as String?)?.isNotEmpty == true
+        ? loadArgs['statsScope'] as String
+        : PlayStatsService.instance.currentScope;
     // 外部本地视频无媒体库身份,入库只会污染报表。
     if (loadArgs['externalLocalSource'] == true) {
       _excludedGuids.add(itemGuid);
@@ -114,13 +128,17 @@ class NativePlayStatsRecorder {
     try {
       final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
       if (itemGuid.isEmpty || _excludedGuids.contains(itemGuid)) return;
+      if (!_acceptsEventScope(progress)) return;
+      if (_scopeCache.containsKey(itemGuid) && !_matchesScope(itemGuid)) return;
       // 只要是原生壳回传的有效条目事件就证明壳活着,先喂看门狗再做后续校验。
       _restartIdleTimer();
       final durationSec = (progress['duration'] as num?)?.toInt() ?? 0;
       if (durationSec <= 0) return;
       final tsSec = (progress['ts'] as num?)?.toInt() ?? 0;
       final isPaused = progress['isPaused'] == true;
-      if (itemGuid != _activeItemGuid) {
+      if (itemGuid != _activeItemGuid ||
+          (_sessionControllerOverride == null &&
+              _activeScope != PlayStatsService.instance.currentScope)) {
         // 无活跃会话 = Flutter 引擎重建后的孤儿进度(原生壳还活着),按系统恢复记;
         // 有活跃会话 = 壳内切集/连播(autoNext 原生未回传原因,统一记 manualSwitch)。
         await _startSession(
@@ -160,10 +178,16 @@ class NativePlayStatsRecorder {
     _idleTimer?.cancel();
     _idleTimer = null;
     if (_activeItemGuid.isEmpty) return;
+    final mayFinish =
+        _sessionControllerOverride != null ||
+        _activeScope == PlayStatsService.instance.currentScope;
     _activeItemGuid = '';
+    _activeScope = '';
     _samplesSinceFlush = 0;
+    if (!mayFinish) return;
     try {
       await _sessionController.finishPlayback(reason: reason);
+      PlayStatsService.instance.onSessionFinished?.call();
     } catch (error, stackTrace) {
       _logSwallowed('finishPlayback', error, stackTrace);
     }
@@ -174,12 +198,24 @@ class NativePlayStatsRecorder {
     _idleTimer = null;
   }
 
+  bool _matchesScope(String itemGuid) =>
+      _sessionControllerOverride != null ||
+      _scopeCache[itemGuid] == PlayStatsService.instance.currentScope;
+
+  bool _acceptsEventScope(Map<String, dynamic> event) {
+    if (_sessionControllerOverride != null) return true;
+    final scope = (event['statsScope'] ?? '').toString();
+    if (scope.isEmpty) return !PlayStatsService.instance.hasUnifiedBinding;
+    return scope == PlayStatsService.instance.currentScope;
+  }
+
   Future<void> _startSession(
     String itemGuid, {
     required PlayStartSource startSource,
     required int startPositionMs,
   }) async {
     _activeItemGuid = itemGuid;
+    _activeScope = PlayStatsService.instance.currentScope;
     _samplesSinceFlush = 0;
     _restartIdleTimer();
     // startPlayback 内部会先 finish 掉上一段会话(reason=item_switch)。

@@ -22,7 +22,7 @@
 - 公网 IPv4：`183.217.101.25`（Emby 端口 8096/8920 未对外转发，外网仅 fnos 中转可达）
 - 公网 IPv6：`2409:8a38:8423:5990:a28c:fdff:fee5:cb3`、`...a069:df01:80c4:d1d7`
 - Emby 发布服务：`https://embyserver4-9.geqian688.fnos.net`（Emby `4.9.0.42`，ServerName `geqian688`）
-- NAS 账号：用户名 `geqian688` / 密码 `***REMOVED-SSH-CREDENTIAL***`（SSH 可能需 root 或 sudo；**此密码已在聊天明文出现，事后务必轮换**）
+- NAS 账号：用户名 `geqian688` / 密码 `[凭据已移至本机受保护配置，不在文档中保存]`（SSH 可能需 root 或 sudo；**此密码已在聊天明文出现，事后务必轮换**）
 
 > SSH 建议从内网 `192.168.6.120` 接入（默认 22 端口；若关闭需在飞牛"终端/SSH"设置里开）。
 
@@ -122,7 +122,7 @@ journalctl -u nginx --since "10 min ago" --no-pager | tail -50   # 触发一次 
 
 ## 7. 安全
 
-- 用户在聊天明文给过 NAS 账号密码（`geqian688`/`***REMOVED-SSH-CREDENTIAL***`）→ **任务完成后提醒其轮换密码**。
+- 用户在聊天明文给过 NAS 账号密码（`geqian688`/`[凭据已移至本机受保护配置，不在文档中保存]`）→ **任务完成后提醒其轮换密码**。
 - 排查只读为主；改动 NAS 配置前先确认并备份。
 
 ---

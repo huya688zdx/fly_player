@@ -15,6 +15,8 @@ import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/models/danmaku_settings.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
+import 'fly_data/fly_nas_danmaku_cache.dart';
+import 'fly_data/fly_data_service.dart';
 
 /// 为原生播放壳预取/检索弹幕。
 ///
@@ -46,21 +48,30 @@ class NativeDanmakuPrefetch {
   @visibleForTesting
   static String? cacheRootOverrideForTest;
 
+  @visibleForTesting
+  static Future<bool> Function()? originalConfiguredOverrideForTest;
+
+  static Future<bool> _originalConfigured() async {
+    if ((await const DanmakuSettingsStore().load()).sourceStrategy ==
+        DanmakuSourceStrategy.nasOnly) {
+      return false;
+    }
+    return await (originalConfiguredOverrideForTest?.call() ??
+        DanDanPlayConfig.ensureConfigured());
+  }
+
   static String get _cacheRoot =>
       cacheRootOverrideForTest ?? Directory.systemTemp.path;
 
   static DateTime? _lastTempCleanupAt;
   static Future<void>? _tempCleanupFuture;
+  static int _nasGeneration = 0;
+  static int _payloadSequence = 0;
 
-  /// 原生壳启动时解析弹幕（**本地优先 + 时效回源**）：
-  /// 1) 「激活的保存源」（用户手动选定，跨启动持久）与本地导入源（用户主动从文件导入）
-  ///    最高优先；其评论缓存新鲜直接本地起播、不联网，过期则先回源刷新（太久没更新要用
-  ///    网络获取），刷新失败仍落回旧缓存保证离线可播。
-  /// 2) 随片下载缓存：下载后 [_downloadedSourceFreshnessTtl] 内直接本地起播不联网；过期
-  ///    先在线刷新，失败落回本地。
-  /// 3) 无本地可用时在线 DanDanPlay 自动匹配，无结果写 blocked 标记（6h 后才重试）。
-  /// 传入 [itemGuid]/[mediaGuid]/[seasonGuid] 用于复刻 `_currentDanmakuMediaKey` 的 key，
-  /// 不传则退化为纯自动匹配（旧行为）。[store] 仅供测试注入独立存储目录。
+  /// 按持久策略解析弹幕：手动导入文件优先；NAS 优先仅在缓存预算结束后
+  /// 回退原有来源，仅 NAS 不触碰弹弹play（包括旧 active 缓存），原有来源不查询 NAS。
+  /// 每次绑定播放捕获账号、会话及统计范围，失效后不交付迟到结果。
+  /// [store] 仅供测试注入独立存储目录。
   static Future<String?> resolveToFile({
     required String seriesTitle,
     String itemTitle = '',
@@ -71,11 +82,123 @@ class NativeDanmakuPrefetch {
     String itemGuid = '',
     String mediaGuid = '',
     String seasonGuid = '',
+    String statsScope = '',
+    bool Function()? isCurrent,
+    FlyNasDanmakuCache? nasCache,
     DanmakuSavedSourceStore? store,
   }) async {
+    try {
+      final generation = statsScope.isEmpty ? _nasGeneration : ++_nasGeneration;
+      final service = FlyDataService.instance;
+      final session = service.session;
+      final scopeIdentity = service.scopeIdentity;
+      bool current() =>
+          (statsScope.isEmpty || generation == _nasGeneration) &&
+          (isCurrent?.call() ?? true) &&
+          identical(session, service.session) &&
+          scopeIdentity == service.scopeIdentity &&
+          (session == null ||
+              statsScope.isEmpty ||
+              statsScope == service.currentScope);
+      if (!settings.enabled || !current()) return null;
+      final resolvedStore = store ?? const DanmakuSavedSourceStore();
+      if (settings.sourceStrategy != DanmakuSourceStrategy.original) {
+        // Only an explicitly imported local file precedes NAS. A legacy active
+        // DanDanPlay entry may have been saved by automatic matching.
+        final mediaKey = _buildMediaKey(
+          itemGuid: itemGuid,
+          mediaGuid: mediaGuid,
+          seasonGuid: seasonGuid,
+          seasonNumber: seasonNumber,
+          episodeNumber: episodeNumber,
+          seriesTitle: seriesTitle,
+        );
+        if (mediaKey.isNotEmpty) {
+          final active = await resolvedStore.loadActiveSourceKey(mediaKey);
+          final saved = await resolvedStore.loadForMedia(mediaKey);
+          if (!current()) return null;
+          final local = saved.where((source) => source.isLocalFile).toList();
+          local.sort(
+            (a, b) => a.sourceKey == active
+                ? -1
+                : b.sourceKey == active
+                ? 1
+                : 0,
+          );
+          for (final source in local) {
+            final path = await _loadSavedSourceToFile(source);
+            if (!current()) return null;
+            if (path != null) return path;
+          }
+        }
+        if (statsScope.isNotEmpty) {
+          final result = await (nasCache ?? FlyNasDanmakuCache.instance)
+              .resolve(
+                statsScope: statsScope,
+                itemGuid: itemGuid,
+                mediaGuid: mediaGuid,
+                isCurrent: current,
+              )
+              .catchError((Object _) => null);
+          if (!current()) return null;
+          if (result != null) {
+            if (!result.isCurrent()) return null;
+            return _writePayloadFile({
+              ...buildPayload(
+                settings,
+                result.comments,
+                sourceKey: result.sourceKey,
+              ),
+              'sourceLabel': result.sourceLabel,
+            }, isCurrent: () => current() && result.isCurrent());
+          }
+        }
+        if (settings.sourceStrategy == DanmakuSourceStrategy.nasOnly) {
+          return null;
+        }
+      }
+      if (!current()) return null;
+      final path = await _resolveOriginalToFile(
+        seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        tmdbId: tmdbId,
+        settings: settings,
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        isCurrent: current,
+        store: resolvedStore,
+        allowSavedOnlineSources:
+            settings.sourceStrategy == DanmakuSourceStrategy.original ||
+            statsScope.isEmpty,
+      );
+      return current() ? path : null;
+    } catch (_) {
+      // Danmaku is optional: settings, storage or network failure cannot stop playback.
+      return null;
+    }
+  }
+
+  static Future<String?> _resolveOriginalToFile({
+    required String seriesTitle,
+    String itemTitle = '',
+    required int seasonNumber,
+    required int episodeNumber,
+    required String tmdbId,
+    required DanmakuSettings settings,
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    bool Function()? isCurrent,
+    DanmakuSavedSourceStore? store,
+    bool allowSavedOnlineSources = true,
+  }) async {
+    bool current() => isCurrent?.call() ?? true;
     final resolvedStore = store ?? const DanmakuSavedSourceStore();
     try {
-      if (!settings.enabled) return null;
+      if (!settings.enabled || !current()) return null;
       // 诊断：对比「全新启动」与「壳内切集」两条路喂进来的参数是否一致。切集没弹幕但退出重进有，
       // 多半是这里某个字段（seriesTitle/episodeNumber/tmdbId）在切集时是空的，导致下方在线匹配被跳过。
       debugPrint(
@@ -95,6 +218,7 @@ class NativeDanmakuPrefetch {
         // 1) 激活的保存源优先（你的离线选择）。
         final activeKey = await resolvedStore.loadActiveSourceKey(mediaKey);
         final savedAll = await resolvedStore.loadForMedia(mediaKey);
+        if (!current()) return null;
         debugPrint(
           '[DANMAKU][NATIVE_PREFETCH] mediaKey=$mediaKey '
           'activeKey=$activeKey savedCount=${savedAll.length}',
@@ -102,6 +226,7 @@ class NativeDanmakuPrefetch {
         if (activeKey != null && activeKey.trim().isNotEmpty) {
           for (final source in savedAll) {
             if (source.sourceKey == activeKey) {
+              if (source.isDanDanPlay && !allowSavedOnlineSources) break;
               // 随片下载缓存不算「手动选择」，即便历史数据把它误设成 active 也不当最高优先，
               // 让它落到网络之后的兜底（修复旧版强制激活下载源的遗留数据）。
               if (source.isDownloadedFile) break;
@@ -149,6 +274,8 @@ class NativeDanmakuPrefetch {
           itemGuid: itemGuid,
           mediaGuid: mediaGuid,
           seasonGuid: seasonGuid,
+          isCurrent: current,
+          allowOnline: canMatchOnline,
         );
 
         var onlineAttempted = false;
@@ -202,6 +329,9 @@ class NativeDanmakuPrefetch {
         settings: settings,
         mediaKey: mediaKey,
         store: resolvedStore,
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        isCurrent: current,
       );
     } catch (_) {
       // 旁路能力：匹配失败/未配置/网络错误都静默跳过，照常播放无弹幕。
@@ -224,21 +354,38 @@ class NativeDanmakuPrefetch {
     String itemGuid = '',
     String mediaGuid = '',
     String seasonGuid = '',
+    bool Function()? isCurrent,
+    bool allowOnline = true,
   }) async {
     try {
-      if (seriesTitle.trim().isEmpty) return null;
-      if (!await DanDanPlayConfig.ensureConfigured()) return null;
-      final resolver = _buildResolver();
-      final resolved = await resolver.resolveForPlayback(
-        seriesTitle: seriesTitle,
-        itemTitle: itemTitle,
-        seasonNumber: seasonNumber,
-        episodeNumber: episodeNumber,
-        tmdbId: tmdbId,
-      );
-      final comments = resolved?.result.comments ?? const <DanmakuComment>[];
-      if (resolved == null || comments.isEmpty) {
-        if (mediaKey.isNotEmpty) {
+      bool current() => isCurrent?.call() ?? true;
+      var originalHadNoResult = false;
+      Future<DanDanPlayPlaybackResolveResult?> original() async {
+        if (!allowOnline || seriesTitle.trim().isEmpty || !current()) {
+          return null;
+        }
+        if (!await _originalConfigured() || !current()) {
+          return null;
+        }
+        final resolved = await _buildResolver().resolveForPlayback(
+          seriesTitle: seriesTitle,
+          itemTitle: itemTitle,
+          seasonNumber: seasonNumber,
+          episodeNumber: episodeNumber,
+          tmdbId: tmdbId,
+        );
+        if (!current()) return null;
+        if (resolved == null || resolved.result.comments.isEmpty) {
+          originalHadNoResult = true;
+          return null;
+        }
+        return resolved;
+      }
+
+      final choice = await original();
+      if (!current()) return null;
+      if (choice == null) {
+        if (originalHadNoResult && mediaKey.isNotEmpty) {
           await store.saveAutoMatchBlockedReason(
             mediaKey: mediaKey,
             reason: DanmakuSavedSourceStore.autoNoResultReason(),
@@ -246,6 +393,8 @@ class NativeDanmakuPrefetch {
         }
         return null;
       }
+      final resolved = choice;
+      final comments = resolved.result.comments;
       // 自动匹配命中即登记进弹幕源库，使「弹幕源」面板（原生壳 + Flutter）能看到当前正在用的
       // 弹幕、并可重选/切换。此前这条路径只写 payload 注入播放器、从不 saveSource，导致用户在
       // 源面板里看不到自动匹配到的弹幕。统一使用 dandan:<episodeId>，并明确激活当前命中源。
@@ -273,10 +422,12 @@ class NativeDanmakuPrefetch {
         );
       }
       if (matchedItem.episodeId > 0) {
+        if (!current()) return null;
         await _cacheComments('dandan:${matchedItem.episodeId}', comments);
       }
       return await _writePayloadFile(
         buildPayload(settings, comments, sourceKey: sourceKey),
+        isCurrent: current,
       );
     } catch (_) {
       return null;
@@ -325,6 +476,10 @@ class NativeDanmakuPrefetch {
     DanmakuSavedSource source,
   ) async {
     if (source.isDanDanPlay) {
+      if ((await const DanmakuSettingsStore().load()).sourceStrategy ==
+          DanmakuSourceStrategy.nasOnly) {
+        return null;
+      }
       final raw = source.sourceKey;
       final episodeId =
           int.tryParse(raw.startsWith('dandan:') ? raw.substring(7) : raw) ?? 0;
@@ -363,7 +518,7 @@ class NativeDanmakuPrefetch {
   }) async {
     try {
       if (keyword.trim().isEmpty) return const <Map<String, dynamic>>[];
-      if (!await DanDanPlayConfig.ensureConfigured()) {
+      if (!await _originalConfigured()) {
         return const <Map<String, dynamic>>[];
       }
       final resolver = _buildResolver();
@@ -416,7 +571,7 @@ class NativeDanmakuPrefetch {
   }) async {
     try {
       if (episodeId <= 0) return null;
-      if (!await DanDanPlayConfig.ensureConfigured()) return null;
+      if (!await _originalConfigured()) return null;
       final resolver = _buildResolver();
       final item = DanDanPlayEpisodeSearchItem(
         episodeId: episodeId,
@@ -783,13 +938,23 @@ class NativeDanmakuPrefetch {
     }
   }
 
-  static Future<String?> _writePayloadFile(Map<String, Object?> payload) async {
+  static Future<String?> _writePayloadFile(
+    Map<String, Object?> payload, {
+    bool Function()? isCurrent,
+  }) async {
+    bool current() => isCurrent?.call() ?? true;
+    if (!current()) return null;
     await _cleanupExpiredTempFiles();
+    if (!current()) return null;
     final file = File(
       '$_cacheRoot/native_danmaku_'
-      '${DateTime.now().millisecondsSinceEpoch}.json',
+      '${DateTime.now().microsecondsSinceEpoch}_${_payloadSequence++}.json',
     );
     await file.writeAsString(jsonEncode(payload));
+    if (!current()) {
+      await file.delete();
+      return null;
+    }
     return file.path;
   }
 
