@@ -78,3 +78,11 @@ Activity 捕获删除时的媒体加载代次。切媒体后的成功仍处理�
 本轮没有改变工具链、依赖或构建环境，因此没有重复已确定受依赖阻挡的完整 Gradle/设备验证；上文 BLOCKED/NOT_RUN 边界继续成立。回退本轮仅涉及 Activity 新增请求 owner/同项判断接线及新增测试；会恢复独立审查指出的两项回归，不建议独立回退。
 
 修正后总计 4 个生产 Kotlin 文件、4 个 Kotlin 测试文件及本说明。最新冻结 SHA 为 `<REPAIR_EVIDENCE>/android_frozen_files_ir0203.json`，新基线补丁为 `android_baseline_review_ir0203.patch`；首批冻结、失败/通过日志均保留。
+
+## 本地复核追加：释放被丢弃的解析结果
+
+2026-09-12 修复连续选集、切版本或转码重载时，旧成功回包被请求代次守卫丢弃、其中新建的 `playLink` 未释放的问题。三个成功/错误出口及预取命中捷径均完成请求登记；废弃链接等在途解析和当前来源加载结束后再收尾，排除正在播放、已预取及新 Activity 复用的链接。没有改变最新用户请求生效的规则。
+
+释放沿用现有反向通道，增加可选的请求 scope。Flutter 飞牛接线核验绑定账号，并复用已有释放 API 在进度 flush、clientId 和 HTTP 请求队列之后的 `isCurrent` 守卫。账号已切换时不向新账号发送旧退出请求，旧账号资源仍依赖服务端超时回收；尚未返回的解析会延迟废弃链接清理，不阻塞播放。
+
+本轮仅修改 Activity、两份 Dart 接线、既有 `NativePlayerActivityReentryRequestTest` 和本文。新增两项测试覆盖废弃来源收尾、同链接/新实例保护、最新失败及账号隔离；真实 Gradle `testFullDebugUnitTest` 的该测试类 **10 项通过**。相关既有 Dart 测试 **21 项通过**，两份变更 Dart 文件静态分析通过。日志位于本地被忽略的 `build/a5-review/android-fix-build.log` 和 `android-fix-dart-tests.log`。这些检查不等同于真实 NAS 连续转码切换验收。

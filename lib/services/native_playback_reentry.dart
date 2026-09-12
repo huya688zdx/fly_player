@@ -62,14 +62,21 @@ class NativePlaybackReentry {
   }) {
     if (backend.capabilities.usesLegacyFeiniuFlow) {
       final subtitles = FeiniuSegmentedSubtitle(FeiniuApi(nas));
+      final boundScope = 'feiniu:${nas.baseUrl}:${nas.userName}';
       return NativePlayerBridge.bindReentry(
         onUnbind: subtitles.dispose,
         onResolveSegmentedSubtitle: (raw, positionMs) => subtitles.resolve(
           MpvMediaSource.fromMap(jsonDecode(raw) as Map<String, dynamic>),
           Duration(milliseconds: positionMs),
         ),
-        onReleaseServerSession: (link) =>
-            NativeReentrySupport.releaseServerSession(nas, link),
+        onReleaseServerSession: (link, {scope}) =>
+            NativeReentrySupport.releaseServerSession(
+              nas,
+              link,
+              isCurrent: () =>
+                  (scope == null || scope == boundScope) &&
+                  boundScope == 'feiniu:${nas.baseUrl}:${nas.userName}',
+            ),
         onResolvePlayback: onResolvePlayback,
         onRecordProgress: (progress) =>
             NativeReentrySupport.recordProgress(nas, progress),

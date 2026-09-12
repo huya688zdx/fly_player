@@ -2,6 +2,7 @@ package com.geqian.flyplayer.fly_player
 
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONObject
 
 /** Calls the Activity's actual shortcut and request-owner methods; no decoder. */
 class NativePlayerActivityReentryRequestTest {
@@ -12,7 +13,7 @@ class NativePlayerActivityReentryRequestTest {
     private fun get(player: NativePlayerActivity, name: String): Any? =
         NativePlayerActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.get(player)
 
-    private fun call(player: NativePlayerActivity, name: String, vararg args: Any): Any? {
+    private fun call(player: NativePlayerActivity, name: String, vararg args: Any?): Any? {
         val method = NativePlayerActivity::class.java.declaredMethods.single { it.name == name }
         method.isAccessible = true
         return method.invoke(player, *args)
@@ -120,5 +121,50 @@ class NativePlayerActivityReentryRequestTest {
         set(player, "mediaLoadGeneration", (get(player, "mediaLoadGeneration") as Int) + 1)
         assertFalse(current(player, nextRequest))
         assertTrue(current(player, begin(player)))
+    }
+
+    private fun result(link: String) = mapOf("loadArgs" to JSONObject(mapOf("playLink" to link)).toString())
+
+    @Test fun staleResultsWaitForLatestSourceAndReleaseOnlyUnusedLinks() {
+        val player = player(source() + ("playLink" to "playing"))
+        val old = begin(player)
+        val shared = begin(player)
+        val latest = begin(player)
+        assertEquals(false, call(player, "finishPlaybackResolveRequest", old, result("unused")))
+        assertEquals(false, call(player, "finishPlaybackResolveRequest", shared, result("shared")))
+        assertEquals(emptyList<Any>(), call(player, "takeDiscardedPlaybackLinks"))
+        assertEquals(true, call(player, "finishPlaybackResolveRequest", latest, result("shared")))
+        // 最新来源仍在读取弹幕文件，不能提前释放它将要使用的同一链接。
+        set(player, "mediaLoadPending", true)
+        assertEquals(emptyList<Any>(), call(player, "takeDiscardedPlaybackLinks"))
+        set(player, "loadArgsMap", source() + ("playLink" to "shared"))
+        set(player, "mediaLoadPending", false)
+        assertEquals(listOf("server/account" to "unused"), call(player, "takeDiscardedPlaybackLinks"))
+        assertEquals(emptyList<Any>(), call(player, "takeDiscardedPlaybackLinks"))
+        val late = begin(player)
+        call(player, "invalidatePlaybackResolveRequests")
+        call(player, "finishPlaybackResolveRequest", late, result("replacement-link"))
+        val replacement = player(source() + ("playLink" to "replacement-link"))
+        val previousRetained = get(player, "retainedPlayer")!!
+        set(player, "retainedPlayer", java.lang.ref.WeakReference(replacement))
+        try {
+            assertEquals(emptyList<Any>(), call(player, "takeDiscardedPlaybackLinks"))
+        } finally {
+            set(player, "retainedPlayer", previousRetained)
+        }
+    }
+
+    @Test fun latestFailureStillReleasesStaleResultWithoutCrossingAccountScope() {
+        val player = player()
+        val old = begin(player)
+        val latest = begin(player)
+        call(player, "finishPlaybackResolveRequest", old, result("unused"))
+        call(player, "finishPlaybackResolveRequest", latest, null)
+        assertEquals(listOf("server/account" to "unused"), call(player, "takeDiscardedPlaybackLinks"))
+        val previousAccount = begin(player)
+        call(player, "invalidatePlaybackResolveRequests")
+        set(player, "playbackSessionScope", "server/other-account")
+        call(player, "finishPlaybackResolveRequest", previousAccount, result("old-account-link"))
+        assertEquals(emptyList<Any>(), call(player, "takeDiscardedPlaybackLinks"))
     }
 }
