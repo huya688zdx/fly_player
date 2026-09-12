@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../services/fly_data/fly_account_controller.dart';
 
 import '../services/fly_data/fly_data_service.dart';
+import '../theme/app_theme.dart';
+import '../ui/app_info_popover.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../widgets/common/app_ambient_page.dart';
 
@@ -114,6 +116,7 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
   Widget build(BuildContext context) {
     final session = _service.session;
     final pending = _syncState?['pending_json'] != null;
+    final colors = context.appColors;
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -127,9 +130,38 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  const Text('飞翔统一账号的历史关联与同步。绑定账号下的新记录会自动补传。'),
-                  const SizedBox(height: 8),
-                  const Text('当前统计是旧版媒体播放量估计；精确观看时间未知。媒体播放进度继续由原媒体服务处理。'),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    color: AppAmbientPage.cardColorOf(context, colors.surface),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Expanded(
+                            child: Text('飞翔统一账号的历史关联与同步。绑定账号下的新记录会自动补传。'),
+                          ),
+                          AppInfoPopoverAnchor(
+                            title: '历史同步说明',
+                            description:
+                                '当前统计是旧版媒体播放量估计；精确观看时间未知。媒体播放进度继续由原媒体服务处理。',
+                            detail: '旧本地历史需要核对归属后再关联；正常观看不需要在此重新登录媒体来源。',
+                            child: Tooltip(
+                              message: '历史同步说明',
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 20,
+                                  color: colors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 20),
                   if (session == null)
                     Form(
@@ -211,7 +243,7 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '如果曾通过网页导入 WIN01 或其他备份，先读取并选择对应数据集。只关联历史 ID 与原始事实匹配的记录；冲突会停止关联。各来源不会按标题合并。',
+                      '如果曾通过网页导入播放历史，先读取并选择对应来源。只关联历史身份与原始记录匹配的内容；冲突会停止关联。各来源不会按标题合并。',
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
@@ -339,7 +371,17 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        border: const OutlineInputBorder(),
+        filled: true,
+        fillColor: context.appColors.surfaceSubtle,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: context.appColors.borderSubtle),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: context.appColors.accent),
+        ),
       ),
       validator: (value) =>
           value == null || value.trim().isEmpty ? '请填写$label' : null,
