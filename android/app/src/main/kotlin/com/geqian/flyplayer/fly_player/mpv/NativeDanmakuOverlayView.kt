@@ -494,6 +494,14 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 ?.takeIf { !it.isRecycled }
                 ?.let { runCatching { it.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull() }
         if (source != null && copy == null) return
+        // A repeated timestamp replaces its previous content, including an empty 0ms step.
+        val previous = maskPtsBuffer.iterator()
+        while (previous.hasNext()) {
+            val frame = previous.next()
+            if (frame.ptsMs != ptsMs) continue
+            previous.remove()
+            frame.bitmap?.takeIf { !it.isRecycled }?.recycle()
+        }
         maskPtsBuffer.addLast(MaskFrame(ptsMs, copy, vxPerMs, vyPerMs, sceneCut, stepMs))
         while (maskPtsBuffer.size > maskPtsBufferCap) {
             maskPtsBuffer.removeFirst().bitmap?.takeIf { !it.isRecycled }?.recycle()
@@ -725,6 +733,10 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             mainHandler.post { setOcclusionState(payload) }
             return
         }
+        // This bridge carries untimed live/file-cache masks, including path-only payloads.
+        clearMaskPtsBuffer()
+        ptsMaskMode = false
+        occlusionVideoAspect = 0f
         applyOcclusionState(
             NativeDanmakuOcclusionPayload(
                 enabled = payload["enabled"] as? Boolean ?: false,
@@ -761,28 +773,40 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             mainHandler.post { setOcclusionState(state, runtimeMaskBitmap) }
             return
         }
-        // UI 已进入跳转等待、播放线程尚未处理 seek 时，旧回调不能重新填入缓冲。
-        if (timelineClock.state == DanmakuTimelineState.SEEK_HOLD && state.maskPtsMs > 0L) return
+        val ptsMs = state.maskPtsMs
+        val timestampAction =
+            DanmakuMaskTimestampPolicy.route(
+                ptsMs = ptsMs,
+                emptyStep = state.maskEmptyStep,
+                hasRuntimeMask = runtimeMaskBitmap?.isRecycled == false,
+                seekHold = timelineClock.state == DanmakuTimelineState.SEEK_HOLD,
+            )
+        // UI 已进入跳转等待、播放线程尚未处理 seek 时，包含零点的旧回调都不能填入缓冲。
+        if (timestampAction == DanmakuMaskTimestampAction.IGNORE) return
+        ptsMaskMode = DanmakuMaskTimestampPolicy.nextPtsMode(ptsMaskMode, timestampAction)
+        if (!ptsMaskMode) {
+            // File-cache payloads may have only maskPath; no runtime Bitmap is required.
+            clearMaskPtsBuffer()
+            occlusionVideoAspect = 0f
+        }
         // Anchor mask motion extrapolation to this sample.
         maskVelocityX = state.maskVelocityX
         maskVelocityY = state.maskVelocityY
         maskAnchorUptimeMs = SystemClock.uptimeMillis()
-        if (state.maskPtsMs > 0L && (state.maskEmptyStep || runtimeMaskBitmap?.isRecycled == false)) {
-            ptsMaskMode = true
+        if (timestampAction == DanmakuMaskTimestampAction.BUFFER_MASK ||
+            timestampAction == DanmakuMaskTimestampAction.BUFFER_EMPTY
+        ) {
             occlusionVideoAspect = state.videoAspect.toFloat()
             pushMaskFrame(
-                ptsMs = state.maskPtsMs,
+                ptsMs = requireNotNull(ptsMs),
                 vxPerMs = state.maskVelocityX,
                 vyPerMs = state.maskVelocityY,
                 sceneCut = state.maskSceneCut,
                 stepMs = state.effectiveSampleIntervalMs,
-                source = runtimeMaskBitmap,
+                source = if (timestampAction == DanmakuMaskTimestampAction.BUFFER_EMPTY) null else runtimeMaskBitmap,
             )
-        } else if (runtimeMaskBitmap != null && !runtimeMaskBitmap.isRecycled) {
-            ptsMaskMode = false
-            occlusionVideoAspect = 0f
         }
-        if (state.maskEmptyStep && state.maskPtsMs > 0L) {
+        if (timestampAction == DanmakuMaskTimestampAction.BUFFER_EMPTY) {
             cancelPendingMaskClear()
             invalidate()
             return
