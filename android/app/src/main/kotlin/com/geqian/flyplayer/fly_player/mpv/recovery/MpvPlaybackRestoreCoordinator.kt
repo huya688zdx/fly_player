@@ -58,8 +58,8 @@ class MpvPlaybackRestoreCoordinator {
                 activeSeekEpoch > completedSeekEpoch &&
                 seekingStartedEpoch == activeSeekEpoch
         pendingSeekPositionMs = positionMs.coerceAtLeast(0L)
-        waitingForVideoAfterSeek = pendingSeekPositionMs > 0L
-        seeking = pendingSeekPositionMs > 0L
+        waitingForVideoAfterSeek = true
+        seeking = true
         resetSeekCompletionFallback()
         if (seekEpoch > activeSeekEpoch) {
             activeSeekEpoch = seekEpoch
