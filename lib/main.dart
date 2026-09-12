@@ -47,6 +47,7 @@ import 'services/detail_route_payload_store.dart';
 import 'services/gpu_profile_bridge.dart';
 import 'services/main_host_bridge.dart';
 import 'services/sqlite_runtime.dart';
+import 'services/windows_data_home.dart';
 import 'screens/settings_destination_routes.dart';
 import 'theme/app_theme.dart';
 import 'theme/dynamic_theme_runtime_controller.dart';
@@ -67,6 +68,7 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      await initializeWindowsDataHome();
       if (Platform.isWindows) {
         await windowManager.ensureInitialized();
         await windowManager.setTitleBarStyle(TitleBarStyle.hidden);

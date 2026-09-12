@@ -81,3 +81,6 @@ getapi/
 .gitup/
 .claude.bat
 .claude*.bat
+
+# Optional isolated desktop test profile (credentials and local history).
+/.runtime/

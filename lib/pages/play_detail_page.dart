@@ -84,6 +84,7 @@ import '../widgets/detail/detail_hero_overlay.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
 import '../widgets/detail/detail_status_page.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
+import '../widgets/fly_assistant_panel.dart';
 import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_selector_row.dart';
 import '../widgets/detail/detail_resolution_section.dart';
@@ -1041,6 +1042,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                             : null,
                         onDownloadTap: _neutralDownloadUnavailable,
                       ),
+                      FlyAssistantAction(itemGuid: _currentItemGuid),
                       if (DesktopEnvironment.isWindows)
                         ExternalPlaybackControls(
                           itemGuid: _currentItemGuid,
@@ -3683,6 +3685,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                     },
                                   ),
                                 ),
+                                FlyAssistantAction(itemGuid: _currentItemGuid),
                                 if (DesktopEnvironment.isWindows)
                                   ExternalPlaybackControls(
                                     itemGuid: _currentItemGuid,

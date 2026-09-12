@@ -131,12 +131,13 @@ class NativePlayerSurface(
         controller.pause()
     }
 
-    fun seek(positionMs: Long) {
-        if (released) return
+    fun seek(positionMs: Long): Long {
+        if (released) return 0L
         val seekEpoch = controller.seekWithEpoch(positionMs)
         if (seekEpoch > 0L) {
             danmakuOverlay.hintSeek(positionMs, seekEpoch)
         }
+        return seekEpoch
     }
 
     fun setSpeed(speed: Double?) {

@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 
 import '../models/danmaku_saved_source.dart';
 import '../../utils/swallowed_error_logger.dart';
+import '../../services/windows_data_home.dart';
 
 class DanmakuSavedSourceStore {
   // 旧版本把保存源(实测 70KB)塞进 SharedPreferences → 每次 getInstance/reload 都解码
@@ -301,10 +302,10 @@ class DanmakuSavedSourceStore {
     }
     final path = await (_pathFuture ??= () async {
       if (Platform.isWindows) {
-        final root =
-            (Platform.environment['LOCALAPPDATA'] ?? '').trim().isNotEmpty
+        final root = resolveFlyDataHome() ??
+            ((Platform.environment['LOCALAPPDATA'] ?? '').trim().isNotEmpty
             ? Platform.environment['LOCALAPPDATA']!.trim()
-            : Directory.systemTemp.path;
+            : Directory.systemTemp.path);
         final directory = Directory('$root${Platform.pathSeparator}FlyPlayer');
         await directory.create(recursive: true);
         return '${directory.path}${Platform.pathSeparator}$_fileName';

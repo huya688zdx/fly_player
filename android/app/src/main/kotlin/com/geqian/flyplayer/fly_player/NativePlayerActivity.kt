@@ -59,6 +59,10 @@ import com.geqian.flyplayer.fly_player.mpv.MpvPlaybackPhase
 import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerSurface
+import com.geqian.flyplayer.fly_player.oped.FlyOpedPublication
+import com.geqian.flyplayer.fly_player.oped.FlyOpedSegment
+import com.geqian.flyplayer.fly_player.oped.FlyOpedPending
+import com.geqian.flyplayer.fly_player.oped.FlyOpedEntryPolicy
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
@@ -1315,6 +1319,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var outroMaxMin = 4
     private var skipCountdownSec = 5
     private var introSkipDismissed = false
+    private var flyOpedContext = UUID.randomUUID().toString()
+    private var flyOped: FlyOpedPublication? = null
+    private var flyOpedPending: FlyOpedPending? = null
+    private var flyOpedPolicy = FlyOpedEntryPolicy()
+    private var flyOpedResolveEpoch: Long? = null
+    private var flyOpedResolving = false
+    private var flyOpedScopeCheckMs = 0L
+    private var flyOpedAuthorizing = false
+    private var flyOpedStartedMs = 0L
+    private var flyOpedObservedEpoch: Long? = null
     private var outroSkipDismissed = false
     private lateinit var skipCard: LinearLayout
     private lateinit var skipText: TextView
@@ -2722,6 +2736,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val effectiveLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
         mediaTitle = resolveTitle(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
+        resetFlyOped()
         // 完整 loadArgs 进入（初始启动主链路）：安装 Flutter 下发的本地化文案表；
         // 失败静默，不影响播放主流程（缺失时后续 localizedString 自动回退 strings.xml）。
         runCatching {
@@ -2933,6 +2948,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             (previousSeries.isNotEmpty() && previousSeries == effectiveLoadArgs["seriesGuid"]?.toString()) ||
             (previousSeason.isNotEmpty() && previousSeason == effectiveLoadArgs["seasonGuid"]?.toString())
         loadArgsMap = effectiveLoadArgs
+        resetFlyOped()
         refreshSeekThumbnails()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
         selectedAudioGuid = effectiveLoadArgs["audioTrackGuid"]?.toString().orEmpty()
@@ -7098,6 +7114,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         val pos = state.positionMs
+        val publication = flyOped
+        if (publication != null) {
+            val segment = publication.at(pos)
+            val dismissed = if (segment?.kind == "op") introSkipDismissed else outroSkipDismissed
+            if (segment == null || dismissed || flyOpedPending != null || abRepeatMode == 2) {
+                skipCard.visibility = View.GONE
+                return
+            }
+            skipText.text = "${if (segment.kind == "op") "片头" else "片尾"} · 飞翔已核验 · ${formatTime(segment.endMs)}"
+            skipAction = { skipFlyOped(publication, segment) }
+            skipCard.visibility = View.VISIBLE
+            return
+        }
         // 有章节推断到的片头/片尾区间则精确跳转（跳到章节边界）；否则退回按设置时长上限的窗口。
         val introEndMs = if (inferredIntroEndMs > 0) inferredIntroEndMs else introMaxMin * 60_000L
         val introShowFromMs = if (inferredIntroStartMs >= 0) maxOf(2_000L, inferredIntroStartMs) else 2_000L
@@ -7126,6 +7155,96 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             else -> if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
         }
+    }
+
+    private fun resetFlyOped() {
+        finishFlyOped("cancelled")
+        flyOpedContext = UUID.randomUUID().toString()
+        flyOped = null
+        flyOpedPolicy = FlyOpedEntryPolicy()
+        flyOpedResolveEpoch = null
+        flyOpedResolving = false
+        flyOpedAuthorizing = false
+        flyOpedScopeCheckMs = 0L
+        flyOpedObservedEpoch = null
+    }
+
+    private fun flyScopeArgs(): Map<String, Any?> = mapOf(
+        "statsScope" to loadArgsMap["statsScope"], "itemGuid" to loadArgsMap["itemGuid"], "mediaGuid" to loadArgsMap["mediaGuid"])
+
+    private fun observeFlyOped(state: MpvPlayerState) {
+        if (state.loadNonce != (loadArgsMap["loadNonce"] as? Number)?.toInt()) return
+        val context = flyOpedContext
+        if (state.visualPlaybackReady && flyOped == null && !flyOpedResolving && flyOpedResolveEpoch != state.activeSeekEpoch) {
+            val epoch = state.activeSeekEpoch
+            flyOpedResolveEpoch = epoch
+            flyOpedResolving = true
+            NativePlayerReverseBridge.dispatch("resolveFlyOped", flyScopeArgs() + mapOf("playback_context_id" to context, "generation" to epoch),
+                onResult = { result -> runOnUiThread {
+                    if (activityDestroying || context != flyOpedContext) return@runOnUiThread
+                    flyOpedResolving = false
+                    if (playerSurface.state.activeSeekEpoch != epoch) return@runOnUiThread
+                    flyOped = FlyOpedPublication.parse(result, context, epoch, loadArgsMap["itemGuid"]?.toString().orEmpty(), loadArgsMap["mediaGuid"]?.toString().orEmpty())
+                } }, onError = { runOnUiThread { if (context == flyOpedContext) flyOpedResolving = false } })
+        }
+        val publication = flyOped ?: return
+        if (flyOpedObservedEpoch != null && flyOpedObservedEpoch != state.activeSeekEpoch && flyOpedPending?.seekEpoch != state.activeSeekEpoch) {
+            introSkipDismissed = false
+            outroSkipDismissed = false
+        }
+        flyOpedObservedEpoch = state.activeSeekEpoch
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - flyOpedScopeCheckMs > 5000L) {
+            flyOpedScopeCheckMs = now
+            NativePlayerReverseBridge.dispatch("validateFlyScope", flyScopeArgs(),
+                onResult = { result -> runOnUiThread { if (context == flyOpedContext && result != true) { finishFlyOped("cancelled"); flyOped = null } } },
+                onError = { runOnUiThread { if (context == flyOpedContext) { finishFlyOped("cancelled"); flyOped = null } } })
+        }
+        val pending = flyOpedPending
+        if (pending != null) {
+            val phase = pending.observe(state.activeSeekEpoch, state.completedSeekEpoch, state.positionMs)
+            if (phase != null) finishFlyOped(phase, alreadyFinished = true)
+            else if (now - flyOpedStartedMs > 12000L || state.error != null) finishFlyOped("failed")
+        }
+        if (flyAutomaticAllowed(state) && flyOpedPending == null) {
+            flyOpedPolicy.observe(publication, state.positionMs, state.activeSeekEpoch)?.let { skipFlyOped(publication, it, automatic = true) }
+        }
+    }
+
+    private fun flyAutomaticAllowed(state: MpvPlayerState): Boolean =
+        introOutroEnabled && state.visualPlaybackReady && !state.paused && !state.buffering &&
+            state.error == null && !completionActive && abRepeatMode == 0
+
+    private fun skipFlyOped(publication: FlyOpedPublication, segment: FlyOpedSegment, automatic: Boolean = false) {
+        if (!introOutroEnabled || flyOpedPending != null || flyOpedAuthorizing || flyOped !== publication || !segment.contains(playerSurface.state.positionMs)) return
+        val context = flyOpedContext
+        val generation = playerSurface.state.activeSeekEpoch
+        flyOpedAuthorizing = true
+        // Reauthorize the fixed publication using Fly only. A revoke/new revision
+        // never silently changes the visible target. No model is called here.
+        NativePlayerReverseBridge.dispatch("resolveFlyOped", flyScopeArgs() + mapOf("playback_context_id" to context, "generation" to generation), onResult = { result -> runOnUiThread {
+            if (activityDestroying || context != flyOpedContext) return@runOnUiThread
+            flyOpedAuthorizing = false
+            val authorized = FlyOpedPublication.parse(result, context, generation, loadArgsMap["itemGuid"]?.toString().orEmpty(), loadArgsMap["mediaGuid"]?.toString().orEmpty())
+            if (authorized != publication) { flyOped = null; return@runOnUiThread }
+            val state = playerSurface.state
+            if (!introOutroEnabled || (automatic && !flyAutomaticAllowed(state)) || generation != state.activeSeekEpoch || flyOped !== publication || !segment.contains(state.positionMs)) return@runOnUiThread
+            val pending = FlyOpedPending(publication, segment, UUID.randomUUID().toString(), generation, state.positionMs)
+            flyOpedPending = pending
+            flyOpedStartedMs = android.os.SystemClock.elapsedRealtime()
+            NativePlayerReverseBridge.dispatch("recordFlyOpedAction", mapOf("statsScope" to loadArgsMap["statsScope"], "event" to pending.event("intent")))
+            if (segment.kind == "op") introSkipDismissed = true else outroSkipDismissed = true
+            skipCard.visibility = View.GONE
+            pending.seekEpoch = playerSurface.seek(segment.endMs)
+            if (pending.seekEpoch == 0L) finishFlyOped("failed")
+        } }, onError = { runOnUiThread { if (context == flyOpedContext) flyOpedAuthorizing = false } })
+    }
+
+    private fun finishFlyOped(phase: String, alreadyFinished: Boolean = false) {
+        val pending = flyOpedPending ?: return
+        val terminal = if (alreadyFinished) phase else pending.finish(phase)
+        flyOpedPending = null
+        if (terminal != null) NativePlayerReverseBridge.dispatch("recordFlyOpedAction", mapOf("statsScope" to loadArgsMap["statsScope"], "event" to pending.event(terminal)))
     }
 
     /** 续播提示：换源后若起播位置 > 3s 弹出，6 秒后自动消失。 */
@@ -9567,6 +9686,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyState(state: MpvPlayerState) {
         if (!nativePanelShouldApplyPlaybackState(activityDestroying) || playbackParked) return
+        observeFlyOped(state)
         val ended = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
         if (state.loadNonce == (loadArgsMap["loadNonce"] as? Number)?.toInt()) {
             if ((!lastProgressPaused && state.paused) || (!lastProgressEnded && ended)) {
@@ -10387,6 +10507,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
+        finishFlyOped("cancelled")
         if (retainedPlayer.get() === this) retainedPlayer.clear()
         val playLink = loadArgsMap["playLink"]?.toString().orEmpty()
         if (playLink.isNotEmpty()) {
