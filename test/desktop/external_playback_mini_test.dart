@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/desktop/playback/external_playback_host.dart';
 import 'package:fly_player/desktop/playback/external_playback_mini_controller.dart';
 import 'package:fly_player/playback/playback_source.dart';
@@ -152,6 +153,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<Slider>(find.byType(Slider).at(1)).value, 1.4);
     expect(tester.takeException(), isNull);
+    // 真实点击靠近小窗底部的字幕入口，向上弹出的公共面板仍须可见、可选。
+    final subtitleTrigger = tester.getRect(find.text('由 PotPlayer 选择'));
+    await tester.tap(find.text('由 PotPlayer 选择'));
+    await tester.pumpAndSettle();
+    expect(find.text('影片字幕'), findsOneWidget);
+    final subtitlePanel = tester.getRect(
+      find.byType(DesktopFloatingPanel).last,
+    );
+    expect(subtitlePanel.top, greaterThanOrEqualTo(12));
+    expect(subtitlePanel.bottom, lessThan(subtitleTrigger.top));
+    await tester.tap(find.text('关闭影片字幕'));
+    await tester.pumpAndSettle();
+    expect(find.text('影片字幕'), findsNothing);
+    expect(find.text('关闭影片字幕'), findsOneWidget);
+    expect(find.text('调节后点击应用'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('external-mini-返回完整界面')));
     await tester.pumpAndSettle();
     tester.view.physicalSize = original.size;
