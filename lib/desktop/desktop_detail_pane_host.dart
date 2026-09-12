@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../models/play_info.dart';
 import '../playback/playback_source.dart';
@@ -57,12 +58,11 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
-  /// 内嵌 Navigator 的路由栈镜像：[0] 恒为 base，与导航栈保持同步
-  /// （push 时同步写入，pop/remove/replace 由 [_PaneRouteSyncObserver] 回推）。
-  final List<String> _routeStack = <String>[baseRouteName];
+  /// 以实际路由实例记账，包含子页自行 push 的路由和同名替换。
+  List<Route<Object?>> get _routeStack => _routeObserver.routes;
 
   late final _PaneRouteSyncObserver _routeObserver = _PaneRouteSyncObserver(
-    _handleRouteRemoved,
+    _handleRoutesChanged,
   );
 
   @override
@@ -105,7 +105,7 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
 
   /// 当前栈顶路由名称；栈底（base）时返回 null。
   String? get currentRouteName =>
-      _routeStack.length > 1 ? _routeStack.last : null;
+      _routeStack.length > 1 ? _routeStack.last.settings.name : null;
 
   @override
   Future<bool> openRoute(String routeName) async {
@@ -114,7 +114,9 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
     _splitController.paneVisible = true;
     final targetKey = routeTargetKeyFor(normalized);
     // 同目标防抖：栈顶已是同一目标（详情按 guid 判定）→ 视为成功，不重复压栈。
-    if (routeTargetKeyFor(_routeStack.last) == targetKey) return true;
+    if (routeTargetKeyFor(currentRouteName ?? baseRouteName) == targetKey) {
+      return true;
+    }
     return AsyncActionGuard.run<bool>(
       'desktop_pane_open:$targetKey',
       settleDuration: _openDebounce,
@@ -122,17 +124,12 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
         if (!mounted) return false;
         final navigator = _navigatorKey.currentState;
         if (navigator == null) return false;
-        if (routeTargetKeyFor(_routeStack.last) == targetKey) return true;
+        if (routeTargetKeyFor(currentRouteName ?? baseRouteName) == targetKey) {
+          return true;
+        }
         final replaceTop =
             _routeStack.length > 1 &&
-            paneRoutePath(_routeStack.last) == paneRoutePath(normalized);
-        setState(() {
-          if (replaceTop) {
-            _routeStack[_routeStack.length - 1] = normalized;
-          } else {
-            _routeStack.add(normalized);
-          }
-        });
+            paneRoutePath(currentRouteName ?? '') == paneRoutePath(normalized);
         // 同路径换目标（如详情→另一条目详情）替换栈顶，保持栈深不增长。
         final pendingPush = replaceTop
             ? navigator.pushReplacementNamed<Object?, Object?>(normalized)
@@ -175,17 +172,20 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
     return false;
   }
 
-  void _handleRouteRemoved(Route<Object?> route) {
-    final name = route.settings.name;
-    if (name == null || !mounted) return;
-    final index = _routeStack.lastIndexOf(name);
-    if (index <= 0) return; // base 占位永不移除
-    setState(() {
-      _routeStack.removeAt(index);
-    });
-    if (_routeStack.length == 1) {
-      // 路由观察者也接住页面自身的 Navigator.pop。
-      _splitController.paneVisible = false;
+  void _handleRoutesChanged() {
+    if (!mounted) return;
+    void refresh() {
+      if (!mounted) return;
+      setState(() {});
+      if (_routeStack.length <= 1) _splitController.paneVisible = false;
+    }
+
+    // 初始导航和页面 build 中发起的路由变更不能反向标记正在构建的父级。
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => refresh());
+    } else {
+      refresh();
     }
   }
 
@@ -218,7 +218,10 @@ class DesktopDetailPaneHostState extends State<DesktopDetailPaneHost>
       buildDetailRouteChild(name, isActiveRoute: true),
       settings: settings,
       // 第一层由 Shell 统一转场，避免页面淡出后副屏才开始收起。
-      animate: _routeStack.length > 2,
+      animate:
+          _routeStack.length > 2 ||
+          (_routeStack.length == 2 &&
+              paneRoutePath(currentRouteName ?? '') != paneRoutePath(name)),
     );
   }
 
@@ -288,30 +291,39 @@ class _PaneBasePlaceholder extends StatelessWidget {
   }
 }
 
-/// 同步内嵌 Navigator 与镜像路由栈：pop / remove / replace 时移除对应条目。
-/// push 侧由 openRoute 同步写入，这里只处理移除方向。
+/// 所有导航入口共用同一份实际栈；按实例处理，避免同名路由移错记录。
 class _PaneRouteSyncObserver extends NavigatorObserver {
-  _PaneRouteSyncObserver(this.onRouteRemoved);
+  _PaneRouteSyncObserver(this.onChanged);
 
-  final void Function(Route<Object?> route) onRouteRemoved;
+  final VoidCallback onChanged;
+  final List<Route<Object?>> routes = <Route<Object?>>[];
+
+  @override
+  void didPush(Route<Object?> route, Route<Object?>? previousRoute) {
+    routes.add(route);
+    onChanged();
+  }
 
   @override
   void didPop(Route<Object?> route, Route<Object?>? previousRoute) {
-    onRouteRemoved(route);
+    if (routes.remove(route)) onChanged();
   }
 
   @override
   void didRemove(Route<Object?> route, Route<Object?>? previousRoute) {
-    onRouteRemoved(route);
+    if (routes.remove(route)) onChanged();
   }
 
   @override
   void didReplace({Route<Object?>? newRoute, Route<Object?>? oldRoute}) {
-    // 搜索直达以同名选项页替换入口页时，副屏目标和栈深均未改变。
-    if (newRoute != null && newRoute.settings.name == oldRoute?.settings.name) {
-      return;
+    final index = oldRoute == null ? -1 : routes.indexOf(oldRoute);
+    if (index >= 0) {
+      if (newRoute == null) {
+        routes.removeAt(index);
+      } else {
+        routes[index] = newRoute;
+      }
+      onChanged();
     }
-    final old = oldRoute;
-    if (old != null) onRouteRemoved(old);
   }
 }

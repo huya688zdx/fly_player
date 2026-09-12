@@ -1,31 +1,53 @@
 from __future__ import annotations
 
+import argparse
 import csv
+import hashlib
+import json
+import os
 from pathlib import Path
 
-import cv2
-import numpy as np
-from PIL import Image, ImageDraw
-
-
-PROJECT_ROOT = Path(r"F:\fly_play_recovered")
-GENERATED_ROOT = Path(
-    r"C:\Users\25131.GUOJUN.000\.codex\generated_images"
-    r"\01a042f6-5aef-7ee2-b59a-80c14ef74a8e"
-)
+ASSET_ROOT = Path(__file__).resolve().parents[1] / "assets" / "refresh"
+GENERATED_ROOT = Path(os.environ.get("FLY_REFRESH_OUTPUT_DIR", "build/refresh-preview"))
 OUTPUT_ANIMATION = GENERATED_ROOT / "refresh_reworked_preview.png"
 OUTPUT_CONTACT = GENERATED_ROOT / "refresh_reworked_contact.png"
 OUTPUT_VIDEO = GENERATED_ROOT / "refresh_reworked_preview.mp4"
-ASSET_ANIMATION = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_reworked.webp"
-ASSET_STATIC = PROJECT_ROOT / "assets" / "refresh" / "shoujo_bird_loading_reworked_static.png"
-ASSET_ROOT = PROJECT_ROOT / "assets" / "refresh"
-SOURCE_VIDEO = Path(r"F:\mp\bili_video_d_1787919698203.mp4")
-SOURCE_VIDEO_2 = Path(r"F:\mp\bili_video_d_1787920057392.mp4")
+ASSET_ANIMATION = GENERATED_ROOT / "shoujo_bird_loading_reworked.webp"
+ASSET_STATIC = GENERATED_ROOT / "shoujo_bird_loading_reworked_static.png"
+SOURCE_VIDEO = Path(os.environ["FLY_REFRESH_SOURCE_VIDEO"]) if "FLY_REFRESH_SOURCE_VIDEO" in os.environ else None
+SOURCE_VIDEO_2 = Path(os.environ["FLY_REFRESH_SOURCE_VIDEO_2"]) if "FLY_REFRESH_SOURCE_VIDEO_2" in os.environ else None
 SOURCE_VIDEO_FIRST_FRAME = 472
 SOURCE_VIDEO_2_FIRST_FRAME = 247
 SOURCE_CROP = (510, 0, 1410, 900)
 
 FRAME_SIZE = 512
+
+
+def input_paths() -> list[Path]:
+    paths = [ASSET_ROOT / name for name in (
+        "shoujo_bird_human_performance_00_25.png",
+        "shoujo_bird_closure_08_reworked.png",
+        "shoujo_bird_wing_unfold_00_04.png",
+    )]
+    for label, path in (("--source-video", SOURCE_VIDEO), ("--source-video-2", SOURCE_VIDEO_2)):
+        if path is None:
+            raise ValueError(f"Missing input: supply {label} (or FLY_REFRESH_SOURCE_VIDEO[_2])")
+        paths.append(path)
+    for path in paths:
+        if not path.is_file():
+            raise ValueError(f"Missing input: {path}")
+    return paths
+
+
+def load_render_dependencies() -> None:
+    global cv2, np, Image, ImageDraw
+    try:
+        import cv2
+        import numpy as np
+        from PIL import Image, ImageDraw
+    except ImportError as error:
+        raise RuntimeError("Rendering requires opencv-python, numpy and Pillow; see tool/REFRESH_BUILD.md. "
+                           f"Unavailable dependency: {error.name}") from error
 
 
 def alpha_bbox(image: Image.Image) -> tuple[int, int, int, int]:
@@ -248,6 +270,8 @@ def load_video_range(
 
 
 def build_frames() -> tuple[list[Image.Image], list[str]]:
+    input_paths()
+    load_render_dependencies()
     human_atlas = Image.open(ASSET_ROOT / "shoujo_bird_human_performance_00_25.png").convert("RGBA")
     closure = extract_grid_subjects(ASSET_ROOT / "shoujo_bird_closure_08_reworked.png", 4, 2, 80)
     growth_atlas = Image.open(ASSET_ROOT / "shoujo_bird_wing_unfold_00_04.png").convert("RGBA")
@@ -378,7 +402,37 @@ def save_mp4_preview(frames: list[Image.Image]) -> None:
         writer.release()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    global ASSET_ROOT, SOURCE_VIDEO, SOURCE_VIDEO_2, GENERATED_ROOT
+    global OUTPUT_ANIMATION, OUTPUT_CONTACT, OUTPUT_VIDEO, ASSET_ANIMATION, ASSET_STATIC
+    parser = argparse.ArgumentParser(description="Build the refresh preview from explicitly supplied original videos.")
+    parser.add_argument("--asset-root", type=Path, default=ASSET_ROOT, help="Directory containing the three committed PNG atlases")
+    parser.add_argument("--source-video", type=Path, required=True, help="Original video 1; frames 472..546")
+    parser.add_argument("--source-video-2", type=Path, required=True, help="Original video 2; frames 247..359")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directory for all six generated outputs")
+    parser.add_argument("--check-inputs", action="store_true", help="Read and hash inputs only; does not decode media or create output")
+    args = parser.parse_args(argv)
+    ASSET_ROOT = args.asset_root.resolve()
+    SOURCE_VIDEO, SOURCE_VIDEO_2 = args.source_video.resolve(), args.source_video_2.resolve()
+    GENERATED_ROOT = args.output_dir.resolve()
+    OUTPUT_ANIMATION = GENERATED_ROOT / "refresh_reworked_preview.png"
+    OUTPUT_CONTACT = GENERATED_ROOT / "refresh_reworked_contact.png"
+    OUTPUT_VIDEO = GENERATED_ROOT / "refresh_reworked_preview.mp4"
+    ASSET_ANIMATION = GENERATED_ROOT / "shoujo_bird_loading_reworked.webp"
+    ASSET_STATIC = GENERATED_ROOT / "shoujo_bird_loading_reworked_static.png"
+    try:
+        inputs = []
+        for path in input_paths():
+            with path.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            inputs.append({"path": str(path), "sha256": digest, "bytes": path.stat().st_size})
+        if args.check_inputs:
+            print(json.dumps({"inputs": inputs, "media_decode_verified": False}))
+            return
+        load_render_dependencies()
+        GENERATED_ROOT.mkdir(parents=True, exist_ok=True)
+    except (ValueError, OSError, RuntimeError) as error:
+        parser.exit(2, f"{error}\n")
     frames, phases = build_frames()
     save_contact_sheet(frames)
     save_animation(frames)
