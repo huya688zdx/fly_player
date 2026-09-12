@@ -92,6 +92,28 @@ void main() {
   });
 
   test(
+    'NAS-only registration explains that client addresses are missing',
+    () async {
+      await expectLater(
+        selectFlyMediaAddress(
+          addresses: [address(lan, purpose: 'nas_api')],
+          kind: 'emby',
+          expectedId: 'instance-a',
+          verify: verify,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'actionable missing-address message',
+            contains('登记'),
+          ),
+        ),
+      );
+      expect(probes, isEmpty);
+    },
+  );
+
+  test(
     'sort ascending priority stably and deduplicate normalized URLs',
     () async {
       rejected.addAll([lan, remote]);
