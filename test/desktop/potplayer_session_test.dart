@@ -45,14 +45,15 @@ void main() {
             seeks.add(arguments['positionMs'] as int);
             if (arguments.containsKey('focus')) {
               expect(arguments['focus'], false);
-            } else {
+            }
+            if (seeks.length == 1) {
               initialSeekTarget = arguments['positionMs'] as int;
             }
           }
           if (call.method == 'configure') {
             state['state'] = (call.arguments as Map)['paused'] == true ? 1 : 2;
           }
-          return null;
+          return true;
         });
     session = PotPlayerSession(
       pid: 1,
