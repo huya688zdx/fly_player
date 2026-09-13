@@ -666,7 +666,7 @@ class NativePlayerBridge {
 
   /// 取原生壳文案表：语言取 [AppLocaleProvider] 持久化的应用内覆盖值（system 模式为
   /// null 时回退 `PlatformDispatcher.instance.locale` 即系统语言），再用其查找对应的
-  /// [AppLocalizations] 文案实例。查不到（当前仅支持 zh/zh_CN）时回退中文，保证原生壳
+  /// [AppLocalizations] 文案实例。查不到（系统语言不在支持列表）时回退中文，保证原生壳
   /// 始终能拿到一份完整表。
   static Future<Map<String, String>> _loadLocalizedStrings() async {
     final override = await AppLocaleProvider.loadStoredLocale();
