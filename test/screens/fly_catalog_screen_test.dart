@@ -19,6 +19,7 @@ import 'package:fly_player/widgets/common/app_error_state.dart';
 import 'package:fly_player/widgets/common/app_option_list.dart';
 
 Widget _material(Widget home) => MaterialApp(
+  locale: const Locale('zh', 'CN'),
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
   home: home,

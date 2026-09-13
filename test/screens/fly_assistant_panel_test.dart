@@ -14,14 +14,16 @@ void main() {
               mediaId: 'media1',
               isCurrent: () => true,
               request: (path, {body, query}) async {
-                if (path == '/assistant/context')
+                if (path == '/assistant/context') {
                   return {
                     'media': {'id': 'media1', 'title': '当前一集'},
                     'file_context': {'identity_state': 'unresolved'},
                     'capabilities': {'assistant': true},
                   };
-                if (body != null)
+                }
+                if (body != null) {
                   sent.add(Map<String, dynamic>.from(body as Map));
+                }
                 return {
                   'id': 'run1',
                   'status': 'completed',
@@ -61,12 +63,14 @@ void main() {
             isCurrent: () => current,
             request: (path, {body, query}) async {
               paths.add(path);
-              if (path == '/assistant/context')
+              if (path == '/assistant/context') {
                 return {
                   'media': {'id': 'media1', 'title': '原账号节目'},
                 };
-              if (path.endsWith('/cancel'))
+              }
+              if (path.endsWith('/cancel')) {
                 return {'id': 'run1', 'status': 'cancelled'};
+              }
               return {'id': 'run1', 'status': 'running'};
             },
           ),

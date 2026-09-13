@@ -88,6 +88,29 @@ void main() {
     expect(directory.listSync().whereType<File>(), isEmpty);
   });
 
+  test('手动 NAS 结果沿用播放器格式并拒绝失效结果', () async {
+    final result = (await cache.resolve(
+      statsScope: 'captured',
+      itemGuid: 'item',
+    ))!;
+    final path = await NativeDanmakuPrefetch.writeNasPayloadToFile(
+      result: result,
+      settings: DanmakuSettings.defaults,
+      isCurrent: () => true,
+    );
+    final payload = jsonDecode(await File(path!).readAsString()) as Map;
+    expect(payload['sourceKey'], 'nas:confirmed');
+    expect(payload['sourceLabel'], '服务弹幕');
+    expect(
+      await NativeDanmakuPrefetch.writeNasPayloadToFile(
+        result: result,
+        settings: DanmakuSettings.defaults,
+        isCurrent: () => false,
+      ),
+      isNull,
+    );
+  });
+
   test('NAS miss 时保留原链和已有自动匹配屏蔽记录', () async {
     cache.miss = true;
     const key = 'v2|item=item|media=file|season=|s=1|e=1';

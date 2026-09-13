@@ -63,6 +63,7 @@ class _BifIndex {
 /// 当前播放源的预览数据；后台装载 BIF，未就绪或失败时使用章节图。
 class DesktopSeekThumbnails extends ChangeNotifier {
   String _bifUrl = '';
+  String _localBifPath = '';
   Map<String, String> _headers = const {};
   List<MpvSeekThumbnail> _chapters = const [];
   _BifIndex? _bif;
@@ -74,21 +75,27 @@ class DesktopSeekThumbnails extends ChangeNotifier {
 
   Future<void> prepare({
     required String bifUrl,
+    String localBifPath = '',
     required List<MpvSeekThumbnail> chapters,
     required Map<String, String> headers,
   }) {
     _chapters = chapters;
-    if (_bifUrl == bifUrl && mapEquals(_headers, headers)) {
+    if (_bifUrl == bifUrl &&
+        _localBifPath == localBifPath &&
+        mapEquals(_headers, headers)) {
       return Future.value();
     }
     _bifUrl = bifUrl;
+    _localBifPath = localBifPath;
     _headers = Map.of(headers);
     _generation++;
     _client?.close(force: true);
     _client = null;
     _bif = null;
     _frames.clear();
-    return bifUrl.isEmpty ? Future.value() : _load(_generation);
+    return bifUrl.isEmpty && localBifPath.isEmpty
+        ? Future.value()
+        : _load(_generation);
   }
 
   NetworkImage? chapterAt(int positionMs) {
@@ -117,6 +124,24 @@ class DesktopSeekThumbnails extends ChangeNotifier {
   }
 
   Future<void> _load(int generation) async {
+    if (_localBifPath.isNotEmpty) {
+      try {
+        final file = File(_localBifPath);
+        if (await file.length() <= 128 * 1024 * 1024) {
+          final bytes = await file.readAsBytes();
+          if (generation != _generation) return;
+          final local = _BifIndex.parse(bytes);
+          if (local != null) {
+            _bif = local;
+            notifyListeners();
+            return;
+          }
+        }
+      } catch (_) {
+        /* The original media previews remain available. */
+      }
+    }
+    if (generation != _generation || _bifUrl.isEmpty) return;
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
     _client = client;
