@@ -47,8 +47,15 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
   DateTime? _notBefore;
   int _failures = 0;
   int _syncEpoch = 0;
+  int get accountEpoch => _syncEpoch;
   FlyDataSession? get session => service.session;
   String get accountKey => session?.accountKey ?? '';
+  bool isCurrentFlyAccount(String key, int epoch) =>
+      !_disposed &&
+      !legacyMode &&
+      key.isNotEmpty &&
+      accountKey == key &&
+      accountEpoch == epoch;
   Map<String, dynamic>? get activeBinding {
     for (final binding in bindings) {
       if (binding['id'] == activeBindingId) return binding;
@@ -271,9 +278,58 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     await service.request('/servers', body: data);
     await _refresh();
   });
-  Future<void> createBinding(Map<String, dynamic> data) => _run(() async {
-    await service.request('/bindings', body: data);
-    await _refresh();
+  Future<void> createBinding(Map<String, dynamic> data) {
+    final key = accountKey, epoch = accountEpoch;
+    return _run(() async {
+      _requireCurrentFlyAccount(key, epoch);
+      await service.request('/bindings', body: data);
+      _requireCurrentFlyAccount(key, epoch);
+      await _refresh();
+    });
+  }
+
+  void _requireCurrentFlyAccount(String key, int epoch) {
+    if (!isCurrentFlyAccount(key, epoch)) {
+      throw StateError('账号或登录方式已改变，请重新操作。');
+    }
+  }
+
+  Future<Map<String, dynamic>> loadLocalServices() {
+    final key = accountKey, epoch = accountEpoch;
+    return _run(() async {
+      _requireCurrentFlyAccount(key, epoch);
+      Map<String, dynamic> result;
+      try {
+        result = await service.request('/local-services');
+      } catch (_) {
+        _requireCurrentFlyAccount(key, epoch);
+        // Older services may not expose this optional endpoint. Existing
+        // bindings and their cached access must remain usable.
+        throw StateError('暂时无法获取本机服务，请检查连接或升级服务端。');
+      }
+      _requireCurrentFlyAccount(key, epoch);
+      return result;
+    });
+  }
+
+  Future<Map<String, dynamic>> registerLocalService(
+    String key, {
+    required String expectedAccountKey,
+    required int expectedEpoch,
+  }) => _run(() async {
+    _requireCurrentFlyAccount(expectedAccountKey, expectedEpoch);
+    if (session?.role != 'admin') {
+      throw StateError('请管理员先启用此本机媒体服务。');
+    }
+    final result = await service.request(
+      '/local-services/register',
+      body: {'key': key},
+    );
+    _requireCurrentFlyAccount(expectedAccountKey, expectedEpoch);
+    if ((result['id'] as String? ?? '').isEmpty) {
+      throw StateError('本机服务登记结果不完整，请刷新后重试。');
+    }
+    return result;
   });
   Future<void> reauthorize(
     Map<String, dynamic> binding, {
