@@ -1874,16 +1874,22 @@ class _DesktopPlaybackSettingsPanelState
   }) {
     final definition = MpvSettingsL10n.definitionByKey(l10n, key);
     if (definition == null) return const SizedBox.shrink();
+    final interpolationSync =
+        key == MpvSettingsCatalog.videoSyncKey &&
+        _mpvSettings[MpvSettingsCatalog.frameInterpolationKey] == 'on';
     return _SettingsSegmentTile(
-      title: definition.title,
+      title: interpolationSync
+          ? '${definition.title} · 插帧期间自动同步'
+          : definition.title,
       options: <(String, String)>[
         for (final option in definition.options) (option.value, option.label),
       ],
-      selectedValue:
-          _mpvSettings[key] ??
-          MpvSettingsCatalog.defaults[key] ??
-          definition.options.first.value,
-      enabled: enabled,
+      selectedValue: interpolationSync
+          ? 'auto'
+          : _mpvSettings[key] ??
+                MpvSettingsCatalog.defaults[key] ??
+                definition.options.first.value,
+      enabled: enabled && !interpolationSync,
       onSelected: (value) => _setMpvAdvanced(key, value),
     );
   }

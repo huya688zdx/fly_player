@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/painting.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../../models/playback_stream.dart';
@@ -30,6 +33,42 @@ class DesktopQualityMenu {
 }
 
 abstract final class DesktopMpvRuntime {
+  /// 插帧需要显示同步；与 Android 一致，开启期间覆盖音频优先。
+  static String videoSyncMode(Map<String, String> settings) {
+    if (settings[MpvSettingsCatalog.frameInterpolationKey] == 'on') {
+      return 'display-resample';
+    }
+    return switch (settings[MpvSettingsCatalog.videoSyncKey]) {
+      'audio' => 'audio',
+      'smooth' => 'display-tempo',
+      _ => 'display-resample',
+    };
+  }
+
+  /// 让 mpv 按实际显示像素缩放；填充模式保留完整画面供 Flutter 裁切。
+  static Size? videoOutputSize({
+    required Size source,
+    required Size viewport,
+    required double pixelRatio,
+    required BoxFit fit,
+  }) {
+    if (source.isEmpty ||
+        viewport.isEmpty ||
+        !source.isFinite ||
+        !viewport.isFinite ||
+        !pixelRatio.isFinite ||
+        pixelRatio <= 0) {
+      return null;
+    }
+    final x = viewport.width * pixelRatio / source.width;
+    final y = viewport.height * pixelRatio / source.height;
+    final scale = fit == BoxFit.cover ? math.max(x, y) : math.min(x, y);
+    return Size(
+      math.max(1, (source.width * scale).round()).toDouble(),
+      math.max(1, (source.height * scale).round()).toDouble(),
+    );
+  }
+
   static bool directLinkNeedsRefresh(MpvMediaSource source, DateTime now) {
     if (!source.playbackMode.isDirectLink) return false;
     final quality = source.qualities

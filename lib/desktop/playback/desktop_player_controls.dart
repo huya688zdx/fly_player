@@ -543,7 +543,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
         ),
       _CtrlIconButton(
         motion: DesktopPlayerMotionKind.fullscreen,
-        active: widget.videoState.isFullscreen(),
+        active: isFullscreen(context),
         tooltip: widget.fullscreenTooltip,
         onPressed: () => unawaited(widget.videoState.toggleFullscreen()),
       ),
