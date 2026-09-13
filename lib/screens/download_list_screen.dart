@@ -902,8 +902,9 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
       );
       return;
     }
-    if (_playLaunchingRecordId != null ||
-        AsyncActionGuard.isRunning(actionKey)) {
+    if (!DesktopEnvironment.isWindows &&
+        (_playLaunchingRecordId != null ||
+            AsyncActionGuard.isRunning(actionKey))) {
       _topTip.show(
         context,
         message: l10n.downloadPreparingPlayback,
@@ -912,25 +913,26 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
       return;
     }
 
-    setState(() {
-      _playLaunchingRecordId = record.id;
-    });
-
-    try {
-      await AsyncActionGuard.run<void>(
-        actionKey,
-        settleDuration: const Duration(milliseconds: 500),
-        action: () async {
+    await runPlaybackLaunch<void>(
+      context,
+      title: localizeDownloadTitleTokens(record.title, l10n),
+      actionKey: actionKey,
+      action: (host) async {
+        setState(() {
+          _playLaunchingRecordId = record.id;
+        });
+        try {
           final provider = context.read<NasProvider>();
-          if (await playbackHostFor(
-            context,
-          ).resume(itemGuid: record.itemGuid, mediaGuid: record.mediaGuid)) {
+          if (await host.resume(
+            itemGuid: record.itemGuid,
+            mediaGuid: record.mediaGuid,
+          )) {
             return;
           }
-          if (!mounted) return;
+          if (!mounted || !playbackLaunchIsCurrent(host)) return;
           final resolved = await _resolveLocalSource(record, provider);
           if (resolved == null) {
-            if (mounted) {
+            if (mounted && playbackLaunchIsCurrent(host)) {
               _topTip.show(
                 context,
                 message: l10n.downloadLocalFileMissing,
@@ -940,23 +942,25 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
             return;
           }
           final source = resolved.source;
+          rememberPlaybackLaunchSource(host, source);
+          if (!mounted || !playbackLaunchIsCurrent(host)) return;
           final title = resolved.title;
           final offline = widget.offline || resolved.playInfo == null;
           final nativeEpisodes = resolved.playInfo == null
               ? await _groupEpisodesPayload()
               : await _nativeEpisodesPayload(provider, source);
 
-          if (!mounted) return;
+          if (!mounted || !playbackLaunchIsCurrent(host)) return;
           // Windows 先进入桌面宿主，不注册 Android 反向 MethodChannel。
           if (DesktopEnvironment.isWindows) {
-            if (await playbackHostFor(context).launch(
+            if (await host.launch(
               source: source,
               episodes: nativeEpisodes,
               offline: offline,
             )) {
               return;
             }
-            if (!mounted) return;
+            if (!mounted || !playbackLaunchIsCurrent(host)) return;
             _topTip.show(
               context,
               message: l10n.commonOperationFailedRetryLater,
@@ -1000,7 +1004,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   allowNetwork: !offline,
                 ),
           );
-          if (await playbackHostFor(context).launch(
+          if (await host.launch(
             source: source,
             episodes: nativeEpisodes,
             nas: provider,
@@ -1014,17 +1018,17 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
             message: l10n.commonOperationFailedRetryLater,
             color: colors.danger,
           );
-        },
-      );
-    } finally {
-      if (!mounted) {
-        _playLaunchingRecordId = null;
-      } else if (_playLaunchingRecordId == record.id) {
-        setState(() {
-          _playLaunchingRecordId = null;
-        });
-      }
-    }
+        } finally {
+          if (!mounted) {
+            _playLaunchingRecordId = null;
+          } else if (_playLaunchingRecordId == record.id) {
+            setState(() {
+              _playLaunchingRecordId = null;
+            });
+          }
+        }
+      },
+    );
   }
 
   Future<List<Map<String, dynamic>>> _nativeEpisodesPayload(
@@ -1267,7 +1271,9 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                                 onLongPress: launchingRecordId != null
                                     ? null
                                     : () => _handleRecordLongPress(lead.id),
-                                onTap: launchingRecordId != null
+                                onTap:
+                                    launchingRecordId != null &&
+                                        !DesktopEnvironment.isWindows
                                     ? null
                                     : () => _playDownloadedRecord(lead),
                               );
@@ -1290,7 +1296,10 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                                 });
                               },
                               onRecordTap: (record) {
-                                if (launchingRecordId != null) return;
+                                if (launchingRecordId != null &&
+                                    !DesktopEnvironment.isWindows) {
+                                  return;
+                                }
                                 _playDownloadedRecord(record);
                               },
                               onRecordLongPress: (record) {
@@ -1342,7 +1351,10 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                                                 currentRecord.id,
                                               ))
                                       : null,
-                                  onTap: launchingRecordId != null
+                                  onTap:
+                                      launchingRecordId != null &&
+                                          (!DesktopEnvironment.isWindows ||
+                                              _editing)
                                       ? null
                                       : _editing
                                       ? () => _toggleRecordSelection(

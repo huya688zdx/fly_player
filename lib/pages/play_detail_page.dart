@@ -32,6 +32,7 @@ import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../playback/platform_playback_host.dart';
+import '../playback/playback_host.dart';
 import '../playback/playback_source.dart';
 import '../playback/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
@@ -2101,7 +2102,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   Future<void> _openPlayer() async {
     final itemGuid = _currentItemGuid;
     final actionKey = 'play_detail_player:${itemGuid.trim()}';
-    if (_playerRouteActive || AsyncActionGuard.isRunning(actionKey)) {
+    if (!DesktopEnvironment.isWindows &&
+        (_playerRouteActive || AsyncActionGuard.isRunning(actionKey))) {
       _showTopTip(
         AppLocalizations.of(context).detailPreparingPlayback,
         context.appColors.warning,
@@ -2110,14 +2112,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     }
     final l10n = AppLocalizations.of(context);
 
-    await AsyncActionGuard.run<void>(
-      actionKey,
-      settleDuration: const Duration(milliseconds: 500),
-      action: () async {
+    await runPlaybackLaunch<void>(
+      context,
+      title: _data?.item.displayTitle ?? '',
+      actionKey: actionKey,
+      action: (host) async {
         final data = _data;
         if (data == null) return;
 
-        if (await playbackHostFor(context).resume(
+        if (await host.resume(
           itemGuid: itemGuid,
           mediaGuid: _currentStreamOption()?.mediaGuid ?? data.mediaGuid,
           audioGuid: _selectedAudioGuid,
@@ -2125,11 +2128,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         )) {
           return;
         }
-        if (!mounted || _currentItemGuid != itemGuid) return;
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
 
         final localRecord = _downloadedRecordForCurrentItem();
         if (localRecord != null) {
-          await _openLocalPlayer(localRecord);
+          await _openLocalPlayer(localRecord, host: host);
           return;
         }
 
@@ -2162,14 +2169,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         try {
           playbackStream = await api.getPlaybackStream(mediaGuid);
         } catch (error) {
-          if (!mounted) return;
+          if (!mounted || !playbackLaunchIsCurrent(host)) return;
           _showTopTip(
             AppLocalizations.of(context).detailPlaybackError('$error'),
             context.appColors.danger,
           );
           return;
         }
-        if (!mounted || _currentItemGuid != itemGuid) return;
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
 
         final effectiveDuration =
             (selectedOption != null && selectedOption.duration > 0)
@@ -2188,7 +2199,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           networkPositionAvailable: true,
           networkCompleted: playbackCompleted,
         );
-        if (!mounted || _currentItemGuid != itemGuid) return;
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
         final externalPosition = _externalPlaybackPosition;
         final effectiveTs = (externalPosition ?? resume.position).inSeconds;
         final item = data.item;
@@ -2280,7 +2295,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               selectedSubtitle: selectedSubtitle,
               startPosition: Duration(seconds: effectiveTs),
             );
-        if (!mounted || _currentItemGuid != itemGuid) return;
         final playableSource = initialPlayback.playableSource;
         final resolvedStartPosition =
             externalPosition ??
@@ -2356,12 +2370,21 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           qualities: mergedQualities,
         );
 
-        await _launchPlayer(source: source);
+        rememberPlaybackLaunchSource(host, source);
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
+        await _launchPlayer(source: source, host: host);
       },
     );
   }
 
-  Future<void> _openLocalPlayer(DownloadTaskRecord record) async {
+  Future<void> _openLocalPlayer(
+    DownloadTaskRecord record, {
+    required PlaybackHost host,
+  }) async {
     final itemGuid = _currentItemGuid;
     final data = _data;
     if (data == null) return;
@@ -2392,7 +2415,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       networkPositionAvailable: true,
       networkCompleted: playbackCompleted,
     );
-    if (!mounted || _currentItemGuid != itemGuid) return;
+    if (!mounted ||
+        _currentItemGuid != itemGuid ||
+        !playbackLaunchIsCurrent(host)) {
+      return;
+    }
     final startPosition = _externalPlaybackPosition ?? resume.position;
     final item = data.item;
     final title = formatPlayerTitleFromPlayItem(
@@ -2439,6 +2466,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       mediaGuid: resolvedMediaGuid,
       videoFilePath: record.filePath,
     );
+    if (!mounted || !playbackLaunchIsCurrent(host)) return;
     // 合并当前媒体的持久化手动导入本地字幕（SAF 添加），使本地文件播放也能 sub-add。
     final manualEntries = await const ManualSubtitleStore().loadForMedia(
       resolvedMediaGuid,
@@ -2458,7 +2486,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       localSubtitleBundle,
       manualBundle,
     );
-    if (!mounted || _currentItemGuid != itemGuid) return;
+    if (!mounted ||
+        _currentItemGuid != itemGuid ||
+        !playbackLaunchIsCurrent(host)) {
+      return;
+    }
     var source = MpvMediaSource.localFile(
       filePath: record.filePath,
       itemGuid: itemGuid,
@@ -2510,10 +2542,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
     }
 
-    await _launchPlayer(source: source);
+    rememberPlaybackLaunchSource(host, source);
+    await _launchPlayer(source: source, host: host);
   }
 
-  Future<void> _launchPlayer({required MpvMediaSource source}) async {
+  Future<void> _launchPlayer({
+    required MpvMediaSource source,
+    required PlaybackHost host,
+  }) async {
+    if (DesktopEnvironment.isWindows) {
+      if (!mounted || !playbackLaunchIsCurrent(host)) return;
+      if (await host.launch(source: source)) return;
+      if (!mounted || !playbackLaunchIsCurrent(host)) return;
+      _showTopTip(
+        AppLocalizations.of(context).detailPlayInfoFailed,
+        context.appColors.danger,
+      );
+      return;
+    }
     final actionKey = <String>[
       'play_detail_launch',
       source.itemGuid.trim(),
@@ -2541,15 +2587,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
             context.appColors.warning,
           );
-          return;
-        }
-        // Windows 必须在 Android 反向通道、弹幕预取和回前台标记之前分流。
-        if (DesktopEnvironment.isWindows) {
-          if (await playbackHostFor(context).launch(source: source)) {
-            return;
-          }
-          if (!mounted) return;
-          _showTopTip(l10n.detailPlayInfoFailed, context.appColors.danger);
           return;
         }
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑）。
@@ -2645,7 +2682,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           if (!mounted) return;
           _nativePlayerLaunched = true;
           _lastNativePlayedItemGuid = source.itemGuid.trim();
-          if (await playbackHostFor(context).launch(
+          if (await host.launch(
             source: source,
             danmakuFilePath: danmakuFile,
             episodes: episodes.isEmpty ? null : episodes,
