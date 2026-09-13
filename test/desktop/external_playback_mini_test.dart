@@ -12,13 +12,23 @@ void main() {
   testWidgets('极简模式置顶、展开和退出保留页面；置顶失败恢复窗口', (tester) async {
     const window = MethodChannel('window_manager');
     const screen = MethodChannel('dev.leanflutter.plugins/screen_retriever');
+    const potplayer = MethodChannel('fly_player/potplayer');
     const original = Rect.fromLTWH(100, 80, 1200, 800);
     var bounds = original;
     var top = false;
     var resizable = true;
     var maximized = true;
     var failPin = false;
+    var pinWatch = false;
     final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(potplayer, (call) async {
+      expectSync(call.method, 'setMiniPinned');
+      final pinned = call.arguments as bool;
+      if (failPin && pinned) throw PlatformException(code: 'pin-failed');
+      top = pinned;
+      pinWatch = pinned;
+      return null;
+    });
     messenger.setMockMethodCallHandler(window, (call) async {
       final args = call.arguments as Map? ?? {};
       switch (call.method) {
@@ -51,9 +61,6 @@ void main() {
         case 'setResizable':
           resizable = args['isResizable'];
         case 'setAlwaysOnTop':
-          if (failPin && args['isAlwaysOnTop'] == true) {
-            throw PlatformException(code: 'pin-failed');
-          }
           top = args['isAlwaysOnTop'];
       }
       return null;
@@ -79,6 +86,7 @@ void main() {
       ExternalPlaybackHost.status.value = null;
       messenger.setMockMethodCallHandler(window, null);
       messenger.setMockMethodCallHandler(screen, null);
+      messenger.setMockMethodCallHandler(potplayer, null);
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
@@ -117,6 +125,7 @@ void main() {
     await tester.pumpAndSettle();
     await entering;
     expect(top, isTrue);
+    expect(pinWatch, isTrue);
     expect(resizable, isFalse);
     expect(maximized, isFalse);
     expect(bounds, const Rect.fromLTWH(780, 12, 360, 64));
@@ -131,6 +140,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('external-mini-取消置顶')));
     await tester.pumpAndSettle();
     expect(top, isFalse);
+    expect(pinWatch, isFalse);
     expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
     failPin = true;
     await tester.tap(find.byKey(const ValueKey('external-mini-置顶悬浮条')));
@@ -197,6 +207,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(bounds, original);
     expect(top, isFalse);
+    expect(pinWatch, isFalse);
     expect(resizable, isTrue);
     expect(maximized, isTrue);
     expect(field.currentContext, same(element));
