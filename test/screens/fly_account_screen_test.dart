@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -19,6 +20,7 @@ import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/fly_account_screen.dart';
 import 'package:fly_player/services/fly_data/fly_account_controller.dart';
 import 'package:fly_player/services/fly_data/fly_data_service.dart';
+import 'package:fly_player/services/fly_data/fly_login_history_store.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/app_info_popover.dart';
@@ -99,6 +101,7 @@ void main() {
         .setMockMethodCallHandler(SystemChannels.platform, (_) async => null);
     SharedPreferences.setMockInitialValues({});
     SecureCredentialStore.setBackendForTesting(MemorySecureCredentialBackend());
+    FlyLoginHistoryStore.resetPendingForTesting();
     account = _Account();
   });
   tearDown(() {
@@ -523,6 +526,198 @@ void main() {
     expect(find.byType(SimpleDialog), findsNothing);
   });
 
+  testWidgets('飞翔登录提供登录记录与记住密码入口', (tester) async {
+    account.signedIn = false;
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    expect(find.text('登录记录'), findsOneWidget);
+    expect(find.text('记住密码'), findsOneWidget);
+  });
+
+  TextEditingController loginField(WidgetTester tester, String label) => tester
+      .widget<TextFormField>(find.widgetWithText(TextFormField, label))
+      .controller!;
+
+  Future<void> settleHistory(WidgetTester tester) async {
+    await tester.pumpAndSettle();
+    // Drain real plugin/storage futures as well as Flutter's fake clock.
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+  }
+
+  const savedLogin = FlyLoginHistoryEntry(
+    serverUrl: 'https://fly.example',
+    username: 'saved-viewer',
+    deviceName: '我的电脑',
+    serviceInstanceId: 'saved-instance',
+    rememberPassword: true,
+    password: 'saved-password-fixture',
+    updatedAtMillis: 2,
+  );
+
+  testWidgets('登录页重新创建后回填最近账号，提交才登录并核对服务身份', (tester) async {
+    await tester.runAsync(() => FlyLoginHistoryStore.save(savedLogin));
+    account.signedIn = false;
+    await tester.pumpWidget(_app(account));
+    await settleHistory(tester);
+    await settleHistory(tester);
+    expect(loginField(tester, '飞翔服务地址').text, savedLogin.serverUrl);
+    expect(loginField(tester, '飞翔账号').text, savedLogin.username);
+    expect(loginField(tester, '密码').text, savedLogin.password);
+    expect(account.logins, isEmpty);
+    await tester.ensureVisible(find.text('登录飞翔'));
+    await tester.tap(find.text('登录飞翔'));
+    await settleHistory(tester);
+    expect(account.logins.single, (
+      savedLogin.serverUrl,
+      savedLogin.username,
+      savedLogin.password,
+      savedLogin.deviceName,
+    ));
+    expect(account.loginInstanceIds, [savedLogin.serviceInstanceId]);
+    expect(account.loginRememberFlags, [true]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(_app(account));
+    await settleHistory(tester);
+    expect(loginField(tester, '密码').text, savedLogin.password);
+    expect(account.logins, hasLength(1));
+  });
+
+  for (final desktop in [true, false]) {
+    testWidgets('登录记录使用原平台弹窗，可切账号和清除保存凭据 $desktop', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = desktop;
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = desktop
+          ? const Size(1280, 900)
+          : const Size(390, 844);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      const other = FlyLoginHistoryEntry(
+        serverUrl: 'https://other.example',
+        username: 'other-viewer',
+        deviceName: '另一账号',
+        serviceInstanceId: 'other-instance',
+        rememberPassword: true,
+        password: 'other-password-fixture',
+        updatedAtMillis: 1,
+      );
+      await tester.runAsync(() => FlyLoginHistoryStore.save(other));
+      await tester.runAsync(() => FlyLoginHistoryStore.save(savedLogin));
+      account.signedIn = false;
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account)),
+      );
+      await settleHistory(tester);
+      await _capture(
+        tester,
+        desktop ? 'login-history-desktop-form' : 'login-history-mobile-form',
+      );
+      await tester.ensureVisible(find.text('登录记录'));
+      await tester.tap(find.text('登录记录'));
+      await settleHistory(tester);
+      expect(
+        find.byType(DesktopFloatingPanel),
+        desktop ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.byType(AppOptionSheetPanel),
+        desktop ? findsNothing : findsOneWidget,
+      );
+      await _capture(
+        tester,
+        desktop
+            ? 'login-history-desktop-picker'
+            : 'login-history-mobile-picker',
+      );
+      await tester.tap(find.text(other.username));
+      await settleHistory(tester);
+      expect(loginField(tester, '飞翔账号').text, other.username);
+      expect(loginField(tester, '密码').text, other.password);
+      expect(account.logins, isEmpty);
+      await tester.tap(find.text('登录记录'));
+      await settleHistory(tester);
+      await tester.tap(find.text('清除登录记录'));
+      await settleHistory(tester);
+      await tester.tap(find.text('清除'));
+      await settleHistory(tester);
+      expect(await tester.runAsync(FlyLoginHistoryStore.load), isEmpty);
+      expect(loginField(tester, '飞翔账号').text, isEmpty);
+      expect(loginField(tester, '密码').text, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final identity in ['飞翔服务地址', '飞翔账号']) {
+    testWidgets('只移动密码光标后修改$identity仍清除回填密码', (tester) async {
+      await tester.runAsync(() => FlyLoginHistoryStore.save(savedLogin));
+      account.signedIn = false;
+      await tester.pumpWidget(_app(account));
+      await settleHistory(tester);
+      final secret = loginField(tester, '密码');
+      secret.selection = const TextSelection.collapsed(offset: 1);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, identity),
+        identity == '飞翔服务地址' ? 'https://different.example' : 'different-viewer',
+      );
+      expect(secret.text, isEmpty);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '密码'),
+        'new-manual-fixture',
+      );
+      await tester.ensureVisible(find.text('登录飞翔'));
+      await tester.tap(find.text('登录飞翔'));
+      await settleHistory(tester);
+      expect(account.logins.single.$3, 'new-manual-fixture');
+      expect(account.loginInstanceIds, [null]);
+    });
+  }
+
+  testWidgets('取消记住立即删除已存密码，重开仍保留账号地址', (tester) async {
+    await tester.runAsync(() => FlyLoginHistoryStore.save(savedLogin));
+    account.signedIn = false;
+    await tester.pumpWidget(_app(account));
+    await settleHistory(tester);
+    await tester.ensureVisible(find.text('记住密码'));
+    await tester.tap(find.text('记住密码'));
+    await settleHistory(tester);
+    expect(
+      (await tester.runAsync(FlyLoginHistoryStore.load))!.single.password,
+      isEmpty,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(_app(account));
+    await settleHistory(tester);
+    expect(loginField(tester, '飞翔账号').text, savedLogin.username);
+    expect(loginField(tester, '密码').text, isEmpty);
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+  });
+
+  for (final changeMode in [false, true]) {
+    testWidgets('迟到的登录记录不能覆盖输入或登录方式 $changeMode', (tester) async {
+      final secure = _DelayedHistoryBackend();
+      SecureCredentialStore.setBackendForTesting(secure);
+      await tester.runAsync(() => FlyLoginHistoryStore.save(savedLogin));
+      secure.pending = Completer<void>();
+      account.signedIn = false;
+      await tester.pumpWidget(_app(account));
+      await settleHistory(tester);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '飞翔账号'),
+        'typing-viewer',
+      );
+      if (changeMode) {
+        account.legacyMode = true;
+        account.notifyListeners();
+      }
+      secure.pending!.complete();
+      await settleHistory(tester);
+      expect(loginField(tester, '飞翔账号').text, 'typing-viewer');
+      expect(loginField(tester, '密码').text, isEmpty);
+      expect(account.logins, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('登录表单只在提交时登录并清除密码', (tester) async {
     account.signedIn = false;
     await tester.pumpWidget(_app(account));
@@ -817,6 +1012,8 @@ class _Account extends FlyAccountController {
   final addressSwitches = <String>[];
   final activations = <(String, String?)>[];
   final logins = <(String, String, String, String)>[];
+  final loginInstanceIds = <String?>[];
+  final loginRememberFlags = <bool>[];
   int reauthorizations = 0;
   @override
   Future<void> reauthorize(
@@ -867,8 +1064,21 @@ class _Account extends FlyAccountController {
     required String username,
     required String password,
     required String deviceName,
+    bool rememberPassword = true,
+    String? expectedInstanceId,
   }) async {
     logins.add((url, username, password, deviceName));
+    loginInstanceIds.add(expectedInstanceId);
+    loginRememberFlags.add(rememberPassword);
+  }
+}
+
+class _DelayedHistoryBackend extends MemorySecureCredentialBackend {
+  Completer<void>? pending;
+  @override
+  Future<SecureCredentialReadResult> read(String key) async {
+    await pending?.future;
+    return super.read(key);
   }
 }
 

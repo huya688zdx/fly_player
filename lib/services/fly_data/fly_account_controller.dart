@@ -138,6 +138,8 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     required String username,
     required String password,
     required String deviceName,
+    bool rememberPassword = true,
+    String? expectedInstanceId,
   }) {
     _syncEpoch++;
     return _run(() async {
@@ -147,6 +149,8 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         username: username,
         password: password,
         deviceName: deviceName,
+        rememberPassword: rememberPassword,
+        expectedInstanceId: expectedInstanceId,
       );
       await _rememberLoginMode('fly');
       legacyMode = false;
@@ -155,6 +159,7 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
       servers = [];
       await _clearActiveAccess();
       await _refresh();
+      message = service.loginHistoryWarning;
     });
   }
 
@@ -260,6 +265,7 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> switchAddress(String url) => _run(() async {
     await service.switchAddress(url);
     await _refresh();
+    message = service.loginHistoryWarning;
   });
   Future<void> createServer(Map<String, dynamic> data) => _run(() async {
     await service.request('/servers', body: data);

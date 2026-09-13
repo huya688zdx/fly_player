@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +8,7 @@ import '../desktop/desktop_context_menu.dart';
 import '../desktop/desktop_floating_panel.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../services/fly_data/fly_account_controller.dart';
+import '../services/fly_data/fly_login_history_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_info_popover.dart';
 import '../ui/app_sheet_transitions.dart';
@@ -141,6 +144,178 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
       password = TextEditingController();
   final device = TextEditingController(text: 'Fly Player');
   final _form = GlobalKey<FormState>();
+  FlyLoginHistoryEntry? _selectedHistory;
+  bool _rememberPassword = true;
+  bool _applyingHistory = false;
+  bool _historyBusy = false, _submitting = false, _leaving = false;
+  int _formRevision = 0, _historyEpoch = 0;
+  String? _historyMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    url.addListener(_identityEdited);
+    username.addListener(_identityEdited);
+    password.addListener(_passwordEdited);
+    device.addListener(_formEdited);
+    unawaited(_restoreLoginForm());
+  }
+
+  void _formEdited() {
+    if (!_applyingHistory) _formRevision++;
+  }
+
+  void _passwordEdited() {
+    if (_applyingHistory) return;
+    _formRevision++;
+  }
+
+  void _identityEdited() {
+    if (_applyingHistory) return;
+    _formRevision++;
+    final selected = _selectedHistory;
+    if (selected == null ||
+        (url.text.trim() == selected.serverUrl &&
+            username.text.trim() == selected.username)) {
+      return;
+    }
+    // A filled password belongs to the saved service/account, never to an
+    // edited address. Saved identities are also verified before login.
+    _selectedHistory = null;
+    password.clear();
+  }
+
+  bool _canUseForm(FlyAccountController account) =>
+      mounted &&
+      identical(context.read<FlyAccountController>(), account) &&
+      account.session == null &&
+      !account.legacyMode &&
+      !account.busy &&
+      !_submitting &&
+      !_leaving &&
+      ModalRoute.of(context)?.isCurrent != false;
+
+  void _applyHistory(FlyLoginHistoryEntry entry) {
+    _applyingHistory = true;
+    try {
+      url.text = entry.serverUrl;
+      username.text = entry.username;
+      password.text = entry.rememberPassword ? entry.password : '';
+      device.text = entry.deviceName;
+      _selectedHistory = entry;
+      _rememberPassword = entry.rememberPassword;
+      _historyMessage = null;
+      _formRevision++;
+    } finally {
+      _applyingHistory = false;
+    }
+    setState(() {});
+  }
+
+  Future<void> _restoreLoginForm() async {
+    final account = context.read<FlyAccountController>();
+    final revision = _formRevision, epoch = _historyEpoch;
+    try {
+      final entries = await FlyLoginHistoryStore.load();
+      if (!_canUseForm(account) || epoch != _historyEpoch || _historyBusy) {
+        return;
+      }
+      if (entries.isNotEmpty && revision == _formRevision) {
+        _applyHistory(entries.first);
+      }
+    } catch (_) {
+      if (_canUseForm(account) && epoch == _historyEpoch) {
+        setState(() => _historyMessage = '登录记录暂时无法读取，可手动登录。');
+      }
+    }
+  }
+
+  Future<void> _openHistory(FlyAccountController account) async {
+    if (!_canUseForm(account) || _historyBusy) return;
+    _historyEpoch++;
+    setState(() {
+      _historyBusy = true;
+      _historyMessage = null;
+    });
+    try {
+      final entries = await FlyLoginHistoryStore.load();
+      if (!_canUseForm(account)) return;
+      if (entries.isEmpty) {
+        setState(() => _historyMessage = '暂无登录记录');
+        return;
+      }
+      if (!mounted) return;
+      final selected = await _showFlyOptions(
+        context,
+        title: '登录记录',
+        selectedId: _selectedHistory?.id,
+        items: [
+          for (final entry in entries)
+            TrackOptionSheetItem(
+              id: entry.id,
+              title: entry.username,
+              subtitle: entry.serverUrl,
+            ),
+          const TrackOptionSheetItem(id: 'clear-history', title: '清除登录记录'),
+        ],
+      );
+      if (selected == null || !_canUseForm(account)) return;
+      if (selected == 'clear-history') {
+        if (!mounted) return;
+        final confirmed = await showAppConfirmDialog(
+          context,
+          title: '清除登录记录',
+          content: '删除保存的账号和密码？',
+          cancelText: '取消',
+          confirmText: '清除',
+        );
+        if (!confirmed || !_canUseForm(account)) return;
+        await FlyLoginHistoryStore.clear();
+        if (!_canUseForm(account)) return;
+        _selectedHistory = null;
+        url.clear();
+        username.clear();
+        password.clear();
+        setState(() {});
+      } else {
+        _applyHistory(entries.firstWhere((entry) => entry.id == selected));
+      }
+    } catch (_) {
+      if (_canUseForm(account)) {
+        setState(() => _historyMessage = '登录记录暂时不可用，请重试。');
+      }
+    } finally {
+      if (mounted) setState(() => _historyBusy = false);
+    }
+  }
+
+  Future<void> _setRememberPassword(
+    FlyAccountController account,
+    bool remember,
+  ) async {
+    if (!_canUseForm(account) || _historyBusy) return;
+    _historyEpoch++;
+    _formRevision++;
+    final selected = _selectedHistory;
+    setState(() {
+      _rememberPassword = remember;
+      _historyMessage = null;
+      _historyBusy = !remember && selected != null;
+    });
+    if (!_historyBusy) return;
+    try {
+      await FlyLoginHistoryStore.forgetPassword(selected!);
+    } catch (_) {
+      if (_canUseForm(account)) {
+        setState(() {
+          _rememberPassword = true;
+          _historyMessage = '密码未能清除，请重试。';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _historyBusy = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -151,24 +326,50 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
   }
 
   Future<void> _login(FlyAccountController account) async {
-    if (account.busy || _form.currentState?.validate() != true) return;
+    if (!_canUseForm(account) ||
+        _historyBusy ||
+        _form.currentState?.validate() != true) {
+      return;
+    }
+    _historyEpoch++;
+    setState(() => _submitting = true);
     try {
       await account.login(
         url: url.text,
         username: username.text,
         password: password.text,
         deviceName: device.text,
+        rememberPassword: _rememberPassword,
+        expectedInstanceId: _selectedHistory?.serviceInstanceId.isEmpty == true
+            ? null
+            : _selectedHistory?.serviceInstanceId,
       );
     } catch (_) {
       // The controller publishes the error below the form.
     } finally {
-      if (mounted) password.clear();
+      if (mounted) {
+        password.clear();
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  Future<void> _enterMediaMode(FlyAccountController account) async {
+    if (!_canUseForm(account) || _historyBusy) return;
+    _historyEpoch++;
+    setState(() => _leaving = true);
+    try {
+      await account.enterLegacyMode();
+      // Keep handlers locked until the provider gate replaces this page.
+    } catch (_) {
+      if (mounted) setState(() => _leaving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final account = context.watch<FlyAccountController>();
+    final blocked = account.busy || _historyBusy || _submitting || _leaving;
     return _FlyLoginPage(
       child: Form(
         key: _form,
@@ -179,17 +380,70 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               url,
               '飞翔服务地址',
               hint: '飞翔管理后台提供的服务地址',
-              enabled: !account.busy,
+              enabled: !blocked,
               keyboard: TextInputType.url,
             ),
-            _field(username, '飞翔账号', hint: '与飞翔管理后台共用', enabled: !account.busy),
+            _field(username, '飞翔账号', hint: '与飞翔管理后台共用', enabled: !blocked),
             _field(
               password,
               '密码',
               hint: '飞翔账号的密码',
               secret: true,
-              enabled: !account.busy,
+              enabled: !blocked,
               onSubmitted: (_) => _login(account),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: blocked
+                        ? null
+                        : () =>
+                              _setRememberPassword(account, !_rememberPassword),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: Checkbox(
+                            value: _rememberPassword,
+                            onChanged: blocked
+                                ? null
+                                : (value) => _setRememberPassword(
+                                    account,
+                                    value ?? false,
+                                  ),
+                            side: BorderSide(
+                              color: context.appColors.borderStrong,
+                            ),
+                            fillColor: WidgetStateProperty.resolveWith(
+                              (states) => states.contains(WidgetState.selected)
+                                  ? context.appColors.selection
+                                  : Colors.transparent,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '记住密码',
+                            style: TextStyle(
+                              color: context.appColors.textSecondary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: blocked ? null : () => _openHistory(account),
+                  icon: const Icon(Icons.history_rounded, size: 18),
+                  label: const Text('登录记录'),
+                ),
+              ],
             ),
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
@@ -198,11 +452,11 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                 '设备名称 · ${device.text}',
                 style: const TextStyle(fontSize: 13),
               ),
-              children: [_field(device, '当前设备名称', enabled: !account.busy)],
+              children: [_field(device, '当前设备名称', enabled: !blocked)],
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: account.busy ? null : () => _login(account),
+              onPressed: blocked ? null : () => _login(account),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
               ),
@@ -215,11 +469,10 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                 child: LinearProgressIndicator(),
               ),
             if (account.message != null) _FlyMessage(account.message!),
+            if (_historyMessage != null) _FlyMessage(_historyMessage!),
             const SizedBox(height: 16),
             OutlinedButton.icon(
-              onPressed: account.busy
-                  ? null
-                  : () => account.enterLegacyMode().catchError((Object _) {}),
+              onPressed: blocked ? null : () => _enterMediaMode(account),
               icon: const Icon(Icons.lan_outlined, size: 18),
               label: const Text('媒体账号登录'),
             ),
