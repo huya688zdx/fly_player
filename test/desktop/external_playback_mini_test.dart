@@ -121,6 +121,25 @@ void main() {
     expect(MediaQuery.sizeOf(field.currentContext!), original.size);
     expect(find.text('保留原页面输入'), findsNothing);
     expect(tester.takeException(), isNull);
+    // 图钉只切换窗口置顶，保留悬浮条尺寸和播放会话。
+    final miniBounds = bounds;
+    final playbackStatus = ExternalPlaybackHost.status.value;
+    await tester.tap(find.byKey(const ValueKey('external-mini-取消置顶')));
+    await tester.pumpAndSettle();
+    expect(top, isFalse);
+    expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
+    failPin = true;
+    await tester.tap(find.byKey(const ValueKey('external-mini-置顶悬浮条')));
+    await tester.pumpAndSettle();
+    expect(top, isFalse);
+    expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
+    failPin = false;
+    await tester.tap(find.byKey(const ValueKey('external-mini-置顶悬浮条')));
+    await tester.pumpAndSettle();
+    expect(top, isTrue);
+    expect(find.byIcon(Icons.push_pin_rounded), findsOneWidget);
+    expect(bounds, miniBounds);
+    expect(ExternalPlaybackHost.status.value, same(playbackStatus));
     // 模拟拖到工作区底边后展开，操作区必须仍然全部可见。
     bounds = const Rect.fromLTWH(550, 950, 360, 64);
     expect(find.byType(Tooltip), findsNothing);

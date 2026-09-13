@@ -37,6 +37,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
   bool _maximized = false;
   bool _fullscreen = false;
   bool _alwaysOnTop = false;
+  bool _pinned = true;
   bool _resizable = true;
 
   @override
@@ -77,6 +78,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
       final position = await windowManager.getPosition();
       await windowManager.setPosition(position + const Offset(0, 12));
       await windowManager.setAlwaysOnTop(true);
+      if (mounted) setState(() => _pinned = true);
     } catch (_) {
       if (_active) await _restore();
       rethrow;
@@ -126,6 +128,18 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
           _settingsExpanded = false;
         });
       }
+    } finally {
+      _changing = false;
+    }
+  }
+
+  Future<void> _togglePinned() async {
+    if (!_active || _changing) return;
+    _changing = true;
+    try {
+      final pinned = !_pinned;
+      await windowManager.setAlwaysOnTop(pinned);
+      if (mounted) setState(() => _pinned = pinned);
     } finally {
       _changing = false;
     }
@@ -205,6 +219,8 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
               child: ExternalPlaybackMiniPlayer(
                 expanded: _expanded,
                 settingsExpanded: _settingsExpanded,
+                pinned: _pinned,
+                onTogglePinned: _togglePinned,
                 onToggleExpanded: _toggleExpanded,
                 onToggleSettings: _toggleSettings,
                 onRestore: _exit,
