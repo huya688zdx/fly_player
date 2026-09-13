@@ -104,6 +104,13 @@ class MpvMediaSource {
 
   bool get serverPlaybackManaged => playbackMode.isServerManaged;
 
+  /// The service verifies the original NAS file timeline. A derived stream or
+  /// a local copy needs its own verified coordinate before sharing that data.
+  bool get supportsVerifiedFileOped =>
+      playbackMode.isOriginalQuality &&
+      !isDownloadedFile &&
+      !externalLocalSource;
+
   const MpvMediaSource({
     this.loadNonce = 0,
     this.statsScope = '',
