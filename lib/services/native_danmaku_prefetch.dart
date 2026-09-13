@@ -142,15 +142,11 @@ class NativeDanmakuPrefetch {
               .catchError((Object _) => null);
           if (!current()) return null;
           if (result != null) {
-            if (!result.isCurrent()) return null;
-            return _writePayloadFile({
-              ...buildPayload(
-                settings,
-                result.comments,
-                sourceKey: result.sourceKey,
-              ),
-              'sourceLabel': result.sourceLabel,
-            }, isCurrent: () => current() && result.isCurrent());
+            return writeNasPayloadToFile(
+              result: result,
+              settings: settings,
+              isCurrent: current,
+            );
           }
         }
         if (settings.sourceStrategy == DanmakuSourceStrategy.nasOnly) {
@@ -180,6 +176,17 @@ class NativeDanmakuPrefetch {
       return null;
     }
   }
+
+  /// Automatic and explicit NAS reads share the native/desktop payload format.
+  /// A manual retry never registers a global source or claims another binding.
+  static Future<String?> writeNasPayloadToFile({
+    required FlyNasDanmakuResult result,
+    required DanmakuSettings settings,
+    required bool Function() isCurrent,
+  }) => _writePayloadFile({
+    ...buildPayload(settings, result.comments, sourceKey: result.sourceKey),
+    'sourceLabel': result.sourceLabel,
+  }, isCurrent: () => isCurrent() && result.isCurrent());
 
   static Future<String?> _resolveOriginalToFile({
     required String seriesTitle,
