@@ -1,4 +1,16 @@
-# Refresh 候选动画生成
+# Refresh 正式资源与候选生成
+
+## 当前正式版（2026-09-14）
+
+已采用用户确认的“欲伸又止→自抱→蜷缩→青鸟飞远”连接修订版：512×512透明WebP，30 FPS时间轴共261格、8.7秒，持帧合并后119个编码画面，无限循环。正式资源是 `assets/refresh/shoujo_bird_loading.webp`，系统减少动态效果时使用同目录 `shoujo_bird_loading_static.png`。静态图直接取正式时间轴第190格（从0开始，青鸟展翼），保留原512画布，没有重新缩放或定位。
+
+来源包为 `青鸟_收茧接点修订_20260914.zip`，保留完整原稿、局部蒙版、提示词、锁定后段和生成脚本。解压后，在 `bluebird_motion_redesign_20260913/revision_02` 运行 `python prepare_revisions.py`，再在上一层运行 `python build_draft_preview.py`。采用的输出为 `revision_02/preview/完整故事_连接修订_透明.webp`；复制到正式WebP路径时不重新编码、不改时序。新增收茧连接稿已包含在本版，后166格出翼与原片飞远保持不变。
+
+`BirdLoader` 直接使用素材时长，无需额外控制器同步；七秒控制器属于独立的 `BirdGlyph`。同名资源替换后应重新启动App，避免沿用旧图片缓存。相关验证运行 `flutter test test/widgets/bird_loader_test.dart`，其中直接解码正式WebP并检查尺寸、完整时长和循环信息；普通播放器用的MP4仅作为浅色底预览，不打包进App。
+
+## 历史 reworked 候选生成
+
+以下入口仍用于历史候选复现，不能用其输出覆盖上面的正式版。
 
 Python 3.11+；实际渲染需要 `opencv-python`、`numpy`、`Pillow`。在独立虚拟环境安装这些依赖，不需要修改 Flutter 依赖。`--help` 与 `--check-inputs` 不导入渲染依赖。
 
