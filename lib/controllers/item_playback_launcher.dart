@@ -61,13 +61,15 @@ class ItemPlaybackLauncher {
       );
       return null;
     }
-    return AsyncActionGuard.run<PlayDetailPlayerReturnData?>(
-      'item_playback:${itemGuid.trim()}:${startFromBeginning ? 'restart' : 'default'}',
-      settleDuration: const Duration(milliseconds: 500),
-      action: () async {
+    return runPlaybackLaunch<PlayDetailPlayerReturnData>(
+      context,
+      title: fallbackTitle,
+      actionKey:
+          'item_playback:${itemGuid.trim()}:${startFromBeginning ? 'restart' : 'default'}',
+      action: (host) async {
         final l10n = AppLocalizations.of(context);
         final nas = context.read<NasProvider>();
-        if (await playbackHostFor(context).resume(
+        if (await host.resume(
           itemGuid: itemGuid,
           mediaGuid: qualityMediaGuid,
           audioGuid: audioTrackId,
@@ -76,7 +78,7 @@ class ItemPlaybackLauncher {
         )) {
           return null;
         }
-        if (!context.mounted) return null;
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
         // 后端中立：取当前活动后端，由后端自己的桥接器装配最终播放 source。飞牛会话下
         // 返回的就是 FeiniuMediaBackend(FeiniuApi(nasProvider))，与旧直接构造等价、零回归。
         final backend = context.read<MediaBackendProvider>().backend;
@@ -85,6 +87,7 @@ class ItemPlaybackLauncher {
         localPlayback;
         if (isFeiniu) {
           await DownloadTaskService.instance.initialize();
+          if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
           final record = DownloadTaskService.instance.downloadedRecordForItem(
             itemGuid.trim(),
             mediaGuid: qualityMediaGuid ?? '',
@@ -99,6 +102,10 @@ class ItemPlaybackLauncher {
                   : resumePosition?.inMilliseconds,
             );
           }
+        }
+        if (localPlayback == null &&
+            (!context.mounted || !playbackLaunchIsCurrent(host))) {
+          return null;
         }
         final resolved =
             localPlayback ??
@@ -115,17 +122,19 @@ class ItemPlaybackLauncher {
             );
         if (resolved == null) return null;
         final source = resolved.source;
+        rememberPlaybackLaunchSource(host, source);
 
-        if (!context.mounted) return null;
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
         // 服务器族单集起播需带上本季 episodes，桌面与 Android 宿主共用。
         final serverEpisodes = isFeiniu
             ? null
             : await _serverNativeEpisodes(backend, source);
-        if (!context.mounted) return null;
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
 
         // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
         if (DesktopEnvironment.isWindows) {
           final danmakuSettings = await const DanmakuSettingsStore().load();
+          if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
           final danmakuFile = source.isDownloadedFile
               ? null
               : await NativeDanmakuPrefetch.resolveToFile(
@@ -139,8 +148,8 @@ class ItemPlaybackLauncher {
                   mediaGuid: source.mediaGuid,
                   seasonGuid: source.seasonGuid,
                 );
-          if (!context.mounted) return null;
-          if (await playbackHostFor(context).launch(
+          if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
+          if (await host.launch(
             source: source,
             episodes: serverEpisodes,
             danmakuFilePath: danmakuFile,
@@ -193,7 +202,7 @@ class ItemPlaybackLauncher {
                   ),
           );
           // 服务器族封面由后端给出可直接消费的 URL，不走 NAS 鉴权预取，故只飞牛传 nas。
-          if (await playbackHostFor(context).launch(
+          if (await host.launch(
             source: source,
             episodes: serverEpisodes,
             nas: isFeiniu ? nas : null,
@@ -201,7 +210,7 @@ class ItemPlaybackLauncher {
             return null;
           }
         }
-        if (!context.mounted) return null;
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
         if (context.mounted) {
           _topTip.show(
             context,

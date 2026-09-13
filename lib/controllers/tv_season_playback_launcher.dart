@@ -51,16 +51,17 @@ class TvSeasonPlaybackLauncher {
       );
       return null;
     }
-    return AsyncActionGuard.run<PlayDetailPlayerReturnData?>(
-      'tv_season_playback:${itemGuid.trim()}',
-      settleDuration: const Duration(milliseconds: 500),
-      action: () async {
+    return runPlaybackLaunch<PlayDetailPlayerReturnData>(
+      context,
+      title: seriesTitle,
+      actionKey: 'tv_season_playback:${itemGuid.trim()}',
+      action: (host) async {
         final l10n = AppLocalizations.of(context);
         final provider = context.read<NasProvider>();
-        if (await playbackHostFor(context).resume(itemGuid: itemGuid)) {
+        if (await host.resume(itemGuid: itemGuid)) {
           return null;
         }
-        if (!context.mounted) return null;
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
         // 后端中立：取活动后端，由后端自己的桥接器装配最终播放 source。
         final backend = context.read<MediaBackendProvider>().backend;
         final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
@@ -68,6 +69,7 @@ class TvSeasonPlaybackLauncher {
         localPlayback;
         if (isFeiniu) {
           await DownloadTaskService.instance.initialize();
+          if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
           final record = DownloadTaskService.instance.downloadedRecordForItem(
             itemGuid.trim(),
           );
@@ -81,6 +83,10 @@ class TvSeasonPlaybackLauncher {
             );
           }
         }
+        if (localPlayback == null &&
+            (!context.mounted || !playbackLaunchIsCurrent(host))) {
+          return null;
+        }
         final resolved =
             localPlayback ??
             await _resolveWithProvider(
@@ -92,24 +98,26 @@ class TvSeasonPlaybackLauncher {
             );
         if (resolved == null) return null;
         final source = resolved.source;
+        rememberPlaybackLaunchSource(host, source);
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
         // 剧详情入口未传 episodes：服务器族起播单集时按 source 的 seasonGuid 加载本季选集，
         // 否则 loadArgs.episodes 空 → 原生壳「选集 / 下一集」不亮（壳侧靠非空 episodes 触发）。
         final effectiveEpisodes =
             episodes ??
             (isFeiniu ? null : await _serverNativeEpisodes(backend, source));
-        if (!context.mounted) return null;
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑、二级
         // 界面不卡）。maybeLaunch 内部判断开关 + 预取弹幕；episodes 透传供原生壳「选集」。
         // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。服务器族封面由后端给出可直接
         // 消费的 URL，不走 NAS 鉴权预取，故不传 nas。
-        if (await playbackHostFor(context).launch(
+        if (await host.launch(
           source: source,
           episodes: effectiveEpisodes,
           nas: isFeiniu ? provider : null,
         )) {
           return null;
         }
-        if (!context.mounted) return null;
+        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
         if (context.mounted) {
           _topTip.show(
             context,

@@ -25,6 +25,7 @@ import '../../services/playback_progress_offline_queue.dart';
 import '../../services/server_reentry_support.dart';
 import 'external_playback_notice.dart';
 import 'desktop_mpv_runtime.dart';
+import 'desktop_playback_launch_guard.dart';
 import 'desktop_playback_reporter.dart';
 import 'external_player_media_proxy.dart';
 import 'external_player_playlist.dart';
@@ -100,9 +101,10 @@ class ExternalPlaybackStatus {
 
 /// 外部播放器只消费已解析的播放源，沿用现有字幕、弹幕和后端回报链路。
 final class ExternalPlaybackHost implements PlaybackHost {
-  const ExternalPlaybackHost(this.context);
+  const ExternalPlaybackHost(this.context, {this.launchRequest});
 
   final BuildContext context;
+  final DesktopPlaybackLaunchRequest? launchRequest;
   static PotPlayerSession? _session;
   static MpvMediaSource? _source;
   static String? _scope;
@@ -121,6 +123,22 @@ final class ExternalPlaybackHost implements PlaybackHost {
   static bool _changingSource = false;
   static bool _offline = false;
   static String? _danmakuFilePath;
+
+  static bool sourceInUse(String scope, String playLink) =>
+      _scope == scope &&
+      _session?.finished == false &&
+      _source?.playLink?.trim() == playLink;
+
+  Future<bool?> _runSourceChange(
+    String title,
+    Future<bool> Function(ExternalPlaybackHost host) action,
+  ) => DesktopPlaybackLaunchGuard.run<bool>(
+    context,
+    title: title,
+    sourceInUse: sourceInUse,
+    action: (request) =>
+        action(ExternalPlaybackHost(context, launchRequest: request)),
+  );
 
   Duration? positionForLaunch({required String itemGuid}) {
     if (!context.mounted ||
@@ -247,7 +265,19 @@ final class ExternalPlaybackHost implements PlaybackHost {
     }
   }
 
-  Future<bool> playEpisode({
+  Future<bool?> playEpisode({
+    required String itemGuid,
+    required String episodeGuid,
+  }) => _runSourceChange(
+    status.value?.playlist
+            .where((entry) => entry.itemGuid == episodeGuid)
+            .firstOrNull
+            ?.title ??
+        '所选剧集',
+    (host) => host._playEpisode(itemGuid: itemGuid, episodeGuid: episodeGuid),
+  );
+
+  Future<bool> _playEpisode({
     required String itemGuid,
     required String episodeGuid,
   }) async {
@@ -270,6 +300,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     // 已有 DPL 的相邻条目直接在当前进程切换，最终身份交接由真实采样确认。
     final session = _session!;
     if ((target - current).abs() == 1 && session.onMediaChanged != null) {
+      launchRequest?.onCancel = () => session.finish(closePlayer: true);
       _changingSource = true;
       status.value = active.withPhase(ExternalPlaybackPhase.preparing);
       try {
@@ -283,7 +314,11 @@ final class ExternalPlaybackHost implements PlaybackHost {
         final deadline = DateTime.now().add(const Duration(minutes: 2));
         while (DateTime.now().isBefore(deadline)) {
           await session.poll();
-          if (session.finished || !identical(_session, session)) return false;
+          if (launchRequest?.isCurrent == false ||
+              session.finished ||
+              !identical(_session, session)) {
+            return false;
+          }
           if (_source?.itemGuid == episodeGuid &&
               status.value!.duration > Duration.zero) {
             return true;
@@ -300,7 +335,15 @@ final class ExternalPlaybackHost implements PlaybackHost {
     return _replaceMedia(active, episodeGuid: episodeGuid);
   }
 
-  Future<bool> changeQuality({
+  Future<bool?> changeQuality({
+    required String itemGuid,
+    required PlaybackQualityOption quality,
+  }) => _runSourceChange(
+    status.value?.source.title ?? '所选片源',
+    (host) => host._changeQuality(itemGuid: itemGuid, quality: quality),
+  );
+
+  Future<bool> _changeQuality({
     required String itemGuid,
     required PlaybackQualityOption quality,
   }) async {
@@ -350,17 +393,23 @@ final class ExternalPlaybackHost implements PlaybackHost {
               l10n: l10n,
               allowNetwork: !_offline,
             );
-      if (!context.mounted ||
+      final raw = result?['loadArgs'];
+      if (raw is! String || raw.isEmpty) return false;
+      final resolved = MpvMediaSource.fromMap(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+      launchRequest?.pendingSource = resolved;
+      if (launchRequest?.isCurrent == false ||
+          !context.mounted ||
           !identical(_source, expected) ||
           !identical(_session, session) ||
           _scope != playbackSessionScope(context)) {
         return false;
       }
-      final raw = result?['loadArgs'];
-      if (raw is! String || raw.isEmpty) return false;
       final snapshot = await PotPlayerSession.channel
           .invokeMapMethod<String, dynamic>('snapshot', {'pid': session!.pid});
-      if (snapshot?['alive'] != true ||
+      if (launchRequest?.isCurrent == false ||
+          snapshot?['alive'] != true ||
           !PotPlayerSession.sameMedia(
             '${snapshot?['file'] ?? ''}',
             expectedUrl!,
@@ -371,9 +420,6 @@ final class ExternalPlaybackHost implements PlaybackHost {
           _scope != playbackSessionScope(context)) {
         return false;
       }
-      final resolved = MpvMediaSource.fromMap(
-        jsonDecode(raw) as Map<String, dynamic>,
-      );
       final selectedSource = episodeGuid == null
           ? resolved
           : ExternalPlayerPlaylist.inheritSubtitleSelection(
@@ -442,7 +488,12 @@ final class ExternalPlaybackHost implements PlaybackHost {
       },
   ];
 
-  Future<bool> reconnect() async {
+  Future<bool?> reconnect() => _runSourceChange(
+    status.value?.source.title ?? '当前影片',
+    (host) => host._reconnect(),
+  );
+
+  Future<bool> _reconnect() async {
     final active = status.value;
     if (!context.mounted ||
         active == null ||
@@ -464,11 +515,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
     if (!_offline && source.serverPlaybackManaged) {
       final result = await _reloadQuality(source);
       final raw = result?['loadArgs'];
-      if (raw is! String || !context.mounted) return false;
+      if (raw is! String) return false;
       source = MpvMediaSource.fromMap(
         jsonDecode(raw) as Map<String, dynamic>,
       ).copyWith(startPaused: active.paused, isDownloadedFile: false);
+      launchRequest?.pendingSource = source;
     }
+    if (!context.mounted || launchRequest?.isCurrent == false) return false;
     return launch(
       source: source,
       episodes: _episodeMaps(active.playlist),
@@ -487,7 +540,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
   }) async {
     final source = _source;
     final session = _session;
-    if (!context.mounted ||
+    if (launchRequest?.isCurrent == false ||
+        !context.mounted ||
         session == null ||
         session.finished ||
         source == null ||
@@ -498,6 +552,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         (subtitleGuid != null && source.subtitleTrackGuid != subtitleGuid)) {
       return false;
     }
+    launchRequest?.onCancel = () => session.finish(closePlayer: true);
     return session.activate(position: position);
   }
 
@@ -511,7 +566,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     NasProvider? nas,
     bool offline = false,
   }) async {
-    if (!context.mounted) return false;
+    if (!context.mounted || launchRequest?.isCurrent == false) return false;
     if (_launching) throw StateError('外部播放器正在启动，请稍候');
     _launching = true;
     final owner = Object();
@@ -523,6 +578,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     Future<void> Function()? releaseUnlaunchedSource;
     var disposed = false;
     bool ownsLaunch() =>
+        launchRequest?.isCurrent != false &&
         context.mounted &&
         identical(_launchOwner, owner) &&
         playbackSessionScope(context) == requestedScope;
@@ -534,6 +590,10 @@ final class ExternalPlaybackHost implements PlaybackHost {
         throw StateError('外部播放启动已取消');
       }
     }
+
+    launchRequest?.onCancel = () async {
+      await launched?.finish(closePlayer: true);
+    };
 
     try {
       void notify(String message) {
@@ -563,9 +623,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
       final releasedLinks = <String>{};
       Future<void> releaseSource(MpvMediaSource owned) async {
         final link = owned.playLink?.trim() ?? '';
+        bool canRelease() =>
+            isCurrentSession() &&
+            !(sourceInUse(sessionScope, link) &&
+                !identical(_session, launched));
         if (offline ||
             !backend.capabilities.usesLegacyFeiniuFlow ||
-            !isCurrentSession() ||
+            !canRelease() ||
             link.isEmpty ||
             !releasedLinks.add(link)) {
           return;
@@ -573,11 +637,12 @@ final class ExternalPlaybackHost implements PlaybackHost {
         await NativeReentrySupport.releaseServerSession(
           effectiveNas,
           link,
-          isCurrent: isCurrentSession,
+          isCurrent: canRelease,
         );
       }
 
       releaseUnlaunchedSource = () => releaseSource(source);
+      launchRequest?.pendingSource = null;
       final settings = await ExternalPlayerSettings.load();
       checkLaunch();
       final error = await ExternalPlayerSettings.validateExecutable(
@@ -1270,7 +1335,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           (_session == null || _session!.finished)) {
         status.value = status.value?.withPhase(
           ExternalPlaybackPhase.ended,
-          error: '$error',
+          error: cancelled ? null : '$error',
         );
       }
       if (cancelled) return false;

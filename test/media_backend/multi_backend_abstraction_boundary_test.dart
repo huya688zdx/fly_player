@@ -34,8 +34,14 @@ void main() {
         final source = File(path).readAsStringSync();
         expect(
           source,
-          contains(
-            RegExp(r'playbackHostFor\s*\(\s*context\s*,?\s*\)\s*\.launch\s*\('),
+          allOf(
+            contains("import '../playback/platform_playback_host.dart';"),
+            contains(
+              RegExp(
+                r'runPlaybackLaunch<[^>]+>\(\s*context,[\s\S]*?action:\s*\(host\)\s*async',
+              ),
+            ),
+            contains(RegExp(r'if\s*\(\s*await\s+host\.launch\s*\(')),
           ),
         );
         expect(source, isNot(contains('NativePlaybackHost().launch(')));
@@ -56,7 +62,9 @@ void main() {
       expect(
         source,
         contains(
-          RegExp(r'if\s*\(\s*await\s+playbackHostFor\(context\)\.launch\s*\('),
+          RegExp(
+            r'if\s*\(\s*await\s+host\.launch\(source:\s*source\)\s*\)\s*return;',
+          ),
         ),
       );
     });

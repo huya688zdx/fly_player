@@ -167,13 +167,13 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   Future<void> _run(
-    Future<bool> Function() action, {
+    Future<bool?> Function() action, {
     String failure = '操作未能完成，请确认 PotPlayer 会话仍然有效',
   }) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      if (!await action()) _message(failure);
+      if (await action() == false) _message(failure);
     } catch (_) {
       _message(failure);
     } finally {
