@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
+
 import '../play_stats/fly_sync_identity.dart';
 import '../play_stats/play_stats_database.dart';
 import '../play_stats/play_stats_service.dart';
@@ -72,7 +74,15 @@ class FlyDataService {
   static const _installationKey = 'fly_data_service_installation_v1';
   final PlayStatsDatabase database;
   final Future<void> Function() drainWrites;
-  FlyDataSession? session;
+  FlyDataSession? _session;
+  final ValueNotifier<String> accountChanges = ValueNotifier('');
+  FlyDataSession? get session => _session;
+  set session(FlyDataSession? value) {
+    _session = value;
+    accountChanges.value = value == null
+        ? ''
+        : '${value.accountKey}|${value.deviceKey}|${value.serverUrl}';
+  }
   bool _busy = false;
   FlyDataSyncStore get store => FlyDataSyncStore(database);
   String get currentScope => database is SqflitePlayStatsDatabase

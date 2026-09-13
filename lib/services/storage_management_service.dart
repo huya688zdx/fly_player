@@ -389,6 +389,7 @@ class StorageManagementService {
     'player_decoder_mode',
     'player_display_aspect_ratio',
     'player_intro_outro_enabled',
+    'player_fly_oped_enabled',
     'player_intro_outro_source_mode',
     'player_intro_outro_chapter_mode',
     'player_intro_outro_intro_max_seconds',

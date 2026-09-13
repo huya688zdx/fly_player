@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../models/stream_track_data.dart';
+import '../../services/fly_data/fly_oped.dart';
 import '../../theme/app_theme.dart';
 import '../desktop_floating_panel.dart';
 import 'desktop_playback_chapters.dart';
@@ -32,6 +33,7 @@ class DesktopPlayerControls extends StatefulWidget {
     required this.player,
     required this.showBuffer,
     this.chapters = const [],
+    this.flyOpedSet,
     this.seekThumbnails = const [],
     this.seekThumbnailBifUrl = '',
     this.thumbnailHeaders = const {},
@@ -98,6 +100,10 @@ class DesktopPlayerControls extends StatefulWidget {
   final Player player;
   final bool showBuffer;
   final List<DesktopPlayerChapter> chapters;
+
+  /// Only the current, enabled publication after account/source/context checks.
+  /// The owner passes null whenever that playback access is no longer valid.
+  final FlyOpedSet? flyOpedSet;
   final List<MpvSeekThumbnail> seekThumbnails;
   final String seekThumbnailBifUrl;
   final Map<String, String> thumbnailHeaders;
@@ -353,6 +359,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                         duration: duration,
                         buffered: widget.showBuffer ? buffer : Duration.zero,
                         chapters: widget.chapters,
+                        flyOpedSet: widget.flyOpedSet,
                         thumbnails: _thumbnails,
                         accent: colors.accent,
                         onSeek: widget.onSeek,
@@ -763,6 +770,21 @@ class _CtrlIconButton extends StatelessWidget {
   }
 }
 
+Color _flyOpedColor(FlyOpedSegment segment) =>
+    segment.kind == 'op' ? const Color(0xFF67E8F9) : const Color(0xFFFBBF24);
+
+String _timelineTime(int milliseconds, {bool precise = false}) {
+  final safe = Duration(milliseconds: milliseconds.clamp(0, 9007199254740991));
+  final hours = safe.inHours;
+  final minutes = safe.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = safe.inSeconds.remainder(60).toString().padLeft(2, '0');
+  final time = hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  final remainder = safe.inMilliseconds.remainder(1000);
+  return precise && remainder != 0
+      ? '$time.${remainder.toString().padLeft(3, '0')}'
+      : time;
+}
+
 /// 进度条（.pl-progress）：4.5px 轨道 + 缓冲 + accent 填充，
 /// 悬停放大轨道、浮现白色手柄与上方时间提示（.plp-tip）。
 class _DesktopTimeline extends StatefulWidget {
@@ -771,6 +793,7 @@ class _DesktopTimeline extends StatefulWidget {
     required this.duration,
     required this.buffered,
     required this.chapters,
+    required this.flyOpedSet,
     required this.thumbnails,
     required this.accent,
     required this.onSeek,
@@ -780,6 +803,7 @@ class _DesktopTimeline extends StatefulWidget {
   final Duration duration;
   final Duration buffered;
   final List<DesktopPlayerChapter> chapters;
+  final FlyOpedSet? flyOpedSet;
   final DesktopSeekThumbnails thumbnails;
   final Color accent;
   final Future<void> Function(Duration) onSeek;
@@ -842,12 +866,7 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
 
   String _tipLabel(double width) {
     final fraction = _dragging ? _dragValue : _fraction(_hoverDx, width);
-    final target = Duration(milliseconds: (fraction * _durationMs).round());
-    final safe = target < Duration.zero ? Duration.zero : target;
-    final hours = safe.inHours;
-    final minutes = safe.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = safe.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+    return _timelineTime((fraction * _durationMs).round());
   }
 
   Widget _previewImage(ImageProvider image, int positionMs, double width) {
@@ -889,7 +908,41 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
             final image = _hovered || _dragging
                 ? widget.thumbnails.imageAt(positionMs)
                 : null;
-            final tipWidth = (image == null ? 84.0 : 232.0).clamp(0.0, width);
+            // These are published ranges, never synthetic mpv chapters. An
+            // unavailable set or duration removes both the rail and hover label.
+            final segments = <FlyOpedSegment>[
+              for (final segment
+                  in widget.flyOpedSet?.segments ?? const <FlyOpedSegment>[])
+                if ((segment.kind == 'op' || segment.kind == 'ed') &&
+                    (segment.policy == 'prompt_only' ||
+                        segment.policy == 'auto') &&
+                    segment.startMs >= 0 &&
+                    segment.endMs > segment.startMs &&
+                    segment.endMs <= _durationMs)
+                  segment,
+            ];
+            FlyOpedSegment? hoveredSegment;
+            for (final segment in segments) {
+              if (segment.contains(positionMs)) {
+                hoveredSegment = segment;
+                break;
+              }
+            }
+            // The right-anchored skip prompt sits above this timeline. Reserve
+            // its width plus a gap while published ranges are available.
+            final promptRightInset = segments.isEmpty
+                ? 0.0
+                : MediaQuery.textScalerOf(context).scale(280) + 20;
+            final maxTipWidth = (width - promptRightInset).clamp(0.0, width);
+            final tipWidth =
+                (image == null && hoveredSegment == null ? 84.0 : 232.0).clamp(
+                  0.0,
+                  maxTipWidth,
+                );
+            final maxTipLeft = (width - tipWidth - promptRightInset).clamp(
+              0.0,
+              width - tipWidth,
+            );
             final timeLabel = Text(
               _tipLabel(width),
               style: const TextStyle(
@@ -898,6 +951,38 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                 fontWeight: FontWeight.w600,
                 fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
               ),
+            );
+            final tipLabel = Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                timeLabel,
+                if (hoveredSegment != null) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    '飞翔 ${hoveredSegment.kind == 'op' ? 'OP · 片头' : 'ED · 片尾'} · '
+                    '${hoveredSegment.policy == 'auto' ? '自动跳过' : '仅提示跳过'}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _flyOpedColor(hoveredSegment),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    '${_timelineTime(hoveredSegment.startMs, precise: true)}–'
+                    '${_timelineTime(hoveredSegment.endMs, precise: true)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ],
             );
             return GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -921,6 +1006,7 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                       emphasized: _hovered || _dragging,
                       accent: widget.accent,
                       chapters: widget.chapters,
+                      flyOpedSegments: segments,
                       duration: widget.duration,
                     ),
                     size: Size(width, constraints.maxHeight),
@@ -928,15 +1014,13 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                   if ((_hovered || _dragging) &&
                       _durationMs > 0 &&
                       width.isFinite &&
-                      width > 60)
+                      tipWidth > 60)
                     Positioned(
-                      left: (previewDx - tipWidth / 2).clamp(
-                        0,
-                        width - tipWidth,
-                      ),
+                      left: (previewDx - tipWidth / 2).clamp(0, maxTipLeft),
                       bottom: constraints.maxHeight + 6,
                       width: tipWidth,
                       child: IgnorePointer(
+                        key: const ValueKey('desktop-timeline-preview'),
                         child: image != null
                             ? DesktopFloatingPanel(
                                 child: Padding(
@@ -953,7 +1037,7 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                                         ),
                                       ),
                                       const SizedBox(height: 4),
-                                      timeLabel,
+                                      tipLabel,
                                     ],
                                   ),
                                 ),
@@ -971,7 +1055,7 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                                     color: Colors.white.withValues(alpha: 0.15),
                                   ),
                                 ),
-                                child: timeLabel,
+                                child: tipLabel,
                               ),
                       ),
                     ),
@@ -992,6 +1076,7 @@ class _TimelinePainter extends CustomPainter {
     required this.emphasized,
     required this.accent,
     required this.chapters,
+    required this.flyOpedSegments,
     required this.duration,
   });
 
@@ -1000,6 +1085,7 @@ class _TimelinePainter extends CustomPainter {
   final bool emphasized;
   final Color accent;
   final List<DesktopPlayerChapter> chapters;
+  final List<FlyOpedSegment> flyOpedSegments;
   final Duration duration;
 
   @override
@@ -1036,6 +1122,30 @@ class _TimelinePainter extends CustomPainter {
       );
     }
     if (duration > Duration.zero) {
+      // Place range rails above the track so playback and buffering retain
+      // their colors. The ED rail stops at endMs and leaves its tail unmarked.
+      for (final segment in flyOpedSegments) {
+        final start = size.width * segment.startMs / duration.inMilliseconds;
+        final end = size.width * segment.endMs / duration.inMilliseconds;
+        final rangePaint = Paint()..color = _flyOpedColor(segment);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(start, top - 5.5, end - start, 2.5),
+            const Radius.circular(1.25),
+          ),
+          rangePaint,
+        );
+        final capWidth = (end - start).clamp(0.0, 1.5);
+        for (final edge in [start, end - capWidth]) {
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromLTWH(edge, top - 7, capWidth, 6),
+              const Radius.circular(0.75),
+            ),
+            rangePaint,
+          );
+        }
+      }
       final markerPaint = Paint()..color = Colors.white.withValues(alpha: 0.85);
       for (final chapter in chapters) {
         if (chapter.position <= Duration.zero || chapter.position >= duration) {
@@ -1066,6 +1176,7 @@ class _TimelinePainter extends CustomPainter {
         oldDelegate.buffered != buffered ||
         oldDelegate.emphasized != emphasized ||
         oldDelegate.chapters != chapters ||
+        oldDelegate.flyOpedSegments != flyOpedSegments ||
         oldDelegate.duration != duration ||
         oldDelegate.accent != accent;
   }
