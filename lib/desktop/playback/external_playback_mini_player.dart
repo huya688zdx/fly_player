@@ -39,14 +39,14 @@ class _ExternalPlaybackMiniPlayerState
   String? _error;
   double? _seekPosition;
 
-  Future<void> _run(Future<bool> Function() action) async {
+  Future<void> _run(Future<bool?> Function() action) async {
     if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (!await action() && mounted) {
+      if (await action() == false && mounted) {
         setState(() => _error = '操作未完成，请在完整页面检查连接');
       }
     } catch (_) {
