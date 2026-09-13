@@ -13,6 +13,8 @@ class ExternalPlaybackMiniPlayer extends StatefulWidget {
     super.key,
     required this.expanded,
     this.settingsExpanded = false,
+    this.pinned = true,
+    this.onTogglePinned,
     required this.onToggleExpanded,
     this.onToggleSettings,
     required this.onRestore,
@@ -20,6 +22,8 @@ class ExternalPlaybackMiniPlayer extends StatefulWidget {
 
   final bool expanded;
   final bool settingsExpanded;
+  final bool pinned;
+  final Future<void> Function()? onTogglePinned;
   final Future<void> Function() onToggleExpanded;
   final Future<void> Function()? onToggleSettings;
   final Future<void> Function() onRestore;
@@ -54,6 +58,7 @@ class _ExternalPlaybackMiniPlayerState
 
   Future<void> _windowAction(Future<void> Function() action) async {
     // 切集可能等待网络，仍然允许随时收起或返回完整界面。
+    if (_error != null) setState(() => _error = null);
     try {
       await action();
     } catch (_) {
@@ -190,6 +195,17 @@ class _ExternalPlaybackMiniPlayerState
                                 status?.paused == false ? '暂停' : '继续',
                                 enabled ? pause : null,
                                 primary: true,
+                              ),
+                              _button(
+                                widget.pinned
+                                    ? Icons.push_pin_rounded
+                                    : Icons.push_pin_outlined,
+                                widget.pinned ? '取消置顶' : '置顶悬浮条',
+                                widget.onTogglePinned == null
+                                    ? null
+                                    : () =>
+                                          _windowAction(widget.onTogglePinned!),
+                                primary: widget.pinned,
                               ),
                               _button(
                                 widget.expanded
