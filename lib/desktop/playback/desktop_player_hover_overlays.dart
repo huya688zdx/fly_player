@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../desktop_floating_panel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../playback/playback_source.dart';
+import '../../theme/app_theme.dart';
 import 'desktop_mpv_runtime.dart';
 import 'desktop_player_panels.dart';
 
@@ -374,6 +375,7 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final colors = context.appColors;
     final menu = DesktopMpvRuntime.qualityMenu(widget.source);
     final customLabel = l10n.nativePlayerText0054.replaceFirst('⚙', '').trim();
     return Padding(
@@ -401,14 +403,14 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
                           : null,
                       borderRadius: BorderRadius.circular(8),
                       // 悬停底弱于选中药丸，避免悬停看起来像选中。
-                      hoverColor: const Color(0x14FFFFFF),
+                      hoverColor: colors.selection.withValues(alpha: 0.08),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           if (_custom)
-                            const Icon(
+                            Icon(
                               Icons.chevron_left_rounded,
-                              color: Colors.white70,
+                              color: colors.textSecondary,
                               size: 18,
                             ),
                           // Flexible+ellipsis：面板宽度 morph 压窄时标题可截断，
@@ -420,8 +422,8 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
                                   : l10n.nativePlayerText0021,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xD9FFFFFF),
+                              style: TextStyle(
+                                color: colors.textPrimary,
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -437,8 +439,8 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
                         _currentSummary(menu, l10n),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF72A7FF),
+                        style: TextStyle(
+                          color: colors.selection,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -448,11 +450,10 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
                     TextButton(
                       onPressed: () => setState(() => _custom = true),
                       style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
+                        foregroundColor: colors.textPrimary,
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                         minimumSize: const Size(0, 28),
-                        // TextButton 默认悬停底观感接近选中，压到 6% 白。
-                        overlayColor: Colors.white.withValues(alpha: 0.06),
+                        overlayColor: colors.selection.withValues(alpha: 0.08),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -467,7 +468,7 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
             ),
           ),
           const SizedBox(height: 8),
-          const Divider(height: 1, color: Color(0x24FFFFFF)),
+          Divider(height: 1, color: colors.borderSubtle),
           const SizedBox(height: 7),
           Flexible(
             fit: FlexFit.loose,
@@ -628,12 +629,13 @@ class _DesktopQualityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFF72A7FF) : Colors.white;
+    final colors = context.appColors;
+    final color = selected ? colors.selection : colors.textPrimary;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
-      // 主列表选中态只靠蓝字加粗区分，悬停底压暗避免混淆。
-      hoverColor: const Color(0x14FFFFFF),
+      // 主列表选中态用主题色加粗区分，悬停底弱化避免混淆。
+      hoverColor: colors.selection.withValues(alpha: 0.08),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         child: Row(
@@ -680,12 +682,14 @@ class _DesktopQualityTierButton extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(10),
     // 选中行不再叠加悬停底；未选中行悬停底弱于选中药丸。
-    hoverColor: selected ? Colors.transparent : const Color(0x14FFFFFF),
+    hoverColor: selected
+        ? Colors.transparent
+        : context.appColors.selection.withValues(alpha: 0.08),
     child: Container(
       constraints: const BoxConstraints(minHeight: 42),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
-        color: selected ? const Color(0x22FFFFFF) : Colors.transparent,
+        color: selected ? context.appColors.selectionSoft : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -694,15 +698,17 @@ class _DesktopQualityTierButton extends StatelessWidget {
             child: Text(
               title,
               style: TextStyle(
-                color: selected ? const Color(0xFF72A7FF) : Colors.white70,
+                color: selected
+                    ? context.appColors.selection
+                    : context.appColors.textSecondary,
                 fontSize: 14,
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
               ),
             ),
           ),
-          const Icon(
+          Icon(
             Icons.chevron_right_rounded,
-            color: Colors.white,
+            color: context.appColors.textSecondary,
             size: 18,
           ),
         ],
@@ -729,12 +735,16 @@ class _DesktopQualityBitrateButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       // 选中行不再叠加悬停底；未选中行悬停底弱于选中药丸。
-      hoverColor: selected ? Colors.transparent : const Color(0x14FFFFFF),
+      hoverColor: selected
+          ? Colors.transparent
+          : context.appColors.selection.withValues(alpha: 0.08),
       child: Container(
         constraints: const BoxConstraints(minHeight: 42),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
-          color: selected ? const Color(0x22FFFFFF) : Colors.transparent,
+          color: selected
+              ? context.appColors.selectionSoft
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -743,14 +753,20 @@ class _DesktopQualityBitrateButton extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: selected ? const Color(0xFF72A7FF) : Colors.white70,
+                  color: selected
+                      ? context.appColors.selection
+                      : context.appColors.textSecondary,
                   fontSize: 12,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 ),
               ),
             ),
             if (selected)
-              const Icon(Icons.check_rounded, color: Colors.white, size: 18),
+              Icon(
+                Icons.check_rounded,
+                color: context.appColors.selection,
+                size: 18,
+              ),
           ],
         ),
       ),

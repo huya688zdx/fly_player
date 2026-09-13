@@ -22,6 +22,7 @@ import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/playback/bookmarks/bookmark_store.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/playback/settings/mpv_settings_store.dart';
+import 'package:fly_player/theme/app_theme.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -816,8 +817,10 @@ void main() {
   });
 
   testWidgets('Windows 画质面板使用主档与自定义两级结构', (tester) async {
+    final theme = AppThemeBuilder.build(AppThemePreset.latte);
     await tester.pumpWidget(
       MaterialApp(
+        theme: theme,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
@@ -844,6 +847,14 @@ void main() {
     expect(find.text('720P'), findsOneWidget);
     expect(find.text('480P'), findsOneWidget);
     expect(find.text('1080P SDR'), findsNothing);
+
+    // 浅色外壳下，未选中的画质文字也必须清晰可读。
+    final surface = theme.extension<AppThemeColors>()!.surface;
+    final text = tester.widget<Text>(find.text('720P')).style!.color!;
+    expect(
+      (surface.computeLuminance() + 0.05) / (text.computeLuminance() + 0.05),
+      greaterThanOrEqualTo(4.5),
+    );
 
     await tester.tap(find.text('自定义'));
     await tester.pumpAndSettle();

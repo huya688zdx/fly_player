@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../../danmaku/models/danmaku_settings.dart';
 import '../../media_backend/media_image_ref.dart';
-import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
 import '../../playback/playback_source.dart';
 import '../../providers/media_backend_provider.dart';
@@ -15,6 +14,8 @@ import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
 import '../../widgets/common/track_option_sheet.dart';
 import '../desktop_hover_dropdown.dart';
+import 'desktop_mpv_runtime.dart';
+import 'desktop_player_hover_overlays.dart';
 import 'external_playback_controls.dart';
 import 'external_playback_host.dart';
 import 'external_playback_mini_controller.dart';
@@ -99,40 +100,6 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
       token: usesNas ? nas?.token ?? '' : '',
       accessCode: usesNas ? nas?.accessCode ?? '' : '',
     ).resolveRef(MediaImageRef(url: path), width: 320);
-  }
-
-  int? _currentQualityIndex(MpvMediaSource source) {
-    final expectedSource = switch (source.playbackMode) {
-      PlayerPlaybackMode.originalQuality => PlaybackQualitySource.originalProxy,
-      PlayerPlaybackMode.directLinkQuality => PlaybackQualitySource.directLink,
-      PlayerPlaybackMode.serverSession => PlaybackQualitySource.serverSession,
-    };
-    final matches = <int>[];
-    for (var index = 0; index < source.qualities.length; index++) {
-      final quality = source.qualities[index];
-      if (quality.source != expectedSource ||
-          quality.mediaGuid != source.mediaGuid ||
-          (quality.videoGuid.isNotEmpty &&
-              source.videoGuid.isNotEmpty &&
-              quality.videoGuid != source.videoGuid)) {
-        continue;
-      }
-      if (quality.isDirectLink &&
-          quality.directLinkQualityIndex != source.directLinkQualityIndex) {
-        continue;
-      }
-      if (quality.isServerSession) {
-        final sourceResolution = source.resolution.trim().toLowerCase();
-        final qualityResolution = quality.resolution.trim().toLowerCase();
-        if (sourceResolution.isEmpty ||
-            qualityResolution != sourceResolution ||
-            (source.bitrate > 0 && quality.bitrate != source.bitrate)) {
-          continue;
-        }
-      }
-      matches.add(index);
-    }
-    return matches.length == 1 ? matches.single : null;
   }
 
   bool get _dirty {
@@ -1072,7 +1039,11 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final colors = context.appColors;
     final source = status.source;
     final subtitles = _textSubtitles(source);
-    final currentQualityIndex = _currentQualityIndex(source);
+    final qualityMenu = DesktopMpvRuntime.qualityMenu(source);
+    final currentQuality = qualityMenu.customGroups.values
+        .expand((choices) => choices)
+        .where((choice) => DesktopMpvRuntime.isCurrentQuality(source, choice))
+        .firstOrNull;
     final selectedTrackIsUnavailable =
         source.subtitleTrackGuid?.trim().isNotEmpty == true &&
         !subtitles.any((track) => track.guid == source.subtitleTrackGuid);
@@ -1095,7 +1066,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '视频片源',
+          '视频质量',
           style: TextStyle(
             color: colors.textPrimary,
             fontWeight: FontWeight.w600,
@@ -1110,32 +1081,25 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         else
           _buildTrackDropdown(
             dropdownKey: _qualityDropdownKey,
-            valueLabel: currentQualityIndex == null
-                ? '选择视频片源'
-                : _qualityLabel(source.qualities[currentQualityIndex]),
+            valueLabel: currentQuality == null
+                ? '选择视频质量'
+                : _qualityLabel(currentQuality),
             spec: !_busy && status.canControl
-                ? DesktopHoverDropdownSpec.single(
-                    title: '视频片源',
-                    width: 360,
-                    items: [
-                      for (final (index, quality) in source.qualities.indexed)
-                        TrackOptionSheetItem(
-                          id: '$index',
-                          title: _qualityLabel(quality),
-                        ),
-                    ],
-                    selectedId: currentQualityIndex?.toString(),
-                    onSelected: (id) {
-                      final index = int.parse(id);
-                      if (index == currentQualityIndex) return;
-                      _run(
-                        () => ExternalPlaybackHost(context).changeQuality(
-                          itemGuid: source.itemGuid,
-                          quality: source.qualities[index],
-                        ),
-                        failure: '片源切换失败，请稍后重试',
-                      );
-                    },
+                ? DesktopHoverDropdownSpec.custom(
+                    width: 420,
+                    contentBuilder: (_) => DesktopHoverQualityPanel(
+                      source: source,
+                      onSelected: (index) {
+                        _qualityDropdownKey.currentState?.hide();
+                        _run(
+                          () => ExternalPlaybackHost(context).changeQuality(
+                            itemGuid: source.itemGuid,
+                            quality: source.qualities[index],
+                          ),
+                          failure: '画质切换失败，请稍后重试',
+                        );
+                      },
+                    ),
                   )
                 : null,
           ),
@@ -1419,20 +1383,11 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
   }
 
-  static String _qualityLabel(PlaybackQualityOption quality) {
-    final resolution = quality.resolution.trim().isEmpty
-        ? '未知清晰度'
-        : quality.resolution.trim();
-    final source = quality.isOriginalProxy
-        ? '原画'
-        : quality.isDirectLink
-        ? '直链'
-        : '转码';
-    final bitrate = quality.bitrate > 0
-        ? ' · ${(quality.bitrate / 1000000).toStringAsFixed(1)} Mbps'
-        : '';
-    return '$resolution · $source$bitrate';
-  }
+  static String _qualityLabel(DesktopQualityChoice choice) => [
+    if (choice.isOriginal) '原画',
+    choice.displayTier,
+    DesktopMpvRuntime.qualityBitrateLabel(choice.quality.bitrate),
+  ].where((part) => part.isNotEmpty).join(' · ');
 
   static String _subtitleLabel(SubtitleTrackOption track) {
     final title = track.title.trim().isEmpty
