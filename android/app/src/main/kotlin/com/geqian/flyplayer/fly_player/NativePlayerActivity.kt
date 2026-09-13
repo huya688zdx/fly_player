@@ -63,6 +63,9 @@ import com.geqian.flyplayer.fly_player.oped.FlyOpedPublication
 import com.geqian.flyplayer.fly_player.oped.FlyOpedSegment
 import com.geqian.flyplayer.fly_player.oped.FlyOpedPending
 import com.geqian.flyplayer.fly_player.oped.FlyOpedEntryPolicy
+import com.geqian.flyplayer.fly_player.oped.FlyOpedAccess
+import com.geqian.flyplayer.fly_player.oped.flyOpedTimelineSegments
+import com.geqian.flyplayer.fly_player.oped.flyOpedTimelineCaps
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
@@ -1319,8 +1322,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var outroMaxMin = 4
     private var skipCountdownSec = 5
     private var introSkipDismissed = false
+    private var flyOpedAccess = FlyOpedAccess()
+    private var flyAccountCheckMs = 0L
+    private var flyAccountRequestRevision = 0L
+    private var flyAccountRequestPending = false
     private var flyOpedContext = UUID.randomUUID().toString()
     private var flyOped: FlyOpedPublication? = null
+        set(value) {
+            if (field === value) return
+            field = value
+            // Publication changes also redraw while paused, without waiting for
+            // another position tick. Invalidated contexts cannot leave a band.
+            markerView?.invalidate()
+        }
     private var flyOpedPending: FlyOpedPending? = null
     private var flyOpedPolicy = FlyOpedEntryPolicy()
     private var flyOpedResolveEpoch: Long? = null
@@ -2689,6 +2703,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             isAntiAlias = true
             color = ACCENT
         }
+        private val opedPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val opedLabelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = dp(10).toFloat()
+            textAlign = android.graphics.Paint.Align.CENTER
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
 
         override fun onDraw(canvas: android.graphics.Canvas) {
             val dur = lastDurationMs
@@ -2700,6 +2720,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val cy = height / 2f
             fun xFor(ms: Long): Float = left + span * (ms.coerceIn(0L, dur).toFloat() / dur)
 
+            for (segment in flyOpedTimelineSegments(flyOped, flyOpedAccess,
+                supportsVerifiedFileOped(), flyOpedContext, dur)) {
+                val startX = xFor(segment.startMs)
+                val endX = xFor(segment.endMs)
+                val color = if (segment.kind == "op") 0xFF67E8F9.toInt() else 0xFFFBBF24.toInt()
+                opedPaint.color = color
+                opedPaint.alpha = 170
+                canvas.drawRect(startX, cy - dp(3), endX, cy + dp(3), opedPaint)
+                opedPaint.alpha = 255
+                for ((capStart, capEnd) in flyOpedTimelineCaps(startX, endX, dp(1).coerceAtLeast(1).toFloat())) {
+                    canvas.drawRect(capStart, cy - dp(5), capEnd, cy + dp(5), opedPaint)
+                }
+                val label = if (segment.kind == "op") "OP" else "ED"
+                opedLabelPaint.color = color
+                if (endX - startX >= opedLabelPaint.measureText(label) + dp(4)) {
+                    canvas.drawText(label, (startX + endX) / 2f, cy + dp(15), opedLabelPaint)
+                }
+            }
             if (abRepeatMode == 2 && abLoopEndMs > abLoopStartMs) {
                 canvas.drawRect(xFor(abLoopStartMs), cy - dp(3), xFor(abLoopEndMs), cy + dp(3), abPaint)
             }
@@ -2860,6 +2898,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 前台恢复（从设置页/Flutter 播放器等返回）时主动拉一次 Flutter 全局 MPV 设置，
         // 让「只在启动注入」之外的外部改动也即时生效。带 diff 守卫，无变化不重下发内核。
         pullGlobalMpvSettingsOnResume()
+        refreshFlyAccountState(force = true)
         // 前台期间每 3s 周期回写一次播放进度（飞牛/Emby 共用），退出时再补一次。
         startPeriodicReport()
     }
@@ -2897,6 +2936,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val map = res as? Map<*, *> ?: return
         // 前台恢复回包若带最新本地化文案表，一并刷新；失败静默不影响画面设置套用。
         runCatching { NativeLocalizedStrings.installFromMap(map["localizedStrings"] as? Map<*, *>) }
+        // Account state is refreshed separately with request-revision guards.
+        // This global settings response can arrive after logout or a toggle.
         var mpvChanged = false
         (map["mpvAdvancedSettings"] as? Map<*, *>)?.let { s ->
             for ((k, v) in s) {
@@ -2951,6 +2992,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             (previousSeason.isNotEmpty() && previousSeason == effectiveLoadArgs["seasonGuid"]?.toString())
         loadArgsMap = effectiveLoadArgs
         resetFlyOped()
+        applyFlyOpedAccess(FlyOpedAccess.fromLoadArgs(effectiveLoadArgs, flyOpedAccess.enabled))
         refreshSeekThumbnails()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
         selectedAudioGuid = effectiveLoadArgs["audioTrackGuid"]?.toString().orEmpty()
@@ -3664,7 +3706,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
             })
         }
-        // 进度条 + 标记叠层（章节线 / AB 区间 / 书签点）。标记层在上但不拦触摸。
+        // 进度条 + 标记叠层（OP/ED 区间 / 章节线 / AB 区间 / 书签点）。不拦触摸。
         markerView = ProgressMarkerView(this).apply {
             setPadding(dp(12), 0, dp(12), 0) // 与 seekBar 水平 padding 对齐，使刻度落在轨道上
             isClickable = false
@@ -7111,12 +7153,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun updateIntroOutroSkip(state: MpvPlayerState) {
         if (!this::skipCard.isInitialized) return
         val dur = state.durationMs
-        if (!introOutroEnabled || dur <= 0 || completionActive) {
+        if (dur <= 0 || completionActive) {
             if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
             return
         }
         val pos = state.positionMs
-        val publication = flyOped
+        val publication = flyOped.takeIf { canConsumeFlyOped() }
         if (publication != null) {
             val segment = publication.at(pos)
             val dismissed = if (segment?.kind == "op") introSkipDismissed else outroSkipDismissed
@@ -7127,6 +7169,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             skipText.text = "${if (segment.kind == "op") "片头" else "片尾"} · 飞翔已核验 · ${formatTime(segment.endMs)}"
             skipAction = { skipFlyOped(publication, segment) }
             skipCard.visibility = View.VISIBLE
+            return
+        }
+        if (!introOutroEnabled) {
+            skipCard.visibility = View.GONE
+            skipAction = null
             return
         }
         // 有章节推断到的片头/片尾区间则精确跳转（跳到章节边界）；否则退回按设置时长上限的窗口。
@@ -7159,10 +7206,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    private fun resetFlyOped() {
+    private fun resetFlyOped(clearTail: Boolean = true) {
         finishFlyOped("cancelled")
-        flyEdTailProtected = false
-        flyEdPausedBeforeEnd = false
+        if (clearTail) {
+            flyEdTailProtected = false
+            flyEdPausedBeforeEnd = false
+            ++flyAccountRequestRevision
+            flyAccountRequestPending = false
+            flyAccountCheckMs = 0L
+        }
         flyOpedContext = UUID.randomUUID().toString()
         flyOped = null
         flyOpedPolicy = FlyOpedEntryPolicy()
@@ -7182,11 +7234,55 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         loadArgsMap["playbackMode"] == "originalQuality" &&
             loadArgsMap["isDownloadedFile"] == false && loadArgsMap["externalLocalSource"] == false
 
+    private fun canConsumeFlyOped(): Boolean = flyOpedAccess.canConsume(supportsVerifiedFileOped())
+
+    private fun refreshFlyOpedPanel() {
+        if (panelVisible && panelStack.lastOrNull()?.title == localizedString(R.string.player_text_0079)) renderTopPanel()
+    }
+
+    private fun applyFlyOpedAccess(next: FlyOpedAccess) {
+        if (next == flyOpedAccess) return
+        flyOpedAccess = next
+        // Logout/account changes invalidate in-flight resolves and seeks, but an
+        // already skipped ED still owns its remaining tail until the next load.
+        resetFlyOped(clearTail = false)
+        if (this::skipCard.isInitialized) {
+            skipCard.visibility = View.GONE
+            skipAction = null
+        }
+        if (this::settingsStore.isInitialized) persistIntroOutro()
+        refreshFlyOpedPanel()
+    }
+
+    private fun refreshFlyAccountState(force: Boolean = false, refreshPublication: Boolean = false) {
+        if (activityDestroying || !this::playerSurface.isInitialized) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!force && (flyAccountRequestPending || now - flyAccountCheckMs < 5000L)) return
+        flyAccountCheckMs = now
+        flyAccountRequestPending = true
+        val request = ++flyAccountRequestRevision
+        NativePlayerReverseBridge.dispatch("getFlyAccountState", emptyMap(),
+            onResult = { result -> runOnUiThread {
+                if (activityDestroying || request != flyAccountRequestRevision) return@runOnUiThread
+                flyAccountRequestPending = false
+                applyFlyOpedAccess(FlyOpedAccess.fromAccountState(result, flyOpedAccess.enabled))
+                if (refreshPublication && canConsumeFlyOped()) {
+                    flyOpedResolveEpoch = null
+                    observeFlyOped(playerSurface.state)
+                }
+            } }, onError = { runOnUiThread {
+                if (activityDestroying || request != flyAccountRequestRevision) return@runOnUiThread
+                flyAccountRequestPending = false
+                applyFlyOpedAccess(FlyOpedAccess.fromAccountState(null, flyOpedAccess.enabled))
+            } })
+    }
+
     private fun observeFlyOped(state: MpvPlayerState) {
+        refreshFlyAccountState()
         if (flyEdTailProtected && state.playbackPhase != MpvPlaybackPhase.ENDED.wireValue) {
             flyEdPausedBeforeEnd = state.paused
         }
-        if (!supportsVerifiedFileOped()) {
+        if (!canConsumeFlyOped()) {
             finishFlyOped("cancelled")
             flyOped = null
             return
@@ -7201,8 +7297,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 onResult = { result -> runOnUiThread {
                     if (activityDestroying || context != flyOpedContext) return@runOnUiThread
                     flyOpedResolving = false
-                    if (playerSurface.state.activeSeekEpoch != epoch) return@runOnUiThread
+                    if (!canConsumeFlyOped() || playerSurface.state.activeSeekEpoch != epoch) return@runOnUiThread
                     flyOped = FlyOpedPublication.parse(result, context, epoch, loadArgsMap["itemGuid"]?.toString().orEmpty(), loadArgsMap["mediaGuid"]?.toString().orEmpty())
+                    refreshFlyOpedPanel()
                 } }, onError = { runOnUiThread { if (context == flyOpedContext) flyOpedResolving = false } })
         }
         val publication = flyOped ?: return
@@ -7230,11 +7327,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun flyAutomaticAllowed(state: MpvPlayerState): Boolean =
-        introOutroEnabled && state.visualPlaybackReady && !state.paused && !state.buffering &&
+        canConsumeFlyOped() && state.visualPlaybackReady && !state.paused && !state.buffering &&
             state.error == null && !completionActive && abRepeatMode == 0
 
     private fun skipFlyOped(publication: FlyOpedPublication, segment: FlyOpedSegment, automatic: Boolean = false) {
-        if (!supportsVerifiedFileOped() || !introOutroEnabled || flyOpedPending != null || flyOpedAuthorizing || flyOped !== publication || !segment.contains(playerSurface.state.positionMs)) return
+        if (!canConsumeFlyOped() || flyOpedPending != null || flyOpedAuthorizing || flyOped !== publication || !segment.contains(playerSurface.state.positionMs)) return
         val context = flyOpedContext
         val generation = playerSurface.state.activeSeekEpoch
         flyOpedAuthorizing = true
@@ -7246,7 +7343,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val authorized = FlyOpedPublication.parse(result, context, generation, loadArgsMap["itemGuid"]?.toString().orEmpty(), loadArgsMap["mediaGuid"]?.toString().orEmpty())
             if (authorized != publication) { flyOped = null; return@runOnUiThread }
             val state = playerSurface.state
-            if (!supportsVerifiedFileOped() || !introOutroEnabled || (automatic && !flyAutomaticAllowed(state)) || generation != state.activeSeekEpoch || flyOped !== publication || !segment.contains(state.positionMs)) return@runOnUiThread
+            if (!canConsumeFlyOped() || (automatic && !flyAutomaticAllowed(state)) || generation != state.activeSeekEpoch || flyOped !== publication || !segment.contains(state.positionMs)) return@runOnUiThread
             val pending = FlyOpedPending(publication, segment, UUID.randomUUID().toString(), generation, state.positionMs)
             if (segment.kind == "ed") {
                 flyEdTailProtected = true
@@ -7733,6 +7830,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     pushPanel(PanelPage(localizedString(R.string.player_text_0078)) { buildPlaybackBehaviorSettingsPage() })
                 },
                 panelNavRow(localizedString(R.string.player_text_0079)) {
+                    refreshFlyAccountState(force = true)
                     pushPanel(PanelPage(localizedString(R.string.player_text_0079)) { buildIntroOutroPage() })
                 },
                 panelNavRow(localizedString(R.string.player_text_0080)) {
@@ -8006,12 +8104,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerSettingsStore.KEY_INTRO_OUTRO,
             linkedMapOf(
                 "enabled" to false, "introMaxMin" to 2, "outroMaxMin" to 2, "skipCountdownSec" to 5,
+                "flyVerifiedEnabled" to true,
             ),
         )
         introOutroEnabled = (io["enabled"] as? Boolean) ?: false
         introMaxMin = (io["introMaxMin"] as? Number)?.toInt() ?: 2
         outroMaxMin = (io["outroMaxMin"] as? Number)?.toInt() ?: 2
         skipCountdownSec = (io["skipCountdownSec"] as? Number)?.toInt() ?: 5
+        flyOpedAccess = FlyOpedAccess.fromLoadArgs(loadArgsMap, (io["flyVerifiedEnabled"] as? Boolean) ?: true)
         // 截图设置与 Flutter 端共享同一份偏好（FlutterSharedPreferences），两端互通不漂移。
         screenshotIncludeSubtitles = loadSharedScreenshotIncludeSubtitles()
         screenshotSaveMode = loadSharedScreenshotSaveMode()
@@ -8251,6 +8351,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         linkedMapOf<String, Any?>(
             "enabled" to introOutroEnabled, "introMaxMin" to introMaxMin,
             "outroMaxMin" to outroMaxMin, "skipCountdownSec" to skipCountdownSec,
+            "flyVerifiedEnabled" to flyOpedAccess.enabled,
         ),
     )
 
@@ -9458,22 +9559,44 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildIntroOutroPage() {
+        refreshFlyAccountState()
+        if (flyOpedAccess.signedIn) {
+            addPanelRow(panelToggle("飞翔已核验区间", flyOpedAccess.enabled) { enabled ->
+                // Invalidate any older account refresh before saving this choice.
+                ++flyAccountRequestRevision
+                flyAccountRequestPending = false
+                applyFlyOpedAccess(flyOpedAccess.copy(enabled = enabled))
+                NativePlayerReverseBridge.dispatch("persistFlyOpedSettings",
+                    mapOf("enabled" to enabled, "statsScope" to loadArgsMap["statsScope"]),
+                    onResult = { _ -> runOnUiThread { refreshFlyAccountState(force = true, refreshPublication = true) } },
+                    onError = { runOnUiThread { refreshFlyAccountState(force = true) } })
+            })
+            val publication = flyOped.takeIf { canConsumeFlyOped() }
+            addPanelRow(TextView(this).apply {
+                text = if (publication == null) "当前文件暂无飞翔已核验区间" else publication.segments
+                    .filter { it.kind in listOf("op", "ed") && it.policy != "never" }
+                    .joinToString("\n") { "${if (it.kind == "op") "片头" else "片尾"} ${formatTime(it.startMs)} – ${formatTime(it.endMs)} · ${if (it.policy == "auto") "自动跳过" else "仅提示"}" }
+                setTextColor(TEXT_DIM)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+            })
+        }
         addPanelRow(panelToggle(localizedString(R.string.player_text_0275), introOutroEnabled) { v ->
-            introOutroEnabled = v; renderTopPanel()
+            introOutroEnabled = v; persistIntroOutro(); renderTopPanel()
         })
         if (introOutroEnabled) {
             addPanelRow(panelSlider(localizedString(R.string.player_text_0276), 1f, 4f, introMaxMin.toFloat(), steps = 3, format = { localizedString(R.string.player_minutes_format, it.toInt()) }) { v ->
-                introMaxMin = v.toInt()
+                introMaxMin = v.toInt(); persistIntroOutro()
             })
             addPanelRow(panelSlider(localizedString(R.string.player_text_0277), 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { localizedString(R.string.player_minutes_format, it.toInt()) }) { v ->
-                outroMaxMin = v.toInt()
+                outroMaxMin = v.toInt(); persistIntroOutro()
             })
             addPanelRow(panelSlider(localizedString(R.string.player_text_0278), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { localizedString(R.string.player_seconds_format, it.toInt()) }) { v ->
-                skipCountdownSec = v.toInt()
+                skipCountdownSec = v.toInt(); persistIntroOutro()
             })
         }
-        addPanelRow(panelSectionHeader(localizedString(R.string.player_current_video)))
-        // TODO(数据接入)：片头片尾时间点暂无（待 loadArgs 带 intro/outro 或反向通道检测）。
+        addPanelRow(panelSectionHeader("章节与固定时长"))
+        // This section describes the pre-existing local chapter/fixed fallback.
         addPanelRow(TextView(this).apply {
             text = localizedString(R.string.player_no_intro_outro_detected)
             setTextColor(TEXT_DIM)
