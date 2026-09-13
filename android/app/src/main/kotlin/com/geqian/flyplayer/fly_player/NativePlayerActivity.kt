@@ -1329,6 +1329,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var flyOpedAuthorizing = false
     private var flyOpedStartedMs = 0L
     private var flyOpedObservedEpoch: Long? = null
+    private var flyEdTailProtected = false
+    private var flyEdPausedBeforeEnd = false
     private var outroSkipDismissed = false
     private lateinit var skipCard: LinearLayout
     private lateinit var skipText: TextView
@@ -7159,6 +7161,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun resetFlyOped() {
         finishFlyOped("cancelled")
+        flyEdTailProtected = false
+        flyEdPausedBeforeEnd = false
         flyOpedContext = UUID.randomUUID().toString()
         flyOped = null
         flyOpedPolicy = FlyOpedEntryPolicy()
@@ -7172,7 +7176,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun flyScopeArgs(): Map<String, Any?> = mapOf(
         "statsScope" to loadArgsMap["statsScope"], "itemGuid" to loadArgsMap["itemGuid"], "mediaGuid" to loadArgsMap["mediaGuid"])
 
+    // A verifies the original NAS file, not transcodes, derivative direct links
+    // or local copies. Missing delivery facts are not original proof.
+    private fun supportsVerifiedFileOped(): Boolean =
+        loadArgsMap["playbackMode"] == "originalQuality" &&
+            loadArgsMap["isDownloadedFile"] == false && loadArgsMap["externalLocalSource"] == false
+
     private fun observeFlyOped(state: MpvPlayerState) {
+        if (flyEdTailProtected && state.playbackPhase != MpvPlaybackPhase.ENDED.wireValue) {
+            flyEdPausedBeforeEnd = state.paused
+        }
+        if (!supportsVerifiedFileOped()) {
+            finishFlyOped("cancelled")
+            flyOped = null
+            return
+        }
         if (state.loadNonce != (loadArgsMap["loadNonce"] as? Number)?.toInt()) return
         val context = flyOpedContext
         if (state.visualPlaybackReady && flyOped == null && !flyOpedResolving && flyOpedResolveEpoch != state.activeSeekEpoch) {
@@ -7216,7 +7234,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             state.error == null && !completionActive && abRepeatMode == 0
 
     private fun skipFlyOped(publication: FlyOpedPublication, segment: FlyOpedSegment, automatic: Boolean = false) {
-        if (!introOutroEnabled || flyOpedPending != null || flyOpedAuthorizing || flyOped !== publication || !segment.contains(playerSurface.state.positionMs)) return
+        if (!supportsVerifiedFileOped() || !introOutroEnabled || flyOpedPending != null || flyOpedAuthorizing || flyOped !== publication || !segment.contains(playerSurface.state.positionMs)) return
         val context = flyOpedContext
         val generation = playerSurface.state.activeSeekEpoch
         flyOpedAuthorizing = true
@@ -7228,8 +7246,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val authorized = FlyOpedPublication.parse(result, context, generation, loadArgsMap["itemGuid"]?.toString().orEmpty(), loadArgsMap["mediaGuid"]?.toString().orEmpty())
             if (authorized != publication) { flyOped = null; return@runOnUiThread }
             val state = playerSurface.state
-            if (!introOutroEnabled || (automatic && !flyAutomaticAllowed(state)) || generation != state.activeSeekEpoch || flyOped !== publication || !segment.contains(state.positionMs)) return@runOnUiThread
+            if (!supportsVerifiedFileOped() || !introOutroEnabled || (automatic && !flyAutomaticAllowed(state)) || generation != state.activeSeekEpoch || flyOped !== publication || !segment.contains(state.positionMs)) return@runOnUiThread
             val pending = FlyOpedPending(publication, segment, UUID.randomUUID().toString(), generation, state.positionMs)
+            if (segment.kind == "ed") {
+                flyEdTailProtected = true
+                flyEdPausedBeforeEnd = state.paused
+                cancelAutoNext()
+            }
             flyOpedPending = pending
             flyOpedStartedMs = android.os.SystemClock.elapsedRealtime()
             NativePlayerReverseBridge.dispatch("recordFlyOpedAction", mapOf("statsScope" to loadArgsMap["statsScope"], "event" to pending.event("intent")))
@@ -7408,9 +7431,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
         val insideCompletionWindow = isInsideAutoNextPromptWindow(state)
         val shouldShowAutoNext =
-            shouldAutoNext && (insideCompletionWindow || playbackEnded)
+            shouldAutoNext && (insideCompletionWindow || playbackEnded) &&
+                (!flyEdTailProtected || (playbackEnded && !flyEdPausedBeforeEnd))
         val shouldShowCompleted =
-            nativePanelShouldShowCompletedOverlay(
+            (!flyEdTailProtected || playbackEnded) && nativePanelShouldShowCompletedOverlay(
                 autoPlayEnabled = autoPlayEnabled,
                 hasNextEpisode = hasNext,
                 playbackEnded = playbackEnded,

@@ -1,5 +1,13 @@
 import 'dart:convert';
 
+/// A published ED target can leave a real tail after the skip. Its near-end
+/// position must not start the legacy early countdown, especially while paused.
+bool flyOpedAllowsAutoNext({
+  required bool protectedEdTail,
+  required bool playbackEnded,
+  required bool pausedByUser,
+}) => !protectedEdTail || (playbackEnded && !pausedByUser);
+
 /// A/B shared source identifiers. These never manufacture a file identity.
 class FlySourceRef {
   const FlySourceRef({

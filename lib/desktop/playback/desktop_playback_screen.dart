@@ -155,6 +155,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   bool _flySeekCommandAccepted = false;
   bool _flySamplePending = false;
   bool _flyAuthorizing = false;
+  bool _flyEdTailProtected = false;
   int _preloadGeneration = 0;
   String _preloadingItemGuid = '';
   bool _subtitleWindowPending = false;
@@ -1675,7 +1676,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   void _startAutoNextCountdown() {
-    if (_autoNextSeconds > 0 ||
+    if (!flyOpedAllowsAutoNext(protectedEdTail: _flyEdTailProtected,
+          playbackEnded: _player.state.completed, pausedByUser: _pausedByUser) ||
+        _autoNextSeconds > 0 ||
         _autoNextSuppressed ||
         !_autoPlayEnabled ||
         _nextEpisode == null ||
@@ -1822,7 +1825,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   FlyOpedSet? get _currentFlyOped {
-    if (_flyScopeEpoch != _flyClient.epoch ||
+    if (!_source.supportsVerifiedFileOped || _flyScopeEpoch != _flyClient.epoch ||
         _flyClient.sourceRef(statsScope: _source.statsScope, itemGuid: _source.itemGuid, mediaGuid: _source.mediaGuid) == null) {
       return null;
     }
@@ -1831,6 +1834,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   void _resetFlyOped() {
     _finishFlyAction('cancelled');
+    _flyEdTailProtected = false;
     _flyOped = null;
     _flyAuthorizing = false;
     _flySkipPolicy = FlyOpedPlaybackPolicy();
@@ -1841,6 +1845,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Future<void> _resolveFlyOped() async {
     final contextId = _flyContextId, source = _source;
+    if (!source.supportsVerifiedFileOped) return;
     final generation = _danmakuSeekRevision, sourceGeneration = _sourceChangeGeneration;
     final result = await _flyClient.resolve(statsScope: source.statsScope, itemGuid: source.itemGuid,
       mediaGuid: source.mediaGuid, contextId: contextId, generation: generation);
@@ -1870,6 +1875,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!_introOutroEnabled || (automatic && !_flyAutomaticAllowed) || !segment.contains(_player.state.position.inMilliseconds)) return;
     final action = FlyOpedAction(set: set, segment: segment, generation: _danmakuSeekRevision,
       positionMs: _player.state.position.inMilliseconds, actionId: FlyPlaybackServiceClient.newId());
+    if (segment.kind == 'ed') {
+      _flyEdTailProtected = true;
+      _cancelAutoNext(suppress: false);
+    }
     _flyAction = action;
     _flySeekCommandAccepted = false;
     unawaited(_flyClient.record(action.event('intent'), statsScope: _source.statsScope));
