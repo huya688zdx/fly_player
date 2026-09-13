@@ -27,6 +27,10 @@ import '../../services/native_danmaku_prefetch.dart';
 import '../../services/fly_data/fly_oped.dart';
 import '../../services/fly_data/fly_playback_service_client.dart';
 import '../../widgets/fly_assistant_panel.dart';
+import '../../services/fly_data/fly_nas_danmaku_cache.dart';
+import '../../services/fly_data/fly_data_service.dart';
+import '../../services/play_stats/play_stats_database.dart';
+import '../../services/play_stats/play_stats_service.dart';
 import 'desktop_danmaku_overlay.dart';
 import 'desktop_mpv_runtime.dart';
 import 'desktop_playback_chapters.dart';
@@ -209,6 +213,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   String _danmakuSourceLabel = '';
   bool _danmakuLoading = false;
   int _danmakuLoadGeneration = 0;
+  FlyNasDanmakuStatus _nasDanmakuStatus = FlyNasDanmakuStatus.notRequested;
   int _danmakuSeekRevision = 0;
   Map<String, String> _mpvSettings = Map<String, String>.from(
     MpvSettingsCatalog.defaults,
@@ -679,6 +684,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         _danmakuLoading = true;
         _danmakuComments = const <DanmakuComment>[];
         _danmakuSourceLabel = '';
+        _nasDanmakuStatus = FlyDataService.instance.session == null
+            ? FlyNasDanmakuStatus.notSignedIn
+            : source.statsScope.isEmpty
+            ? FlyNasDanmakuStatus.notBound
+            : FlyNasDanmakuStatus.notRequested;
       });
     }
     try {
@@ -700,6 +710,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
               itemGuid: source.itemGuid,
               mediaGuid: source.mediaGuid,
               seasonGuid: source.seasonGuid,
+              nasCache: FlyNasDanmakuCache(
+                onStatus: (status) {
+                  if (mounted &&
+                      generation == _danmakuLoadGeneration &&
+                      identical(source, _source)) {
+                    _updateView(() => _nasDanmakuStatus = status);
+                  }
+                },
+              ),
             ) ??
             '';
       }
@@ -729,6 +748,71 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         _updateView(() => _danmakuLoading = false);
       }
     }
+  }
+
+  /// User initiated fetch gets its own bounded budget and leaves the current
+  /// comments in place until a verified replacement is completely available.
+  Future<FlyNasDanmakuStatus> _reloadNasDanmaku() async {
+    final generation = ++_danmakuLoadGeneration;
+    final source = _source;
+    bool current() =>
+        mounted &&
+        generation == _danmakuLoadGeneration &&
+        identical(source, _source);
+    var status = FlyNasDanmakuStatus.failed;
+    _updateView(() => _danmakuLoading = true);
+    try {
+      final result =
+          await FlyNasDanmakuCache(
+            budget: const Duration(seconds: 12),
+            onStatus: (value) => status = value,
+          ).resolve(
+            statsScope: source.statsScope,
+            itemGuid: source.itemGuid,
+            mediaGuid: source.mediaGuid,
+            isCurrent: current,
+          );
+      if (!current() || result == null) return status;
+      final path = await NativeDanmakuPrefetch.writeNasPayloadToFile(
+        result: result,
+        settings: _danmakuSettings.copyWith(enabled: true),
+        isCurrent: current,
+      );
+      if (!current() || path == null || !result.isCurrent()) {
+        status = FlyNasDanmakuStatus.failed;
+        return status;
+      }
+      widget.session.danmakuFilePath = path;
+      _updateView(() {
+        _danmakuComments = result.comments;
+        _danmakuSourceLabel = result.sourceLabel;
+      });
+      await _updateDanmakuSettings(_danmakuSettings.copyWith(enabled: true));
+      return status = FlyNasDanmakuStatus.ready;
+    } catch (_) {
+      return status = FlyNasDanmakuStatus.failed;
+    } finally {
+      if (current()) {
+        _updateView(() {
+          _danmakuLoading = false;
+          _nasDanmakuStatus = status;
+        });
+      }
+    }
+  }
+
+  String get _nasScopeLabel {
+    final stats = PlayStatsService.instance;
+    final reference =
+        (stats.database as SqflitePlayStatsDatabase).bindingReference;
+    final binding = _source.statsScope == stats.currentScope
+        ? switch (reference['backend_kind']) {
+            'feiniu' => '飞牛影视',
+            'emby' => 'Emby',
+            _ => '未选择飞翔媒体绑定',
+          }
+        : '播放连接已改变';
+    return '$binding · ${_source.title}';
   }
 
   Future<void> _updateDanmakuSettings(DanmakuSettings settings) async {
@@ -3231,6 +3315,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Widget _buildDanmakuSourcesPage(VoidCallback onApplied) =>
       DesktopDanmakuSourcePanel(
+        key: ValueKey(
+          'nas:${_source.statsScope}:${_source.itemGuid}:${_source.mediaGuid}',
+        ),
         currentSourceLabel: _danmakuSourceLabel,
         commentCount: _danmakuComments.length,
         loading: _danmakuLoading,
@@ -3238,6 +3325,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             ? _source.seriesTitle
             : _source.title,
         currentTmdbId: _source.tmdbId,
+        nasScopeLabel: _nasScopeLabel,
+        nasStatus: _nasDanmakuStatus,
+        onReloadNas: _reloadNasDanmaku,
         onLoadSavedSources: _loadSavedDanmakuSources,
         onSearch: _searchDanmakuSources,
         onSelectSavedSource: _selectSavedDanmakuSource,
