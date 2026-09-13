@@ -111,13 +111,38 @@ class FlyDataApi {
       final response = await send();
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (error) {
-      final body = error.response?.data;
-      final detail = body is Map ? body['error'] : null;
-      final code = detail is Map ? detail['code'] : null;
+      final code = await _safeErrorCode(error.response?.data);
       // DioException.toString can contain request details; never surface/log it.
       throw StateError(
         code == null ? '数据服务连接失败，请检查地址和网络后手动重试。' : '数据服务拒绝请求：$code',
       );
+    }
+  }
+
+  /// Playback reads use ResponseType.stream, including HTTP error bodies.
+  /// Preserve only a short machine code, never the server's private message.
+  Future<String?> _safeErrorCode(dynamic body) async {
+    try {
+      if (body is ResponseBody) {
+        final type = body.headers[Headers.contentTypeHeader]?.firstOrNull ?? '';
+        if (type.split(';').first.trim().toLowerCase() != 'application/json') {
+          await body.stream.listen(null).cancel();
+          return null;
+        }
+        final bytes = BytesBuilder(copy: false);
+        await for (final chunk in body.stream) {
+          if (bytes.length + chunk.length > 16 * 1024) return null;
+          bytes.add(chunk);
+        }
+        body = jsonDecode(utf8.decode(bytes.takeBytes()));
+      }
+      final detail = body is Map ? body['error'] : null;
+      final code = detail is Map ? detail['code'] : null;
+      return code is String && RegExp(r'^[A-Z0-9_]{1,80}$').hasMatch(code)
+          ? code
+          : null;
+    } catch (_) {
+      return null;
     }
   }
 

@@ -39,6 +39,35 @@ class FlyNasDanmakuResult {
   final bool Function() isCurrent;
 }
 
+/// A safe, actionable status; never contains addresses, credentials or raw errors.
+enum FlyNasDanmakuStatus {
+  notRequested,
+  ready,
+  notSignedIn,
+  notBound,
+  notFound,
+  miss,
+  stale,
+  disabled,
+  timeout,
+  failed,
+  invalidPayload;
+
+  String get message => switch (this) {
+    notRequested => '可从飞翔数据服务读取已保存并关联的弹幕。',
+    ready => '已成功读取 NAS 保存的弹幕。',
+    notSignedIn => '请先登录飞翔账号，再选择已绑定的媒体连接。',
+    notBound => '当前播放未关联飞翔媒体绑定，请从飞翔账号选择连接后重新播放。',
+    notFound => '当前单集不在此连接的 NAS 目录中，请核对连接并在后台同步目录。',
+    miss => '当前连接的这一集尚未关联可用弹幕。请到后台对应单集资料页获取或复用已保存弹幕。',
+    stale => '当前文件的弹幕需要更新或重新确认，请在后台该单集资料页处理后重试。',
+    disabled => 'NAS 弹幕服务尚未启用，请在飞翔后台检查弹幕设置。',
+    timeout => 'NAS 读取超时，可重新获取；也请检查飞翔服务的外网或 VPN 地址。',
+    failed => '暂时无法读取 NAS 弹幕，请检查飞翔账号和服务连接后重试。',
+    invalidPayload => 'NAS 弹幕内容或版本校验未通过，请在后台重新保存后重试。',
+  };
+}
+
 /// Reads an already confirmed NAS cache. Never matches titles or schedules work.
 /// Every request captures the Fly session and the source's original binding.
 class FlyNasDanmakuCache {
@@ -49,6 +78,7 @@ class FlyNasDanmakuCache {
     String Function()? bindingReader,
     FlyDataApi Function(String, String)? apiFactory,
     this.budget = const Duration(milliseconds: 1200),
+    this.onStatus,
   }) : _sessionReader =
            sessionReader ?? (() => FlyDataService.instance.session),
        _scopeReader =
@@ -71,6 +101,7 @@ class FlyNasDanmakuCache {
   final String Function() _scopeReader, _scopeEpochReader, _bindingReader;
   final FlyDataApi Function(String, String) _apiFactory;
   final Duration budget;
+  final void Function(FlyNasDanmakuStatus)? onStatus;
 
   static String _currentBinding() =>
       (PlayStatsService.instance.database as SqflitePlayStatsDatabase)
@@ -85,7 +116,13 @@ class FlyNasDanmakuCache {
     bool Function()? isCurrent,
   }) async {
     final session = _sessionReader();
-    if (!enabled || session == null || itemGuid.isEmpty || statsScope.isEmpty) {
+    if (!enabled) return null;
+    if (session == null) {
+      onStatus?.call(FlyNasDanmakuStatus.notSignedIn);
+      return null;
+    }
+    if (itemGuid.isEmpty || statsScope.isEmpty) {
+      onStatus?.call(FlyNasDanmakuStatus.notBound);
       return null;
     }
     final binding = _bindingReader();
@@ -94,6 +131,7 @@ class FlyNasDanmakuCache {
         statsScope != _scopeReader() ||
         statsScope !=
             PlayStatsService.scopeForBinding(session.accountKey, binding)) {
+      onStatus?.call(FlyNasDanmakuStatus.notBound);
       return null;
     }
     bool valid() =>
@@ -106,6 +144,7 @@ class FlyNasDanmakuCache {
     final api = _apiFactory(session.serverUrl, session.token);
     final elapsed = Stopwatch()..start();
     var expired = false;
+    var status = FlyNasDanmakuStatus.invalidPayload;
     Future<FlyNasDanmakuResult?> load() async {
       final resolved = await api.get(
         '/danmaku/resolve',
@@ -115,7 +154,16 @@ class FlyNasDanmakuCache {
           if (mediaGuid.isNotEmpty) 'remote_media_source_id': mediaGuid,
         },
       );
-      if (expired || !valid() || resolved['status'] != 'ready') return null;
+      if (expired || !valid()) return null;
+      if (resolved['status'] != 'ready') {
+        status = switch (resolved['status']) {
+          'miss' => FlyNasDanmakuStatus.miss,
+          'stale' => FlyNasDanmakuStatus.stale,
+          'disabled' => FlyNasDanmakuStatus.disabled,
+          _ => FlyNasDanmakuStatus.failed,
+        };
+        return null;
+      }
       final id = resolved['match_id'];
       final revision = resolved['revision'];
       final version = resolved['version_key'];
@@ -144,7 +192,10 @@ class FlyNasDanmakuCache {
       if (items is! List || items.isEmpty || items.length > 100000) return null;
       final comments = <DanmakuComment>[];
       for (final item in items) {
-        if (elapsed.elapsed > budget) return null;
+        if (elapsed.elapsed > budget) {
+          status = FlyNasDanmakuStatus.timeout;
+          return null;
+        }
         if (item is! Map) return null;
         final time = item['time_ms'],
             color = item['color'],
@@ -175,6 +226,7 @@ class FlyNasDanmakuCache {
         );
       }
       if (expired || !valid()) return null;
+      status = FlyNasDanmakuStatus.ready;
       return FlyNasDanmakuResult(
         comments: comments,
         sourceKey: 'nas:$id:$revision:$version',
@@ -188,14 +240,19 @@ class FlyNasDanmakuCache {
         budget,
         onTimeout: () {
           expired = true;
+          status = FlyNasDanmakuStatus.timeout;
           return null;
         },
       );
-    } catch (_) {
+    } catch (error) {
+      status = error is StateError && error.message == '数据服务拒绝请求：NOT_FOUND'
+          ? FlyNasDanmakuStatus.notFound
+          : FlyNasDanmakuStatus.failed;
       return null;
     } finally {
       expired = true;
       api.close();
+      if (valid()) onStatus?.call(status);
     }
   }
 

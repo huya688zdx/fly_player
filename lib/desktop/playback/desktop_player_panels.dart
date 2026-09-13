@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../media_backend/detail/media_season_summary.dart';
 
 import '../../danmaku/models/danmaku_settings.dart';
+import '../../services/fly_data/fly_nas_danmaku_cache.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../playback/bookmarks/bookmark_store.dart';
 import '../../playback/playback_source.dart';
@@ -680,6 +681,9 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
     required this.loading,
     required this.initialKeyword,
     this.currentTmdbId = '',
+    this.nasScopeLabel = '',
+    this.nasStatus = FlyNasDanmakuStatus.notRequested,
+    this.onReloadNas,
     required this.onLoadSavedSources,
     required this.onSearch,
     required this.onSelectSavedSource,
@@ -695,6 +699,9 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final bool loading;
   final String initialKeyword;
   final String currentTmdbId;
+  final String nasScopeLabel;
+  final FlyNasDanmakuStatus nasStatus;
+  final Future<FlyNasDanmakuStatus> Function()? onReloadNas;
   final Future<List<Map<String, dynamic>>> Function() onLoadSavedSources;
   final Future<List<Map<String, dynamic>>> Function(String keyword) onSearch;
   final Future<bool> Function(Map<String, dynamic> source) onSelectSavedSource;
@@ -718,6 +725,8 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
   bool _loadingSources = true;
   bool _searching = false;
   bool _applying = false;
+  bool _loadingNas = false;
+  FlyNasDanmakuStatus? _nasStatus;
 
   @override
   void initState() {
@@ -796,6 +805,26 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     setState(() => _applying = false);
   }
 
+  Future<void> _reloadNas() async {
+    if (_applying || _loadingNas || widget.onReloadNas == null) return;
+    setState(() {
+      _loadingNas = true;
+      _applying = true;
+    });
+    var status = FlyNasDanmakuStatus.failed;
+    try {
+      status = await widget.onReloadNas!();
+    } catch (_) {
+      // Preserve the current source and display a safe retry message.
+    }
+    if (!mounted) return;
+    setState(() {
+      _nasStatus = status;
+      _loadingNas = false;
+      _applying = false;
+    });
+  }
+
   Future<void> _delete(Map<String, dynamic> source) async {
     if (_applying) return;
     await widget.onDeleteSavedSource(source);
@@ -847,6 +876,36 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                     value: currentSource.isEmpty ? '未选择' : currentSource,
                     description: currentStatus,
                   ),
+                  if (widget.onReloadNas != null) ...<Widget>[
+                    const SizedBox(height: 10),
+                    _SettingsStatusCard(
+                      title: 'NAS 已保存弹幕',
+                      value: widget.nasScopeLabel,
+                      description: _loadingNas
+                          ? '正在获取 NAS 弹幕…'
+                          : (_nasStatus ?? widget.nasStatus).message,
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+                      child: Text(
+                        '按当前媒体连接、单集和文件版本匹配。飞牛与 Emby 中同名节目不会自动共用弹幕。',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _applying || widget.loading
+                            ? null
+                            : () => unawaited(_reloadNas()),
+                        icon: const Icon(
+                          Icons.cloud_download_outlined,
+                          size: 18,
+                        ),
+                        label: const Text('重新获取 NAS 弹幕'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   _SettingsMenuTile(
                     title: '导入本地弹幕',
