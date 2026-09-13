@@ -182,12 +182,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               enabled: !account.busy,
               keyboard: TextInputType.url,
             ),
-            _field(
-              username,
-              '飞翔账号',
-              hint: '与飞翔管理后台共用',
-              enabled: !account.busy,
-            ),
+            _field(username, '飞翔账号', hint: '与飞翔管理后台共用', enabled: !account.busy),
             _field(
               password,
               '密码',
@@ -226,17 +221,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                   ? null
                   : () => account.enterLegacyMode().catchError((Object _) {}),
               icon: const Icon(Icons.lan_outlined, size: 18),
-              label: const Text('暂用原本地媒体连接'),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '仅在这台设备连接媒体，稍后可切回飞翔账号。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: context.appColors.textMuted,
-                fontSize: 12,
-                height: 1.5,
-              ),
+              label: const Text('媒体账号登录'),
             ),
           ],
         ),
@@ -360,7 +345,7 @@ class FlyBindingsScreen extends StatelessWidget {
       const SizedBox(height: 28),
       _FlySectionTitle(
         title: '我的媒体来源',
-        subtitle: '已同步绑定，选择来源即可连接。',
+        subtitle: '${account.bindings.length} 个来源',
         action: IconButton(
           tooltip: '刷新媒体来源',
           onPressed: account.busy ? null : () => _run(account.refresh),
@@ -431,55 +416,27 @@ class FlyBindingsScreen extends StatelessWidget {
           shape: const Border(),
           collapsedShape: const Border(),
           leading: const Icon(Icons.tune_rounded),
-          title: const Text('管理与连接设置'),
-          subtitle: const Text('服务地址、历史同步和本地连接'),
+          title: const Text('设置'),
           children: [
             if (session.role == 'admin')
               _managementRow(
                 icon: Icons.dns_outlined,
-                title: '登记媒体服务器',
-                subtitle: '为账号添加可绑定的飞牛、Emby 或 Jellyfin 服务',
+                title: '添加服务器',
                 onTap: account.busy
                     ? null
                     : () => _serverForm(context, account),
               ),
             _managementRow(
               icon: Icons.public_rounded,
-              title: '飞翔服务地址',
-              subtitle: '当前入口：${session.serverUrl}',
+              title: '服务地址',
+              subtitle: session.serverUrl,
               onTap: account.busy
                   ? null
-                  : () async {
-                      final values = await flyForm(context, '添加飞翔服务地址', {
-                        'url': 'HTTPS / VPN / 局域网根地址',
-                      });
-                      if (values != null && context.mounted) {
-                        if (account.accountKey != accountKey) {
-                          _showChangedAccount(context);
-                          return;
-                        }
-                        await _run(() => account.switchAddress(values['url']!));
-                      }
-                    },
+                  : () => _serviceAddress(context, account),
             ),
-            for (final address in session.addresses)
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.only(left: 16),
-                title: Text(address, style: const TextStyle(fontSize: 12)),
-                trailing: address == session.serverUrl
-                    ? const Icon(Icons.check_rounded, size: 18)
-                    : TextButton(
-                        onPressed: account.busy
-                            ? null
-                            : () => _run(() => account.switchAddress(address)),
-                        child: const Text('使用此地址'),
-                      ),
-              ),
             _managementRow(
               icon: Icons.cloud_sync_outlined,
-              title: '历史关联与统计同步',
-              subtitle: '新记录自动补传；在这里查看同步状态或关联旧历史',
+              title: '同步记录',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const FlyDataSettingsScreen(),
@@ -488,8 +445,7 @@ class FlyBindingsScreen extends StatelessWidget {
             ),
             _managementRow(
               icon: Icons.lan_outlined,
-              title: '本地媒体直连',
-              subtitle: '使用原来的本机连接配置',
+              title: '媒体账号登录',
               onTap: account.busy
                   ? null
                   : () async {
@@ -506,12 +462,42 @@ class FlyBindingsScreen extends StatelessWidget {
           ],
         ),
       ),
-      const SizedBox(height: 14),
-      Text(
-        '播放直接连接媒体服务，离线时观看记录先保存在本机。',
-        style: TextStyle(color: colors.textMuted, fontSize: 12),
-      ),
     ]);
+  }
+
+  Future<void> _serviceAddress(
+    BuildContext context,
+    FlyAccountController account,
+  ) async {
+    final session = account.session;
+    if (session == null || account.busy) return;
+    final accountKey = account.accountKey;
+    final address = await _showFlyOptions(
+      context,
+      title: '服务地址',
+      selectedId: session.serverUrl,
+      items: [
+        for (final url in {session.serverUrl, ...session.addresses})
+          TrackOptionSheetItem(id: url, title: url),
+        const TrackOptionSheetItem(id: 'add', title: '添加地址'),
+      ],
+    );
+    if (address == null || !context.mounted || account.busy) return;
+    if (account.accountKey != accountKey) {
+      _showChangedAccount(context);
+      return;
+    }
+    if (address == 'add') {
+      final values = await flyForm(context, '添加地址', {'url': '服务地址'});
+      if (values == null || !context.mounted || account.busy) return;
+      if (account.accountKey != accountKey) {
+        _showChangedAccount(context);
+        return;
+      }
+      await _run(() => account.switchAddress(values['url']!));
+    } else if (address != account.session?.serverUrl) {
+      await _run(() => account.switchAddress(address));
+    }
   }
 
   Future<void> _bindingForm(
@@ -663,7 +649,7 @@ Widget _page(String title, List<Widget> children) =>
 Widget _managementRow({
   required IconData icon,
   required String title,
-  required String subtitle,
+  String? subtitle,
   required VoidCallback? onTap,
 }) => ListTile(
   contentPadding: EdgeInsets.zero,
@@ -672,7 +658,9 @@ Widget _managementRow({
     title,
     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
   ),
-  subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+  subtitle: subtitle == null
+      ? null
+      : Text(subtitle, style: const TextStyle(fontSize: 12)),
   trailing: const Icon(Icons.chevron_right_rounded, size: 20),
   onTap: onTap,
 );

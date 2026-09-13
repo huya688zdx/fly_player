@@ -123,15 +123,6 @@ class _FlyLoginPage extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 20),
-        Text(
-          '使用一个飞翔账号，管理已绑定的媒体来源，让观看记录随账号同步。',
-          style: TextStyle(
-            color: colors.textSecondary,
-            fontSize: 14,
-            height: 1.8,
-          ),
-        ),
       ],
     );
   }
@@ -152,15 +143,6 @@ class _FlyLoginPage extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '使用飞翔管理后台的账号。飞牛影视、Emby 等媒体账号在登录后管理。',
-            style: TextStyle(
-              color: colors.textSecondary,
-              fontSize: 13,
-              height: 1.6,
-            ),
-          ),
           const SizedBox(height: 24),
           child,
         ],
@@ -176,7 +158,8 @@ class _FlyLoginPage extends StatelessWidget {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final desktop = DesktopEnvironment.isDesktopPlatform &&
+              final desktop =
+                  DesktopEnvironment.isDesktopPlatform &&
                   constraints.maxWidth >= 900;
               final content = desktop
                   ? Row(
@@ -212,7 +195,8 @@ class _FlyLoginPage extends StatelessWidget {
                       ),
                     );
               return SingleChildScrollView(
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: EdgeInsets.all(desktop ? 32 : 20),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
@@ -290,10 +274,8 @@ class _FlySectionTitle extends StatelessWidget {
                   ),
                   AppInfoPopoverAnchor(
                     title: '媒体来源',
-                    description:
-                        '先登录飞翔，再选择已同步绑定的媒体来源。已绑定的来源无需再次输入媒体账号或地址，播放器会自动尝试可用连接。',
-                    detail:
-                        '需要指定网络地址时，打开来源设置中的“连接设置”。只有媒体服务要求重新授权时才需要再次登录媒体账号。',
+                    description: '选择来源进入媒体库，连接地址自动匹配。',
+                    detail: '需要更换地址时，打开来源的“连接设置”。',
                     child: Tooltip(
                       message: '媒体来源说明',
                       child: Padding(
