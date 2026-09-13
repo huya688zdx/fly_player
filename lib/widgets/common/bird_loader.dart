@@ -6,8 +6,8 @@ import 'package:flutter/material.dart';
 
 /// 青鸟加载动效。
 ///
-/// 使用 288 张透明手绘姿势，以 25 FPS 表现少女后退、蜷缩成茧、连续扑翼、
-/// 化为青鸟并飞远的完整过程。系统关闭动画时显示完整青鸟静态帧；素材无法
+/// 使用透明 WebP，以 30 FPS、8.7 秒表现少女欲伸又止、收回自抱、蜷缩成茧、
+/// 化为青鸟并飞远的完整过程。系统关闭动画时显示青鸟展翼静态帧；素材无法
 /// 解码时回退到原有矢量青鸟，避免加载位空白。
 enum BirdLoaderStyle { theme, logo }
 
@@ -97,8 +97,8 @@ class _BirdPalette {
   }
 }
 
-/// 仅燕形本体的迷你加载指示：无轨道、无残影，扇翅与 [BirdLoader]
-/// 共享同一节奏。用于行内小尺寸等待位。
+/// 仅燕形本体的迷你加载指示：无轨道、无残影，使用独立的七秒循环。
+/// 用于行内小尺寸等待位。
 class BirdGlyph extends StatefulWidget {
   const BirdGlyph({super.key, this.size = 20, this.color});
 

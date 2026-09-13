@@ -1,9 +1,34 @@
+import 'dart:ui' as ui;
+
 import 'package:fly_player/widgets/common/bird_loader.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets('BirdLoader 循环动画无异常', (tester) async {
+    // 直接解码正式资源，避免 errorBuilder 回退后仍把资源损坏判为通过。
+    await tester.runAsync(() async {
+      final data = await rootBundle.load(
+        'assets/refresh/shoujo_bird_loading.webp',
+      );
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+      try {
+        expect(codec.frameCount, greaterThan(1));
+        expect(codec.repetitionCount, -1);
+        var duration = Duration.zero;
+        for (var i = 0; i < codec.frameCount; i++) {
+          final frame = await codec.getNextFrame();
+          duration += frame.duration;
+          expect(frame.image.width, 512);
+          expect(frame.image.height, 512);
+          frame.image.dispose();
+        }
+        expect(duration, const Duration(milliseconds: 8700));
+      } finally {
+        codec.dispose();
+      }
+    });
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(body: Center(child: BirdLoader(size: 96))),
@@ -14,8 +39,8 @@ void main() {
       (image.image as AssetImage).assetName,
       'assets/refresh/shoujo_bird_loading.webp',
     );
-    // 跨越多个相位采样（后退 / 成茧 / 扑翼 / 飞离）
-    for (var i = 0; i < 8; i++) {
+    // 覆盖两轮完整时序（伸手 / 自抱 / 成茧 / 扑翼 / 飞离）。
+    for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 900));
     }
     expect(tester.takeException(), isNull);
