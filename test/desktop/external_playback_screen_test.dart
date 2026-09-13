@@ -157,6 +157,7 @@ void main() {
     final artwork = tester
         .widget<DetailHeroImage>(find.byType(DetailHeroImage))
         .images;
+    expect(tester.getSize(find.byType(DetailHeroImage)).aspectRatio, 16 / 10);
     expect(Uri.parse(artwork.urls.first).host, 'nas.invalid');
     expect(
       artwork.headers.values.any((value) => value.contains('test-token')),

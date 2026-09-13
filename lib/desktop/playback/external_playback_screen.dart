@@ -478,7 +478,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Container(
-                width: 72,
+                width: 128,
                 height: 80,
                 clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
