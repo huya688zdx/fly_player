@@ -7,8 +7,52 @@ private fun milliseconds(value: Any?): Long? = when (value) {
 }?.takeIf { it in 0L..9007199254740991L }
 private fun identifier(value: Any?): String? = (value as? String)?.takeIf { it.isNotEmpty() && it.length <= 500 && it == it.trim() }
 
+/** Account visibility and the user's service setting are separate from local
+ * chapter/fixed-duration skipping. This contains no credentials or file IDs. */
+data class FlyOpedAccess(val signedIn: Boolean = false, val scopeIdentity: String = "", val enabled: Boolean = true) {
+    fun canConsume(originalSource: Boolean): Boolean = signedIn && enabled && originalSource
+
+    companion object {
+        fun fromLoadArgs(args: Map<*, *>, enabledFallback: Boolean = true): FlyOpedAccess = FlyOpedAccess(
+            signedIn = args["flyAccountSignedIn"] == true,
+            scopeIdentity = args["flyAccountScopeIdentity"] as? String ?: "",
+            enabled = (args["flyOpedSettings"] as? Map<*, *>)?.get("flyVerifiedEnabled") as? Boolean ?: enabledFallback,
+        )
+
+        fun fromAccountState(raw: Any?, enabledFallback: Boolean): FlyOpedAccess {
+            val data = raw as? Map<*, *>
+            return FlyOpedAccess(data?.get("signedIn") == true,
+                data?.get("scopeIdentity") as? String ?: "",
+                data?.get("flyVerifiedEnabled") as? Boolean ?: enabledFallback)
+        }
+    }
+}
+
 data class FlyOpedSegment(val id: String, val kind: String, val startMs: Long, val endMs: Long, val policy: String) {
     fun contains(positionMs: Long) = positionMs >= startMs && positionMs < endMs
+}
+
+/** Visible timeline ranges use the same account/delivery/context gates as
+ * consumption. Keep exact file coordinates; never stretch an ED to EOF. */
+fun flyOpedTimelineSegments(
+    publication: FlyOpedPublication?, access: FlyOpedAccess,
+    originalSource: Boolean, contextId: String, durationMs: Long,
+): List<FlyOpedSegment> {
+    if (!access.canConsume(originalSource) || publication == null ||
+        publication.contextId != contextId || durationMs <= 0L) return emptyList()
+    return publication.segments.filter {
+        it.kind in listOf("op", "ed") && it.policy in listOf("auto", "prompt_only") &&
+            it.startMs >= 0L && it.startMs < it.endMs && it.endMs <= durationMs
+    }
+}
+
+/** End caps stay inside the verified interval, even when a short remaining tail
+ * or the entire marked range is narrower than one display pixel. */
+fun flyOpedTimelineCaps(startX: Float, endX: Float, preferredWidth: Float): List<Pair<Float, Float>> {
+    if (!startX.isFinite() || !endX.isFinite() || !preferredWidth.isFinite() ||
+        endX <= startX || preferredWidth <= 0f) return emptyList()
+    val width = minOf(preferredWidth, endX - startX)
+    return listOf(startX to (startX + width).coerceAtMost(endX), (endX - width).coerceAtLeast(startX) to endX)
 }
 
 /** Values supplied by Fly's existing authenticated bridge; no file identity is

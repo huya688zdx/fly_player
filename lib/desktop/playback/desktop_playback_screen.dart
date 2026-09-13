@@ -26,6 +26,8 @@ import '../../playback/settings/mpv_settings_store.dart';
 import '../../services/native_danmaku_prefetch.dart';
 import '../../services/fly_data/fly_oped.dart';
 import '../../services/fly_data/fly_playback_service_client.dart';
+import '../../services/fly_data/fly_data_service.dart';
+import '../../services/fly_data/fly_oped_settings.dart';
 import '../../widgets/fly_assistant_panel.dart';
 import 'desktop_danmaku_overlay.dart';
 import 'desktop_mpv_runtime.dart';
@@ -219,6 +221,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   late final DesktopPlaybackChapters _chapterLoader;
   List<DesktopPlayerChapter> get _chapters => _chapterLoader.value;
   bool _introOutroEnabled = true;
+  bool _flyOpedEnabled = true;
+  bool get _flyAccountSignedIn =>
+      _flyClient.hasActiveAccountBinding(statsScope: _source.statsScope);
+  bool get _flyOpedAllowed => _flyAccountSignedIn && _flyOpedEnabled;
   int _introMaxMinutes = 2;
   int _outroMaxMinutes = 2;
   bool _fixedDurationSkipEnabled = false;
@@ -261,6 +267,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   @override
   void initState() {
     super.initState();
+    FlyDataService.instance.accountChanges.addListener(_onFlyAccountChanged);
     windowManager.addListener(this);
     _source = widget.source;
     _reporter = DesktopPlaybackReporter(
@@ -343,6 +350,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   @override
   void dispose() {
+    FlyDataService.instance.accountChanges.removeListener(_onFlyAccountChanged);
     _finishFlyAction('cancelled');
     unawaited(_systemMediaControls?.dispose());
     windowManager.removeListener(this);
@@ -415,6 +423,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _mpvSettings = mpvBundle.settings;
       _videoAdjustments = mpvBundle.videoAdjustments;
       _introOutroEnabled = prefs.getBool(_introOutroEnabledPrefKey) ?? true;
+      _flyOpedEnabled = prefs.getBool(FlyOpedSettings.enabledKey) ?? true;
       _introMaxMinutes = prefs.getInt(_introMaxMinutesPrefKey) ?? 2;
       _outroMaxMinutes = prefs.getInt(_outroMaxMinutesPrefKey) ?? 2;
       _fixedDurationSkipEnabled =
@@ -1001,7 +1010,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   _SkipPromptKind? _computeSkipPromptKind(Duration position) {
-    if ((!_introOutroEnabled && !_fixedDurationSkipEnabled) ||
+    if ((!_introOutroEnabled && !_fixedDurationSkipEnabled && !_flyOpedAllowed) ||
         _playbackCompleted ||
         _isLoading ||
         _abLoopStart != null) {
@@ -1011,7 +1020,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (duration <= Duration.zero) return null;
     final published = _currentFlyOped;
     if (published != null) {
-      final segment = published.at(position.inMilliseconds, enabled: _introOutroEnabled);
+      final segment = published.at(position.inMilliseconds, enabled: _flyOpedAllowed);
       if (segment == null || _flyAction != null) return null;
       if (segment.kind == 'op' && !_introSkipDismissed) return _SkipPromptKind.intro;
       if (segment.kind == 'ed' && !_outroSkipDismissed) return _SkipPromptKind.outro;
@@ -1087,6 +1096,26 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     await prefs.setInt(_introMaxMinutesPrefKey, _introMaxMinutes);
     await prefs.setInt(_outroMaxMinutesPrefKey, _outroMaxMinutes);
     await prefs.setBool(_fixedDurationSkipPrefKey, fixedDurationEnabled);
+  }
+
+  void _onFlyAccountChanged() {
+    if (!mounted) return;
+    _updateView(() {
+      _resetFlyOped(preserveTail: true);
+      _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
+    });
+  }
+
+  Future<void> _setFlyOpedEnabled(bool enabled) async {
+    if (!_flyAccountSignedIn) return;
+    _updateView(() {
+      _flyOpedEnabled = enabled;
+      _resetFlyOped(preserveTail: true);
+      _introSkipDismissed = false;
+      _outroSkipDismissed = false;
+      _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
+    });
+    await FlyOpedSettings.save(enabled);
   }
 
   Future<void> _selectChapter(Duration position) async {
@@ -1825,16 +1854,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   FlyOpedSet? get _currentFlyOped {
-    if (!_source.supportsVerifiedFileOped || _flyScopeEpoch != _flyClient.epoch ||
+    if (!_flyOpedAllowed || !_source.supportsVerifiedFileOped || _flyScopeEpoch != _flyClient.epoch ||
         _flyClient.sourceRef(statsScope: _source.statsScope, itemGuid: _source.itemGuid, mediaGuid: _source.mediaGuid) == null) {
       return null;
     }
     return _flyOped;
   }
 
-  void _resetFlyOped() {
+  void _resetFlyOped({bool preserveTail = false}) {
     _finishFlyAction('cancelled');
-    _flyEdTailProtected = false;
+    if (!preserveTail) _flyEdTailProtected = false;
     _flyOped = null;
     _flyAuthorizing = false;
     _flySkipPolicy = FlyOpedPlaybackPolicy();
@@ -1845,20 +1874,22 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Future<void> _resolveFlyOped() async {
     final contextId = _flyContextId, source = _source;
-    if (!source.supportsVerifiedFileOped) return;
+    if (!_flyOpedAllowed || !source.supportsVerifiedFileOped) return;
     final generation = _danmakuSeekRevision, sourceGeneration = _sourceChangeGeneration;
     final result = await _flyClient.resolve(statsScope: source.statsScope, itemGuid: source.itemGuid,
       mediaGuid: source.mediaGuid, contextId: contextId, generation: generation);
     if (!mounted || contextId != _flyContextId || sourceGeneration != _sourceChangeGeneration ||
-        generation != _danmakuSeekRevision || !identical(source, _source) || _flyScopeEpoch != _flyClient.epoch) {
+        !_flyOpedAllowed || generation != _danmakuSeekRevision || !identical(source, _source) || _flyScopeEpoch != _flyClient.epoch) {
       return;
     }
-    _flyOped = result;
-    _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
+    _updateView(() {
+      _flyOped = result;
+      _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
+    });
   }
 
   Future<void> _skipPublished(FlyOpedSet set, FlyOpedSegment segment, {bool automatic = false}) async {
-    if (!_introOutroEnabled || _flyAction != null || _flyAuthorizing || !identical(set, _currentFlyOped) || !segment.contains(_player.state.position.inMilliseconds)) return;
+    if (!_flyOpedAllowed || _flyAction != null || _flyAuthorizing || !identical(set, _currentFlyOped) || !segment.contains(_player.state.position.inMilliseconds)) return;
     final generation = _danmakuSeekRevision, contextId = _flyContextId, source = _source;
     _flyAuthorizing = true;
     final authorized = await _flyClient.resolve(statsScope: source.statsScope, itemGuid: source.itemGuid,
@@ -1872,7 +1903,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _showPlayerMessage('该跳过区间已失效或暂不可用，请重新加载节目资料。');
       return;
     }
-    if (!_introOutroEnabled || (automatic && !_flyAutomaticAllowed) || !segment.contains(_player.state.position.inMilliseconds)) return;
+    if (!_flyOpedAllowed || (automatic && !_flyAutomaticAllowed) || !segment.contains(_player.state.position.inMilliseconds)) return;
     final action = FlyOpedAction(set: set, segment: segment, generation: _danmakuSeekRevision,
       positionMs: _player.state.position.inMilliseconds, actionId: FlyPlaybackServiceClient.newId());
     if (segment.kind == 'ed') {
@@ -1909,7 +1940,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   bool get _flyAutomaticAllowed => !_isLoading && !_isBuffering && _isPlaying &&
-      !_player.state.completed && _introOutroEnabled && _abLoopStart == null;
+      !_player.state.completed && _flyOpedAllowed && _abLoopStart == null;
 
   void _sampleFlyOpedAction() {
     final set = _currentFlyOped;
@@ -2775,6 +2806,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           onApplySavedPreset: _applySavedMpvPreset,
           chapters: _chapters,
           introOutroEnabled: _introOutroEnabled,
+          flyAccountSignedIn: _flyAccountSignedIn,
+          flyOpedEnabled: _flyOpedEnabled,
+          flyOpedSet: _currentFlyOped,
+          onFlyOpedChanged: _setFlyOpedEnabled,
           introMaxMinutes: _introMaxMinutes,
           outroMaxMinutes: _outroMaxMinutes,
           fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
@@ -3289,6 +3324,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           onApplySavedPreset: _applySavedMpvPreset,
           chapters: _chapters,
           introOutroEnabled: _introOutroEnabled,
+          flyAccountSignedIn: _flyAccountSignedIn,
+          flyOpedEnabled: _flyOpedEnabled,
+          flyOpedSet: _currentFlyOped,
+          onFlyOpedChanged: _setFlyOpedEnabled,
           introMaxMinutes: _introMaxMinutes,
           outroMaxMinutes: _outroMaxMinutes,
           fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
@@ -3730,6 +3769,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                               _source.url,
                             ).isScheme('file'),
                             chapters: _chapters,
+                            flyOpedSet: _currentFlyOped,
                             seekThumbnails: _source.seekThumbnails,
                             seekThumbnailBifUrl: _source.seekThumbnailBifUrl,
                             thumbnailHeaders: _source.headers,

@@ -2,6 +2,8 @@
 
 日期：2026-09-13。本交付来自 `codex/b-client-oped-20260913`，基线 `dbd21129c252a993cc33668d4cf6337304b2f6be`。只在 `E:\fly_play_recovere\.worktrees\fly-player-b-oped` 修改。原 `fly_player` 的未提交账号、绑定、历史及并行 i18n 等改动没有被本任务覆盖；原工作树在其他任务中仍有变化，不能声称其文件散列整体不变。
 
+后续“跳过 OP/ED”设置、飞翔登录显隐与 Android 完整测试包的增量记录见 [OPED_SETTINGS_ACCOUNT_20260913.md](OPED_SETTINGS_ACCOUNT_20260913.md)。下方不同阶段的旧构建和设备状态按原始取证时间保留，不能把历史截图当作新增设置的实测。
+
 ## 实际改动
 
 - `fly_oped.dart` / `FlyOpedPlayback.kt` 消费现有 A `SourceRef` 和服务返回的 `FileContext`。不从标题、URL、时长或 LLM 输出另建文件身份。拒绝未核验文件、过时上下文、过时 seek、错来源、错版本、越界、重叠、保护段冲突及无效整套发布。

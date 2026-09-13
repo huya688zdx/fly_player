@@ -4,6 +4,89 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FlyOpedPlaybackTest {
+    private fun timelinePublication() = FlyOpedPublication("current-load", "file", "coordinate",
+        "revision", mapOf("binding_id" to "binding"), 1421005L, listOf(
+            FlyOpedSegment("op", "op", 79876L, 164876L, "prompt_only"),
+            FlyOpedSegment("recap", "recap", 200000L, 220000L, "prompt_only"),
+            FlyOpedSegment("ed", "ed", 1330000L, 1420000L, "auto")))
+
+    @Test fun timelinePreservesExactOpEdCoordinatesAndTail() {
+        val set = timelinePublication()
+        val ranges = flyOpedTimelineSegments(set, FlyOpedAccess(true, "account", true),
+            true, "current-load", 1421005L)
+        assertEquals(listOf("op", "ed"), ranges.map { it.kind })
+        assertEquals(79876L, ranges.first().startMs)
+        assertEquals(164876L, ranges.first().endMs)
+        assertEquals(1420000L, ranges.last().endMs)
+        assertTrue(ranges.last().endMs < set.durationMs)
+        assertSame(set.segments.first(), ranges.first())
+    }
+
+    @Test fun timelineClearsForDisabledAccountSourceOrContext() {
+        val set = timelinePublication()
+        val access = FlyOpedAccess(true, "account", true)
+        assertTrue(flyOpedTimelineSegments(set, access.copy(enabled = false), true, "current-load", 1421005L).isEmpty())
+        assertTrue(flyOpedTimelineSegments(set, access.copy(signedIn = false), true, "current-load", 1421005L).isEmpty())
+        assertTrue(flyOpedTimelineSegments(set, access, false, "current-load", 1421005L).isEmpty())
+        assertTrue(flyOpedTimelineSegments(set, access, true, "other-load", 1421005L).isEmpty())
+        assertTrue(flyOpedTimelineSegments(null, access, true, "current-load", 1421005L).isEmpty())
+        assertTrue(flyOpedTimelineSegments(set, access, true, "current-load", 0L).isEmpty())
+    }
+
+    @Test fun timelineOmitsNeverAndDoesNotClampInvalidEndToVideoEnd() {
+        val set = timelinePublication()
+        val access = FlyOpedAccess(true, "account", true)
+        val hiddenOp = set.copy(segments = set.segments.map { if (it.kind == "op") it.copy(policy = "never") else it })
+        assertEquals(listOf("ed"), flyOpedTimelineSegments(hiddenOp, access, true, "current-load", 1421005L).map { it.kind })
+        assertEquals(listOf("op"), flyOpedTimelineSegments(set, access, true, "current-load", 1400000L).map { it.kind })
+    }
+
+    @Test fun timelineCapsPreserveSubpixelTailAndNarrowRanges() {
+        val edStart = 300f * (1330000f / 1421005f)
+        val edEnd = 300f * (1420000f / 1421005f)
+        val caps = flyOpedTimelineCaps(edStart, edEnd, 1f)
+        assertTrue(300f - edEnd < 1f)
+        assertEquals(edEnd, caps.last().second)
+        assertTrue(caps.all { it.first >= edStart && it.second <= edEnd })
+        val narrow = flyOpedTimelineCaps(20f, 20.25f, 2f)
+        assertTrue(narrow.all { it.first >= 20f && it.second <= 20.25f })
+        assertTrue(flyOpedTimelineCaps(20f, 20f, 1f).isEmpty())
+    }
+
+    @Test fun serviceVisibilityRequiresExplicitAccountWhileSettingSurvivesLogout() {
+        val signedOut = FlyOpedAccess.fromLoadArgs(emptyMap<String, Any?>())
+        assertFalse(signedOut.signedIn)
+        assertTrue(signedOut.enabled)
+        assertFalse(signedOut.canConsume(originalSource = true))
+        val disabledAccount = FlyOpedAccess.fromAccountState(mapOf(
+            "signedIn" to true, "scopeIdentity" to "account-device", "flyVerifiedEnabled" to false), true)
+        assertTrue(disabledAccount.signedIn)
+        assertFalse(disabledAccount.canConsume(originalSource = true))
+        val loggedOut = FlyOpedAccess.fromAccountState(mapOf("signedIn" to false), disabledAccount.enabled)
+        assertFalse(loggedOut.signedIn)
+        assertFalse(loggedOut.enabled)
+        assertFalse(loggedOut.canConsume(originalSource = true))
+    }
+
+    @Test fun signedInServiceSettingConsumesOriginalWithoutLegacyChapterToggle() {
+        val access = FlyOpedAccess.fromLoadArgs(mapOf(
+            "flyAccountSignedIn" to true, "flyAccountScopeIdentity" to "account-device",
+            "flyOpedSettings" to mapOf("flyVerifiedEnabled" to true),
+            "introOutro" to mapOf("enabled" to false)), false)
+        assertTrue(access.canConsume(originalSource = true))
+        assertFalse(access.canConsume(originalSource = false))
+        assertFalse(access.copy(enabled = false).canConsume(originalSource = true))
+        assertNotEquals(access, access.copy(scopeIdentity = "other-account-device"))
+    }
+
+    @Test fun malformedAccountRefreshHidesServiceWithoutErasingUserPreference() {
+        val access = FlyOpedAccess.fromAccountState(null, true)
+        assertFalse(access.signedIn)
+        assertTrue(access.enabled)
+        assertFalse(access.canConsume(originalSource = true))
+        assertFalse(FlyOpedAccess.fromLoadArgs(mapOf("flyAccountSignedIn" to "true")).signedIn)
+    }
+
     private fun publication(): Map<String, Any?> = mapOf(
         "status" to "published", "playback_context_id" to "context", "generation" to 0L,
         "set_revision" to "set1", "file_context" to mapOf(

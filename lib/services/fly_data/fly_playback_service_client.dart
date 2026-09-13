@@ -19,24 +19,33 @@ class FlyPlaybackServiceClient {
     }
   }
 
+  /// A retained account in legacy NAS mode is not an active Fly playback login.
+  bool hasActiveAccountBinding({required String statsScope}) {
+    try {
+      final session = FlyDataService.instance.session;
+      final stats = PlayStatsService.instance;
+      final binding = (stats.database as SqflitePlayStatsDatabase)
+          .bindingReference['binding_id'] ?? '';
+      return session != null && binding.isNotEmpty &&
+          statsScope == stats.currentScope &&
+          statsScope == PlayStatsService.scopeForBinding(session.accountKey, binding);
+    } catch (_) {
+      return false;
+    }
+  }
+
   FlySourceRef? sourceRef({
     required String statsScope,
     required String itemGuid,
     String mediaGuid = '',
   }) {
     try {
-      final session = FlyDataService.instance.session;
       final stats = PlayStatsService.instance;
       final binding =
           (stats.database as SqflitePlayStatsDatabase)
               .bindingReference['binding_id'] ??
           '';
-      if (session == null ||
-          itemGuid.isEmpty ||
-          binding.isEmpty ||
-          statsScope != stats.currentScope ||
-          statsScope !=
-              PlayStatsService.scopeForBinding(session.accountKey, binding)) {
+      if (itemGuid.isEmpty || !hasActiveAccountBinding(statsScope: statsScope)) {
         return null;
       }
       return FlySourceRef(

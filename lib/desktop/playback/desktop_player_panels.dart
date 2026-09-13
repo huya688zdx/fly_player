@@ -10,6 +10,7 @@ import '../../playback/bookmarks/bookmark_store.dart';
 import '../../playback/playback_source.dart';
 import '../../playback/settings/mpv_settings_l10n.dart';
 import '../../playback/settings/mpv_settings_store.dart';
+import '../../services/fly_data/fly_oped.dart';
 import 'desktop_semantics_safe_slider.dart';
 import 'desktop_playback_chapters.dart';
 
@@ -1108,6 +1109,10 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.onSelectBookmark,
     required this.danmakuSettingsPageBuilder,
     required this.danmakuSourcesPageBuilder,
+    this.flyAccountSignedIn = false,
+    this.flyOpedEnabled = true,
+    this.flyOpedSet,
+    this.onFlyOpedChanged,
     this.initialPage = DesktopPlaybackSettingsPage.main,
     this.reserveCloseButtonSpace = false,
   });
@@ -1132,6 +1137,10 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
   final int introMaxMinutes;
   final int outroMaxMinutes;
   final bool fixedDurationSkipEnabled;
+  final bool flyAccountSignedIn;
+  final bool flyOpedEnabled;
+  final FlyOpedSet? flyOpedSet;
+  final Future<void> Function(bool value)? onFlyOpedChanged;
   final bool hasNextEpisode;
   final double subtitleDelaySeconds;
   final int subtitlePosition;
@@ -1436,8 +1445,13 @@ class _DesktopPlaybackSettingsPanelState
     ),
     _SettingsMenuTile(
       title: '片头片尾跳过',
-      subtitle: '按时长窗口提示跳过片头片尾',
-      trailing: widget.introOutroEnabled ? '已开启' : '已关闭',
+      subtitle: widget.flyAccountSignedIn ? '飞翔已核验区间、章节与固定时长' : '按时长窗口提示跳过片头片尾',
+      trailing:
+          widget.introOutroEnabled ||
+              widget.fixedDurationSkipEnabled ||
+              (widget.flyAccountSignedIn && widget.flyOpedEnabled)
+          ? '已开启'
+          : '已关闭',
       icon: Icons.skip_next_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.introOutro),
     ),
@@ -1551,6 +1565,44 @@ class _DesktopPlaybackSettingsPanelState
     );
     Widget statusCard({required bool intro}) {
       final label = intro ? '片头' : '片尾';
+      final usingFlySet =
+          widget.flyAccountSignedIn &&
+          widget.flyOpedEnabled &&
+          widget.flyOpedSet != null;
+      final reviewed = usingFlySet
+          ? widget.flyOpedSet!.segments
+                .where((segment) => segment.kind == (intro ? 'op' : 'ed'))
+                .toList()
+          : const <FlyOpedSegment>[];
+      if (usingFlySet && reviewed.isEmpty) {
+        return _SettingsStatusCard(
+          title: '当前$label',
+          value: '当前不提示跳过',
+          description: '飞翔未发布此类型区间。关闭“飞翔已核验区间”后可使用章节或固定时长设置。',
+        );
+      }
+      if (reviewed.isNotEmpty) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var index = 0; index < reviewed.length; index++) ...[
+              if (index > 0) const SizedBox(height: 10),
+              _SettingsStatusCard(
+                title: '当前$label',
+                value:
+                    '飞翔已核验 · ${_flyOpedTime(reviewed[index].startMs)}–${_flyOpedTime(reviewed[index].endMs)} · ${switch (reviewed[index].policy) {
+                      'auto' => '允许自动跳过',
+                      'never' => '禁止跳过',
+                      _ => '仅提示',
+                    }}',
+                description: reviewed[index].policy == 'never'
+                    ? '该区间禁止跳过，完整保留内容。'
+                    : '${reviewed[index].policy == 'auto' ? '符合连续播放条件时可自动跳到' : '点击跳过后跳到'} ${_flyOpedTime(reviewed[index].endMs)}${intro ? '。' : '，保留结束点之后的内容。'}',
+              ),
+            ],
+          ],
+        );
+      }
       final start = intro ? bounds.introStart : bounds.outroStart;
       final end = intro ? bounds.introEnd : widget.duration;
       final fromChapter = intro
@@ -1589,6 +1641,20 @@ class _DesktopPlaybackSettingsPanelState
     }
 
     final children = <Widget>[
+      if (widget.flyAccountSignedIn)
+        _SettingsSwitchTile(
+          title: '飞翔已核验区间',
+          subtitle: !widget.flyOpedEnabled
+              ? '已关闭；章节识别与固定时长由各自开关控制'
+              : widget.flyOpedSet == null
+              ? '当前文件暂无可用的已核验区间，仍可使用章节或固定时长'
+              : '使用当前文件已发布的核验区间，按各区间策略跳过',
+          value: widget.flyOpedEnabled,
+          enabled: widget.onFlyOpedChanged != null,
+          onChanged: (value) async {
+            await widget.onFlyOpedChanged?.call(value);
+          },
+        ),
       _SettingsSwitchTile(
         title: '按章节识别',
         subtitle: '匹配 OP、ED、片头、片尾等章节名称，进入范围后提示跳过',
@@ -2040,6 +2106,14 @@ class _DesktopPlaybackSettingsPanelState
     final minutes = safe.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = safe.inSeconds.remainder(60).toString().padLeft(2, '0');
     return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  String _flyOpedTime(int milliseconds) {
+    final whole = _duration(Duration(milliseconds: milliseconds));
+    final fraction = milliseconds.remainder(1000);
+    return fraction == 0
+        ? whole
+        : '$whole.${fraction.toString().padLeft(3, '0')}';
   }
 }
 
