@@ -29,7 +29,7 @@ class AppTopTip {
     final overlay = Overlay.of(context, rootOverlay: true);
     final overlayContext = overlay.context;
     final top = MediaQuery.of(overlayContext).padding.top + 54;
-    final colors = overlayContext.appColors;
+    final colors = context.appColors;
     final entry = OverlayEntry(
       builder: (_) => Positioned(
         top: top,
@@ -77,6 +77,8 @@ class AppTopTip {
         if (token != _showToken) return;
         dispose();
       });
+      // A quiet page may have no next frame after the timer fires.
+      WidgetsBinding.instance.ensureVisualUpdate();
     });
   }
 

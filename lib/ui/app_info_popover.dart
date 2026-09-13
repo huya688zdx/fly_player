@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'app_popup_theme.dart';
 
 class AppInfoPopoverAnchor extends StatefulWidget {
   final Widget child;
@@ -90,36 +91,39 @@ class _AppInfoPopoverAnchorState extends State<AppInfoPopoverAnchor> {
       overlaySize.width - width - horizontalMargin,
     );
     final arrowCenter = (anchorRect.center.dx - left).clamp(26.0, width - 26.0);
+    final popupTheme = AppPopupTheme.capture(context, to: overlay.context);
 
     _overlayEntry = OverlayEntry(
       builder: (context) {
         return Positioned.fill(
-          child: Material(
-            type: MaterialType.transparency,
-            child: Stack(
-              children: <Widget>[
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _hidePopover,
+          child: popupTheme.wrap(
+            Material(
+              type: MaterialType.transparency,
+              child: Stack(
+                children: <Widget>[
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _hidePopover,
+                    ),
                   ),
-                ),
-                Positioned(
-                  left: left,
-                  width: width,
-                  top: showBelow ? anchorRect.bottom + verticalGap : null,
-                  bottom: showBelow
-                      ? null
-                      : overlaySize.height - anchorRect.top + verticalGap,
-                  child: _InfoPopoverCard(
-                    title: widget.title,
-                    description: widget.description,
-                    detail: widget.detail,
-                    preferBelow: showBelow,
-                    arrowCenter: arrowCenter,
+                  Positioned(
+                    left: left,
+                    width: width,
+                    top: showBelow ? anchorRect.bottom + verticalGap : null,
+                    bottom: showBelow
+                        ? null
+                        : overlaySize.height - anchorRect.top + verticalGap,
+                    child: _InfoPopoverCard(
+                      title: widget.title,
+                      description: widget.description,
+                      detail: widget.detail,
+                      preferBelow: showBelow,
+                      arrowCenter: arrowCenter,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

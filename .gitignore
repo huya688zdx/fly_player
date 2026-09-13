@@ -36,6 +36,7 @@ migrate_working_dir/
 lib/l10n/generated/
 
 # Local logs / temp probes
+.task-tmp/
 error.log
 flutter
 # Windows Runner 需要版本化这些 Flutter 工程入口；仅其 ephemeral 子目录继续忽略。

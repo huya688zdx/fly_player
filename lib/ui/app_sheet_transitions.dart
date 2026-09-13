@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app_motion.dart';
+import 'app_popup_theme.dart';
 
 class AppSheetTransitions {
   const AppSheetTransitions._();
@@ -18,6 +19,10 @@ class AppSheetTransitions {
     Color barrierColor = Colors.transparent,
     bool useRootNavigator = false,
   }) {
+    final popupTheme = AppPopupTheme.capture(
+      context,
+      useRootNavigator: useRootNavigator,
+    );
     var closed = false;
     final effectiveBarrierLabel = barrierLabel.trim().isNotEmpty
         ? barrierLabel
@@ -45,9 +50,11 @@ class AppSheetTransitions {
           Navigator.of(dialogContext).pop(result as T?);
         }
 
-        return _AdaptiveSheetScope(
-          closeWithResult: closeWithResult,
-          child: RepaintBoundary(child: Builder(builder: builder)),
+        return popupTheme.wrap(
+          _AdaptiveSheetScope(
+            closeWithResult: closeWithResult,
+            child: RepaintBoundary(child: Builder(builder: builder)),
+          ),
         );
       },
       transitionBuilder: (context, animation, _, child) {
