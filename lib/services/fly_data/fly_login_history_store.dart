@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../secure_credential_store.dart';
@@ -55,6 +56,13 @@ class FlyLoginHistoryStore {
   static const _key = 'fly_login_history_v1';
   static const _maxEntries = 10;
   static Future<void> _pending = Future<void>.value();
+
+  /// Use only after the previous widget test clock has ended and the test
+  /// backend is reset. This does not cancel I/O or clear persisted records.
+  @visibleForTesting
+  static void resetPendingForTesting() {
+    _pending = Future<void>.value();
+  }
 
   static Future<T> _serialized<T>(Future<T> Function() action) {
     final result = _pending.then((_) => action());
