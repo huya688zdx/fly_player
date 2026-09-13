@@ -5,15 +5,16 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
     final account = context.watch<FlyAccountController>();
     if (account.session == null) return const FlyLoginScreen();
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: buildSecondaryHostAppBar(
           context,
-          title: const Text('已同步节目'),
+          title: Text(l10n.flyCatalogSyncedTitles),
           actions: [
             AppInfoPopoverAnchor(
-              title: '已同步节目',
+              title: l10n.flyCatalogSyncedTitles,
               description: '这里展示媒体来源上次同步的节目资料。选择节目后，继续使用原来的详情页与播放器。',
               detail: '同步资料不代表当前地址可连接。连接遇到问题时，可在“账号与媒体来源”中重试或打开连接设置。',
               child: Tooltip(
@@ -28,7 +29,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
               ),
             ),
             IconButton(
-              tooltip: '账号与媒体来源',
+              tooltip: l10n.flyAccountTitle,
               icon: const Icon(Icons.dns_outlined),
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -37,7 +38,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
               ),
             ),
             IconButton(
-              tooltip: '刷新节目',
+              tooltip: l10n.flyCatalogRefreshTitles,
               icon: const Icon(Icons.refresh_rounded),
               onPressed: loading ? null : () => _load(),
             ),
@@ -78,7 +79,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                               Expanded(
                                 child: Text(
                                   account.activeBinding?['label'] as String? ??
-                                      '全部来源',
+                                      l10n.flyCatalogAllSources,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(color: colors.textSecondary),
@@ -86,7 +87,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                               ),
                               if (total != null)
                                 Text(
-                                  '$total 部节目',
+                                  l10n.flyCatalogTitleCount(total!),
                                   style: TextStyle(color: colors.textSecondary),
                                 ),
                             ],
@@ -97,12 +98,12 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                             onSubmitted: (_) => _load(),
                             textInputAction: TextInputAction.search,
                             decoration: InputDecoration(
-                              hintText: '搜索节目名称',
+                              hintText: l10n.flyCatalogSearchHint,
                               filled: true,
                               fillColor: colors.surface.withValues(alpha: .7),
                               prefixIcon: const Icon(Icons.search_rounded),
                               suffixIcon: IconButton(
-                                tooltip: '搜索节目',
+                                tooltip: l10n.flyCatalogSearchTitles,
                                 onPressed: loading ? null : () => _load(),
                                 icon: const Icon(
                                   Icons.arrow_forward_rounded,
