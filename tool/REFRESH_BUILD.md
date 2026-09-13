@@ -6,7 +6,15 @@
 
 来源包为 `青鸟_收茧接点修订_20260914.zip`，保留完整原稿、局部蒙版、提示词、锁定后段和生成脚本。解压后，在 `bluebird_motion_redesign_20260913/revision_02` 运行 `python prepare_revisions.py`，再在上一层运行 `python build_draft_preview.py`。采用的输出为 `revision_02/preview/完整故事_连接修订_透明.webp`；复制到正式WebP路径时不重新编码、不改时序。新增收茧连接稿已包含在本版，后166格出翼与原片飞远保持不变。
 
-`BirdLoader` 直接使用素材时长，无需额外控制器同步；七秒控制器属于独立的 `BirdGlyph`。同名资源替换后应重新启动App，避免沿用旧图片缓存。相关验证运行 `flutter test test/widgets/bird_loader_test.dart`，其中直接解码正式WebP并检查尺寸、完整时长和循环信息；普通播放器用的MP4仅作为浅色底预览，不打包进App。
+`BirdLoader` 直接使用素材时长，无需额外控制器同步。同名资源替换后应重新启动App，避免沿用旧图片缓存。相关验证运行 `flutter test test/widgets/bird_loader_test.dart`，其中直接解码正式WebP并检查尺寸、完整时长和循环信息；普通播放器用的MP4仅作为浅色底预览，不打包进App。
+
+## 行内青鸟扑翼循环
+
+`BirdGlyph` 使用 `bluebird_glyph.webp`，128×128透明、600毫秒无限循环；减少动态效果时使用 `bluebird_glyph_static.png`。默认显示正式原画的蓝色，调用方显式传入 `color` 时保持按钮前景色适配。
+
+运行 `python tool/build_bird_glyph.py` 从上述8.7秒正式WebP派生这两份素材。只选正式时间轴第185、190、195、200格（从0开始），按185→190→195→200→195→190往复扑翼，每格100毫秒，等价于18个30 FPS播放时间格。四张原画组成六格序列，不是六张独立画稿，也未使用自动补帧；回程复用原姿势，未改变完整故事的单向顺序。
+
+所有画面固定裁取 `(128,120,384,376)`，统一缩小到128方，保留原有轻微身体运动。没有按翼展逐帧居中或缩放，没有采用其他历史图集或重新生成鸟。静态图取这一序列的第二格。原8.7秒正式素材保持不变。
 
 ## 历史 reworked 候选生成
 

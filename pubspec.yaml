@@ -53,4 +53,6 @@ flutter:
     - assets/icons/
     - assets/refresh/shoujo_bird_loading.webp
     - assets/refresh/shoujo_bird_loading_static.png
+    - assets/refresh/bluebird_glyph.webp
+    - assets/refresh/bluebird_glyph_static.png
     - lib/img/

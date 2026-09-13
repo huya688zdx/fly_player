@@ -78,4 +78,52 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('BirdGlyph 使用青鸟短循环并保留尺寸颜色和静态模式', (tester) async {
+    await tester.runAsync(() async {
+      final data = await rootBundle.load('assets/refresh/bluebird_glyph.webp');
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+      try {
+        expect(codec.frameCount, greaterThan(1));
+        expect(codec.repetitionCount, -1);
+        var duration = Duration.zero;
+        for (var i = 0; i < codec.frameCount; i++) {
+          final frame = await codec.getNextFrame();
+          duration += frame.duration;
+          expect(frame.image.width, 128);
+          expect(frame.image.height, 128);
+          frame.image.dispose();
+        }
+        expect(duration, const Duration(milliseconds: 600));
+      } finally {
+        codec.dispose();
+      }
+    });
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Center(child: BirdGlyph(color: Colors.white)),
+      ),
+    );
+    var image = tester.widget<Image>(find.byType(Image));
+    expect(
+      (image.image as AssetImage).assetName,
+      'assets/refresh/bluebird_glyph.webp',
+    );
+    expect(tester.getSize(find.byType(BirdGlyph)), const Size(20, 20));
+    expect(image.color, Colors.white);
+    expect(image.colorBlendMode, BlendMode.srcIn);
+    await tester.pumpWidget(
+      const MediaQuery(
+        data: MediaQueryData(disableAnimations: true),
+        child: MaterialApp(home: Center(child: BirdGlyph())),
+      ),
+    );
+    image = tester.widget<Image>(find.byType(Image));
+    expect(
+      (image.image as AssetImage).assetName,
+      'assets/refresh/bluebird_glyph_static.png',
+    );
+    expect(image.color, isNull);
+    expect(tester.takeException(), isNull);
+  });
 }
