@@ -32,13 +32,15 @@ The old NAS-danmaku launcher inherited with its patch is retained as historical 
 
 Automated checks cover manifest/source rejection, SHA and damaged-cache behavior, late-download invalidation, strict TLS despite permissive global media policy, no redirects or credential forwarding, byte limits, paused heartbeats, terminal ordering, stable same-file metadata changes, Windows fallback, and the native local-file generation gate. Existing account/login, OPED, NAS danmaku and desktop playback regressions are also included.
 
-Android validation compiles all native source against the existing E-drive cached dependencies and generated resource/API artifacts, then runs Kotlin BIF JUnit tests. It does not produce or install a newly verified APK. The Windows portable Release build is independent of the two existing running players. This task does not claim Android-device or Windows-GUI playback against a live NAS has been verified.
+Android validation compiles all native source against the existing E-drive cached dependencies and generated resource/API artifacts, then runs Kotlin BIF JUnit tests. It does not produce or install a newly verified APK. The Windows portable Release build is independent of the existing running players. Subsequent real Windows GUI observations are recorded in [NAS_BIF_WINDOWS_GUI_20260914.md](NAS_BIF_WINDOWS_GUI_20260914.md); Android-device playback remains unverified.
+
+The real Windows FNOS test subsequently demonstrated visible zero, middle and late-episode timeline previews for Violet Evergarden S01E07, with the private cache SHA matching the NAS-generated 143-frame full-episode asset. Preview also remained available after a real seek to zero. Earlier Emby hovers only established fallback and lease behavior; they are not the NAS acceptance result. The GUI report records screenshots, the exact final-index timestamp boundary, and the remaining verification limits.
 
 Build dependencies and caches are on E. The existing locked `pubspec.lock` was retained. An initial mirror-based `pub get` hit the Windows symlink limitation; its dependency resolution was discarded and the matching clean mem2 `package_config`, `package_graph`, and plugin metadata were used with the portable junction-based builder.
 
 Evidence logs are under `E:/fly_play_recovere/.tmp/`: `bif-client-flutter-final.log`, `bif-client-windows-final.log`, and `bif-client-android/{compile.log,junit.log}`.
 
-Final checks: 139 Flutter tests across 18 files passed; full `flutter analyze --no-pub` reported no issues; all Android native source compiled with existing deprecation warnings; 10 Kotlin BIF JUnit tests passed; the final portable Windows Release build completed successfully. The launcher passed PowerShell syntax parsing and was not executed.
+Final automated checks: 139 Flutter tests across 18 files passed; full `flutter analyze --no-pub` reported no issues; all Android native source compiled with existing deprecation warnings; 10 Kotlin BIF JUnit tests passed; the final portable Windows Release build completed successfully. The launcher passed PowerShell syntax parsing and was subsequently used for the separate real GUI verification report.
 
 Final Windows SHA256:
 
