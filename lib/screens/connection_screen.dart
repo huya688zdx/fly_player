@@ -603,7 +603,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     FocusScope.of(context).unfocus();
     // 进入历史页前先刷新一次，确保拿到最新（含其它后端）的登录历史。
     final latest = await LoginHistoryStore.load();
-    if (!mounted || _switchingToFly || ModalRoute.of(context)?.isCurrent != true) {
+    if (!mounted ||
+        _switchingToFly ||
+        ModalRoute.of(context)?.isCurrent != true) {
       return;
     }
     setState(() {
@@ -617,7 +619,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
     // 历史页内可能删除/清空，回来时同步最新列表。
     final refreshed = await LoginHistoryStore.load();
-    if (!mounted || _switchingToFly || ModalRoute.of(context)?.isCurrent != true) {
+    if (!mounted ||
+        _switchingToFly ||
+        ModalRoute.of(context)?.isCurrent != true) {
       return;
     }
     setState(() {
@@ -908,16 +912,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 : () => _returnToFlyAccount(account),
             icon: const Icon(Icons.manage_accounts_outlined, size: 20),
             label: const Text('切换到飞翔账号'),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '这里使用媒体服务账号直连。飞翔账号用于管理已绑定来源和观看记录。',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: context.appColors.textMuted,
-              fontSize: 12,
-              height: 1.5,
-            ),
           ),
         ],
       ),
