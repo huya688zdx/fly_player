@@ -26,6 +26,25 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
+  test('桌面插帧采用显示同步，纹理按显示区域的物理像素缩放', () {
+    final settings = <String, String>{
+      'frame_interpolation': 'on',
+      'video_sync': 'audio',
+    };
+    expect(DesktopMpvRuntime.videoSyncMode(settings), 'display-resample');
+    settings['frame_interpolation'] = 'off';
+    expect(DesktopMpvRuntime.videoSyncMode(settings), 'audio');
+    expect(
+      DesktopMpvRuntime.videoOutputSize(
+        source: const Size(1920, 1080),
+        viewport: const Size(800, 600),
+        pixelRatio: 1.5,
+        fit: BoxFit.contain,
+      ),
+      const Size(1200, 675),
+    );
+  });
+
   testWidgets('透明图标进入退出及播放暂停切换后停止调度帧', (tester) async {
     Widget icon(bool selected, {String? playback}) => MaterialApp(
       home: Center(
