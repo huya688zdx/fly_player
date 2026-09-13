@@ -300,7 +300,6 @@ final class ExternalPlaybackHost implements PlaybackHost {
     // 已有 DPL 的相邻条目直接在当前进程切换，最终身份交接由真实采样确认。
     final session = _session!;
     if ((target - current).abs() == 1 && session.onMediaChanged != null) {
-      launchRequest?.onCancel = () => session.finish(closePlayer: true);
       _changingSource = true;
       status.value = active.withPhase(ExternalPlaybackPhase.preparing);
       try {
@@ -314,14 +313,21 @@ final class ExternalPlaybackHost implements PlaybackHost {
         final deadline = DateTime.now().add(const Duration(minutes: 2));
         while (DateTime.now().isBefore(deadline)) {
           await session.poll();
-          if (launchRequest?.isCurrent == false ||
-              session.finished ||
-              !identical(_session, session)) {
+          if (session.finished || !identical(_session, session)) {
             return false;
           }
           if (_source?.itemGuid == episodeGuid &&
               status.value!.duration > Duration.zero) {
+            // 先确认新媒体身份，再取消；否则会把仍在交接的播放留在进程中。
+            if (launchRequest?.cancelled == true) {
+              await session.finish(closePlayer: true);
+              return false;
+            }
             return true;
+          }
+          if (launchRequest?.isCurrent == false &&
+              launchRequest?.cancelled != true) {
+            return false;
           }
           await Future<void>.delayed(const Duration(milliseconds: 200));
         }
