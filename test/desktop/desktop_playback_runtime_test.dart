@@ -809,11 +809,14 @@ void main() {
     );
   });
 
-  test('Windows 原画态入口显示原画且低码率使用 Kbps', () {
+  test('Windows 原画态入口显示原画，码率省略末尾零且低码率使用 Kbps', () {
     final source = _qualitySource();
 
     expect(DesktopMpvRuntime.currentQualityLabel(source, '原画'), '原画');
     expect(DesktopMpvRuntime.qualityBitrateLabel(894000), '894 Kbps');
+    expect(DesktopMpvRuntime.qualityBitrateLabel(2100000), '2.1 Mbps');
+    expect(DesktopMpvRuntime.qualityBitrateLabel(2000000), '2 Mbps');
+    expect(DesktopMpvRuntime.qualityBitrateLabel(1020000), '1.02 Mbps');
   });
 
   testWidgets('Windows 画质面板使用主档与自定义两级结构', (tester) async {
