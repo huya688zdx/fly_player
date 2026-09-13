@@ -47,7 +47,7 @@ abstract final class DesktopMpvRuntime {
     return Media(
       source.url,
       httpHeaders: source.headers,
-      start: startPosition ?? source.startPosition,
+      start: source.isLive ? null : startPosition ?? source.startPosition,
     );
   }
 
@@ -150,6 +150,21 @@ abstract final class DesktopMpvRuntime {
   }
 
   static DesktopQualityMenu qualityMenu(MpvMediaSource source) {
+    if (source.isLive) {
+      final lines = [
+        for (var index = 0; index < source.qualities.length; index++)
+          DesktopQualityChoice(
+            sourceIndex: index,
+            quality: source.qualities[index],
+            displayTier: source.qualities[index].resolution,
+            isOriginal: false,
+          ),
+      ];
+      return DesktopQualityMenu(
+        mainChoices: lines,
+        customGroups: {'直播线路': lines},
+      );
+    }
     final all = <DesktopQualityChoice>[
       for (var index = 0; index < source.qualities.length; index++)
         DesktopQualityChoice(
@@ -240,6 +255,9 @@ abstract final class DesktopMpvRuntime {
     MpvMediaSource source,
     String originalLabel,
   ) {
+    if (source.isLive) {
+      return source.resolution.isEmpty ? '直播' : source.resolution;
+    }
     if (source.playbackMode.isOriginalQuality) return originalLabel;
     final tier = _qualityTierLabel(source.resolution);
     return tier.isEmpty ? originalLabel : tier;
@@ -257,6 +275,7 @@ abstract final class DesktopMpvRuntime {
     DesktopQualityChoice choice,
   ) {
     final quality = choice.quality;
+    if (source.isLive) return quality.mediaGuid == source.mediaGuid;
     if (source.playbackMode.isOriginalQuality) return choice.isOriginal;
     if (quality.directLinkQualityIndex != null &&
         quality.directLinkQualityIndex == source.directLinkQualityIndex) {

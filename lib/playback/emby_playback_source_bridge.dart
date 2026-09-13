@@ -93,6 +93,15 @@ class EmbyPlaybackSourceBridge implements MediaPlaybackSourceBridge {
       posterPath: bundle.posterUrl,
       mediaGuid: source.id,
       mediaType: bundle.itemType,
+      // 直播用 PlaySessionId 作为精确释放句柄；普通点播保持空，避免进入服务端会话释放链。
+      playLink:
+          const {
+                'livechannel',
+                'tvchannel',
+              }.contains(bundle.itemType.trim().toLowerCase()) &&
+              bundle.session.id.trim().isNotEmpty
+          ? bundle.session.id.trim()
+          : null,
       videoGuid: source.videoTrackId,
       videoWidth: source.width,
       videoHeight: source.height,

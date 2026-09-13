@@ -102,7 +102,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     with WindowListener {
   late List<Map<String, dynamic>> _episodes = widget.episodes ?? const [];
   bool get _canBrowseEpisodes =>
-      _episodes.isNotEmpty || widget.loadSeasons != null;
+      !_source.isLive && (_episodes.isNotEmpty || widget.loadSeasons != null);
   static const String _autoPlayPrefKey = 'player_auto_play_enabled';
   static const String _nextEpisodePreloadPrefKey =
       'player_next_episode_preload_enabled';
@@ -335,6 +335,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _weakNetwork.dispose();
     final session = widget.session;
     final retain =
+        !_source.isLive &&
         session.retainedByHost &&
         !session.disposed &&
         session.ready &&
@@ -658,6 +659,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     String sourceLabel = '',
     bool enableOnSuccess = false,
   }) async {
+    if (_source.isLive) return false;
     final generation = ++_danmakuLoadGeneration;
     widget.session.danmakuFilePath = preferredPath;
     if (mounted) {
@@ -957,6 +959,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   /// 仅在已启用的章节或固定时长范围内提示跳过。
   void _onPositionChanged(Duration position) {
     _syncSystemMediaControls();
+    if (_source.isLive) return;
     _weakNetwork.onPosition(position);
     unawaited(_refreshSegmentedSubtitle(position));
     if (!_isLoading && _errorMessage == null) {
@@ -981,6 +984,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   _SkipPromptKind? _computeSkipPromptKind(Duration position) {
+    if (_source.isLive) return null;
     if ((!_introOutroEnabled && !_fixedDurationSkipEnabled) ||
         _playbackCompleted ||
         _isLoading ||
@@ -1580,6 +1584,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   void _onCompletedChanged(bool completed) {
+    if (_source.isLive) {
+      if (completed && mounted && !_isLoading) {
+        _showGenericError('直播已中断，请重试或切换线路');
+      }
+      return;
+    }
     if (!mounted || !completed || _playbackCompleted || _isLoading) return;
     _reportProgress();
     _progressTimer?.cancel();
@@ -1805,6 +1815,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   Future<void> _seekTo(Duration position) {
+    if (_source.isLive) return Future<void>.value();
     _cancelAutoNext(suppress: false);
     // seek 前内核可能仍是 completed；新位置即使在片尾也必须允许下一次 EOF。
     if (mounted && _playbackCompleted) {
@@ -1887,7 +1898,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Future<void> _toggleAbRepeat() async {
     if (_updatingAbLoop || _isLoading) return;
-    if (_player.state.duration <= Duration.zero) {
+    if (_source.isLive || _player.state.duration <= Duration.zero) {
       _showPlayerMessage(_l10n.playerAbLoopUnavailable);
       return;
     }
@@ -3590,6 +3601,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                         child: ValueListenableBuilder<PlayerHoverOverlaySnapshot>(
                           valueListenable: _hoverOverlayNotifier,
                           builder: (context, hover, _) => DesktopPlayerControls(
+                            isLive: _source.isLive,
                             activeMenu: hover.visible ? hover.kind?.name : null,
                             player: _player,
                             showBuffer: !Uri.parse(
@@ -4342,6 +4354,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Future<void> _retryCurrentSource() async {
     if (!mounted) return;
+    if (_source.isLive) {
+      await _reloadPlaybackSource();
+      await _setSystemPlaying(true);
+      return;
+    }
     _updateView(() {
       _isLoading = true;
       _errorMessage = null;

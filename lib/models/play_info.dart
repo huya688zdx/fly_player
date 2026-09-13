@@ -9,6 +9,7 @@ class PlayInfoData {
   final String parentGuid;
   final PlayItem item;
   final PlayConfig? playConfig;
+  final List<LiveChannelData> liveChannels;
 
   const PlayInfoData({
     required this.grandGuid,
@@ -21,6 +22,7 @@ class PlayInfoData {
     required this.parentGuid,
     required this.item,
     this.playConfig,
+    this.liveChannels = const <LiveChannelData>[],
   });
 
   factory PlayInfoData.fromJson(Map<String, dynamic> json) {
@@ -39,6 +41,7 @@ class PlayInfoData {
       parentGuid: (json['parent_guid'] ?? '').toString(),
       item: PlayItem.fromJson(itemJson),
       playConfig: _parsePlayConfig(json['play_config']),
+      liveChannels: _parseLiveChannels(json['live_channels']),
     );
   }
 
@@ -53,6 +56,7 @@ class PlayInfoData {
     String? parentGuid,
     PlayItem? item,
     PlayConfig? playConfig,
+    List<LiveChannelData>? liveChannels,
   }) {
     return PlayInfoData(
       grandGuid: grandGuid ?? this.grandGuid,
@@ -65,10 +69,13 @@ class PlayInfoData {
       parentGuid: parentGuid ?? this.parentGuid,
       item: item ?? this.item,
       playConfig: playConfig ?? this.playConfig,
+      liveChannels: liveChannels ?? this.liveChannels,
     );
   }
 
   bool get isEpisode => type == 'Episode' || item.type == 'Episode';
+
+  bool get isLiveChannel => type == 'LiveChannel' || item.type == 'LiveChannel';
 
   Map<String, Object?> toJson() {
     return <String, Object?>{
@@ -82,6 +89,53 @@ class PlayInfoData {
       'parent_guid': parentGuid,
       'item': item.toJson(),
       'play_config': playConfig?.toJson(),
+      'live_channels': liveChannels.map((channel) => channel.toJson()).toList(),
+    };
+  }
+}
+
+class LiveChannelData {
+  final String guid;
+  final String path;
+  final String fileName;
+  final int type;
+  final int sortNum;
+  final int canPlay;
+  final String playError;
+
+  const LiveChannelData({
+    required this.guid,
+    required this.path,
+    required this.fileName,
+    required this.type,
+    required this.sortNum,
+    required this.canPlay,
+    required this.playError,
+  });
+
+  factory LiveChannelData.fromJson(Map<String, dynamic> json) {
+    return LiveChannelData(
+      guid: (json['guid'] ?? '').toString(),
+      path: (json['path'] ?? '').toString(),
+      fileName: (json['file_name'] ?? '').toString(),
+      type: _asInt(json['type']),
+      sortNum: _asInt(json['sort_num']),
+      canPlay: _asInt(json['can_play']),
+      playError: (json['play_error'] ?? '').toString(),
+    );
+  }
+
+  bool get isPlayable => canPlay == 1 && path.trim().isNotEmpty;
+
+  Map<String, Object?> toJson() {
+    return <String, Object?>{
+      'guid': guid,
+      'path': path,
+      'file_name': fileName,
+      'type': type,
+      'sort_num': sortNum,
+      'can_play': canPlay,
+      'play_error': playError,
     };
   }
 }
@@ -291,6 +345,18 @@ PlayConfig? _parsePlayConfig(dynamic value) {
     return PlayConfig.fromJson(value);
   }
   return null;
+}
+
+List<LiveChannelData> _parseLiveChannels(dynamic value) {
+  if (value is! List) return const <LiveChannelData>[];
+  return value
+      .whereType<Map>()
+      .map(
+        (channel) => LiveChannelData.fromJson(
+          channel.map((key, value) => MapEntry('$key', value)),
+        ),
+      )
+      .toList(growable: false);
 }
 
 List<int> _asIntList(dynamic value) {

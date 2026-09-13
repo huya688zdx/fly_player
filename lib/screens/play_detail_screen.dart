@@ -15,8 +15,9 @@ import '../widgets/detail/detail_status_page.dart';
 import '../pages/media_collection_detail_page.dart';
 import '../pages/play_detail_page.dart';
 import '../pages/tv_detail_page.dart';
+import 'live_channel_screen.dart';
 
-enum DetailPageMode { movie, tv, library }
+enum DetailPageMode { movie, tv, library, live }
 
 class PlayDetailScreen extends StatefulWidget {
   final String itemGuid;
@@ -106,7 +107,9 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
         final type = detail.type.trim().toLowerCase();
         setState(() {
           // 合集（Emby BoxSet）走合集详情页；剧集走 TV 详情；其余（影片/单集）走影片详情。
-          _mode = (type == 'series' || type == 'tv')
+          _mode = (type == 'livechannel' || type == 'tvchannel')
+              ? DetailPageMode.live
+              : (type == 'series' || type == 'tv')
               ? DetailPageMode.tv
               : (type == 'boxset'
                     ? DetailPageMode.library
@@ -153,6 +156,9 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
       return DetailPageMode.movie;
     }
     final directType = (detail['type'] ?? '').toString().trim().toLowerCase();
+    if (directType == 'livechannel' || directType == 'tvchannel') {
+      return DetailPageMode.live;
+    }
     if (directType == 'tv') return DetailPageMode.tv;
     if (directType == 'mediadb' || directType == 'directory') {
       return DetailPageMode.library;
@@ -162,6 +168,9 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
     final item = detail['item'];
     if (item is Map<String, dynamic>) {
       final nestedType = (item['type'] ?? '').toString().trim().toLowerCase();
+      if (nestedType == 'livechannel' || nestedType == 'tvchannel') {
+        return DetailPageMode.live;
+      }
       if (nestedType == 'tv') return DetailPageMode.tv;
       if (nestedType == 'mediadb' || nestedType == 'directory') {
         return DetailPageMode.library;
@@ -186,6 +195,14 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
             onRetry: _load,
           ),
         ),
+      );
+    }
+
+    if (_mode == DetailPageMode.live) {
+      return LiveChannelScreen(
+        key: ValueKey(widget.itemGuid),
+        itemId: widget.itemGuid,
+        presentation: widget.presentation,
       );
     }
 

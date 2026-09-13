@@ -46,6 +46,11 @@ class MpvMediaSource {
   final String posterPath;
   final String mediaGuid;
   final String mediaType;
+
+  bool get isLive => const {
+    'livechannel',
+    'tvchannel',
+  }.contains(mediaType.trim().toLowerCase());
   final String ancestorName;
   final String videoGuid;
   final int? directLinkQualityIndex;

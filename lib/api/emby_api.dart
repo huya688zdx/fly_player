@@ -27,6 +27,13 @@ class EmbyAuthenticateResult {
   final String userName;
 }
 
+class EmbyPlaybackInfo {
+  const EmbyPlaybackInfo({required this.mediaSources, this.playSessionId = ''});
+
+  final List<Map<String, Object?>> mediaSources;
+  final String playSessionId;
+}
+
 /// Emby API 客户端，兼作 MediaBrowser 家族（Emby / Jellyfin）共享内核。
 ///
 /// Jellyfin 是 Emby 3.5 的 fork，REST 端点与本类同形（认证 / 条目 / 播放直链 / 进度回写 /
@@ -74,6 +81,31 @@ class EmbyApi {
   ///
   /// 实际的 cookie 注入与诊断日志由传输层的 [installFnEntryTokenInterceptor] 承担。
   final String Function()? _entryTokenProvider;
+
+  // mpv 可直接解封装常见直播格式；保留 HLS 转码兜底，让服务端能生成设备专属播放 URL。
+  static const Map<String, Object?> _mpvLiveDeviceProfile = <String, Object?>{
+    'Name': 'Fly Player mpv',
+    'MaxStreamingBitrate': 120000000,
+    'DirectPlayProfiles': <Map<String, Object?>>[
+      <String, Object?>{'Type': 'Video'},
+    ],
+    'TranscodingProfiles': <Map<String, Object?>>[
+      <String, Object?>{
+        'Container': 'ts',
+        'Type': 'Video',
+        'VideoCodec': 'h264',
+        'AudioCodec': 'aac,mp3,ac3',
+        'Context': 'Streaming',
+        'Protocol': 'hls',
+        'MaxAudioChannels': '8',
+        'MinSegments': 1,
+        'BreakOnNonKeyFrames': false,
+      },
+    ],
+    'ContainerProfiles': <Object?>[],
+    'CodecProfiles': <Object?>[],
+    'SubtitleProfiles': <Object?>[],
+  };
 
   /// 传输层配置的只读视图——供测试断言自建 Dio 的超时档位；注入 Dio 时反映注入实例的配置。
   @visibleForTesting
@@ -159,6 +191,134 @@ class EmbyApi {
     return _getItemList(
       '$normalizedServerUrl/Users/${userId.trim()}/Views',
       <String, Object?>{'api_key': accessToken},
+    );
+  }
+
+  /// 当前用户可见的直播频道。Emby / Jellyfin 端点同形。
+  Future<EmbyItemPage> getLiveTvChannels({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    int startIndex = 0,
+    int? limit,
+    bool addCurrentProgram = true,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final response = await _dio.get<Object?>(
+      '$normalizedServerUrl/LiveTv/Channels',
+      queryParameters: <String, Object?>{
+        'UserId': userId.trim(),
+        'StartIndex': startIndex,
+        if (limit != null) 'Limit': limit,
+        'AddCurrentProgram': addCurrentProgram,
+        'EnableImages': true,
+        'EnableUserData': true,
+        'api_key': accessToken,
+      },
+      options: Options(headers: _jsonHeaders),
+    );
+    final data = _asMap(response.data);
+    final rawItems = data['Items'];
+    final items = rawItems is List
+        ? rawItems
+              .whereType<Map>()
+              .map((e) => Map<String, Object?>.from(e))
+              .toList(growable: false)
+        : const <Map<String, Object?>>[];
+    return EmbyItemPage(
+      items: items,
+      totalRecordCount: _asCount(data['TotalRecordCount'], items.length),
+    );
+  }
+
+  /// 取得服务端按客户端能力计算后的播放源；直播源此时可能仍需显式打开。
+  Future<EmbyPlaybackInfo> getPlaybackInfo({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    String mediaSourceId = '',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final response = await _dio.post<Object?>(
+      '$normalizedServerUrl/Items/${itemId.trim()}/PlaybackInfo',
+      queryParameters: <String, Object?>{'api_key': accessToken},
+      data: <String, Object?>{
+        'UserId': userId.trim(),
+        'DeviceProfile': _mpvLiveDeviceProfile,
+        if (mediaSourceId.trim().isNotEmpty)
+          'MediaSourceId': mediaSourceId.trim(),
+        'AutoOpenLiveStream': false,
+        'EnableDirectPlay': false,
+        'EnableDirectStream': true,
+        'EnableTranscoding': true,
+      },
+      options: Options(
+        contentType: Headers.jsonContentType,
+        headers: <String, Object?>{
+          ..._jsonHeaders,
+          'X-Emby-Authorization': sessionAuthorizationHeaderValue(accessToken),
+        },
+      ),
+    );
+    return _playbackInfoFrom(response.data);
+  }
+
+  /// 打开要求占用调谐器的直播源，返回打开后的真实播放源。
+  Future<Map<String, Object?>> openLiveStream({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String playSessionId,
+    required String openToken,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final response = await _dio.post<Object?>(
+      '$normalizedServerUrl/LiveStreams/Open',
+      queryParameters: <String, Object?>{'api_key': accessToken},
+      data: <String, Object?>{
+        'OpenToken': openToken.trim(),
+        'UserId': userId.trim(),
+        'PlaySessionId': playSessionId.trim(),
+        'ItemId': itemId.trim(),
+        'DeviceProfile': _mpvLiveDeviceProfile,
+        'EnableDirectPlay': false,
+        'EnableDirectStream': true,
+        'EnableTranscoding': true,
+      },
+      options: Options(
+        contentType: Headers.jsonContentType,
+        headers: <String, Object?>{
+          ..._jsonHeaders,
+          'X-Emby-Authorization': sessionAuthorizationHeaderValue(accessToken),
+        },
+      ),
+    );
+    return _asMap(_asMap(response.data)['MediaSource']);
+  }
+
+  /// 释放指定直播源。两个标识均来自同一次 PlaybackInfo/OpenLiveStream。
+  Future<void> closeLiveStream({
+    required String serverUrl,
+    required String accessToken,
+    required String liveStreamId,
+    required String playSessionId,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    await _dio.post<Object?>(
+      '$normalizedServerUrl/LiveStreams/Close',
+      queryParameters: <String, Object?>{
+        'LiveStreamId': liveStreamId.trim(),
+        'PlaySessionId': playSessionId.trim(),
+        'api_key': accessToken,
+      },
+      options: Options(
+        headers: <String, Object?>{
+          ..._jsonHeaders,
+          'X-Emby-Authorization': sessionAuthorizationHeaderValue(accessToken),
+        },
+      ),
     );
   }
 
@@ -444,6 +604,8 @@ class EmbyApi {
     required String mediaSourceId,
     required String accessToken,
     String container = '',
+    String playSessionId = '',
+    String liveStreamId = '',
   }) {
     final normalizedServerUrl = normalizeServerUrl(serverUrl);
     final path = container.trim().isNotEmpty
@@ -453,6 +615,9 @@ class EmbyApi {
       'Static': 'true',
       if (mediaSourceId.trim().isNotEmpty)
         'MediaSourceId': mediaSourceId.trim(),
+      if (playSessionId.trim().isNotEmpty)
+        'PlaySessionId': playSessionId.trim(),
+      if (liveStreamId.trim().isNotEmpty) 'LiveStreamId': liveStreamId.trim(),
       'api_key': accessToken,
     };
     final qs = query.entries
@@ -593,6 +758,10 @@ class EmbyApi {
     required String itemId,
     required String mediaSourceId,
     int positionTicks = 0,
+    String playSessionId = '',
+    String liveStreamId = '',
+    bool canSeek = true,
+    String playMethod = 'DirectStream',
   }) async {
     final normalizedServerUrl = normalizeServerUrl(serverUrl);
     await _dio.post<Object?>(
@@ -602,7 +771,12 @@ class EmbyApi {
         itemId,
         mediaSourceId,
         positionTicks,
-        _playSessionIdFor(itemId),
+        playSessionId.trim().isNotEmpty
+            ? playSessionId.trim()
+            : _playSessionIdFor(itemId),
+        liveStreamId: liveStreamId,
+        canSeek: canSeek,
+        playMethod: playMethod,
       ),
       options: Options(
         contentType: Headers.jsonContentType,
@@ -629,6 +803,10 @@ class EmbyApi {
     required String mediaSourceId,
     required int positionTicks,
     bool isPaused = false,
+    String playSessionId = '',
+    String liveStreamId = '',
+    bool canSeek = true,
+    String playMethod = 'DirectStream',
   }) async {
     final normalizedServerUrl = normalizeServerUrl(serverUrl);
     await _dio.post<Object?>(
@@ -638,9 +816,14 @@ class EmbyApi {
         itemId,
         mediaSourceId,
         positionTicks,
-        _playSessionIdFor(itemId),
-        isPaused,
-        true,
+        playSessionId.trim().isNotEmpty
+            ? playSessionId.trim()
+            : _playSessionIdFor(itemId),
+        isPaused: isPaused,
+        withProgressFields: true,
+        liveStreamId: liveStreamId,
+        canSeek: canSeek,
+        playMethod: playMethod,
       ),
       options: Options(
         contentType: Headers.jsonContentType,
@@ -663,6 +846,10 @@ class EmbyApi {
     required String itemId,
     required String mediaSourceId,
     required int positionTicks,
+    String playSessionId = '',
+    String liveStreamId = '',
+    bool canSeek = true,
+    String playMethod = 'DirectStream',
   }) async {
     final normalizedServerUrl = normalizeServerUrl(serverUrl);
     await _dio.post<Object?>(
@@ -672,7 +859,12 @@ class EmbyApi {
         itemId,
         mediaSourceId,
         positionTicks,
-        _playSessionIdFor(itemId),
+        playSessionId.trim().isNotEmpty
+            ? playSessionId.trim()
+            : _playSessionIdFor(itemId),
+        liveStreamId: liveStreamId,
+        canSeek: canSeek,
+        playMethod: playMethod,
       ),
       options: Options(
         contentType: Headers.jsonContentType,
@@ -757,18 +949,22 @@ class EmbyApi {
     String itemId,
     String mediaSourceId,
     int positionTicks,
-    String playSessionId, [
+    String playSessionId, {
     bool isPaused = false,
     bool withProgressFields = false,
-  ]) {
+    String liveStreamId = '',
+    bool canSeek = true,
+    String playMethod = 'DirectStream',
+  }) {
     return <String, Object?>{
       'ItemId': itemId.trim(),
       if (mediaSourceId.trim().isNotEmpty)
         'MediaSourceId': mediaSourceId.trim(),
       'PlaySessionId': playSessionId,
+      if (liveStreamId.trim().isNotEmpty) 'LiveStreamId': liveStreamId.trim(),
       'PositionTicks': positionTicks < 0 ? 0 : positionTicks,
-      'PlayMethod': 'DirectStream',
-      'CanSeek': true,
+      'PlayMethod': playMethod,
+      'CanSeek': canSeek,
       if (withProgressFields) ...<String, Object?>{
         'IsPaused': isPaused,
         'EventName': 'TimeUpdate',
@@ -845,6 +1041,21 @@ class EmbyApi {
         .whereType<Map>()
         .map((e) => Map<String, Object?>.from(e))
         .toList(growable: false);
+  }
+
+  static EmbyPlaybackInfo _playbackInfoFrom(Object? raw) {
+    final data = _asMap(raw);
+    final rawSources = data['MediaSources'];
+    final sources = rawSources is List
+        ? rawSources
+              .whereType<Map>()
+              .map((e) => Map<String, Object?>.from(e))
+              .toList(growable: false)
+        : const <Map<String, Object?>>[];
+    return EmbyPlaybackInfo(
+      mediaSources: sources,
+      playSessionId: (data['PlaySessionId'] ?? '').toString(),
+    );
   }
 
   Map<String, Object?> get _jsonHeaders => const <String, Object?>{

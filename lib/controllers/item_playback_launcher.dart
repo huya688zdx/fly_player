@@ -123,102 +123,110 @@ class ItemPlaybackLauncher {
         if (resolved == null) return null;
         final source = resolved.source;
         rememberPlaybackLaunchSource(host, source);
-
-        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
-        // 服务器族单集起播需带上本季 episodes，桌面与 Android 宿主共用。
-        final serverEpisodes = isFeiniu
-            ? null
-            : await _serverNativeEpisodes(backend, source);
-        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
-
-        // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
-        if (DesktopEnvironment.isWindows) {
-          final danmakuSettings = await const DanmakuSettingsStore().load();
+        var accepted = false;
+        try {
           if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
-          final danmakuFile = source.isDownloadedFile
+          // 服务器族单集起播需带上本季 episodes，桌面与 Android 宿主共用。
+          final serverEpisodes = isFeiniu
               ? null
-              : await NativeDanmakuPrefetch.resolveToFile(
-                  seriesTitle: source.seriesTitle,
-                  itemTitle: source.title,
-                  seasonNumber: source.seasonNumber,
-                  episodeNumber: source.episodeNumber,
-                  tmdbId: source.tmdbId,
-                  settings: danmakuSettings,
-                  itemGuid: source.itemGuid,
-                  mediaGuid: source.mediaGuid,
-                  seasonGuid: source.seasonGuid,
-                );
+              : await _serverNativeEpisodes(backend, source);
           if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
-          if (await host.launch(
-            source: source,
-            episodes: serverEpisodes,
-            danmakuFilePath: danmakuFile,
-            nas: isFeiniu ? nas : null,
-          )) {
-            return null;
+
+          // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
+          if (DesktopEnvironment.isWindows) {
+            final danmakuSettings = await const DanmakuSettingsStore().load();
+            if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
+            final danmakuFile = source.isDownloadedFile || source.isLive
+                ? null
+                : await NativeDanmakuPrefetch.resolveToFile(
+                    seriesTitle: source.seriesTitle,
+                    itemTitle: source.title,
+                    seasonNumber: source.seasonNumber,
+                    episodeNumber: source.episodeNumber,
+                    tmdbId: source.tmdbId,
+                    settings: danmakuSettings,
+                    itemGuid: source.itemGuid,
+                    mediaGuid: source.mediaGuid,
+                    seasonGuid: source.seasonGuid,
+                  );
+            if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
+            if (await host.launch(
+              source: source,
+              episodes: serverEpisodes,
+              danmakuFilePath: danmakuFile,
+              nas: isFeiniu ? nas : null,
+            )) {
+              accepted = true;
+              return null;
+            }
+          } else if (NativePlayerBridge.preferNativePlayerShell) {
+            // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
+            // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
+            // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
+            // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
+            NativePlaybackReentry.bind(
+              backend: backend,
+              nas: nas,
+              l10n: l10n,
+              onResolvePlayback:
+                  (
+                    itemGuid, {
+                    qualityIndex,
+                    qualityMediaGuid,
+                    startPositionMs,
+                    subtitleGuid,
+                    audioGuid,
+                    audioTrackIndex,
+                    subtitleTrackIndex,
+                    preferredQualityResolution,
+                  }) => isFeiniu
+                  ? resolveForNative(
+                      nas,
+                      backend: backend,
+                      itemGuid: itemGuid,
+                      fallbackTitle: fallbackTitle,
+                      qualityIndex: qualityIndex,
+                      qualityMediaGuid: qualityMediaGuid,
+                      startPositionMs: startPositionMs,
+                      subtitleGuid: subtitleGuid,
+                      audioGuid: audioGuid,
+                      l10n: l10n,
+                    )
+                  : _resolveServerForNative(
+                      backend,
+                      itemGuid: itemGuid,
+                      fallbackTitle: fallbackTitle,
+                      qualityMediaGuid: qualityMediaGuid,
+                      startPositionMs: startPositionMs,
+                      subtitleGuid: subtitleGuid,
+                      audioGuid: audioGuid,
+                      l10n: l10n,
+                    ),
+            );
+            // 服务器族封面由后端给出可直接消费的 URL，不走 NAS 鉴权预取，故只飞牛传 nas。
+            if (await host.launch(
+              source: source,
+              episodes: serverEpisodes,
+              nas: isFeiniu ? nas : null,
+            )) {
+              accepted = true;
+              return null;
+            }
           }
-        } else if (NativePlayerBridge.preferNativePlayerShell) {
-          // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
-          // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
-          // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
-          // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
-          NativePlaybackReentry.bind(
-            backend: backend,
-            nas: nas,
-            l10n: l10n,
-            onResolvePlayback:
-                (
-                  itemGuid, {
-                  qualityIndex,
-                  qualityMediaGuid,
-                  startPositionMs,
-                  subtitleGuid,
-                  audioGuid,
-                  audioTrackIndex,
-                  subtitleTrackIndex,
-                  preferredQualityResolution,
-                }) => isFeiniu
-                ? resolveForNative(
-                    nas,
-                    backend: backend,
-                    itemGuid: itemGuid,
-                    fallbackTitle: fallbackTitle,
-                    qualityIndex: qualityIndex,
-                    qualityMediaGuid: qualityMediaGuid,
-                    startPositionMs: startPositionMs,
-                    subtitleGuid: subtitleGuid,
-                    audioGuid: audioGuid,
-                    l10n: l10n,
-                  )
-                : _resolveServerForNative(
-                    backend,
-                    itemGuid: itemGuid,
-                    fallbackTitle: fallbackTitle,
-                    qualityMediaGuid: qualityMediaGuid,
-                    startPositionMs: startPositionMs,
-                    subtitleGuid: subtitleGuid,
-                    audioGuid: audioGuid,
-                    l10n: l10n,
-                  ),
-          );
-          // 服务器族封面由后端给出可直接消费的 URL，不走 NAS 鉴权预取，故只飞牛传 nas。
-          if (await host.launch(
-            source: source,
-            episodes: serverEpisodes,
-            nas: isFeiniu ? nas : null,
-          )) {
-            return null;
+          if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
+          if (context.mounted) {
+            _topTip.show(
+              context,
+              message: l10n.detailPlayInfoFailed,
+              color: context.appColors.danger,
+            );
+          }
+          return null;
+        } finally {
+          if (source.isLive && !accepted) {
+            await backend.releasePlaybackSession(source.playLink ?? '');
           }
         }
-        if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
-        if (context.mounted) {
-          _topTip.show(
-            context,
-            message: l10n.detailPlayInfoFailed,
-            color: context.appColors.danger,
-          );
-        }
-        return null;
       },
     );
   }
@@ -249,6 +257,9 @@ class ItemPlaybackLauncher {
       overrideAudioGuid: audioGuid,
     );
     if (resolved == null) return null;
+    if (resolved.source.isLive) {
+      return {'loadArgs': jsonEncode(resolved.source.toMap())};
+    }
     final episodes = await _serverNativeEpisodes(backend, resolved.source);
     final loadArgs = <String, dynamic>{
       ...resolved.source.toMap(),
@@ -376,6 +387,9 @@ class ItemPlaybackLauncher {
           l10n: l10n,
         );
         if (resolved == null) return null;
+        if (resolved.source.isLive) {
+          return {'loadArgs': jsonEncode(resolved.source.toMap())};
+        }
         final loadArgs = <String, dynamic>{
           ...resolved.source.toMap(),
           if (startPositionMs != null) 'startPositionMs': startPositionMs,
