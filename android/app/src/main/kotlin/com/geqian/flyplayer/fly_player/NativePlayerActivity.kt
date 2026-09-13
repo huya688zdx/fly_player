@@ -10274,7 +10274,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      */
     private fun showSeekPreview(targetMs: Long, durationMs: Long) {
         seekPreviewTime.text = "${formatTime(targetMs)} / ${formatTime(durationMs)}"
-        val bifFrame = seekThumbBifStore.frameFor(targetMs)
+        val nasFrame = seekThumbNasBifStore.frameFor(targetMs)
+        val usingNas = nasFrame != null
+        if (usingNas != seekThumbUsingNas) {
+            seekThumbUsingNas = usingNas
+            seekThumbLoadedBifIndex = -1
+            seekThumbBifBitmapCache.evictAll()
+        }
+        val bifFrame = nasFrame ?: seekThumbBifStore.frameFor(targetMs)
         if (bifFrame != null) {
             // BIF 帧是内存里的几 KB JPEG，主线程同步解码（1~2ms）+ LRU 直接上屏。
             // 不能走 Glide：into() 开新请求会先清空 ImageView，快速拖动时每换一帧
@@ -10356,9 +10363,43 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     // BIF 下载/解析/就绪态。磁盘缓存按 URL 哈希，同条目跨会话复用。
     private val seekThumbBifStore by lazy { SeekThumbnailBifStore(File(cacheDir, "seek_bif")) }
+    private val seekThumbNasBifStore by lazy { SeekThumbnailBifStore(File(cacheDir, "seek_bif")) }
+    private var seekThumbUsingNas = false
+    private var flyBifContext = ""
+
+    private fun stopFlyBifContext() {
+        val context = flyBifContext
+        flyBifContext = ""
+        seekThumbNasBifStore.prepare("", emptyMap())
+        if (context.isNotEmpty()) NativePlayerReverseBridge.dispatch("flyPlaybackActivity", mapOf("context_id" to context, "state" to "stopped"))
+    }
+
+    private fun resolveFlyBifContext() {
+        stopFlyBifContext()
+        val context = UUID.randomUUID().toString()
+        flyBifContext = context
+        NativePlayerReverseBridge.dispatch("resolveFlyBif", mapOf(
+            "context_id" to context,
+            "statsScope" to loadArgsMap["statsScope"],
+            "itemGuid" to loadArgsMap["itemGuid"],
+            "mediaGuid" to loadArgsMap["mediaGuid"],
+            "originalFile" to supportsVerifiedFileOped(),
+            "paused" to (loadArgsMap["startPaused"] == true),
+        ), onResult = { result -> runOnUiThread {
+            if (activityDestroying || context != flyBifContext || result !is String || result.isEmpty()) return@runOnUiThread
+            // Only paths in the private Fly cache may cross the reverse bridge.
+            // The authenticated Dart downloader has already checked SHA and identity.
+            try {
+                val file = File(result).canonicalFile
+                val root = File(cacheDir, "fly_bif").canonicalPath + File.separator
+                if (file.path.startsWith(root) && file.isFile) seekThumbNasBifStore.prepare("", emptyMap(), file)
+            } catch (_: Throwable) { /* Original Emby previews stay available. */ }
+        } }, onError = { /* Preview failure never changes playback. */ })
+    }
 
     /** 从当前 loadArgsMap 解析缩略图列表（换源后调用一次，避免每帧重解析），并触发 BIF 装载。 */
     private fun refreshSeekThumbnails() {
+        resolveFlyBifContext()
         val raw = loadArgsMap["seekThumbnails"] as? List<*>
         seekThumbnails = raw
             ?.mapNotNull { entry ->
@@ -10750,6 +10791,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (durationSec <= 0L) return
         val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
         val paused = playbackParked || state.paused
+        val bifContext = flyBifContext
+        if (bifContext.isNotEmpty()) NativePlayerReverseBridge.dispatch("flyPlaybackActivity", mapOf(
+            "context_id" to bifContext, "state" to if (paused) "paused" else "playing",
+        ), onResult = { valid -> runOnUiThread {
+            if (bifContext == flyBifContext && valid == false) seekThumbNasBifStore.prepare("", emptyMap())
+        } }, onError = { /* Lease expiration is handled by the service. */ })
         // 同秒去重只对播放态生效；暂停时放行为心跳，供 Flutter 统计端区分「暂停」与
         // 「已退出」。pausedHeartbeat 标记重复帧，服务端回写（飞牛/Emby）按它跳过。
         val pausedHeartbeat = !force && paused && ts == lastRecordedTs
@@ -10775,6 +10822,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onDestroy() {
         invalidateServiceDanmakuRequest()
+        stopFlyBifContext()
         finishFlyOped("cancelled")
         if (retainedPlayer.get() === this) retainedPlayer.clear()
         val playLink = loadArgsMap["playLink"]?.toString().orEmpty()

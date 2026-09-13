@@ -1338,33 +1338,41 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final colors = context.appColors;
     return Row(
       children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(999),
-          onTap: () => onChanged(!value),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 28,
-                height: 28,
-                child: Checkbox(
-                  value: value,
-                  onChanged: (next) => onChanged(next ?? false),
-                  side: BorderSide(color: colors.borderStrong),
-                  fillColor: WidgetStateProperty.resolveWith(
-                    (states) => states.contains(WidgetState.selected)
-                        ? colors.selection
-                        : Colors.transparent,
+        // Expanded 提供有界宽度：英/日文案比中文长得多，内层 Text 需要
+        // 在固定宽度内折行（maxLines 2）而不是横向溢出。
+        Expanded(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: () => onChanged(!value),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: Checkbox(
+                    value: value,
+                    onChanged: (next) => onChanged(next ?? false),
+                    side: BorderSide(color: colors.borderStrong),
+                    fillColor: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.selected)
+                          ? colors.selection
+                          : Colors.transparent,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                l10n.connectionRememberLogin,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    l10n.connectionRememberLogin,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ],

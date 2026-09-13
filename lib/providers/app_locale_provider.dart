@@ -5,7 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum AppLocaleMode {
   system('system'),
-  zhCN('zh-CN');
+  zhCN('zh-CN'),
+  en('en'),
+  ja('ja');
 
   const AppLocaleMode(this.storageValue);
 
@@ -35,6 +37,8 @@ class AppLocaleProvider extends ChangeNotifier {
   Locale? get locale => switch (_mode) {
     AppLocaleMode.system => null,
     AppLocaleMode.zhCN => const Locale('zh', 'CN'),
+    AppLocaleMode.en => const Locale('en'),
+    AppLocaleMode.ja => const Locale('ja'),
   };
 
   Future<void> load() async {
@@ -59,7 +63,7 @@ class AppLocaleProvider extends ChangeNotifier {
   }
 
   /// 无 BuildContext 场景（如原生播放壳桥接）读取持久化的语言覆盖值：system 模式
-  /// 返回 null（调用方应回退平台语言），zhCN 返回固定的 `zh-CN`。直接读
+  /// 返回 null（调用方应回退平台语言），其余模式返回固定的语言区域。直接读
   /// SharedPreferences，不依赖 Provider 实例是否已构建/load 完成。
   static Future<Locale?> loadStoredLocale() async {
     final prefs = await SharedPreferences.getInstance();
@@ -69,6 +73,8 @@ class AppLocaleProvider extends ChangeNotifier {
     return switch (mode) {
       AppLocaleMode.system => null,
       AppLocaleMode.zhCN => const Locale('zh', 'CN'),
+      AppLocaleMode.en => const Locale('en'),
+      AppLocaleMode.ja => const Locale('ja'),
     };
   }
 }

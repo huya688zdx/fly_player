@@ -72,6 +72,41 @@ class FlyDataApi {
   }
 
   Future<Map<String, dynamic>> post(String path, Object data) async {
+    final limit = maxResponseBytes;
+    if (limit != null) {
+      return _request(() async {
+        final response = await _dio.post<ResponseBody>(
+          path,
+          data: data,
+          options: Options(
+            contentType: Headers.jsonContentType,
+            responseType: ResponseType.stream,
+          ),
+        );
+        final body = response.data;
+        if (body == null ||
+            (response.headers.value('content-type') ?? '')
+                    .split(';')
+                    .first
+                    .trim()
+                    .toLowerCase() !=
+                'application/json') {
+          await body?.stream.listen(null).cancel();
+          throw StateError('Invalid data response.');
+        }
+        final bytes = BytesBuilder(copy: false);
+        await for (final chunk in body.stream) {
+          if (bytes.length + chunk.length > limit) {
+            throw StateError('Data response exceeds limit.');
+          }
+          bytes.add(chunk);
+        }
+        return Response<dynamic>(
+          requestOptions: response.requestOptions,
+          data: jsonDecode(utf8.decode(bytes.takeBytes())),
+        );
+      });
+    }
     return _request(
       () => _dio.post<dynamic>(
         path,
@@ -104,6 +139,56 @@ class FlyDataApi {
     }
   }
 
+  /// Fixed same-service BIF endpoint; no redirects and no inherited media TLS
+  /// override. Bound bytes while streaming, including chunked responses.
+  Future<Uint8List> bifBytes(String path, {required int expectedBytes}) async {
+    final uri = Uri.tryParse(path);
+    if (uri == null ||
+        uri.hasScheme ||
+        uri.hasAuthority ||
+        uri.hasFragment ||
+        !RegExp(
+          r'^/api/v1/bif/assets/[0-9a-fA-F-]{36}/content$',
+        ).hasMatch(uri.path) ||
+        expectedBytes < 80 ||
+        expectedBytes > 128 * 1024 * 1024) {
+      throw StateError('Invalid BIF asset request.');
+    }
+    try {
+      final response = await _dio.get<ResponseBody>(
+        path.substring('/api/v1'.length),
+        options: Options(
+          responseType: ResponseType.stream,
+          followRedirects: false,
+        ),
+      );
+      final body = response.data;
+      if (response.statusCode != 200 || body == null) {
+        throw StateError('BIF unavailable.');
+      }
+      final declared = int.tryParse(
+        response.headers.value('content-length') ?? '',
+      );
+      if (declared != null && declared != expectedBytes) {
+        await body.stream.listen(null).cancel();
+        throw StateError('BIF length mismatch.');
+      }
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in body.stream) {
+        if (bytes.length + chunk.length > expectedBytes) {
+          throw StateError('BIF exceeds declared limit.');
+        }
+        bytes.add(chunk);
+      }
+      if (bytes.length != expectedBytes) {
+        throw StateError('BIF length mismatch.');
+      }
+      return bytes.takeBytes();
+    } on DioException {
+      throw StateError('BIF unavailable.');
+    }
+  }
+
   Future<Map<String, dynamic>> _request(
     Future<Response<dynamic>> Function() send,
   ) async {
@@ -111,13 +196,38 @@ class FlyDataApi {
       final response = await send();
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (error) {
-      final body = error.response?.data;
-      final detail = body is Map ? body['error'] : null;
-      final code = detail is Map ? detail['code'] : null;
+      final code = await _safeErrorCode(error.response?.data);
       // DioException.toString can contain request details; never surface/log it.
       throw StateError(
         code == null ? '数据服务连接失败，请检查地址和网络后手动重试。' : '数据服务拒绝请求：$code',
       );
+    }
+  }
+
+  /// Playback reads use ResponseType.stream, including HTTP error bodies.
+  /// Preserve only a short machine code, never the server's private message.
+  Future<String?> _safeErrorCode(dynamic body) async {
+    try {
+      if (body is ResponseBody) {
+        final type = body.headers[Headers.contentTypeHeader]?.firstOrNull ?? '';
+        if (type.split(';').first.trim().toLowerCase() != 'application/json') {
+          await body.stream.listen(null).cancel();
+          return null;
+        }
+        final bytes = BytesBuilder(copy: false);
+        await for (final chunk in body.stream) {
+          if (bytes.length + chunk.length > 16 * 1024) return null;
+          bytes.add(chunk);
+        }
+        body = jsonDecode(utf8.decode(bytes.takeBytes()));
+      }
+      final detail = body is Map ? body['error'] : null;
+      final code = detail is Map ? detail['code'] : null;
+      return code is String && RegExp(r'^[A-Z0-9_]{1,80}$').hasMatch(code)
+          ? code
+          : null;
+    } catch (_) {
+      return null;
     }
   }
 

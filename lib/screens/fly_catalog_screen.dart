@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../services/fly_data/fly_account_controller.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_info_popover.dart';

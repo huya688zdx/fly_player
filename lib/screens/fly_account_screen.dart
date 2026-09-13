@@ -658,7 +658,7 @@ class FlyBindingsScreen extends StatelessWidget {
                     ? null
                     : () => _localServiceForm(context, account),
                 icon: const Icon(Icons.home_work_outlined),
-                label: const Text('绑定本机媒体服务'),
+                label: const Text('绑定 NAS 媒体服务'),
               ),
             OutlinedButton.icon(
               onPressed: account.busy
@@ -802,7 +802,7 @@ class FlyBindingsScreen extends StatelessWidget {
       }
       final selected = await _showFlyOptions(
         context,
-        title: '选择本机媒体服务',
+        title: '选择 NAS 媒体服务',
         items: [
           for (final item in items)
             TrackOptionSheetItem(

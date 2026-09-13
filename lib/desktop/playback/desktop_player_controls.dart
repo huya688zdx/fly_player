@@ -36,6 +36,7 @@ class DesktopPlayerControls extends StatefulWidget {
     this.flyOpedSet,
     this.seekThumbnails = const [],
     this.seekThumbnailBifUrl = '',
+    this.seekThumbnailLocalBifPath = '',
     this.thumbnailHeaders = const {},
     required this.videoState,
     required this.title,
@@ -106,6 +107,7 @@ class DesktopPlayerControls extends StatefulWidget {
   final FlyOpedSet? flyOpedSet;
   final List<MpvSeekThumbnail> seekThumbnails;
   final String seekThumbnailBifUrl;
+  final String seekThumbnailLocalBifPath;
   final Map<String, String> thumbnailHeaders;
   final VideoState videoState;
   final String title;
@@ -197,6 +199,7 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
   void _prepareThumbnails() => unawaited(
     _thumbnails.prepare(
       bifUrl: widget.seekThumbnailBifUrl,
+      localBifPath: widget.seekThumbnailLocalBifPath,
       chapters: widget.seekThumbnails,
       headers: widget.thumbnailHeaders,
     ),

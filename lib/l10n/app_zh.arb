@@ -9,11 +9,17 @@
   "settingsLanguageTitle": "应用语言",
   "settingsLanguageSubtitleSystem": "跟随系统",
   "settingsLanguageSubtitleZhCN": "简体中文",
+  "settingsLanguageSubtitleEn": "English",
+  "settingsLanguageSubtitleJa": "日本語",
   "languageSheetTitle": "应用语言",
   "languageSystem": "跟随系统",
   "languageSystemSubtitle": "使用系统语言偏好",
   "languageZhCN": "简体中文",
   "languageZhCNSubtitle": "固定使用简体中文",
+  "languageEn": "English",
+  "languageEnSubtitle": "固定使用英语",
+  "languageJa": "日本語",
+  "languageJaSubtitle": "固定使用日语",
   "commonCancel": "取消",
   "commonConfirm": "确认",
   "commonSave": "保存",
@@ -217,8 +223,12 @@
   "posterBrowseRowIndicator": "{current} / {total}",
   "@posterBrowseRowIndicator": {
     "placeholders": {
-      "current": { "type": "int" },
-      "total": { "type": "int" }
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
   "routeErrorMissingDetail": "缺少详情参数",
@@ -428,8 +438,12 @@
   "settingsDesktopSummary": "{groups} 个分组 · {items} 项配置",
   "@settingsDesktopSummary": {
     "placeholders": {
-      "groups": { "type": "int" },
-      "items": { "type": "int" }
+      "groups": {
+        "type": "int"
+      },
+      "items": {
+        "type": "int"
+      }
     }
   },
   "settingsDesktopSummaryHint": "行尾实时显示当前值，单击进入子页",
@@ -872,7 +886,6 @@
   "mpvCurrentlyUsed": "当前使用",
   "commonReset": "重置",
   "commonRestoreDefault": "恢复默认",
-  "commonSave": "保存",
   "playerQualitySwitching": "正在为您切换至 {quality}{suffix} 画质，请稍等...",
   "@playerQualitySwitching": {
     "placeholders": {
@@ -1163,7 +1176,7 @@
   "danmakuTypeColor": "彩色",
   "danmakuTypeBottom": "底部",
   "danmakuOcclusionSection": "画面防遮挡",
-  "danmakuHideDuplicateTitle": "重复弹幕隐藏",
+  "danmakuHideDuplicateTitle": "隐藏重复弹幕",
   "danmakuHideDuplicateSubtitle": "合并高频重复内容，减少同屏密集刷屏。",
   "danmakuAvoidSubtitleTitle": "底部字幕区域防遮挡",
   "danmakuAvoidSubtitleSubtitle": "优先避开字幕所在区域，减少弹幕压住字幕。",
@@ -1208,7 +1221,7 @@
   "danmakuManualImportSubtitle": "支持本地 XML / JSON 弹幕文件，导入后会替换当前已载入弹幕。",
   "danmakuLocalFile": "本地文件",
   "danmakuLocalImport": "本地导入",
-  "danmakuNoSavedSources": "还没有保存的弹幕来源",
+  "danmakuNoSavedSources": "还没有已保存弹幕来源",
   "danmakuLocalSource": "本地弹幕",
   "danmakuSearchHint": "可自动带入当前内容，也可以改词重搜",
   "danmakuCurrentMatch": "当前匹配：{context}",
@@ -1232,8 +1245,8 @@
   "danmakuAreaHalf": "半屏",
   "danmakuAreaThreeQuarter": "3/4 屏",
   "danmakuAreaFull": "全屏",
-  "danmakuSpeedSlow": "偏慢",
-  "danmakuSpeedFast": "较快",
+  "danmakuSpeedSlow": "慢",
+  "danmakuSpeedFast": "快",
   "danmakuSpeedVeryFast": "极快",
   "danmakuOcclusionDisabledTitle": "主体遮挡已关闭",
   "danmakuOcclusionMaskTitle": "精细遮罩中",
@@ -1441,22 +1454,29 @@
   "playerCloudDriveProxyTitle": "NAS 代理播放",
   "playerCloudDriveProxySubtitle": "色调或音频异常时可尝试切换",
   "playerRecommendedBadge": "推荐",
-  "settingsOtherTitle": "其他",
   "settingsBookmarkManagerTitle": "书签管理",
   "settingsBookmarkEmptySummary": "还没有书签",
   "settingsBookmarkCountSummary": "共 {count} 个书签",
   "settingsBookmarkWorksCountSummary": "{works} 部作品 · 共 {count} 个书签",
   "@settingsBookmarkWorksCountSummary": {
     "placeholders": {
-      "works": { "type": "int" },
-      "count": { "type": "int" }
+      "works": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
     }
   },
   "settingsBookmarkEpisodesCountSummary": "{episodes} 集 · 共 {count} 个书签",
   "@settingsBookmarkEpisodesCountSummary": {
     "placeholders": {
-      "episodes": { "type": "int" },
-      "count": { "type": "int" }
+      "episodes": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
     }
   },
   "@settingsBookmarkCountSummary": {
@@ -2282,8 +2302,7 @@
     }
   },
   "screenshotSizeOver10Mb": "10 MB 以上",
-  "screenshotSizeUnder100Kb": "100 KB 以下"
-  ,
+  "screenshotSizeUnder100Kb": "100 KB 以下",
   "bookmarkNoteDialogTitle": "书签备注",
   "bookmarkNoteDialogHint": "记录这个书签的作用，比如名场面、关键转折、复习点",
   "bookmarkNoteCollapse": "收起",
@@ -2414,7 +2433,6 @@
   "homeActionRemoveFromContinue": "从“继续观看”中移除",
   "homeRemovedFromContinue": "已从继续观看中移除",
   "homeLoginRequired": "请先到“设置”页登录 NAS，再返回影视页加载内容。",
-  "detailOverviewEmpty": "暂无简介",
   "parallelWindowTitle": "平行窗口设置",
   "parallelWindowEnableTitle": "启用平行窗口",
   "parallelWindowEnableSubtitle": "开启后，大屏设备的二级页面优先在副屏展开；关闭后使用单屏导航。",
@@ -2446,16 +2464,11 @@
   "parallelWindowPreviewMainRole": "浏览 · 首页 / 列表",
   "parallelWindowPreviewSecondaryRole": "详情 / 设置",
   "parallelWindowPreviewPlayerRole": "分屏播放",
-  "danmakuSettingsTitle": "弹幕设置",
-  "danmakuSpeedSlow": "慢",
   "danmakuSpeedNormal": "正常",
   "danmakuSpeedFaster": "较快",
-  "danmakuSpeedFast": "快",
   "danmakuAreaOneTenth": "1/10屏",
   "danmakuAreaOneQuarter": "1/4屏",
-  "danmakuAreaHalf": "半屏",
   "danmakuAreaThreeQuarters": "3/4屏",
-  "danmakuAreaFull": "全屏",
   "danmakuFontSmall": "较小",
   "danmakuFontSlightlySmall": "偏小",
   "danmakuFontStandard": "标准",
@@ -2464,7 +2477,6 @@
   "danmakuSourceManagementTitle": "来源管理",
   "danmakuSourceManagementSubtitle": "统一管理网络弹幕和本地导入弹幕，支持按来源层级查看与手动删除。",
   "danmakuManagementTitle": "弹幕管理",
-  "danmakuNoSavedSources": "还没有已保存弹幕来源",
   "danmakuSavedSourceCount": "当前已保存 {count} 个弹幕来源",
   "@danmakuSavedSourceCount": {
     "placeholders": {
@@ -2492,18 +2504,8 @@
   "danmakuSpeedTitle": "弹幕速度",
   "danmakuTypeFilterTitle": "类型过滤",
   "danmakuTypeFilterSubtitle": "控制默认显示哪些弹幕类型。",
-  "danmakuTypeFixed": "固定",
-  "danmakuTypeScroll": "滚动",
-  "danmakuTypeBottom": "底部",
-  "danmakuTypeColor": "彩色",
   "danmakuAvoidanceTitle": "防遮挡",
   "danmakuAvoidanceSubtitle": "这些默认规则更适合全局预先设定。",
-  "danmakuHideDuplicateTitle": "隐藏重复弹幕",
-  "danmakuHideDuplicateSubtitle": "合并高频重复内容，减少同屏密集刷屏。",
-  "danmakuAvoidSubtitleTitle": "底部字幕区域防遮挡",
-  "danmakuAvoidSubtitleSubtitle": "优先避开字幕所在区域，减少弹幕压住字幕。",
-  "danmakuAvoidCenterTitle": "主体穿透遮挡",
-  "danmakuAvoidCenterSubtitle": "优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。",
   "commonRefresh": "刷新",
   "playStatsTitle": "播放统计",
   "playStatsDebugUnmatchedAnime": "未匹配番剧",
@@ -3772,8 +3774,7 @@
   "themePresetGraphiteTitle": "石墨",
   "themePresetSunsetTitle": "日落",
   "themePresetAuroraTitle": "极光",
-  "themePresetLatteTitle": "拿铁"
-,
+  "themePresetLatteTitle": "拿铁",
   "desktopPlaybackErrorGeneric": "播放发生错误，请检查媒体是否仍可访问。",
   "desktopPlaybackErrorSourceUnavailable": "媒体地址不可用。",
   "desktopPlaybackErrorStartFailed": "无法开始播放，请检查媒体与网络状态。",
@@ -3822,5 +3823,345 @@
   "themeBackgroundStyleAuroraRibbonSubtitle": "宽幅弧光柔和交错",
   "themeBackgroundStyleCinemaLight": "影院顶光",
   "themeBackgroundStyleCinemaLightSubtitle": "顶部光晕向下渐隐",
-  "themeBackgroundStyleDynamicPreview": "正在使用当前海报取色预览，样式同时作用于首页、侧栏和详情正文。"
+  "themeBackgroundStyleDynamicPreview": "正在使用当前海报取色预览，样式同时作用于首页、侧栏和详情正文。",
+  "flyAccountChoosePlaybackConnection": "选择播放连接",
+  "flyAccountChooseReachableAddress": "选择当前网络可访问的地址。",
+  "flyAccountServiceAddress": "飞翔服务地址",
+  "flyAccountServiceAddressHint": "HTTPS、VPN 或局域网地址",
+  "flyAccountUsername": "飞翔账号",
+  "flyAccountDeviceNameSummary": "设备名称 · {name}",
+  "@flyAccountDeviceNameSummary": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "flyAccountCurrentDeviceName": "当前设备名称",
+  "flyAccountLogin": "登录飞翔",
+  "flyAccountUseLegacyConnection": "暂用原本地媒体连接",
+  "flyAccountRemoveSourceTitle": "移除媒体来源",
+  "flyAccountRemoveSourceMessage": "停止同步此来源并清除其媒体凭据，已有播放历史保留。",
+  "flyAccountRemove": "移除",
+  "flyAccountTitle": "账号与媒体来源",
+  "flyAccountSharedAccountSubtitle": "飞翔账号 · App 与 NAS 共用",
+  "flyAccountLogout": "退出账号",
+  "flyAccountMySources": "我的媒体来源",
+  "flyAccountChooseSourceSubtitle": "选择一个来源，回到熟悉的媒体库继续观看。",
+  "flyAccountRefreshSources": "刷新媒体来源",
+  "flyAccountAddFirstSource": "添加第一个媒体来源",
+  "flyAccountAddFirstSourceSubtitle": "绑定飞牛、Emby 或 Jellyfin 账号后即可进入媒体库。",
+  "flyAccountAddSource": "添加媒体来源",
+  "flyAccountManagementTitle": "管理与连接设置",
+  "flyAccountManagementSubtitle": "服务地址、历史同步和本地连接",
+  "flyAccountRegisterMediaServer": "登记媒体服务器",
+  "flyAccountRegisterMediaServerSubtitle": "为账号添加可绑定的飞牛、Emby 或 Jellyfin 服务",
+  "flyAccountCurrentAddress": "当前入口：{address}",
+  "@flyAccountCurrentAddress": {
+    "placeholders": {
+      "address": {
+        "type": "String"
+      }
+    }
+  },
+  "flyAccountAddServiceAddress": "添加飞翔服务地址",
+  "flyAccountServiceRootAddress": "HTTPS / VPN / 局域网根地址",
+  "flyAccountUseAddress": "使用此地址",
+  "flyAccountHistorySync": "历史关联与统计同步",
+  "flyAccountHistorySyncSubtitle": "新记录自动补传；在这里查看同步状态或关联旧历史",
+  "flyAccountLocalMediaConnection": "本地媒体直连",
+  "flyAccountLocalMediaConnectionSubtitle": "使用原来的本机连接配置",
+  "flyAccountPlaybackConnectionNote": "播放直接连接媒体服务，离线时观看记录先保存在本机。",
+  "flyAccountChooseRegisteredServer": "选择已登记服务器",
+  "flyAccountNoRegisteredServers": "没有可用服务器，请管理员先登记。",
+  "flyAccountLinkMediaAccount": "绑定媒体账号",
+  "flyAccountReauthorize": "重新授权",
+  "flyAccountBindingName": "绑定名称",
+  "flyAccountMediaUsername": "媒体账号",
+  "flyAccountMediaPassword": "媒体密码",
+  "flyAccountMediaServerType": "媒体服务器类型",
+  "flyAccountRegisterServer": "登记服务器",
+  "flyAccountServerName": "服务器名称",
+  "flyAccountNasAddressRequired": "NAS 访问地址（必填）",
+  "flyAccountAppLanAddressOptional": "App 局域网地址（选填）",
+  "flyAccountAppHttpsAddressOptional": "App HTTPS 地址（选填）",
+  "flyAccountAppVpnAddressOptional": "App VPN 地址（选填）",
+  "flyAccountFieldRequired": "请填写{label}",
+  "@flyAccountFieldRequired": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "flyAccountConfirm": "确定",
+  "flyAccountMediaService": "媒体服务",
+  "flyAccountLanConnection": "局域网连接",
+  "flyAccountRemoteConnection": "远程连接（HTTPS）",
+  "flyAccountVpnConnection": "VPN 连接",
+  "flyAccountOtherConnection": "其他连接",
+  "flyAccountBrand": "飞翔",
+  "flyAccountTagline": "连接你的媒体，继续你的观看",
+  "flyAccountLoginTitle": "登录飞翔账号",
+  "flyAccountLoginSubtitle": "与 NAS 共用一个账号，管理媒体来源和观看记录。",
+  "flyAccountStatusConnectable": "可连接",
+  "flyAccountStatusOffline": "暂时离线，可尝试连接",
+  "flyAccountStatusReauthRequired": "需要重新登录媒体账号",
+  "flyAccountStatusUnbound": "已移除，播放历史保留",
+  "flyAccountStatusUnavailable": "暂不可用",
+  "flyAccountSourceSettings": "来源设置",
+  "flyAccountChangeConnectionAddress": "更换连接地址",
+  "flyAccountSyncCatalog": "同步节目资料",
+  "flyAccountCurrentSource": "当前来源",
+  "flyAccountEnterLibrary": "进入媒体库",
+  "flyAccountSwitchSource": "切换到此来源",
+  "flyCatalogKindEpisode": "集",
+  "@flyCatalogKindEpisode": {
+    "description": "Fly catalog: kind episode"
+  },
+  "flyCatalogKindMedia": "媒体",
+  "@flyCatalogKindMedia": {
+    "description": "Fly catalog: kind media"
+  },
+  "flyCatalogScanComplete": "目录已完整扫描",
+  "@flyCatalogScanComplete": {
+    "description": "Fly catalog: scan complete"
+  },
+  "flyCatalogScanPartial": "显示上次目录，待更新",
+  "@flyCatalogScanPartial": {
+    "description": "Fly catalog: scan partial"
+  },
+  "flyCatalogScanPending": "待扫描",
+  "@flyCatalogScanPending": {
+    "description": "Fly catalog: scan pending"
+  },
+  "flyCatalogMediaSourceChanged": "媒体来源已改变，请返回重新选择节目。",
+  "@flyCatalogMediaSourceChanged": {
+    "description": "Fly catalog: media source changed"
+  },
+  "flyCatalogMediaSourceMissing": "节目暂未关联到媒体来源，请刷新同步信息。",
+  "@flyCatalogMediaSourceMissing": {
+    "description": "Fly catalog: media source missing"
+  },
+  "flyCatalogAccountOrSourceChanged": "账号或媒体来源已改变。",
+  "@flyCatalogAccountOrSourceChanged": {
+    "description": "Fly catalog: account or source changed"
+  },
+  "flyCatalogAccountChanged": "账号已改变，请返回目录。",
+  "@flyCatalogAccountChanged": {
+    "description": "Fly catalog: account changed"
+  },
+  "flyCatalogSyncInfo": "同步信息",
+  "@flyCatalogSyncInfo": {
+    "description": "Fly catalog: sync info"
+  },
+  "flyCatalogYearUnknown": "年份未知",
+  "@flyCatalogYearUnknown": {
+    "description": "Fly catalog: year unknown"
+  },
+  "flyCatalogMetadata": "{kind} · {year} · 评分 {rating}",
+  "@flyCatalogMetadata": {
+    "description": "Fly catalog: metadata",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "year": {
+        "type": "String"
+      },
+      "rating": {
+        "type": "String"
+      }
+    }
+  },
+  "flyCatalogCompletenessAndSources": "目录完整性：{completeness} · 来源数：{sourceCount}",
+  "@flyCatalogCompletenessAndSources": {
+    "description": "Fly catalog: completeness and sources",
+    "placeholders": {
+      "completeness": {
+        "type": "String"
+      },
+      "sourceCount": {
+        "type": "String"
+      }
+    }
+  },
+  "flyCatalogOpenDetails": "打开节目详情",
+  "@flyCatalogOpenDetails": {
+    "description": "Fly catalog: open details"
+  },
+  "flyCatalogExternalIds": "外部标识：{externalIds}",
+  "@flyCatalogExternalIds": {
+    "description": "Fly catalog: external ids",
+    "placeholders": {
+      "externalIds": {
+        "type": "String"
+      }
+    }
+  },
+  "flyCatalogSourceStatus": "状态：{status}\n{versions}",
+  "@flyCatalogSourceStatus": {
+    "description": "Fly catalog: source status",
+    "placeholders": {
+      "status": {
+        "type": "String"
+      },
+      "versions": {
+        "type": "String"
+      }
+    }
+  },
+  "flyCatalogChildPosition": "{kind} · 季 {season} / 集 {episode}",
+  "@flyCatalogChildPosition": {
+    "description": "Fly catalog: child position",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "season": {
+        "type": "String"
+      },
+      "episode": {
+        "type": "String"
+      }
+    }
+  },
+  "flyCatalogSyncedTitles": "已同步节目",
+  "@flyCatalogSyncedTitles": {
+    "description": "Fly catalog: synced titles"
+  },
+  "flyCatalogRefreshTitles": "刷新节目",
+  "@flyCatalogRefreshTitles": {
+    "description": "Fly catalog: refresh titles"
+  },
+  "flyCatalogAllSources": "全部来源",
+  "@flyCatalogAllSources": {
+    "description": "Fly catalog: all sources"
+  },
+  "flyCatalogTitleCount": "{count} 部节目",
+  "@flyCatalogTitleCount": {
+    "description": "Fly catalog: title count",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flyCatalogSearchHint": "搜索节目名称",
+  "@flyCatalogSearchHint": {
+    "description": "Fly catalog: search hint"
+  },
+  "flyCatalogSearchTitles": "搜索节目",
+  "@flyCatalogSearchTitles": {
+    "description": "Fly catalog: search titles"
+  },
+  "flyCatalogEmpty": "这里还没有已同步的节目",
+  "@flyCatalogEmpty": {
+    "description": "Fly catalog: empty"
+  },
+  "flyCatalogNoSearchResults": "没有找到相关节目",
+  "@flyCatalogNoSearchResults": {
+    "description": "Fly catalog: no search results"
+  },
+  "flyCatalogEmptyHint": "在账号与媒体来源中同步节目，完成后即可查看。",
+  "@flyCatalogEmptyHint": {
+    "description": "Fly catalog: empty hint"
+  },
+  "flyCatalogNoSearchResultsHint": "换个名称搜索，或查看其他媒体来源。",
+  "@flyCatalogNoSearchResultsHint": {
+    "description": "Fly catalog: no search results hint"
+  },
+  "flyCatalogLoadMore": "加载更多节目",
+  "@flyCatalogLoadMore": {
+    "description": "Fly catalog: load more"
+  },
+  "flyCatalogSyncInfoForTitle": "同步信息：{title}",
+  "@flyCatalogSyncInfoForTitle": {
+    "description": "Fly catalog: sync info for title",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "flyDataScopeChanging": "媒体帐号范围正在改变，请重新打开数据服务页面。",
+  "flyDataOperationIncomplete": "操作未完成。请检查连接或安全凭据存储后重试；已有待重试快照保留。",
+  "flyDataLoginSuccess": "登录成功。请核对当前本地范围，再关联旧历史。",
+  "flyDataScopeChanged": "媒体帐号范围已改变，已刷新本地范围。请重新核对归属后操作。",
+  "flyDataTitle": "飞翔数据服务",
+  "flyDataIntroduction": "飞翔统一账号的历史关联与同步。绑定账号下的新记录会自动补传。",
+  "flyDataLegacyStatsDescription": "当前统计是旧版媒体播放量估计；精确观看时间未知。媒体播放进度继续由原媒体服务处理。",
+  "flyDataServiceAddressLabel": "服务地址",
+  "flyDataAccountLabel": "数据服务帐号",
+  "flyDataLoginAction": "登录数据服务",
+  "flyDataLogoutAction": "退出",
+  "flyDataLocalScopeTitle": "当前本地统计范围",
+  "flyDataAnonymousLocalHistory": "未登录媒体帐号时的本机历史",
+  "flyDataLocalHistorySummary": "{count} 条历史 · {sources} 个来源",
+  "@flyDataLocalHistorySummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "sources": {
+        "type": "int"
+      }
+    }
+  },
+  "flyDataOwnershipDescription": "已绑定媒体账号的新记录自动继承归属。旧本地历史仍需明确关联或确认；已有记录保留原来源。",
+  "flyDataDatasetSummary": "{count} 条 · {status}",
+  "@flyDataDatasetSummary": {
+    "placeholders": {
+      "count": {
+        "type": "Object"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "flyDataOwnershipConfirmed": "已确认归属",
+  "flyDataOwnershipPending": "待关联 / 确认",
+  "flyDataAdoptTitle": "先关联已导入历史",
+  "flyDataAdoptDescription": "如果曾通过网页导入 WIN01 或其他备份，先读取并选择对应数据集。只关联历史 ID 与原始事实匹配的记录；冲突会停止关联。各来源不会按标题合并。",
+  "flyDataNoDatasets": "帐号中没有可关联的数据集。",
+  "flyDataChooseDataset": "选择原先导入的对应来源进行关联。",
+  "flyDataLoadDatasetsAction": "读取服务端数据集",
+  "flyDataAdoptedHistory": "已关联 {count} 条历史，保留原数据集身份。",
+  "@flyDataAdoptedHistory": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flyDataAdoptMatchingAction": "关联匹配历史",
+  "flyDataOwnershipConfirmation": "我确认当前本地历史属于此数据帐号，且剩余未关联历史未曾导入。",
+  "flyDataOwnershipConfirmationHelp": "确认时还会检查服务端历史身份；检测到已有记录时必须先关联。旧版文件命名可能使不同媒体帐号共用文件；本次确认会锁定当前范围，但不能自动分离过去混入的历史，请先核对。",
+  "flyDataScopeConfirmed": "当前范围已确认，可以手动同步。",
+  "flyDataConfirmRemainingAction": "核对并确认剩余来源",
+  "flyDataPendingSnapshot": "有待重试快照。重试发送完全相同的内容；之后再同步新变化。",
+  "flyDataNeverSynced": "尚无成功同步。",
+  "flyDataLastSuccess": "最近成功：{time}",
+  "@flyDataLastSuccess": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "flyDataSnapshotApplied": "服务端已应用快照 #{sequence}。",
+  "@flyDataSnapshotApplied": {
+    "placeholders": {
+      "sequence": {
+        "type": "Object"
+      }
+    }
+  },
+  "flyDataRetrySnapshotAction": "手动重试原快照",
+  "flyDataSyncNowAction": "立即同步",
+  "flyDataRestoreDescription": "恢复统计数据库会保留原历史来源，新记录使用新的写入来源。完整应用备份与跨设备安全凭据恢复仍需平台验证。服务器删除的历史不会因旧备份重试而恢复。",
+  "flySourceSwitchTooltip": "切换媒体来源",
+  "flySourceMediaSources": "媒体来源",
+  "flySourceWatchStatistics": "观看统计"
 }

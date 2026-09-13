@@ -133,8 +133,8 @@ void main() {
       };
       await tester.pumpWidget(_app(account));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('绑定本机媒体服务'));
-      await tester.tap(find.text('绑定本机媒体服务'));
+      await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
+      await tester.tap(find.text('绑定 NAS 媒体服务'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('本机飞牛影视'));
       await tester.pumpAndSettle();
@@ -168,8 +168,8 @@ void main() {
     };
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定本机媒体服务'));
-    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
+    await tester.tap(find.text('绑定 NAS 媒体服务'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('本机 Emby'));
     await tester.pumpAndSettle();
@@ -193,8 +193,8 @@ void main() {
     };
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定本机媒体服务'));
-    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
+    await tester.tap(find.text('绑定 NAS 媒体服务'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('本机 Emby'));
     await tester.pumpAndSettle();
@@ -221,8 +221,8 @@ void main() {
     };
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定本机媒体服务'));
-    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
+    await tester.tap(find.text('绑定 NAS 媒体服务'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('本机 Emby'));
     await tester.pump();
@@ -239,7 +239,7 @@ void main() {
     account.legacyMode = true;
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
-    expect(find.text('绑定本机媒体服务'), findsNothing);
+    expect(find.text('绑定 NAS 媒体服务'), findsNothing);
   });
 
   testWidgets('本机发现禁用时解释原因并保留已绑定媒体', (tester) async {
@@ -250,8 +250,8 @@ void main() {
     };
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定本机媒体服务'));
-    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
+    await tester.tap(find.text('绑定 NAS 媒体服务'));
     await tester.pumpAndSettle();
     expect(find.text('管理员尚未启用本机发现'), findsOneWidget);
     expect(find.text('家中媒体'), findsOneWidget);
@@ -275,8 +275,8 @@ void main() {
     };
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定本机媒体服务'));
-    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
+    await tester.tap(find.text('绑定 NAS 媒体服务'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('本机 Emby'));
     await tester.pumpAndSettle();
