@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../controllers/play_detail_sheet_controller.dart';
 import '../../danmaku/models/danmaku_settings.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common/track_option_sheet.dart';
 import '../desktop_hover_dropdown.dart';
@@ -90,15 +92,21 @@ class _ExternalPlaybackMiniSettingsState
     final colors = context.appColors;
     final source = widget.status.source;
     final tracks = ExternalPlayerSubtitles.selectableTracks(source);
-    final options = <String, String>{
+    final items = [
       if (source.subtitleTrackGuid == null)
-        'potplayer-default': '由 PotPlayer 选择',
-      '': '关闭影片字幕',
-      for (final track in tracks)
-        track.guid:
-            '${track.title.trim().isEmpty ? track.displayLabel : track.title.trim()}${track.detailLabel.isEmpty ? '' : ' · ${track.detailLabel}'}',
-    };
-    final selected = _subtitleGuid ?? 'potplayer-default';
+        const TrackOptionSheetItem(
+          id: 'potplayer-default',
+          title: '由 PotPlayer 选择',
+        ),
+      ...PlayDetailSheetController.subtitleItems(
+        subtitleTracks: tracks,
+        l10n: AppLocalizations.of(context),
+      ),
+    ];
+    final options = {for (final item in items) item.id: item.title};
+    final selected = _subtitleGuid == null
+        ? 'potplayer-default'
+        : PlayDetailSheetController.subtitleSelectedIdOf(_subtitleGuid);
     final canEdit = widget.status.canControl && !_saving;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
@@ -157,15 +165,14 @@ class _ExternalPlaybackMiniSettingsState
                     title: '影片字幕',
                     width: 316,
                     maxHeight: 240,
-                    items: [
-                      for (final entry in options.entries)
-                        TrackOptionSheetItem(id: entry.key, title: entry.value),
-                    ],
+                    items: items,
                     selectedId: selected,
                     onSelected: (id) {
                       _subtitleMenu.currentState?.hide();
                       setState(() {
-                        _subtitleGuid = id == 'potplayer-default' ? null : id;
+                        _subtitleGuid = id == 'potplayer-default'
+                            ? null
+                            : PlayDetailSheetController.subtitleResultOf(id);
                         _dirty = true;
                         _message = null;
                       });

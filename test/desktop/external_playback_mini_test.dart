@@ -5,6 +5,7 @@ import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/desktop/playback/external_playback_host.dart';
 import 'package:fly_player/desktop/playback/external_playback_mini_controller.dart';
 import 'package:fly_player/playback/playback_source.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/theme/app_theme.dart';
 
 void main() {
@@ -103,6 +104,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppThemeBuilder.build(AppThemePreset.ocean),
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         builder: (_, child) => ExternalPlaybackMiniHost(child: child!),
         home: Scaffold(body: TextField(key: field)),
       ),
@@ -182,10 +186,10 @@ void main() {
     );
     expect(subtitlePanel.top, greaterThanOrEqualTo(12));
     expect(subtitlePanel.bottom, lessThan(subtitleTrigger.top));
-    await tester.tap(find.text('关闭影片字幕'));
+    await tester.tap(find.text('字幕关'));
     await tester.pumpAndSettle();
     expect(find.text('影片字幕'), findsNothing);
-    expect(find.text('关闭影片字幕'), findsOneWidget);
+    expect(find.text('字幕关'), findsOneWidget);
     expect(find.text('调节后点击应用'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('external-mini-返回完整界面')));
     await tester.pumpAndSettle();

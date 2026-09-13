@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../danmaku/models/danmaku_settings.dart';
+import '../../controllers/play_detail_sheet_controller.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_image_ref.dart';
 import '../../models/stream_track_data.dart';
 import '../../playback/playback_source.dart';
@@ -12,6 +14,7 @@ import '../../services/playback_progress_offline_queue.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
+import '../../widgets/common/app_ambient_page.dart';
 import '../../widgets/common/track_option_sheet.dart';
 import '../desktop_hover_dropdown.dart';
 import 'desktop_mpv_runtime.dart';
@@ -37,6 +40,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   static const _potPlayerSubtitleId = 'potplayer-default';
   final _qualityDropdownKey = GlobalKey<DesktopHoverDropdownState>();
   final _subtitleDropdownKey = GlobalKey<DesktopHoverDropdownState>();
+  final _seasonDropdownKey = GlobalKey<DesktopHoverDropdownState>();
   DanmakuSettings? _draft;
   DanmakuSettings? _applied;
   String? _draftSubtitleGuid;
@@ -201,11 +205,14 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
+    final theme = AppThemeBuilder.buildFromColors(
+      AppAmbientPage.controlColorsOf(context),
+      baseTheme: Theme.of(context),
+    );
+    final content = Scaffold(
+      backgroundColor: Colors.transparent,
       body: SliderTheme(
-        data: SliderTheme.of(context).copyWith(
+        data: theme.sliderTheme.copyWith(
           trackHeight: 3,
           thumbShape: const RoundSliderThumbShape(
             enabledThumbRadius: 7,
@@ -269,10 +276,14 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         ),
       ),
     );
+    return AppAmbientPage(
+      shareBackground: true,
+      child: Theme(data: theme, child: content),
+    );
   }
 
   Widget _buildIdle(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
@@ -329,7 +340,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   Widget _buildPageHeader(BuildContext context, ExternalPlaybackStatus status) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final phase = _phaseLabel(status);
     return Row(
       children: [
@@ -438,7 +449,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   Widget _buildNowPlaying(BuildContext context, ExternalPlaybackStatus status) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final source = status.source;
     final poster = _posterRequest(context, source);
     final durationMs = status.duration.inMilliseconds.toDouble();
@@ -456,16 +467,8 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final next = currentIndex >= 0 && currentIndex + 1 < status.playlist.length
         ? status.playlist[currentIndex + 1]
         : null;
-    return Container(
+    return _Panel(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [colors.surfaceStrong, colors.surfaceSubtle],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -501,7 +504,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      source.title,
+                      currentIndex >= 0
+                          ? status.playlist[currentIndex].episodeTitle
+                          : source.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -632,7 +637,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     BuildContext context,
     ExternalPlaybackStatus status,
   ) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final message = normalizeExternalPlaybackNotice(
       status.error ?? status.progressMessage,
     );
@@ -719,7 +724,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     BuildContext context,
     ExternalPlaybackStatus status,
   ) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return _Panel(
       padding: EdgeInsets.zero,
       child: Column(
@@ -800,7 +805,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   Widget _buildDanmaku(BuildContext context, ExternalPlaybackStatus status) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final draft = _draft!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -961,7 +966,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   Widget _buildPreview(BuildContext context, DanmakuSettings draft) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Container(
       height: 154,
       clipBehavior: Clip.antiAlias,
@@ -1036,7 +1041,8 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   Widget _buildTracks(BuildContext context, ExternalPlaybackStatus status) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     final source = status.source;
     final subtitles = _textSubtitles(source);
     final qualityMenu = DesktopMpvRuntime.qualityMenu(source);
@@ -1047,13 +1053,23 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final selectedTrackIsUnavailable =
         source.subtitleTrackGuid?.trim().isNotEmpty == true &&
         !subtitles.any((track) => track.guid == source.subtitleTrackGuid);
-    final subtitleOptions = <String, String>{
+    final subtitleItems = [
       if (source.subtitleTrackGuid == null)
-        _potPlayerSubtitleId: '由 PotPlayer 选择',
-      '': '关闭字幕',
-      for (final track in subtitles) track.guid: _subtitleLabel(track),
+        const TrackOptionSheetItem(
+          id: _potPlayerSubtitleId,
+          title: '由 PotPlayer 选择',
+        ),
+      ...PlayDetailSheetController.subtitleItems(
+        subtitleTracks: subtitles,
+        l10n: l10n,
+      ),
+    ];
+    final subtitleOptions = {
+      for (final item in subtitleItems) item.id: item.title,
     };
-    final selectedSubtitleId = _draftSubtitleGuid ?? _potPlayerSubtitleId;
+    final selectedSubtitleId = _draftSubtitleGuid == null
+        ? _potPlayerSubtitleId
+        : PlayDetailSheetController.subtitleSelectedIdOf(_draftSubtitleGuid);
     final subtitleLabel =
         subtitleOptions[selectedSubtitleId] ??
         (source.subtitleTracks.any(
@@ -1122,17 +1138,14 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           valueLabel: subtitleLabel,
           spec: status.canControl
               ? DesktopHoverDropdownSpec.single(
-                  title: '字幕选择',
+                  title: l10n.playerSubtitleSelectTitle,
                   width: 360,
-                  items: [
-                    for (final entry in subtitleOptions.entries)
-                      TrackOptionSheetItem(id: entry.key, title: entry.value),
-                  ],
+                  items: subtitleItems,
                   selectedId: selectedSubtitleId,
                   onSelected: (id) => setState(
                     () => _draftSubtitleGuid = id == _potPlayerSubtitleId
                         ? null
-                        : id,
+                        : PlayDetailSheetController.subtitleResultOf(id),
                   ),
                 )
               : null,
@@ -1199,6 +1212,10 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             : () => dropdownKey.currentState?.toggle(),
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          side: BorderSide(color: context.appColors.borderSubtle),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         child: Row(
           children: [
@@ -1218,7 +1235,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
   }
 
   Widget _buildPlaylist(BuildContext context, ExternalPlaybackStatus status) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     final seasons =
         status.playlist.map((episode) => episode.seasonNumber).toSet().toList()
           ..sort();
@@ -1253,22 +1270,28 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ],
             ),
           ),
-          if (seasons.length > 1)
+          if (season != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-              child: DropdownButtonFormField<int>(
-                key: ValueKey(season),
-                initialValue: season,
-                decoration: const InputDecoration(isDense: true),
-                items: seasons
-                    .map(
-                      (number) => DropdownMenuItem(
-                        value: number,
-                        child: Text(number == 0 ? '特别篇' : '第 $number 季'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => _seasonNumber = value),
+              child: _buildTrackDropdown(
+                dropdownKey: _seasonDropdownKey,
+                valueLabel: season == 0 ? '特别篇' : '第 $season 季',
+                spec: seasons.length > 1
+                    ? DesktopHoverDropdownSpec.single(
+                        title: '选择季',
+                        width: 280,
+                        items: [
+                          for (final number in seasons)
+                            TrackOptionSheetItem(
+                              id: '$number',
+                              title: number == 0 ? '特别篇' : '第 $number 季',
+                            ),
+                        ],
+                        selectedId: '$season',
+                        onSelected: (value) =>
+                            setState(() => _seasonNumber = int.parse(value)),
+                      )
+                    : null,
               ),
             ),
           Divider(height: 1, color: colors.borderSubtle),
@@ -1310,7 +1333,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                           ),
                         ),
                         title: Text(
-                          episode.title,
+                          episode.episodeTitle,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1388,14 +1411,6 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     choice.displayTier,
     DesktopMpvRuntime.qualityBitrateLabel(choice.quality.bitrate),
   ].where((part) => part.isNotEmpty).join(' · ');
-
-  static String _subtitleLabel(SubtitleTrackOption track) {
-    final title = track.title.trim().isEmpty
-        ? track.displayLabel
-        : track.title.trim();
-    final detail = track.detailLabel;
-    return detail.isEmpty ? title : '$title · $detail';
-  }
 }
 
 class _Panel extends StatelessWidget {
@@ -1406,11 +1421,11 @@ class _Panel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: colors.borderSubtle),
       ),
@@ -1435,7 +1450,7 @@ class _TabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -1488,7 +1503,7 @@ class _SettingSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
+    final colors = AppAmbientPage.controlColorsOf(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(

@@ -164,6 +164,13 @@ void main() {
       nas: _NoNetworkNas(),
       fallback: const <Map<String, dynamic>>[
         <String, dynamic>{
+          'itemGuid': 'special-1',
+          'seasonGuid': 'season-a-0',
+          'seasonNumber': 0,
+          'episodeNumber': 1,
+          'title': '补充故事',
+        },
+        <String, dynamic>{
           'itemGuid': 'episode-2',
           'seasonGuid': 'season-a-1',
           'seasonNumber': 1,
@@ -183,11 +190,13 @@ void main() {
     );
 
     expect(result.map((episode) => episode.itemGuid), <String>[
+      'special-1',
       'episode-1',
       'episode-2',
       'episode-3',
       'episode-4',
     ]);
+    expect(result.first.episodeTitle, '补充故事');
     expect(
       result.where((episode) => episode.itemGuid == 'episode-2'),
       hasLength(1),
