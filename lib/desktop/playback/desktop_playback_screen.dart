@@ -26,6 +26,8 @@ import '../../playback/settings/mpv_settings_store.dart';
 import '../../services/native_danmaku_prefetch.dart';
 import '../../services/fly_data/fly_oped.dart';
 import '../../services/fly_data/fly_playback_service_client.dart';
+import '../../services/fly_data/fly_bif_service.dart';
+import '../../services/fly_data/fly_playback_activity.dart';
 import '../../widgets/fly_assistant_panel.dart';
 import '../../services/fly_data/fly_nas_danmaku_cache.dart';
 import '../../services/fly_data/fly_data_service.dart';
@@ -150,6 +152,32 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   DateTime? _lastDirectLinkRefreshAttempt;
   int _sourceChangeGeneration = 0;
   final _flyClient = FlyPlaybackServiceClient.instance;
+  FlyBifAccess? _flyBifAccess;
+  FlyPlaybackActivity? _flyActivity;
+  String _nasBifLocalPath = '';
+  int _flyBifGeneration = 0;
+
+  void _resetFlyBif() {
+    unawaited(_flyActivity?.stop());
+    _flyActivity = null;
+    _nasBifLocalPath = '';
+    final generation = ++_flyBifGeneration;
+    final sourceGeneration = _sourceChangeGeneration;
+    final source = _source;
+    final identity = FlyBifPlaybackIdentity(source);
+    final access = FlyBifAccess.capture(statsScope: source.statsScope,
+      itemGuid: source.itemGuid, mediaGuid: source.mediaGuid,
+      isCurrent: () => mounted && sourceGeneration == _sourceChangeGeneration && generation == _flyBifGeneration && identity.matches(_source));
+    _flyBifAccess = access;
+    if (access == null || source.externalLocalSource) return;
+    _flyActivity = FlyPlaybackActivity.forAccess(access)..start(paused: source.startPaused);
+    if (!source.supportsVerifiedFileOped) return;
+    unawaited(FlyBifService.instance.resolve(access).then((path) {
+      if (!access.isCurrent() || path == null) return;
+      setState(() { _nasBifLocalPath = path; });
+      _viewRevision.value++;
+    }));
+  }
   String _flyContextId = '', _flyScopeEpoch = '';
   FlyOpedSet? _flyOped;
   FlyOpedAction? _flyAction;
@@ -348,6 +376,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   @override
   void dispose() {
+    _flyBifGeneration++;
+    unawaited(_flyActivity?.stop());
+    _flyActivity = null;
+    _flyBifAccess = null;
+    _nasBifLocalPath = '';
     _finishFlyAction('cancelled');
     unawaited(_systemMediaControls?.dispose());
     windowManager.removeListener(this);
@@ -1548,6 +1581,17 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   Timer? _localStatsTimer;
 
   void _recordLocalStats() {
+    final access = _flyBifAccess;
+    if (access != null && !access.isCurrent()) {
+      unawaited(_flyActivity?.stop());
+      _flyActivity = null;
+      _flyBifAccess = null;
+      if (_nasBifLocalPath.isNotEmpty) {
+        setState(() { _nasBifLocalPath = ''; });
+        _viewRevision.value++;
+      }
+    }
+    _flyActivity?.update(paused: _pausedByUser || !_player.state.playing);
     if (!_reportReady || _isLoading || _errorMessage != null) return;
     _reporter.recordLocal(
       _source,
@@ -1917,6 +1961,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   void _resetFlyOped() {
+    _resetFlyBif();
     _finishFlyAction('cancelled');
     _flyEdTailProtected = false;
     _flyOped = null;
@@ -3822,6 +3867,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                             chapters: _chapters,
                             seekThumbnails: _source.seekThumbnails,
                             seekThumbnailBifUrl: _source.seekThumbnailBifUrl,
+                            seekThumbnailLocalBifPath: _nasBifLocalPath,
                             thumbnailHeaders: _source.headers,
                             videoState: videoState,
                             title: _source.title,

@@ -8,11 +8,11 @@
 
 - [x] Integrate clean account chain and preserved NAS danmaku patch without rewriting existing worktrees.
 - [x] Inherit compatible committed locale infrastructure; preserve newer account behavior.
-- [ ] Add failing behavioral tests for asset validation, strict download/cache integrity, account/source late callback rejection, lease ordering and disposal.
-- [ ] Add FlyBifService and FlyPlaybackActivity; use injectable I/O and timers for deterministic lifecycle tests.
-- [ ] Add desktop local BIF support with Emby fallback and tests; resolve off the playback loading path.
-- [ ] Add Android reverse bridge local BIF delivery and local-file parsing with context invalidation and lease lifecycle.
-- [ ] Run focused Flutter tests, full analyze and portable Windows Release build entirely on E.
-- [ ] Deliver an independent E-profile launcher, report inherited/unmerged scope and platform validation limits, commit final changes.
+- [x] Add failing behavioral tests for asset validation, strict download/cache integrity, account/source late callback rejection, lease ordering and disposal.
+- [x] Add FlyBifService and FlyPlaybackActivity; use injectable I/O and timers for deterministic lifecycle tests.
+- [x] Add desktop local BIF support with Emby fallback and tests; resolve off the playback loading path.
+- [x] Add Android reverse bridge local BIF delivery and local-file parsing with context invalidation and lease lifecycle.
+- [x] Run focused Flutter tests, full analyze and portable Windows Release build entirely on E.
+- [x] Deliver an independent E-profile launcher, report inherited/unmerged scope and platform validation limits, commit final changes.
 
 Checks: `flutter test test/services/fly_bif_service_test.dart test/services/fly_playback_activity_test.dart test/desktop/desktop_seek_thumbnails_test.dart`; `flutter analyze`; `E:/fly_play_recovere/.tools/portable-build/build-mask-p0-integrated.ps1 -ProjectDir E:/fly_play_recovere/.worktrees/fly-player-bif-integration`.

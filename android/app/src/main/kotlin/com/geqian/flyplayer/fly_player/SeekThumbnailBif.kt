@@ -116,17 +116,17 @@ class SeekThumbnailBifStore(private val cacheDir: File) {
     private var index: BifThumbnails.Index? = null
 
     /** 装载入口（onCreate / 换源均走这里）：空 URL 清空；同 URL 已就绪/在途则复用。 */
-    fun prepare(url: String, headers: Map<String, String>) {
+    fun prepare(url: String, headers: Map<String, String>, localFile: File? = null) {
         val safeHeaders = NativeImageRequestHeaders.fromAny(headers)
         val requestIdentity =
-            if (safeHeaders.isEmpty()) url else NativeImageRequestHeaders.cacheIdentity(url, safeHeaders)
+            localFile?.absolutePath ?: if (safeHeaders.isEmpty()) url else NativeImageRequestHeaders.cacheIdentity(url, safeHeaders)
         val myGeneration: Int
         synchronized(lock) {
-            if (requestIdentity == currentIdentity && (index != null || loading || url.isEmpty())) return
+            if (requestIdentity == currentIdentity && (index != null || loading || requestIdentity.isEmpty())) return
             currentIdentity = requestIdentity
             index = null
             generation++
-            if (url.isEmpty()) {
+            if (requestIdentity.isEmpty()) {
                 loading = false
                 return
             }
@@ -135,7 +135,9 @@ class SeekThumbnailBifStore(private val cacheDir: File) {
         }
         Thread {
             val parsed = try {
-                loadOrDownload(url, safeHeaders, requestIdentity)
+                if (localFile != null) {
+                    if (localFile.length() in 80..MAX_BIF_BYTES) BifThumbnails.parse(localFile.readBytes()) else null
+                } else loadOrDownload(url, safeHeaders, requestIdentity)
             } catch (e: Throwable) {
                 Log.w(TAG, "bif load failed: ${e.message}")
                 null

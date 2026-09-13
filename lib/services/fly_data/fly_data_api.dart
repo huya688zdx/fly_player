@@ -72,6 +72,41 @@ class FlyDataApi {
   }
 
   Future<Map<String, dynamic>> post(String path, Object data) async {
+    final limit = maxResponseBytes;
+    if (limit != null) {
+      return _request(() async {
+        final response = await _dio.post<ResponseBody>(
+          path,
+          data: data,
+          options: Options(
+            contentType: Headers.jsonContentType,
+            responseType: ResponseType.stream,
+          ),
+        );
+        final body = response.data;
+        if (body == null ||
+            (response.headers.value('content-type') ?? '')
+                    .split(';')
+                    .first
+                    .trim()
+                    .toLowerCase() !=
+                'application/json') {
+          await body?.stream.listen(null).cancel();
+          throw StateError('Invalid data response.');
+        }
+        final bytes = BytesBuilder(copy: false);
+        await for (final chunk in body.stream) {
+          if (bytes.length + chunk.length > limit) {
+            throw StateError('Data response exceeds limit.');
+          }
+          bytes.add(chunk);
+        }
+        return Response<dynamic>(
+          requestOptions: response.requestOptions,
+          data: jsonDecode(utf8.decode(bytes.takeBytes())),
+        );
+      });
+    }
     return _request(
       () => _dio.post<dynamic>(
         path,
@@ -101,6 +136,56 @@ class FlyDataApi {
       return Uint8List.fromList(bytes);
     } on DioException {
       throw StateError('图片暂不可用。');
+    }
+  }
+
+  /// Fixed same-service BIF endpoint; no redirects and no inherited media TLS
+  /// override. Bound bytes while streaming, including chunked responses.
+  Future<Uint8List> bifBytes(String path, {required int expectedBytes}) async {
+    final uri = Uri.tryParse(path);
+    if (uri == null ||
+        uri.hasScheme ||
+        uri.hasAuthority ||
+        uri.hasFragment ||
+        !RegExp(
+          r'^/api/v1/bif/assets/[0-9a-fA-F-]{36}/content$',
+        ).hasMatch(uri.path) ||
+        expectedBytes < 80 ||
+        expectedBytes > 128 * 1024 * 1024) {
+      throw StateError('Invalid BIF asset request.');
+    }
+    try {
+      final response = await _dio.get<ResponseBody>(
+        path.substring('/api/v1'.length),
+        options: Options(
+          responseType: ResponseType.stream,
+          followRedirects: false,
+        ),
+      );
+      final body = response.data;
+      if (response.statusCode != 200 || body == null) {
+        throw StateError('BIF unavailable.');
+      }
+      final declared = int.tryParse(
+        response.headers.value('content-length') ?? '',
+      );
+      if (declared != null && declared != expectedBytes) {
+        await body.stream.listen(null).cancel();
+        throw StateError('BIF length mismatch.');
+      }
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in body.stream) {
+        if (bytes.length + chunk.length > expectedBytes) {
+          throw StateError('BIF exceeds declared limit.');
+        }
+        bytes.add(chunk);
+      }
+      if (bytes.length != expectedBytes) {
+        throw StateError('BIF length mismatch.');
+      }
+      return bytes.takeBytes();
+    } on DioException {
+      throw StateError('BIF unavailable.');
     }
   }
 
