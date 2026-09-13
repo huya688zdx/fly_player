@@ -14,12 +14,6 @@ String _addressLabel(Object? purpose) => switch (purpose) {
   _ => '其他连接',
 };
 
-IconData _addressIcon(Object? purpose) => switch (purpose) {
-  'client_lan' => Icons.lan_outlined,
-  'vpn' => Icons.vpn_lock_outlined,
-  _ => Icons.public_rounded,
-};
-
 class _FlyAccountPage extends StatelessWidget {
   const _FlyAccountPage({required this.title, required this.children});
 
@@ -35,9 +29,8 @@ class _FlyAccountPage extends StatelessWidget {
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
+        appBar: buildSecondaryHostAppBar(
+          context,
           title: Text(
             title,
             style: TextStyle(
@@ -75,94 +68,142 @@ class _FlyLoginPage extends StatelessWidget {
 
   final Widget child;
 
+  Widget _brand(BuildContext context, {required bool desktop}) {
+    final colors = context.appColors;
+    final logo = ClipRRect(
+      borderRadius: BorderRadius.circular(desktop ? 22 : 14),
+      child: Image.asset(
+        'lib/img/app_logo.png',
+        width: desktop ? 80 : 48,
+        height: desktop ? 80 : 48,
+      ),
+    );
+    final title = Text(
+      '飞翔',
+      style: TextStyle(
+        color: colors.textPrimary,
+        fontSize: desktop ? 36 : 25,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+    if (!desktop) {
+      return Row(
+        children: [
+          logo,
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                Text(
+                  '连接你的媒体，继续你的观看',
+                  style: TextStyle(color: colors.textMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        logo,
+        const SizedBox(height: 24),
+        title,
+        const SizedBox(height: 12),
+        Text(
+          '连接你的媒体，\n继续你的观看',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 24,
+            height: 1.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _form(BuildContext context) {
+    final colors = context.appColors;
+    return _FlySurface(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '登录飞翔账号',
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 24),
+          child,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
+              final desktop =
+                  DesktopEnvironment.isDesktopPlatform &&
+                  constraints.maxWidth >= 900;
+              final content = desktop
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          key: const Key('flyLoginDesktopBrand'),
+                          width: 280,
+                          child: _brand(context, desktop: true),
+                        ),
+                        const SizedBox(width: 56),
+                        SizedBox(
+                          key: const Key('flyLoginDesktopForm'),
+                          width: 460,
+                          child: _form(context),
+                        ),
+                      ],
+                    )
+                  : ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 460),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: _brand(context, desktop: false),
+                          ),
+                          const SizedBox(height: 24),
+                          _form(context),
+                        ],
+                      ),
+                    );
               return SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.all(desktop ? 32 : 20),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    minHeight: (constraints.maxHeight - 40).clamp(
-                      0,
-                      double.infinity,
-                    ),
+                    minHeight: (constraints.maxHeight - (desktop ? 64 : 40))
+                        .clamp(0, double.infinity),
                   ),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 460),
-                      child: _FlySurface(
-                        padding: const EdgeInsets.all(20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: Image.asset(
-                                    'lib/img/app_logo.png',
-                                    width: 48,
-                                    height: 48,
-                                  ),
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '飞翔',
-                                        style: TextStyle(
-                                          color: colors.textPrimary,
-                                          fontSize: 25,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      Text(
-                                        '连接你的媒体，继续你的观看',
-                                        style: TextStyle(
-                                          color: colors.textMuted,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              '登录飞翔账号',
-                              style: TextStyle(
-                                color: colors.textPrimary,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '与 NAS 共用一个账号，管理媒体来源和观看记录。',
-                              style: TextStyle(
-                                color: colors.textSecondary,
-                                fontSize: 13,
-                                height: 1.6,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            child,
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: Center(child: content),
                 ),
               );
             },
@@ -187,19 +228,15 @@ class _FlySurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return Container(
-      padding: padding,
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppAmbientPage.cardColorOf(context, colors.surface),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: selected
-              ? colors.selection.withValues(alpha: 0.65)
-              : colors.borderSubtle,
-        ),
+      color: AppAmbientPage.cardColorOf(
+        context,
+        selected ? colors.selectionSoft : colors.surface,
       ),
-      child: child,
+      child: Padding(padding: padding, child: child),
     );
   }
 }
@@ -223,13 +260,35 @@ class _FlySectionTitle extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  AppInfoPopoverAnchor(
+                    title: '媒体来源',
+                    description: '选择来源进入媒体库，连接地址自动匹配。',
+                    detail: '需要更换地址时，打开来源的“连接设置”。',
+                    child: Tooltip(
+                      message: '媒体来源说明',
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Icon(
+                          Icons.info_outline_rounded,
+                          size: 18,
+                          color: colors.textMuted,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 6),
               Text(
@@ -350,26 +409,73 @@ class _FlySourceCard extends StatelessWidget {
                   ],
                 ),
               ),
-              PopupMenuButton<String>(
-                tooltip: '来源设置',
-                enabled: !busy,
-                onSelected: onAction,
-                icon: const Icon(Icons.more_horiz_rounded),
-                itemBuilder: (_) => [
-                  if (available)
-                    const PopupMenuItem(
-                      value: 'address',
-                      child: Text('更换连接地址'),
-                    ),
-                  const PopupMenuItem(
-                    value: 'reauthorize',
-                    child: Text('重新授权'),
-                  ),
-                  if (status != 'unbound') ...[
-                    const PopupMenuItem(value: 'sync', child: Text('同步节目资料')),
-                    const PopupMenuItem(value: 'unbind', child: Text('移除媒体来源')),
-                  ],
-                ],
+              Builder(
+                builder: (buttonContext) => IconButton(
+                  tooltip: '来源设置',
+                  icon: const Icon(Icons.more_horiz_rounded),
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          final options = [
+                            if (available)
+                              const AppActionSheetOption(
+                                value: 'address',
+                                label: '连接设置',
+                              ),
+                            const AppActionSheetOption(
+                              value: 'reauthorize',
+                              label: '重新授权',
+                            ),
+                            if (status != 'unbound') ...[
+                              const AppActionSheetOption(
+                                value: 'sync',
+                                label: '同步节目资料',
+                              ),
+                              const AppActionSheetOption(
+                                value: 'unbind',
+                                label: '移除媒体来源',
+                                destructive: true,
+                              ),
+                            ],
+                          ];
+                          String? action;
+                          if (DesktopEnvironment.isDesktopPlatform) {
+                            final box =
+                                buttonContext.findRenderObject() as RenderBox;
+                            await showDesktopContextMenu(
+                              buttonContext,
+                              position: box.localToGlobal(
+                                Offset(0, box.size.height),
+                              ),
+                              entries: [
+                                for (final option in options)
+                                  DesktopContextMenuEntry(
+                                    label: option.label,
+                                    icon: switch (option.value) {
+                                      'address' =>
+                                        Icons.settings_ethernet_rounded,
+                                      'reauthorize' => Icons.key_rounded,
+                                      'sync' => Icons.sync_rounded,
+                                      _ => Icons.link_off_rounded,
+                                    },
+                                    destructive: option.destructive,
+                                    onSelected: () => action = option.value,
+                                  ),
+                              ],
+                            );
+                          } else {
+                            action = await showAppActionSheet<String>(
+                              context,
+                              title: binding['label'] as String? ?? '来源设置',
+                              options: options,
+                            );
+                          }
+                          final selectedAction = action;
+                          if (selectedAction != null && context.mounted) {
+                            onAction(selectedAction);
+                          }
+                        },
+                ),
               ),
             ],
           ),
