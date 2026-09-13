@@ -375,6 +375,21 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final menu = DesktopMpvRuntime.qualityMenu(widget.source);
+    if (widget.source.isLive) {
+      return DesktopHoverOptionsPanel(
+        title: '直播线路',
+        emptyLabel: '暂无可用线路',
+        options: [
+          for (final line in menu.mainChoices)
+            DesktopPlayerPanelOption(
+              value: line.sourceIndex,
+              title: line.displayTier,
+              selected: DesktopMpvRuntime.isCurrentQuality(widget.source, line),
+            ),
+        ],
+        onSelected: (option) => widget.onSelected(option.value as int),
+      );
+    }
     final customLabel = l10n.nativePlayerText0054.replaceFirst('⚙', '').trim();
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),

@@ -31,6 +31,7 @@ class DesktopPlayerControls extends StatefulWidget {
     super.key,
     required this.player,
     required this.showBuffer,
+    this.isLive = false,
     this.chapters = const [],
     this.seekThumbnails = const [],
     this.seekThumbnailBifUrl = '',
@@ -134,6 +135,7 @@ class DesktopPlayerControls extends StatefulWidget {
   final VoidCallback onBack;
   final VoidCallback onToggle;
   final Future<void> Function(Duration) onSeek;
+  final bool isLive;
   final ValueChanged<double> onVolume;
   final VoidCallback onMute;
   final ValueChanged<double> onRate;
@@ -346,18 +348,19 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    SizedBox(
-                      height: 26,
-                      child: _DesktopTimeline(
-                        position: position,
-                        duration: duration,
-                        buffered: widget.showBuffer ? buffer : Duration.zero,
-                        chapters: widget.chapters,
-                        thumbnails: _thumbnails,
-                        accent: colors.accent,
-                        onSeek: widget.onSeek,
+                    if (!widget.isLive)
+                      SizedBox(
+                        height: 26,
+                        child: _DesktopTimeline(
+                          position: position,
+                          duration: duration,
+                          buffered: widget.showBuffer ? buffer : Duration.zero,
+                          chapters: widget.chapters,
+                          thumbnails: _thumbnails,
+                          accent: colors.accent,
+                          onSeek: widget.onSeek,
+                        ),
                       ),
-                    ),
                     SizedBox(height: compact ? 2 : 4),
                     Row(
                       children: <Widget>[
@@ -445,6 +448,9 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
 
   /// 时间显示（.pl-time：当前白色加粗，总时长 60% 白）。
   Widget _buildTimeText(Duration position, Duration duration) {
+    if (widget.isLive) {
+      return const Text('直播', style: TextStyle(color: Colors.white));
+    }
     return Text.rich(
       TextSpan(
         children: <TextSpan>[

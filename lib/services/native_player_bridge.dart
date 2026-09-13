@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import '../playback/playback_source.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -591,7 +592,9 @@ class NativePlayerBridge {
     // 弹幕：详情页 engine 仍存活时，用 source 的媒体上下文做一次 DanDanPlay 自动匹配+
     // 拉取，序列化落临时文件，随 Intent 传给原生壳。失败则无弹幕、不阻塞播放。
     var resolvedDanmakuFile = danmakuFilePath;
-    if (resolvedDanmakuFile == null && settings.enabled) {
+    if (resolvedDanmakuFile == null &&
+        settings.enabled &&
+        !MpvMediaSource.fromMap(loadArgs).isLive) {
       resolvedDanmakuFile = await NativeDanmakuPrefetch.resolveToFile(
         seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
         itemTitle: (loadArgs['title'] ?? '').toString(),
