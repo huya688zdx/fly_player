@@ -8,12 +8,25 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          foregroundColor: colors.textPrimary,
+        appBar: buildSecondaryHostAppBar(
+          context,
           title: const Text('已同步节目'),
           actions: [
+            AppInfoPopoverAnchor(
+              title: '已同步节目',
+              description: '这里展示媒体来源上次同步的节目资料。选择节目后，继续使用原来的详情页与播放器。',
+              detail: '同步资料不代表当前地址可连接。连接遇到问题时，可在“账号与媒体来源”中重试或打开连接设置。',
+              child: Tooltip(
+                message: '同步节目说明',
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Icon(
+                    Icons.info_outline_rounded,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
             IconButton(
               tooltip: '账号与媒体来源',
               icon: const Icon(Icons.dns_outlined),
@@ -125,7 +138,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                                 ),
                             ],
                           ),
-                          if (message != null) ...[
+                          if (message != null && items.isNotEmpty) ...[
                             const SizedBox(height: 14),
                             Row(
                               children: [
@@ -154,7 +167,32 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                       ),
                     ),
                   ),
-                  if (loading && items.isEmpty)
+                  if (!loading && items.isEmpty && message != null)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          AppErrorState(
+                            error: AppException(
+                              kind: AppExceptionKind.transient,
+                              action: '读取已同步节目',
+                              message: message!,
+                            ),
+                            onRetry: () => _load(),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                            child: Text(
+                              message!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: colors.textSecondary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (loading && items.isEmpty)
                     const SliverFillRemaining(
                       hasScrollBody: false,
                       child: Center(child: BirdLoader(size: 90)),

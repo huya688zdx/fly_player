@@ -2,8 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/fly_data/fly_account_controller.dart';
 import '../ui/adaptive_detail_navigator.dart';
+import '../ui/app_info_popover.dart';
+import '../ui/media_detail_components.dart';
+import '../ui/secondary_host_navigation.dart';
 import '../theme/app_theme.dart';
+import '../utils/app_exception.dart';
+import '../utils/app_top_tip.dart';
 import '../widgets/common/app_ambient_page.dart';
+import '../widgets/common/app_error_state.dart';
+import '../widgets/common/app_option_list.dart';
 import '../widgets/common/bird_loader.dart';
 import '../widgets/fly_assistant_panel.dart';
 import '../models/media_library_item.dart';
@@ -152,8 +159,10 @@ class _FlyCatalogScreenState extends State<FlyCatalogScreen> {
       await openFlyCatalogItem(context, item, expectedAccountKey: _account);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(FlyAccountController.safeMessage(error))),
+        AppTopTip().show(
+          context,
+          message: FlyAccountController.safeMessage(error),
+          color: context.appColors.surfaceStrong,
         );
       }
     } finally {
@@ -237,6 +246,7 @@ class FlyCatalogDetailScreen extends StatefulWidget {
 }
 
 class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
+  bool _overviewExpanded = false;
   Map<String, dynamic>? media;
   String? message;
   bool busy = false;
@@ -292,11 +302,7 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          title: const Text('同步信息'),
-        ),
+        appBar: buildSecondaryHostAppBar(context, title: const Text('同步信息')),
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -322,7 +328,12 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
               ),
               Text((item['genres'] as List? ?? []).join(' / ')),
               const SizedBox(height: 16),
-              Text(item['overview'] as String? ?? ''),
+              DetailOverview(
+                text: item['overview'] as String? ?? '',
+                expanded: _overviewExpanded,
+                onToggle: () =>
+                    setState(() => _overviewExpanded = !_overviewExpanded),
+              ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: () => showFlyAssistant(context, mediaId: widget.mediaId),
@@ -352,6 +363,10 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
                 Text('外部标识：${item['external_ids']}'),
               for (final source in item['sources'] as List? ?? [])
                 Card(
+                  color: AppAmbientPage.cardColorOf(
+                    context,
+                    context.appColors.surface,
+                  ),
                   child: ListTile(
                     title: Text(
                       '${source['server_name']} · ${source['title']}',
@@ -362,12 +377,14 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
                   ),
                 ),
               for (final child in item['children'] as List? ?? [])
-                Card(
-                  child: ListTile(
-                    title: Text(child['title'] as String? ?? ''),
-                    subtitle: Text(
-                      '${_kindLabel(child['kind'])} · 季 ${child['season_number'] ?? '-'} / 集 ${child['episode_number'] ?? '-'}',
-                    ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: AppOptionListTile(
+                    title: child['title'] as String? ?? '',
+                    subtitle:
+                        '${_kindLabel(child['kind'])} · 季 ${child['season_number'] ?? '-'} / 集 ${child['episode_number'] ?? '-'}',
+                    showIndicator: false,
+                    outlined: true,
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.push(
                       context,

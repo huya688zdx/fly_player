@@ -10,12 +10,14 @@ import '../../providers/nas_provider.dart';
 import '../media_backend_connection_store.dart';
 import '../play_stats/play_stats_service.dart';
 import 'fly_data_service.dart';
-import 'fly_media_identity.dart';
+import 'fly_media_address_selector.dart';
 import 'fly_data_sync_store.dart';
 
 /// Account, binding and address operations are serialized. Playback uses only
 /// cached media access and never waits for this controller's network refresh.
 class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
+  static const _loginModeKey = 'fly.login_mode';
+
   FlyAccountController({
     required this.nas,
     required this.backendSession,
@@ -81,16 +83,25 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> restore() async {
     try {
       await _run(() async {
-        await service.restoreSession();
-        if (session == null) return;
         final prefs = await SharedPreferences.getInstance();
         await prefs.reload();
+        legacyMode = prefs.getString(_loginModeKey) == 'media';
+        if (legacyMode) {
+          activeBindingId = '';
+          // The local gate must not wait for a separate Fly credential read.
+          _notify();
+        }
+        await service.restoreSession();
+        if (session == null) return;
         final cache = prefs.getString('fly.bindings.$accountKey');
         if (cache != null) {
           bindings = (jsonDecode(cache) as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
         }
+        // Retain the account/list for an explicit return to Fly, but leave
+        // the direct connection and its statistics under the local providers.
+        if (legacyMode) return;
         final selectedId = prefs.getString('fly.active.$accountKey') ?? '';
         activeBindingId = '';
         // Recover only this account's selected access; another saved account
@@ -127,6 +138,8 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     required String username,
     required String password,
     required String deviceName,
+    bool rememberPassword = true,
+    String? expectedInstanceId,
   }) {
     _syncEpoch++;
     return _run(() async {
@@ -136,13 +149,17 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         username: username,
         password: password,
         deviceName: deviceName,
+        rememberPassword: rememberPassword,
+        expectedInstanceId: expectedInstanceId,
       );
+      await _rememberLoginMode('fly');
       legacyMode = false;
       activeBindingId = '';
       bindings = [];
       servers = [];
       await _clearActiveAccess();
       await _refresh();
+      message = service.loginHistoryWarning;
     });
   }
 
@@ -158,7 +175,11 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         servers = [];
         activeBindingId = '';
         legacyMode = false;
-        await _clearActiveAccess();
+        try {
+          await _rememberLoginMode('fly');
+        } finally {
+          await _clearActiveAccess();
+        }
       }
     });
   }
@@ -174,9 +195,32 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         await _clearActiveAccess();
       }
       await PlayStatsService.instance.bindOwnerScope('');
+      await _rememberLoginMode('media');
       legacyMode = true;
       _notify();
     });
+  }
+
+  Future<void> returnToFlyMode() {
+    _syncEpoch++;
+    return _run(() async {
+      if (legacyMode) {
+        _retry?.cancel();
+        // A local media connection must not become a selected Fly binding or
+        // claim its statistics. Keep saved access; source selection owns reuse.
+        await PlayStatsService.instance.bindOwnerScope('');
+        activeBindingId = '';
+      }
+      await _rememberLoginMode('fly');
+      legacyMode = false;
+    });
+  }
+
+  Future<void> _rememberLoginMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(_loginModeKey, mode)) {
+      throw StateError('无法保存登录方式，请重试。');
+    }
   }
 
   Future<void> refresh() => _run(_refresh);
@@ -221,6 +265,7 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> switchAddress(String url) => _run(() async {
     await service.switchAddress(url);
     await _refresh();
+    message = service.loginHistoryWarning;
   });
   Future<void> createServer(Map<String, dynamic> data) => _run(() async {
     await service.request('/servers', body: data);
@@ -278,22 +323,19 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     final server = Map<String, dynamic>.from(access['server'] as Map);
     final addresses = (server['addresses'] as List)
         .map((e) => Map<String, dynamic>.from(e as Map))
-        .where((e) => e['purpose'] != 'nas_api')
         .toList();
-    addresses.sort(
-      (a, b) => ((a['priority'] as num?)?.toInt() ?? 0).compareTo(
-        (b['priority'] as num?)?.toInt() ?? 0,
-      ),
-    );
-    if (addresses.isEmpty) throw StateError('管理员需登记客户端 LAN、HTTPS 或 VPN 媒体地址。');
-    final selected = address ?? addresses.first['base_url'] as String;
-    if (!addresses.any((e) => e['base_url'] == selected)) {
-      throw StateError('媒体地址不在已授权的地址集中。');
-    }
-    await verifyFlyMediaAddress(
-      address: selected,
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    // Preferences only order freshly authorized addresses. A removed endpoint
+    // must never regain access just because it worked on a previous network.
+    final selected = await selectFlyMediaAddress(
+      addresses: addresses,
       kind: server['kind'] as String,
       expectedId: (server['remote_server_id'] ?? '').toString(),
+      preferredAddress: prefs.getString(
+        'fly.address.$accountKey.${binding['id']}',
+      ),
+      explicitAddress: address,
     );
     final connection = MediaBackendConnection.fromJson({
       'kind': server['kind'],
@@ -310,9 +352,9 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     await _applyConnection(connection);
     activeBindingId = binding['id'] as String;
     legacyMode = false;
-    final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fly.active.$accountKey', activeBindingId);
     await prefs.setString('fly.address.$accountKey.$activeBindingId', selected);
+    await _rememberLoginMode('fly');
     scheduleSync();
   });
 

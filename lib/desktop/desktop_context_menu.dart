@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import '../ui/app_popup_theme.dart';
 import 'desktop_floating_panel.dart';
 
 /// 桌面右键菜单项（移动端长按动作表的桌面形态；动作集合复用
@@ -48,7 +49,7 @@ Future<void> showDesktopContextMenu(
     entries: List<DesktopContextMenuEntry>.unmodifiable(entries),
   );
   _activeSession = session;
-  session._attach(overlay);
+  session._attach(overlay, AppPopupTheme.capture(context, to: overlay.context));
   return session._done.future;
 }
 
@@ -62,9 +63,10 @@ class _DesktopContextMenuSession {
   final GlobalKey _panelKey = GlobalKey();
   OverlayEntry? _entry;
 
-  void _attach(OverlayState overlay) {
+  void _attach(OverlayState overlay, AppPopupTheme popupTheme) {
     _entry = OverlayEntry(
-      builder: (_) => _DesktopContextMenuSurface(session: this),
+      builder: (_) =>
+          popupTheme.wrap(_DesktopContextMenuSurface(session: this)),
     );
     overlay.insert(_entry!);
   }
