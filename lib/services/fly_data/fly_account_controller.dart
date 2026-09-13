@@ -348,6 +348,7 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     legacyMode = false;
     await prefs.setString('fly.active.$accountKey', activeBindingId);
     await prefs.setString('fly.address.$accountKey.$activeBindingId', selected);
+    await _rememberLoginMode('fly');
     scheduleSync();
   });
 
