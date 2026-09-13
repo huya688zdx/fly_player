@@ -113,6 +113,54 @@ void main() {
 
   Finder activateButton() => find.textContaining(RegExp('切换到此来源|选用 / 切换媒体地址'));
 
+  for (final desktop in [true, false]) {
+    testWidgets('简洁设置保留地址切换并阻止过期选择 $desktop', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = desktop;
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = desktop
+          ? const Size(1280, 800)
+          : const Size(390, 844);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      account.admin = true;
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account)),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('设置'));
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('媒体账号登录'));
+      expect(find.text('https://fly.example'), findsOneWidget);
+      expect(find.text('添加服务器'), findsOneWidget);
+      expect(find.text('同步记录'), findsOneWidget);
+      await _capture(
+        tester,
+        desktop ? 'settings-desktop' : 'settings-mobile',
+        region: find.byType(ExpansionTile),
+      );
+      await tester.tap(find.text('服务地址'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(DesktopFloatingPanel),
+        desktop ? findsOneWidget : findsNothing,
+      );
+      await tester.tap(find.text('https://fly-vpn.example'));
+      await tester.pumpAndSettle();
+      expect(account.addressSwitches, ['https://fly-vpn.example']);
+      await tester.tap(find.text('服务地址'));
+      await tester.pumpAndSettle();
+      account.signedIn = false;
+      account.notifyListeners();
+      await tester.pump();
+      await tester.tap(find.text('https://fly.example'));
+      await tester.pumpAndSettle();
+      expect(account.addressSwitches, hasLength(1));
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final size in [const Size(1280, 800), const Size(640, 900)]) {
     testWidgets('PC 来源操作和连接设置复用桌面浮窗 $size', (tester) async {
       DesktopEnvironment.debugOverridePlatform = true;
@@ -437,7 +485,7 @@ void main() {
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
     expect(find.byType(AppInfoPopoverAnchor), findsWidgets);
-    expect(find.text('已同步绑定，选择来源即可连接。'), findsOneWidget);
+    expect(find.text('1 个来源'), findsOneWidget);
     await tester.tap(find.byTooltip('媒体来源说明'));
     await tester.pumpAndSettle();
     expect(find.textContaining('连接设置'), findsWidgets);
@@ -764,7 +812,9 @@ class _Account extends FlyAccountController {
     ready = true;
     bindings = [_binding()];
   }
-  bool signedIn = true, rejectActivation = false;
+  bool signedIn = true, rejectActivation = false, admin = false;
+  String serverUrl = 'https://fly.example';
+  final addressSwitches = <String>[];
   final activations = <(String, String?)>[];
   final logins = <(String, String, String, String)>[];
   int reauthorizations = 0;
@@ -780,7 +830,9 @@ class _Account extends FlyAccountController {
   @override
   FlyDataSession? get session => signedIn
       ? FlyDataSession(
-          serverUrl: 'https://fly.example',
+          serverUrl: serverUrl,
+          addresses: ['https://fly.example', 'https://fly-vpn.example'],
+          role: admin ? 'admin' : 'user',
           userId: 'viewer',
           username: 'viewer',
           deviceId: 'device',
@@ -790,6 +842,13 @@ class _Account extends FlyAccountController {
           serviceInstanceId: 'instance',
         )
       : null;
+  @override
+  Future<void> switchAddress(String address) async {
+    addressSwitches.add(address);
+    serverUrl = address;
+    notifyListeners();
+  }
+
   @override
   Future<void> activate(Map<String, dynamic> binding, {String? address}) async {
     activations.add((binding['id'] as String, address));

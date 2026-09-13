@@ -53,8 +53,8 @@ void main() {
   testWidgets('暂用本地媒体后可从真实入口切回飞翔登录且不带入媒体密码', (tester) async {
     await tester.pumpWidget(const FlyPlayerApp());
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('暂用原本地媒体连接'));
-    await tester.tap(find.text('暂用原本地媒体连接'));
+    await tester.ensureVisible(find.text('媒体账号登录'));
+    await tester.tap(find.text('媒体账号登录'));
     await tester.pumpAndSettle();
     expect(find.byType(ConnectionScreen), findsOneWidget);
     await tester.enterText(find.byType(TextField).at(2), 'local-only-fixture');
@@ -95,12 +95,12 @@ void main() {
     final session = account.session;
     await tester.pumpWidget(_host(account, home: const FlyBindingsScreen()));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('管理与连接设置'));
-    await tester.tap(find.text('管理与连接设置'));
+    await tester.ensureVisible(find.text('设置'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('本地媒体直连'));
+    await tester.ensureVisible(find.text('媒体账号登录'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('本地媒体直连'));
+    await tester.tap(find.text('媒体账号登录'));
     await tester.pumpAndSettle();
     expect(find.byType(ConnectionScreen), findsOneWidget);
     final switcher = find.byKey(const Key('connectionSwitchToFlyAccount'));
@@ -293,8 +293,8 @@ void main() {
     );
     await tester.pumpWidget(const FlyPlayerApp());
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('暂用原本地媒体连接'));
-    await tester.tap(find.text('暂用原本地媒体连接'));
+    await tester.ensureVisible(find.text('媒体账号登录'));
+    await tester.tap(find.text('媒体账号登录'));
     await tester.pumpAndSettle();
     credentials.pauseHistory = true;
     tester
@@ -347,7 +347,7 @@ void main() {
     });
   }
 
-  testWidgets('手机登录说明区分飞翔与媒体账号且大字键盘不挡提交', (tester) async {
+  testWidgets('手机登录入口清楚且大字键盘不挡提交', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -357,7 +357,8 @@ void main() {
     addTearDown(() => _disposeAccount(account));
     await tester.pumpWidget(_host(account));
     await tester.pumpAndSettle();
-    expect(find.textContaining('飞牛影视、Emby 等媒体账号'), findsOneWidget);
+    expect(find.text('登录飞翔'), findsOneWidget);
+    expect(find.text('媒体账号登录'), findsOneWidget);
     expect(find.byKey(const Key('flyLoginDesktopForm')), findsNothing);
     await _capture(tester, 'mobile-login');
     await tester.pumpWidget(_host(account, textScale: 1.6));

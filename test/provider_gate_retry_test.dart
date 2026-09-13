@@ -110,7 +110,7 @@ void _expectRetryableGateError(WidgetTester tester) {
 }
 
 Future<void> _chooseLegacyConnection(WidgetTester tester) async {
-  final entry = find.text('暂用原本地媒体连接');
+  final entry = find.text('媒体账号登录');
   await _pumpUntilFound(tester, entry);
   expect(entry, findsOneWidget);
   await tester.ensureVisible(entry);
