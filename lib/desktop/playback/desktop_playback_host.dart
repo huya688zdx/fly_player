@@ -134,6 +134,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
     final builder = _screenBuilder;
     if (session == null ||
         builder == null ||
+        session.source.isLive ||
         session.disposed ||
         _scope != playbackSessionScope(context) ||
         itemGuid.trim().isEmpty ||
@@ -205,11 +206,12 @@ final class DesktopPlaybackHost implements PlaybackHost {
             connection?.userName;
     Future<void> releaseLink(String link) async {
       link = link.trim();
-      if (offline ||
-          !backend.capabilities.usesLegacyFeiniuFlow ||
-          link.isEmpty) {
+      if (link.isEmpty) return;
+      if (!backend.capabilities.usesLegacyFeiniuFlow) {
+        await backend.releasePlaybackSession(link);
         return;
       }
+      if (offline) return;
       // 新请求可能复用同一出流句柄，旧请求只释放已不再被认领的来源。
       bool canRelease() =>
           resourceScopeIsCurrent() &&
@@ -240,7 +242,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
       if (!context.mounted || !_isCurrentRequest(request, requestScope)) {
         return false;
       }
-      if (settings.enabled) {
+      if (settings.enabled && !source.isLive) {
         await _retireSession();
         if (!context.mounted || !_isCurrentRequest(request, requestScope)) {
           return false;
@@ -357,9 +359,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
               )
             : null,
         resolveSegmentedSubtitle: subtitles?.resolve,
-        releaseServerSession: backend.capabilities.usesLegacyFeiniuFlow
-            ? releaseLink
-            : null,
+        releaseServerSession: releaseLink,
         resolveSubtitleFile: backend.capabilities.usesLegacyFeiniuFlow
             ? (guid, {format}) => NativeReentrySupport.resolveSubtitleFile(
                 effectiveNas,
@@ -414,7 +414,8 @@ final class DesktopPlaybackHost implements PlaybackHost {
               },
         reloadSource: (current, intent) async {
           final currentLoadArgs = jsonEncode(current.toMap());
-          final result = backend.capabilities.usesLegacyFeiniuFlow
+          final result =
+              backend.capabilities.usesLegacyFeiniuFlow && !current.isLive
               ? await NativeReentrySupport.reloadServerSession(
                   effectiveNas,
                   currentLoadArgs: currentLoadArgs,

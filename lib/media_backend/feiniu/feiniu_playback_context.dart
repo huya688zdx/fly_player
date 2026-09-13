@@ -51,3 +51,16 @@ class FeiniuPlaybackContext implements MediaPlaybackBackendContext {
     required this.directUrl,
   });
 }
+
+/// 飞牛直播播放上下文，只保留选线和播放器装配所需的原始事实。
+class FeiniuLivePlaybackContext implements MediaPlaybackBackendContext {
+  final PlayInfoData playInfo;
+  final LiveChannelData selectedChannel;
+  final List<LiveChannelData> channels;
+
+  const FeiniuLivePlaybackContext({
+    required this.playInfo,
+    required this.selectedChannel,
+    required this.channels,
+  });
+}
