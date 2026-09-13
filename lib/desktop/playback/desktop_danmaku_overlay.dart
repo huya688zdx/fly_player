@@ -46,9 +46,11 @@ class DesktopDanmakuPayload {
   const DesktopDanmakuPayload({
     required this.sourceLabel,
     required this.comments,
+    this.sourceKey = '',
   });
 
   final String sourceLabel;
+  final String sourceKey;
   final List<DanmakuComment> comments;
 
   // 文件读取、紧凑弹幕解码和排序统一放到工作 isolate，避免切集卡住界面。
@@ -85,6 +87,7 @@ class DesktopDanmakuPayload {
       comments.sort((left, right) => left.timeMs.compareTo(right.timeMs));
       return DesktopDanmakuPayload(
         sourceLabel: _sourceLabel(decoded, file.uri.pathSegments.last),
+        sourceKey: '${decoded['sourceKey'] ?? ''}',
         comments: List<DanmakuComment>.unmodifiable(comments),
       );
     }
@@ -99,7 +102,7 @@ class DesktopDanmakuPayload {
     final label = '${payload['sourceLabel'] ?? ''}'.trim();
     if (label.isNotEmpty) return label;
     final key = '${payload['sourceKey'] ?? ''}';
-    if (key.startsWith('nas:')) return 'NAS 已确认弹幕';
+    if (key.startsWith('nas:')) return '服务弹幕';
     if (key.startsWith('dandan:')) return '弹弹play';
     return key.isEmpty ? fallback : key;
   }

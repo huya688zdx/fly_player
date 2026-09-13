@@ -110,7 +110,7 @@ void main() {
       _ready,
       {..._payload, 'source_label': '\n\u0000'},
     ];
-    expect((await resolve())!.sourceLabel, 'NAS 已确认弹幕');
+    expect((await resolve())!.sourceLabel, '服务弹幕');
   });
 
   test('同账号重新登录更换会话也拒绝迟到的来源摘要和评论', () async {

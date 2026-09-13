@@ -6,16 +6,26 @@ import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/danmaku/models/danmaku_saved_source.dart';
 import 'package:fly_player/screens/danmaku_settings_screen.dart';
+import 'package:fly_player/services/fly_data/fly_data_service.dart';
+import 'package:fly_player/services/play_stats/play_stats_database.dart';
+import 'package:fly_player/services/play_stats/play_stats_service.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
 import 'package:fly_player/widgets/common/app_ambient_page.dart';
 
 void main() {
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    FlyDataService.instance.session = null;
+    await PlayStatsService.instance.database.bindOwnerScope('');
+  });
+  tearDown(() async {
+    FlyDataService.instance.session = null;
+    await PlayStatsService.instance.database.bindOwnerScope('');
   });
 
   testWidgets('来源策略融入原设置且选择仅 NAS 后立即保存', (tester) async {
+    await _flyBinding();
     DanmakuSettings? saved;
     await tester.pumpWidget(
       MaterialApp(
@@ -42,7 +52,41 @@ void main() {
       find.text(DanmakuSourceStrategy.nasOnly.description),
       findsOneWidget,
     );
+    FlyDataService.instance.session = null;
+    await tester.pumpAndSettle();
+    expect(find.text('仅 NAS'), findsNothing);
+    expect(find.text(DanmakuSourceStrategy.nasOnly.description), findsNothing);
+    expect(find.text('本地优先'), findsOneWidget);
   });
+
+  for (final scope in ['legacy-emby', 'legacy-feiniu']) {
+    testWidgets('$scope 保留飞翔会话和仅NAS设置时隐藏服务策略并保留普通来源', (tester) async {
+      await _flyBinding();
+      await PlayStatsService.instance.database.bindOwnerScope(scope);
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: DanmakuSettingsScreen(
+            settingsLoader: () async => DanmakuSettings.defaults.copyWith(
+              sourceStrategy: DanmakuSourceStrategy.nasOnly,
+            ),
+            savedSourceLoader: () async => const <DanmakuSavedSource>[],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(FlyDataService.instance.session, isNotNull);
+      expect(find.text('仅 NAS'), findsNothing);
+      expect(
+        find.text(DanmakuSourceStrategy.nasOnly.description),
+        findsNothing,
+      );
+      expect(find.text('本地优先'), findsOneWidget);
+      expect(find.text('弹幕管理'), findsOneWidget);
+    });
+  }
 
   testWidgets('Android 弹幕设置使用沉浸卡片且保存失败时恢复原值', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -87,4 +131,23 @@ void main() {
 
     expect(tester.widget<Switch>(find.byType(Switch).first).value, before);
   });
+}
+
+Future<void> _flyBinding() async {
+  final service = FlyDataService.instance;
+  service.session = FlyDataSession(
+    serverUrl: 'https://fixture.invalid',
+    userId: 'alice',
+    username: 'alice',
+    deviceId: 'device',
+    deviceName: 'fixture',
+    token: 'fixture-token',
+    installationId: 'installation',
+  );
+  final database =
+      PlayStatsService.instance.database as SqflitePlayStatsDatabase;
+  await database.bindOwnerScope(
+    PlayStatsService.scopeForBinding(service.session!.accountKey, 'binding'),
+  );
+  database.bindingReference = {'binding_id': 'binding'};
 }

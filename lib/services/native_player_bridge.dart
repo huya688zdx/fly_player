@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -228,6 +229,39 @@ class NativePlayerBridge {
             'scopeIdentity': FlyDataService.instance.accountChanges.value,
             'flyVerifiedEnabled': enabled,
           };
+        case 'loadNasDanmakuSource':
+          final args = (call.arguments as Map?) ?? const {};
+          final service = FlyDataService.instance;
+          final session = service.session;
+          final epoch = service.scopeIdentity;
+          bool current() => identical(_activeBindToken, token) &&
+              acceptsScope(args['statsScope']) && flyAccountActive() &&
+              identical(session, service.session) && epoch == service.scopeIdentity;
+          if (!current()) return {'status': 'unavailable'};
+          final settings = await const DanmakuSettingsStore().load();
+          if (!current()) return {'status': 'unavailable'};
+          final path = await NativeDanmakuPrefetch.resolveNasToFile(
+            seriesTitle: (args['seriesTitle'] ?? '').toString(),
+            itemTitle: (args['itemTitle'] ?? '').toString(),
+            seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
+            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            tmdbId: (args['tmdbId'] ?? '').toString(),
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            seasonGuid: (args['seasonGuid'] ?? '').toString(),
+            statsScope: statsScope, settings: settings, isCurrent: current,
+          );
+          if (!current()) return {'status': 'unavailable'};
+          if (path == null) return {'status': 'missing'};
+          try {
+            final payload = jsonDecode(await File(path).readAsString()) as Map;
+            if (!current()) return {'status': 'unavailable'};
+            return {'status': 'ready', 'danmakuFile': path,
+              'sourceKey': payload['sourceKey'],
+              'sourceLabel': payload['sourceLabel'] ?? '服务弹幕'};
+          } catch (_) {
+            return {'status': 'unavailable'};
+          }
         case 'persistFlyOpedSettings':
           final args = (call.arguments as Map?) ?? const {};
           final enabled = args['enabled'];

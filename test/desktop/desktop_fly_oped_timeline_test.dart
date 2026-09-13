@@ -210,22 +210,22 @@ Future<List<int>> _timelinePixels(
 }
 
 void main() {
-  testWidgets('悬停区分飞翔 OP/ED 和策略，精确结束点后不再属于区间', (tester) async {
+  testWidgets('悬停区分片头片尾和策略，精确结束点后不再属于区间', (tester) async {
     final player = Player(platformPlayer: _MemoryPlayer());
     Duration? sought;
     await tester.pumpWidget(
       _controls(player, _published(), onSeek: (value) async => sought = value),
     );
     final mouse = await _mouseAt(tester, 79876);
-    expect(find.text('飞翔 OP · 片头 · 仅提示跳过'), findsOneWidget);
+    expect(find.text('片头 · 仅提示'), findsOneWidget);
     expect(find.text('01:19.876–02:44.876'), findsOneWidget);
     await _moveTo(tester, mouse, 164876);
-    expect(find.textContaining('飞翔 OP'), findsNothing);
+    expect(find.textContaining('片头 ·'), findsNothing);
     await _moveTo(tester, mouse, 1330000);
-    expect(find.text('飞翔 ED · 片尾 · 自动跳过'), findsOneWidget);
+    expect(find.text('片尾 · 自动跳过'), findsOneWidget);
     expect(find.text('22:10–23:40'), findsOneWidget);
     await _moveTo(tester, mouse, 1420000);
-    expect(find.textContaining('飞翔 ED'), findsNothing);
+    expect(find.textContaining('片尾 ·'), findsNothing);
     expect(sought, isNull);
     // A timeline click remains a normal exact seek; the marker creates no skip.
     final rect = tester.getRect(_timeline);
@@ -245,22 +245,22 @@ void main() {
     final baseline = await _timelinePixels(tester);
     await tester.pumpWidget(_controls(player, _published()));
     await tester.pump();
-    expect(find.textContaining('飞翔 OP'), findsOneWidget);
+    expect(find.textContaining('片头 ·'), findsOneWidget);
     await tester.pumpWidget(_controls(player, null));
     await tester.pump();
-    expect(find.textContaining('飞翔 OP'), findsNothing);
+    expect(find.textContaining('片头 ·'), findsNothing);
     final empty = await _timelinePixels(tester);
     expect(empty, orderedEquals(baseline));
     await tester.pumpWidget(_controls(player, _published(opPolicy: 'never')));
     await tester.pump();
-    expect(find.textContaining('飞翔 OP'), findsNothing);
+    expect(find.textContaining('片头 ·'), findsNothing);
     final suppressed = await _timelinePixels(tester);
     final opX = (14210 * 100000 / _durationMs).round();
     expect(suppressed[(6 * 14210 + opX) * 4 + 3], 0);
     await _moveTo(tester, mouse, 210000);
-    expect(find.textContaining('飞翔'), findsNothing);
+    expect(find.textContaining('片头 ·'), findsNothing);
     await _moveTo(tester, mouse, 1350000);
-    expect(find.textContaining('飞翔 ED'), findsOneWidget);
+    expect(find.textContaining('片尾 ·'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await player.dispose();
@@ -367,7 +367,7 @@ void main() {
         expect(preview.left, greaterThanOrEqualTo(0));
         expect(preview.top, greaterThanOrEqualTo(0));
         expect(preview.bottom, lessThan(tester.getRect(_timeline).top));
-        expect(find.text('飞翔 ED · 片尾 · 自动跳过'), findsOneWidget);
+        expect(find.text('片尾 · 自动跳过'), findsOneWidget);
         expect(find.text('22:10–23:40'), findsOneWidget);
         expect(
           tester.getSize(find.byType(Image).first).height,

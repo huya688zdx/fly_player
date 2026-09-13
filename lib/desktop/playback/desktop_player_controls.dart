@@ -959,8 +959,8 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                 if (hoveredSegment != null) ...[
                   const SizedBox(height: 3),
                   Text(
-                    '飞翔 ${hoveredSegment.kind == 'op' ? 'OP · 片头' : 'ED · 片尾'} · '
-                    '${hoveredSegment.policy == 'auto' ? '自动跳过' : '仅提示跳过'}',
+                    '${hoveredSegment.kind == 'op' ? '片头' : '片尾'} · '
+                    '${hoveredSegment.policy == 'auto' ? '自动跳过' : '仅提示'}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,

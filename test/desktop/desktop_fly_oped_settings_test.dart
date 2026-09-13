@@ -149,7 +149,7 @@ void main() {
       tester,
       settingsPanel(published: reviewedSet(), fixedEnabled: true),
     );
-    expect(find.text('飞翔已核验区间'), findsNothing);
+    expect(find.text('服务片头片尾'), findsNothing);
     expect(find.textContaining('01:19.876'), findsNothing);
     expect(find.text('按章节识别'), findsOneWidget);
     expect(find.text('固定时长跳过'), findsOneWidget);
@@ -166,9 +166,9 @@ void main() {
         onFlyChanged: (_) async {},
       ),
     );
-    expect(find.text('飞翔已核验区间'), findsOneWidget);
-    expect(find.text('飞翔已核验 · 01:19.876–02:44.876 · 仅提示'), findsOneWidget);
-    expect(find.text('飞翔已核验 · 22:10–23:40 · 仅提示'), findsOneWidget);
+    expect(find.text('服务片头片尾'), findsOneWidget);
+    expect(find.text('01:19.876–02:44.876 · 仅提示'), findsOneWidget);
+    expect(find.text('22:10–23:40 · 仅提示'), findsOneWidget);
     expect(find.text('点击跳过后跳到 23:40，保留结束点之后的内容。'), findsOneWidget);
     expect(find.textContaining('播放下一集'), findsNothing);
     expect(find.textContaining('章节识别 ·'), findsNothing);
@@ -183,9 +183,9 @@ void main() {
         onFlyChanged: (_) async {},
       ),
     );
-    expect(find.text('飞翔已核验 · 01:19.876–02:44.876 · 仅提示'), findsOneWidget);
+    expect(find.text('01:19.876–02:44.876 · 仅提示'), findsOneWidget);
     expect(find.text('当前不提示跳过'), findsOneWidget);
-    expect(find.text('飞翔未发布此类型区间。关闭“飞翔已核验区间”后可使用章节或固定时长设置。'), findsOneWidget);
+    expect(find.text('暂无服务片尾数据。关闭“服务片头片尾”后可使用章节或固定时长。'), findsOneWidget);
     expect(find.textContaining('章节识别 ·'), findsNothing);
     expect(find.textContaining('播放下一集'), findsNothing);
   });
@@ -212,7 +212,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('飞翔已核验区间'));
+    await tester.tap(find.text('服务片头片尾'));
     await tester.pumpAndSettle();
     expect(serviceChanges, [false]);
     expect(chapterChanges, isEmpty);
@@ -222,10 +222,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(chapterChanges, [false]);
     expect(serviceChanges, [false]);
-    await tester.tap(find.text('飞翔已核验区间'));
+    await tester.tap(find.text('服务片头片尾'));
     await tester.pumpAndSettle();
     expect(serviceChanges, [false, true]);
-    expect(find.text('飞翔已核验 · 22:10–23:40 · 仅提示'), findsOneWidget);
+    expect(find.text('22:10–23:40 · 仅提示'), findsOneWidget);
   });
 
   testWidgets('无服务范围仍显示原章节，退出飞翔登录立即隐藏服务项', (tester) async {
@@ -240,13 +240,13 @@ void main() {
         },
       ),
     );
-    expect(find.text('飞翔已核验区间'), findsOneWidget);
+    expect(find.text('服务片头片尾'), findsOneWidget);
     expect(find.textContaining('章节识别 · 00:30–01:30'), findsOneWidget);
     final serviceSwitch = tester.widgetList<Switch>(find.byType(Switch)).first;
     expect(serviceSwitch.onChanged, isNull);
     update(() => signedIn = false);
     await tester.pumpAndSettle();
-    expect(find.text('飞翔已核验区间'), findsNothing);
+    expect(find.text('服务片头片尾'), findsNothing);
     expect(find.text('按章节识别'), findsOneWidget);
   });
 
@@ -260,7 +260,7 @@ void main() {
         ),
       );
       expect(
-        find.text('飞翔已核验区间、章节与固定时长'),
+        find.text('服务片头片尾、章节与固定时长'),
         signedIn ? findsOneWidget : findsNothing,
       );
       expect(

@@ -2776,6 +2776,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val effectiveLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
         mediaTitle = resolveTitle(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
+        invalidateServiceDanmakuRequest()
+        serviceDanmakuContextId = UUID.randomUUID().toString()
         resetFlyOped()
         // 完整 loadArgs 进入（初始启动主链路）：安装 Flutter 下发的本地化文案表；
         // 失败静默，不影响播放主流程（缺失时后续 localizedString 自动回退 strings.xml）。
@@ -2991,6 +2993,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             (previousSeries.isNotEmpty() && previousSeries == effectiveLoadArgs["seriesGuid"]?.toString()) ||
             (previousSeason.isNotEmpty() && previousSeason == effectiveLoadArgs["seasonGuid"]?.toString())
         loadArgsMap = effectiveLoadArgs
+        invalidateServiceDanmakuRequest()
+        serviceDanmakuContextId = UUID.randomUUID().toString()
         resetFlyOped()
         applyFlyOpedAccess(FlyOpedAccess.fromLoadArgs(effectiveLoadArgs, flyOpedAccess.enabled))
         refreshSeekThumbnails()
@@ -7166,7 +7170,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 skipCard.visibility = View.GONE
                 return
             }
-            skipText.text = "${if (segment.kind == "op") "片头" else "片尾"} · 飞翔已核验 · ${formatTime(segment.endMs)}"
+            skipText.text = "${if (segment.kind == "op") "跳过片头" else "跳过片尾"} · ${formatTime(segment.endMs)}"
             skipAction = { skipFlyOped(publication, segment) }
             skipCard.visibility = View.VISIBLE
             return
@@ -7242,6 +7246,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyFlyOpedAccess(next: FlyOpedAccess) {
         if (next == flyOpedAccess) return
+        val accountChanged = next.signedIn != flyOpedAccess.signedIn ||
+            next.scopeIdentity != flyOpedAccess.scopeIdentity
+        if (accountChanged) {
+            invalidateServiceDanmakuRequest()
+            if (danmakuSettings["sourceKey"]?.toString()?.startsWith("nas:") == true) {
+                danmakuSettings["sourceKey"] = ""
+                danmakuSettings["sourceLabel"] = ""
+                if (this::playerSurface.isInitialized) playerSurface.clearDanmaku()
+            }
+        }
         flyOpedAccess = next
         // Logout/account changes invalidate in-flight resolves and seeks, but an
         // already skipped ED still owns its remaining tail until the next load.
@@ -7252,9 +7266,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         if (this::settingsStore.isInitialized) persistIntroOutro()
         refreshFlyOpedPanel()
+        if (accountChanged && panelVisible &&
+            panelStack.lastOrNull()?.title == localizedString(R.string.player_text_0076)) renderTopPanel()
     }
 
-    private fun refreshFlyAccountState(force: Boolean = false, refreshPublication: Boolean = false) {
+    private fun refreshFlyAccountState(force: Boolean = false, refreshPublication: Boolean = false,
+        onRefreshed: ((Boolean) -> Unit)? = null) {
         if (activityDestroying || !this::playerSurface.isInitialized) return
         val now = android.os.SystemClock.elapsedRealtime()
         if (!force && (flyAccountRequestPending || now - flyAccountCheckMs < 5000L)) return
@@ -7263,17 +7280,25 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val request = ++flyAccountRequestRevision
         NativePlayerReverseBridge.dispatch("getFlyAccountState", emptyMap(),
             onResult = { result -> runOnUiThread {
-                if (activityDestroying || request != flyAccountRequestRevision) return@runOnUiThread
+                if (activityDestroying || request != flyAccountRequestRevision) {
+                    onRefreshed?.invoke(false)
+                    return@runOnUiThread
+                }
                 flyAccountRequestPending = false
                 applyFlyOpedAccess(FlyOpedAccess.fromAccountState(result, flyOpedAccess.enabled))
                 if (refreshPublication && canConsumeFlyOped()) {
                     flyOpedResolveEpoch = null
                     observeFlyOped(playerSurface.state)
                 }
+                onRefreshed?.invoke(true)
             } }, onError = { runOnUiThread {
-                if (activityDestroying || request != flyAccountRequestRevision) return@runOnUiThread
+                if (activityDestroying || request != flyAccountRequestRevision) {
+                    onRefreshed?.invoke(false)
+                    return@runOnUiThread
+                }
                 flyAccountRequestPending = false
                 applyFlyOpedAccess(FlyOpedAccess.fromAccountState(null, flyOpedAccess.enabled))
+                onRefreshed?.invoke(false)
             } })
     }
 
@@ -7819,6 +7844,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     pushPanel(PanelPage(localizedString(R.string.player_text_0006)) { buildDanmakuSettingsPage() })
                 },
                 panelNavRow(localizedString(R.string.player_text_0076)) {
+                    refreshFlyAccountState(force = true)
                     pushPanel(PanelPage(localizedString(R.string.player_text_0076)) { buildDanmakuSourcePage() })
                 },
             ),
@@ -8875,13 +8901,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildDanmakuSourcePage() {
+        refreshFlyAccountState()
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0239)))
         val sourceKey = danmakuSettings["sourceKey"]?.toString().orEmpty()
         val sourceLabel = danmakuSettings["sourceLabel"]?.toString()?.trim().orEmpty()
         addPanelRow(panelCardGroup(TextView(this).apply {
             text = when {
                 sourceLabel.isNotEmpty() -> sourceLabel
-                sourceKey.startsWith("nas:") -> "NAS 已确认弹幕"
+                sourceKey.startsWith("nas:") -> "服务弹幕"
                 sourceKey.startsWith("dandan:") -> "弹弹play"
                 sourceKey.isNotEmpty() -> sourceKey
                 else -> localizedString(R.string.player_text_0240)
@@ -8890,6 +8917,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }))
+        if (flyOpedAccess.signedIn) {
+            addPanelRow(panelCardGroup(panelNavRow("服务弹幕",
+                if (sourceKey.startsWith("nas:")) "重新获取" else "获取") {
+                loadServiceDanmakuSource()
+            }))
+        }
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0241)))
         addPanelRow(panelCardGroup(
             panelNavRow(if (networkOffline) localizedString(R.string.player_text_0242) else localizedString(R.string.player_text_0243)) {
@@ -8974,6 +9007,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyFlutterDanmakuSource(sourceKey: String) {
         if (sourceKey.isEmpty()) return
+        invalidateServiceDanmakuRequest()
         showCenterHint(localizedString(R.string.player_text_0254))
         NativePlayerReverseBridge.dispatch(
             method = "loadSavedDanmakuSource",
@@ -9122,6 +9156,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 从文件导入弹幕：SAF 选文件 → 拷到可读缓存 → 反向通道交 Flutter 解析回 payload。 */
     private fun pickLocalDanmakuFile() {
+        invalidateServiceDanmakuRequest()
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
@@ -9168,6 +9203,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun importDanmakuFromUri(uri: android.net.Uri) {
+        invalidateServiceDanmakuRequest()
         showCenterHint(localizedString(R.string.player_text_0264))
         val mediaArgs = HashMap(danmakuMediaArgs()).apply {
             put("itemTitle", loadArgsMap["title"]?.toString().orEmpty())
@@ -9213,6 +9249,86 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 与原生 prefs 的「已保存来源」分属两套存储，弹幕源面板合并展示二者。
     private var flutterDanmakuSources: List<Map<String, Any?>>? = null
     private var flutterDanmakuSourcesLoading = false
+
+    private val serviceDanmakuRequests = NativeServiceDanmakuRequests()
+    private var serviceDanmakuContextId = UUID.randomUUID().toString()
+    private var serviceDanmakuTicket: NativeServiceDanmakuRequests.Ticket? = null
+
+    private fun serviceDanmakuContext() = NativeServiceDanmakuContext(
+        signedIn = flyOpedAccess.signedIn,
+        accountIdentity = flyOpedAccess.scopeIdentity,
+        statsScope = loadArgsMap["statsScope"]?.toString().orEmpty(),
+        playbackContextId = serviceDanmakuContextId,
+        seekEpoch = playerSurface.state.activeSeekEpoch,
+        mediaArgs = danmakuMediaArgs(),
+    )
+
+    private fun invalidateServiceDanmakuRequest() {
+        serviceDanmakuRequests.invalidate()
+        if (serviceDanmakuTicket != null) hideCenterHint()
+        serviceDanmakuTicket = null
+    }
+
+    private fun serviceDanmakuRequestIsCurrent(ticket: NativeServiceDanmakuRequests.Ticket): Boolean {
+        val current = serviceDanmakuRequests.accepts(ticket, serviceDanmakuContext(),
+            activityDestroying || playbackParked)
+        if (!current && serviceDanmakuTicket === ticket) invalidateServiceDanmakuRequest()
+        return current
+    }
+
+    private fun serviceDanmakuUnavailable(ticket: NativeServiceDanmakuRequests.Ticket,
+        message: String = "暂无服务弹幕") {
+        if (!serviceDanmakuRequestIsCurrent(ticket)) return
+        invalidateServiceDanmakuRequest()
+        showTransientHint(message)
+    }
+
+    private fun loadServiceDanmakuSource() {
+        if (!flyOpedAccess.signedIn || activityDestroying || playbackParked) return
+        val context = serviceDanmakuContext()
+        val ticket = serviceDanmakuRequests.begin(context)
+        serviceDanmakuTicket = ticket
+        if (!serviceDanmakuRequestIsCurrent(ticket)) return
+        pendingDanmakuSource = null
+        showCenterHint(localizedString(R.string.player_text_0254))
+        NativePlayerReverseBridge.dispatch("loadNasDanmakuSource",
+            context.mediaArgs + ("statsScope" to context.statsScope),
+            onResult = { result -> runOnUiThread {
+                if (!serviceDanmakuRequestIsCurrent(ticket)) return@runOnUiThread
+                val status = (result as? Map<*, *>)?.get("status")
+                if (status == "unavailable") {
+                    // A closed account gate is different from an empty cache.
+                    // Refreshing removes the service entry after logout.
+                    refreshFlyAccountState(force = true, onRefreshed = {
+                        serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
+                    })
+                    return@runOnUiThread
+                }
+                val reply = NativeServiceDanmakuPayload.fromReply(result)
+                if (reply == null) {
+                    serviceDanmakuUnavailable(ticket,
+                        if (status == "missing") "暂无服务弹幕" else "服务弹幕暂不可用")
+                    return@runOnUiThread
+                }
+                parseJsonFileAsync(reply.path) { payload ->
+                    if (!serviceDanmakuRequestIsCurrent(ticket)) return@parseJsonFileAsync
+                    if (payload == null || !reply.matches(payload)) {
+                        serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
+                        return@parseJsonFileAsync
+                    }
+                    // A logout can occur while the file is being read, before the
+                    // periodic account refresh. Recheck the live Flutter account.
+                    refreshFlyAccountState(force = true, onRefreshed = { refreshed ->
+                        if (serviceDanmakuRequestIsCurrent(ticket)) {
+                            if (refreshed) {
+                                invalidateServiceDanmakuRequest()
+                                applyLoadedDanmakuPayload(payload)
+                            } else serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
+                        }
+                    })
+                }
+            } }, onError = { runOnUiThread { serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用") } })
+    }
 
     /** 透传给 Flutter 的媒体身份（让 Flutter 用自己的 _buildMediaKey 算 mediaKey）。 */
     private fun danmakuMediaArgs(): Map<String, Any?> = mapOf(
@@ -9353,6 +9469,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun reapplyDanmakuSource(rec: DanmakuSource) {
+        invalidateServiceDanmakuRequest()
         pendingDanmakuSource = rec.copy(updatedAt = System.currentTimeMillis())
         when (rec.type) {
             "dandan" -> {
@@ -9494,6 +9611,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun loadDanmakuFromResult(item: Map<String, Any?>) {
+        invalidateServiceDanmakuRequest()
         val episodeId = (item["episodeId"] as? Number)?.toLong() ?: 0L
         if (episodeId <= 0L) {
             showTransientHint(localizedString(R.string.player_text_0271))
@@ -9544,24 +9662,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 showTransientHint(localizedString(R.string.player_text_0273))
                 return@parseJsonFileAsync
             }
-            captureDanmakuSettings(payload)
-            applyPersistedDanmakuPrefs() // 手动加载的弹幕也套用持久化显示偏好
-            // 先更新运行期开关，再生成 payload；否则后台解析完成后会把 enabled=false 覆盖回来。
-            setDanmakuEnabled(true)
-            // comments 与当前偏好作为同一份手动加载快照下发。
-            playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(payload))
-            // 记入「已保存来源」
-            pendingDanmakuSource?.let { saveDanmakuSource(it.copy(updatedAt = System.currentTimeMillis())) }
-            pendingDanmakuSource = null
-            hidePanel()
-            showTransientHint(localizedString(R.string.player_text_0274))
+            applyLoadedDanmakuPayload(payload)
         }
+    }
+
+    private fun applyLoadedDanmakuPayload(payload: Map<String, Any?>) {
+        captureDanmakuSettings(payload)
+        applyPersistedDanmakuPrefs() // 手动加载的弹幕也套用持久化显示偏好
+        // 先更新运行期开关，再生成 payload；否则后台解析完成后会把 enabled=false 覆盖回来。
+        setDanmakuEnabled(true)
+        playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(payload))
+        pendingDanmakuSource?.let { saveDanmakuSource(it.copy(updatedAt = System.currentTimeMillis())) }
+        pendingDanmakuSource = null
+        hidePanel()
+        showTransientHint(localizedString(R.string.player_text_0274))
     }
 
     private fun buildIntroOutroPage() {
         refreshFlyAccountState()
         if (flyOpedAccess.signedIn) {
-            addPanelRow(panelToggle("飞翔已核验区间", flyOpedAccess.enabled) { enabled ->
+            addPanelRow(panelToggle("服务片头片尾", flyOpedAccess.enabled) { enabled ->
                 // Invalidate any older account refresh before saving this choice.
                 ++flyAccountRequestRevision
                 flyAccountRequestPending = false
@@ -9573,7 +9693,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             })
             val publication = flyOped.takeIf { canConsumeFlyOped() }
             addPanelRow(TextView(this).apply {
-                text = if (publication == null) "当前文件暂无飞翔已核验区间" else publication.segments
+                text = if (publication == null) "当前视频暂无片头片尾信息" else publication.segments
                     .filter { it.kind in listOf("op", "ed") && it.policy != "never" }
                     .joinToString("\n") { "${if (it.kind == "op") "片头" else "片尾"} ${formatTime(it.startMs)} – ${formatTime(it.endMs)} · ${if (it.policy == "auto") "自动跳过" else "仅提示"}" }
                 setTextColor(TEXT_DIM)
@@ -10654,6 +10774,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
+        invalidateServiceDanmakuRequest()
         finishFlyOped("cancelled")
         if (retainedPlayer.get() === this) retainedPlayer.clear()
         val playLink = loadArgsMap["playLink"]?.toString().orEmpty()

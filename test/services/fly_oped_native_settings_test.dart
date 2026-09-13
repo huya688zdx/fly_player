@@ -34,6 +34,8 @@ void main() {
     }
     try {
       expect((await send('getFlyAccountState'))['signedIn'], isFalse);
+      expect(await send('loadNasDanmakuSource', {'statsScope': scope,
+        'itemGuid': 'item', 'signedIn': true}), {'status': 'unavailable'});
       expect(await send('persistFlyOpedSettings', {'enabled': false,
         'statsScope': scope, 'signedIn': true}), isFalse);
       expect(await FlyOpedSettings.load(), isTrue);
@@ -42,6 +44,10 @@ void main() {
         token: 'fixture-private-token', installationId: 'installation');
       final state = await send('getFlyAccountState');
       expect(state['signedIn'], isTrue);
+      expect(await send('loadNasDanmakuSource', {'statsScope': 'old-source',
+        'itemGuid': 'item'}), {'status': 'unavailable'});
+      expect(await send('loadNasDanmakuSource', {'statsScope': scope,
+        'itemGuid': ''}), {'status': 'missing'});
       expect(state.toString(), isNot(contains('fixture-private-token')));
       expect(await send('persistFlyOpedSettings', {'enabled': false, 'statsScope': 'old-source'}), isFalse);
       expect(await send('persistFlyOpedSettings', {'enabled': false, 'statsScope': scope}), isTrue);
@@ -51,6 +57,8 @@ void main() {
       // Legacy login keeps the saved Fly account, but clears its active binding.
       await stats.bindOwnerScope('');
       expect(service.session, isNotNull);
+      expect(await send('loadNasDanmakuSource', {'statsScope': scope,
+        'itemGuid': 'item', 'signedIn': true}), {'status': 'unavailable'});
       expect((await send('getFlyAccountState'))['signedIn'], isFalse);
       expect(await send('persistFlyOpedSettings', {'enabled': true, 'statsScope': scope}), isFalse);
       service.session = null;
