@@ -24,6 +24,21 @@ class ExternalPlaylistEpisode {
   final int seasonNumber;
   final int episodeNumber;
   final String seasonGuid;
+
+  /// 页内已单独显示季数和集号，标题只保留本集名称；推送仍使用完整 title。
+  String get episodeTitle {
+    final numberedSeason = '第\\s*$seasonNumber\\s*季';
+    final season = seasonNumber == 0
+        ? '(?:特别篇|$numberedSeason)'
+        : numberedSeason;
+    final name = title
+        .replaceFirst(
+          RegExp('^(?:$season\\s*)?第\\s*$episodeNumber\\s*集\\s*'),
+          '',
+        )
+        .trim();
+    return name.isEmpty ? '第 $episodeNumber 集' : name;
+  }
 }
 
 /// 只加载剧集目录；播放地址、字幕和弹幕在选中该集时再解析。
