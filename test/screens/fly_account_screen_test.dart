@@ -117,6 +117,175 @@ void main() {
   Finder activateButton() => find.textContaining(RegExp('切换到此来源|选用 / 切换媒体地址'));
 
   for (final desktop in [true, false]) {
+    testWidgets('本机媒体服务直接预选服务器并只填写媒体账号 $desktop', (tester) async {
+      DesktopEnvironment.debugOverridePlatform = desktop;
+      account.localResponse = {
+        'enabled': true,
+        'items': [
+          {
+            'key': 'feiniu',
+            'kind': 'feiniu',
+            'name': '本机飞牛影视',
+            'status': 'available',
+            'server_id': 'local-feiniu',
+          },
+        ],
+      };
+      await tester.pumpWidget(_app(account));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('绑定本机媒体服务'));
+      await tester.tap(find.text('绑定本机媒体服务'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('本机飞牛影视'));
+      await tester.pumpAndSettle();
+      expect(find.text('选择已登记服务器'), findsNothing);
+      expect(find.text('NAS 访问地址（必填）'), findsNothing);
+      expect(find.byType(TextField), findsNWidgets(3));
+      await tester.enterText(find.byType(TextField).at(0), '家中电影');
+      await tester.enterText(find.byType(TextField).at(1), 'viewer');
+      await tester.enterText(find.byType(TextField).at(2), 'fixture-password');
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      expect(account.createdBindings.single['server_id'], 'local-feiniu');
+      expect(account.createdBindings.single['username'], 'viewer');
+      expect(account.registeredKeys, isEmpty);
+    });
+  }
+
+  testWidgets('本机服务未登记时管理员先启用再绑定', (tester) async {
+    account.admin = true;
+    account.localResponse = {
+      'enabled': true,
+      'items': [
+        {
+          'key': 'emby',
+          'kind': 'emby',
+          'name': '本机 Emby',
+          'status': 'available',
+          'server_id': null,
+        },
+      ],
+    };
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('绑定本机媒体服务'));
+    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本机 Emby'));
+    await tester.pumpAndSettle();
+    expect(account.registeredKeys, ['emby']);
+    expect(find.text('绑定媒体账号'), findsOneWidget);
+    expect(find.text('NAS 访问地址（必填）'), findsNothing);
+  });
+
+  testWidgets('普通成员未登记本机服务提示管理员且不注册', (tester) async {
+    account.localResponse = {
+      'enabled': true,
+      'items': [
+        {
+          'key': 'emby',
+          'kind': 'emby',
+          'name': '本机 Emby',
+          'status': 'available',
+          'server_id': null,
+        },
+      ],
+    };
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('绑定本机媒体服务'));
+    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本机 Emby'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('请管理员先启用'), findsOneWidget);
+    expect(account.registeredKeys, isEmpty);
+    expect(find.text('绑定媒体账号'), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('迟到本机注册结果在退出账号后不打开绑定表单', (tester) async {
+    account.admin = true;
+    account.pendingRegistration = Completer<Map<String, dynamic>>();
+    account.localResponse = {
+      'enabled': true,
+      'items': [
+        {
+          'key': 'emby',
+          'kind': 'emby',
+          'name': '本机 Emby',
+          'status': 'available',
+          'server_id': null,
+        },
+      ],
+    };
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('绑定本机媒体服务'));
+    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本机 Emby'));
+    await tester.pump();
+    account.signedIn = false;
+    account.notifyListeners();
+    account.pendingRegistration!.complete({'id': 'late-server'});
+    await tester.pumpAndSettle();
+    expect(find.text('绑定媒体账号'), findsNothing);
+    expect(account.createdBindings, isEmpty);
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('媒体登录模式不显示本机绑定入口', (tester) async {
+    account.legacyMode = true;
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    expect(find.text('绑定本机媒体服务'), findsNothing);
+  });
+
+  testWidgets('本机发现禁用时解释原因并保留已绑定媒体', (tester) async {
+    account.localResponse = {
+      'enabled': false,
+      'items': [],
+      'message': '管理员尚未启用本机发现',
+    };
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('绑定本机媒体服务'));
+    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.pumpAndSettle();
+    expect(find.text('管理员尚未启用本机发现'), findsOneWidget);
+    expect(find.text('家中媒体'), findsOneWidget);
+    expect(account.createdBindings, isEmpty);
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('不可用的本机服务不能进入登记或账号表单', (tester) async {
+    account.admin = true;
+    account.localResponse = {
+      'enabled': true,
+      'items': [
+        {
+          'key': 'emby',
+          'name': '本机 Emby',
+          'kind': 'emby',
+          'status': 'unavailable',
+          'server_id': 'local-emby',
+        },
+      ],
+    };
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('绑定本机媒体服务'));
+    await tester.tap(find.text('绑定本机媒体服务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本机 Emby'));
+    await tester.pumpAndSettle();
+    expect(find.text('绑定媒体账号'), findsNothing);
+    expect(account.registeredKeys, isEmpty);
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  for (final desktop in [true, false]) {
     testWidgets('简洁设置保留地址切换并阻止过期选择 $desktop', (tester) async {
       DesktopEnvironment.debugOverridePlatform = desktop;
       tester.view.devicePixelRatio = 1;
@@ -1015,6 +1184,27 @@ class _Account extends FlyAccountController {
   final loginInstanceIds = <String?>[];
   final loginRememberFlags = <bool>[];
   int reauthorizations = 0;
+  Map<String, dynamic> localResponse = {'enabled': false, 'items': []};
+  final registeredKeys = <String>[];
+  final createdBindings = <Map<String, dynamic>>[];
+  Completer<Map<String, dynamic>>? pendingRegistration;
+  @override
+  Future<Map<String, dynamic>> loadLocalServices() async => localResponse;
+  @override
+  Future<Map<String, dynamic>> registerLocalService(
+    String key, {
+    required String expectedAccountKey,
+    required int expectedEpoch,
+  }) async {
+    registeredKeys.add(key);
+    return pendingRegistration?.future ?? {'id': 'registered-local'};
+  }
+
+  @override
+  Future<void> createBinding(Map<String, dynamic> data) async {
+    createdBindings.add(data);
+  }
+
   @override
   Future<void> reauthorize(
     Map<String, dynamic> binding, {
