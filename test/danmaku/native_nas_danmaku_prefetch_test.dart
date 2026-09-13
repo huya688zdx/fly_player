@@ -8,6 +8,9 @@ import 'package:fly_player/danmaku/models/danmaku_comment.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/danmaku/settings/danmaku_saved_source_store.dart';
 import 'package:fly_player/services/fly_data/fly_nas_danmaku_cache.dart';
+import 'package:fly_player/services/fly_data/fly_data_service.dart';
+import 'package:fly_player/services/play_stats/play_stats_service.dart';
+import 'package:fly_player/services/play_stats/play_stats_database.dart';
 import 'package:fly_player/services/native_danmaku_prefetch.dart';
 
 void main() {
@@ -17,6 +20,24 @@ void main() {
   late _Cache cache;
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    final session = FlyDataSession(
+      serverUrl: 'https://fly.example',
+      userId: 'viewer',
+      username: 'viewer',
+      deviceId: 'device',
+      deviceName: 'test',
+      token: 'synthetic',
+      installationId: 'installation',
+      serviceInstanceId: 'service',
+    );
+    FlyDataService.instance.session = session;
+    await PlayStatsService.instance.bindOwnerScope(
+      PlayStatsService.scopeForBinding(session.accountKey, 'binding'),
+    );
+    (PlayStatsService.instance.database as SqflitePlayStatsDatabase)
+        .bindingReference = {
+      'binding_id': 'binding',
+    };
     directory = await Directory.systemTemp.createTemp('fly_nas_danmaku_test_');
     await Directory('${directory.path}/sources').create();
     NativeDanmakuPrefetch.cacheRootOverrideForTest = directory.path;
@@ -25,6 +46,8 @@ void main() {
   });
   tearDown(() async {
     NativeDanmakuPrefetch.cacheRootOverrideForTest = null;
+    FlyDataService.instance.session = null;
+    await PlayStatsService.instance.bindOwnerScope('');
     await directory.delete(recursive: true);
   });
   Future<String?> resolve({bool enabled = true, bool Function()? current}) =>
@@ -35,7 +58,7 @@ void main() {
         tmdbId: '',
         itemGuid: 'item',
         mediaGuid: 'file',
-        statsScope: 'captured',
+        statsScope: PlayStatsService.instance.currentScope,
         nasCache: cache,
         isCurrent: current,
         settings: DanmakuSettings.defaults.copyWith(enabled: enabled),
@@ -51,7 +74,11 @@ void main() {
       ['nas:1', 1250, '已确认', 0, 0xffffffff],
     ]);
     expect(payload['opacity'], DanmakuSettings.defaults.opacity);
-    expect(cache.source, ('captured', 'item', 'file'));
+    expect(cache.source, (
+      PlayStatsService.instance.currentScope,
+      'item',
+      'file',
+    ));
   });
 
   test('关闭与失效的播放请求不写 NAS 文件', () async {

@@ -148,6 +148,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   DateTime? _lastDirectLinkRefreshAttempt;
   int _sourceChangeGeneration = 0;
   final _flyClient = FlyPlaybackServiceClient.instance;
+  Object? _observedFlyAccountIdentity;
   String _flyContextId = '', _flyScopeEpoch = '';
   FlyOpedSet? _flyOped;
   FlyOpedAction? _flyAction;
@@ -209,6 +210,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   DanmakuSettings _danmakuSettings = DanmakuSettings.defaults;
   List<DanmakuComment> _danmakuComments = const <DanmakuComment>[];
   String _danmakuSourceLabel = '';
+  String _danmakuSourceKey = '';
   bool _danmakuLoading = false;
   int _danmakuLoadGeneration = 0;
   int _danmakuSeekRevision = 0;
@@ -224,6 +226,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   bool _flyOpedEnabled = true;
   bool get _flyAccountSignedIn =>
       _flyClient.hasActiveAccountBinding(statsScope: _source.statsScope);
+  Object get _flyAccountIdentity => (
+    _flyClient.epoch,
+    _flyAccountSignedIn,
+    FlyDataService.instance.session,
+  );
   bool get _flyOpedAllowed => _flyAccountSignedIn && _flyOpedEnabled;
   int _introMaxMinutes = 2;
   int _outroMaxMinutes = 2;
@@ -270,6 +277,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     FlyDataService.instance.accountChanges.addListener(_onFlyAccountChanged);
     windowManager.addListener(this);
     _source = widget.source;
+    _observedFlyAccountIdentity = _flyAccountIdentity;
     _reporter = DesktopPlaybackReporter(
       reportProgress: widget.onRecordProgress,
       releaseServerSession: widget.releaseServerSession,
@@ -277,7 +285,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     // 本地统计需要连续采样；服务端每 15 秒回写不足以计算实际观看时长。
     _localStatsTimer = Timer.periodic(
       const Duration(seconds: 1),
-      (_) => _recordLocalStats(),
+      (_) {
+        // Legacy login can retain the Fly session while replacing its binding.
+        if (_observedFlyAccountIdentity != _flyAccountIdentity) {
+          _onFlyAccountChanged();
+        }
+        _recordLocalStats();
+      },
     );
     _pausedByUser = _source.startPaused;
     MediaKit.ensureInitialized();
@@ -679,15 +693,26 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     String? preferredPath, {
     String sourceLabel = '',
     bool enableOnSuccess = false,
+    bool preserveOnFailure = false,
+    bool Function()? isCurrent,
   }) async {
+    if (isCurrent?.call() == false) return false;
     final generation = ++_danmakuLoadGeneration;
     final source = _source;
-    widget.session.danmakuFilePath = preferredPath;
+    bool current() =>
+        mounted &&
+        generation == _danmakuLoadGeneration &&
+        identical(source, _source) &&
+        (isCurrent?.call() ?? true);
+    if (!preserveOnFailure) widget.session.danmakuFilePath = null;
     if (mounted) {
       _updateView(() {
         _danmakuLoading = true;
-        _danmakuComments = const <DanmakuComment>[];
-        _danmakuSourceLabel = '';
+        if (!preserveOnFailure) {
+          _danmakuComments = const <DanmakuComment>[];
+          _danmakuSourceLabel = '';
+          _danmakuSourceKey = '';
+        }
       });
     }
     try {
@@ -696,10 +721,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         path =
             await NativeDanmakuPrefetch.resolveToFile(
               statsScope: source.statsScope,
-              isCurrent: () =>
-                  mounted &&
-                  generation == _danmakuLoadGeneration &&
-                  identical(source, _source),
+              isCurrent: current,
               seriesTitle: source.seriesTitle,
               itemTitle: source.title,
               seasonNumber: source.seasonNumber,
@@ -712,26 +734,38 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             ) ??
             '';
       }
-      if (path.isEmpty) return false;
+      if (path.isEmpty || !current()) return false;
       final payload = await DesktopDanmakuPayload.load(path);
-      if (!mounted || generation != _danmakuLoadGeneration) return false;
+      if (!current() || (preserveOnFailure && payload.comments.isEmpty)) {
+        return false;
+      }
+      if (payload.sourceKey.startsWith('nas:') && !_flyAccountSignedIn) {
+        return false;
+      }
       widget.session.danmakuFilePath = path;
       _updateView(() {
         _danmakuComments = payload.comments;
+        _danmakuSourceKey = payload.sourceKey;
         _danmakuSourceLabel = sourceLabel.trim().isNotEmpty
             ? sourceLabel.trim()
             : payload.sourceLabel;
       });
       if (enableOnSuccess && payload.comments.isNotEmpty) {
-        await _updateDanmakuSettings(_danmakuSettings.copyWith(enabled: true));
+        await _updateDanmakuSettings(
+          _danmakuSettings.copyWith(enabled: true),
+          loadWhenEmpty: false,
+        );
       }
-      return payload.comments.isNotEmpty;
+      return current() && payload.comments.isNotEmpty;
     } catch (_) {
-      if (!mounted || generation != _danmakuLoadGeneration) return false;
-      _updateView(() {
-        _danmakuComments = const <DanmakuComment>[];
-        _danmakuSourceLabel = '';
-      });
+      if (!current()) return false;
+      if (!preserveOnFailure) {
+        _updateView(() {
+          _danmakuComments = const <DanmakuComment>[];
+          _danmakuSourceLabel = '';
+          _danmakuSourceKey = '';
+        });
+      }
       return false;
     } finally {
       if (mounted && generation == _danmakuLoadGeneration) {
@@ -740,11 +774,63 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
   }
 
-  Future<void> _updateDanmakuSettings(DanmakuSettings settings) async {
+  Future<bool> _refreshServiceDanmaku() async {
+    if (!_flyAccountSignedIn || _danmakuLoading) return false;
+    final source = _source;
+    final sourceGeneration = _sourceChangeGeneration;
+    final account = FlyDataService.instance.session;
+    final epoch = _flyClient.epoch;
+    final generation = ++_danmakuLoadGeneration;
+    bool sameContext() =>
+        mounted &&
+        identical(source, _source) &&
+        sourceGeneration == _sourceChangeGeneration &&
+        identical(account, FlyDataService.instance.session) &&
+        epoch == _flyClient.epoch &&
+        _flyAccountSignedIn;
+    bool current() => sameContext() && generation == _danmakuLoadGeneration;
+    _updateView(() => _danmakuLoading = true);
+    try {
+      final path = await NativeDanmakuPrefetch.resolveNasToFile(
+        statsScope: source.statsScope,
+        isCurrent: current,
+        seriesTitle: source.seriesTitle,
+        itemTitle: source.title,
+        seasonNumber: source.seasonNumber,
+        episodeNumber: source.episodeNumber,
+        tmdbId: source.tmdbId,
+        settings: _danmakuSettings,
+        itemGuid: source.itemGuid,
+        mediaGuid: source.mediaGuid,
+        seasonGuid: source.seasonGuid,
+      );
+      if (!current() || path == null || path.trim().isEmpty) return false;
+      return await _loadDanmakuForSource(
+        path,
+        enableOnSuccess: true,
+        preserveOnFailure: true,
+        isCurrent: sameContext,
+      );
+    } catch (_) {
+      return false;
+    } finally {
+      if (mounted && generation == _danmakuLoadGeneration) {
+        _updateView(() => _danmakuLoading = false);
+      }
+    }
+  }
+
+  Future<void> _updateDanmakuSettings(
+    DanmakuSettings settings, {
+    bool loadWhenEmpty = true,
+  }) async {
     if (!mounted) return;
     _updateView(() => _danmakuSettings = settings);
     await _danmakuSettingsStore.save(settings);
-    if (settings.enabled && _danmakuComments.isEmpty && !_danmakuLoading) {
+    if (loadWhenEmpty &&
+        settings.enabled &&
+        _danmakuComments.isEmpty &&
+        !_danmakuLoading) {
       unawaited(_loadDanmakuForSource(null));
     }
   }
@@ -1100,7 +1186,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   void _onFlyAccountChanged() {
     if (!mounted) return;
+    _observedFlyAccountIdentity = _flyAccountIdentity;
     _updateView(() {
+      _danmakuLoadGeneration++;
+      _danmakuLoading = false;
+      if (_danmakuSourceKey.startsWith('nas:')) {
+        _danmakuComments = const <DanmakuComment>[];
+        _danmakuSourceLabel = '';
+        _danmakuSourceKey = '';
+        widget.session.danmakuFilePath = null;
+      }
       _resetFlyOped(preserveTail: true);
       _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
     });
@@ -3273,6 +3368,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             ? _source.seriesTitle
             : _source.title,
         currentTmdbId: _source.tmdbId,
+        flyAccountSignedIn: _flyAccountSignedIn,
+        serviceSourceIdentity: (
+          _source,
+          _sourceChangeGeneration,
+          _flyClient.epoch,
+          FlyDataService.instance.session,
+        ),
+        onRefreshServiceSource: _refreshServiceDanmaku,
         onLoadSavedSources: _loadSavedDanmakuSources,
         onSearch: _searchDanmakuSources,
         onSelectSavedSource: _selectSavedDanmakuSource,
@@ -4184,7 +4287,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             final fromChapter = kind == _SkipPromptKind.intro
                 ? bounds.introFromChapter
                 : bounds.outroFromChapter;
-            final basis = _currentFlyOped != null ? '飞翔已核验' : fromChapter ? '章节识别' : '固定时长';
+            final basis = _currentFlyOped != null ? '服务' : fromChapter ? '章节识别' : '固定时长';
             final message = kind == _SkipPromptKind.intro
                 ? '片头 · $basis'
                 : kind == null

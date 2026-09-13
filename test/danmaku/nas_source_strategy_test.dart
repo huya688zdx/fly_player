@@ -15,6 +15,7 @@ import 'package:fly_player/services/fly_data/fly_nas_danmaku_cache.dart';
 import 'package:fly_player/services/fly_data/fly_data_api.dart';
 import 'package:fly_player/services/fly_data/fly_data_service.dart';
 import 'package:fly_player/services/play_stats/play_stats_service.dart';
+import 'package:fly_player/services/play_stats/play_stats_database.dart';
 import 'package:fly_player/services/native_danmaku_prefetch.dart';
 
 const _mediaKey = 'v2|item=item|media=file|season=|s=1|e=1';
@@ -27,6 +28,15 @@ void main() {
   var originalAttempts = 0;
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    final session = _session();
+    FlyDataService.instance.session = session;
+    await PlayStatsService.instance.bindOwnerScope(
+      PlayStatsService.scopeForBinding(session.accountKey, 'binding'),
+    );
+    (PlayStatsService.instance.database as SqflitePlayStatsDatabase)
+        .bindingReference = {
+      'binding_id': 'binding',
+    };
     directory = await Directory.systemTemp.createTemp('nas_strategy_');
     await Directory('${directory.path}/sources').create();
     store = DanmakuSavedSourceStore(directoryPath: '${directory.path}/sources');
@@ -42,6 +52,7 @@ void main() {
     NativeDanmakuPrefetch.cacheRootOverrideForTest = null;
     NativeDanmakuPrefetch.originalConfiguredOverrideForTest = null;
     FlyDataService.instance.session = null;
+    await PlayStatsService.instance.bindOwnerScope('');
     await directory.delete(recursive: true);
   });
   Future<String?> resolve(String strategy) =>
@@ -52,7 +63,7 @@ void main() {
         tmdbId: '',
         itemGuid: 'item',
         mediaGuid: 'file',
-        statsScope: 'captured',
+        statsScope: PlayStatsService.instance.currentScope,
         nasCache: cache,
         store: store,
         settings: DanmakuSettings.fromJson({'sourceStrategy': strategy}),
@@ -90,6 +101,46 @@ void main() {
       );
     }
   });
+  test('普通登录即使保留Fly账号和仅NAS偏好也能读取原缓存且不读NAS', () async {
+    await PlayStatsService.instance.bindOwnerScope('');
+    expect(FlyDataService.instance.session, isNotNull);
+    await const DanmakuSettingsStore().save(
+      DanmakuSettings.fromJson({'sourceStrategy': 'nasOnly'}),
+    );
+    await oldAutoSource();
+    final path = await resolve('nasOnly');
+    expect(path, isNotNull);
+    final payload = jsonDecode(await File(path!).readAsString()) as Map;
+    expect(payload['sourceKey'], 'dandan:100');
+    expect(cache.calls, 0);
+    expect(originalAttempts, 0);
+    expect(
+      (await const DanmakuSettingsStore().load()).sourceStrategy,
+      DanmakuSourceStrategy.nasOnly,
+    );
+  });
+  test('普通登录保留仅NAS偏好时原搜索与导入仍进入原配置检查', () async {
+    await PlayStatsService.instance.bindOwnerScope('');
+    expect(FlyDataService.instance.session, isNotNull);
+    await const DanmakuSettingsStore().save(
+      DanmakuSettings.fromJson({'sourceStrategy': 'nasOnly'}),
+    );
+    expect(
+      await NativeDanmakuPrefetch.searchCandidates(keyword: '作品'),
+      isEmpty,
+    );
+    expect(originalAttempts, 1);
+    expect(
+      await NativeDanmakuPrefetch.importEpisodeToFile(episodeId: 100),
+      isNull,
+    );
+    expect(originalAttempts, 2);
+    expect(cache.calls, 0);
+    expect(
+      (await const DanmakuSettingsStore().load()).sourceStrategy,
+      DanmakuSourceStrategy.nasOnly,
+    );
+  });
   test('仅 NAS 不复用旧自动弹弹play来源', () async {
     await oldAutoSource();
     cache.miss = true;
@@ -109,7 +160,7 @@ void main() {
         tmdbId: '',
         settings: settings,
         itemGuid: 'item',
-        statsScope: 'captured',
+        statsScope: PlayStatsService.instance.currentScope,
         nasCache: cache,
         store: store,
       ),
@@ -139,11 +190,8 @@ void main() {
     expect(directory.listSync().whereType<File>(), isEmpty);
   });
   test('NAS 优先等待受完整预算约束，到期关闭请求后才启动原来源', () async {
-    final session = _session();
-    final scope = PlayStatsService.scopeForBinding(
-      session.accountKey,
-      'binding',
-    );
+    final session = FlyDataService.instance.session!;
+    final scope = PlayStatsService.instance.currentScope;
     final api = _PendingApi();
     final nas = FlyNasDanmakuCache(
       sessionReader: () => session,

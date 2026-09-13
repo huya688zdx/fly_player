@@ -140,9 +140,9 @@ enum DanmakuSourceStrategy {
   };
 
   String get description => switch (this) {
-    nasPreferred => '优先使用 NAS 已确认的弹幕；短暂等待后无缓存则使用原有来源。',
-    nasOnly => '只使用 NAS 已确认弹幕或手动导入文件，不请求或复用弹弹play来源。',
-    original => '使用播放器原有弹弹play与本地来源，不查询 NAS 弹幕。',
+    nasPreferred => '优先使用服务弹幕，暂无缓存时使用原有来源。',
+    nasOnly => '只使用服务弹幕或手动导入文件。',
+    original => '使用弹弹play与本地来源。',
   };
 }
 

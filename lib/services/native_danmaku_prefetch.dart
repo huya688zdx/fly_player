@@ -17,6 +17,8 @@ import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import 'fly_data/fly_nas_danmaku_cache.dart';
 import 'fly_data/fly_data_service.dart';
+import 'fly_data/fly_playback_service_client.dart';
+import 'play_stats/play_stats_service.dart';
 
 /// 为原生播放壳预取/检索弹幕。
 ///
@@ -51,8 +53,21 @@ class NativeDanmakuPrefetch {
   @visibleForTesting
   static Future<bool> Function()? originalConfiguredOverrideForTest;
 
+  static bool _hasActiveFlyBinding({String? statsScope}) =>
+      FlyPlaybackServiceClient.instance.hasActiveAccountBinding(
+        statsScope: statsScope ?? PlayStatsService.instance.currentScope,
+      );
+
+  // A saved service preference remains available for the next Fly login, but
+  // cannot disable normal sources while a legacy NAS or Emby login is active.
+  static DanmakuSourceStrategy _effectiveSourceStrategy(
+    DanmakuSettings settings,
+  ) => _hasActiveFlyBinding()
+      ? settings.sourceStrategy
+      : DanmakuSourceStrategy.original;
+
   static Future<bool> _originalConfigured() async {
-    if ((await const DanmakuSettingsStore().load()).sourceStrategy ==
+    if (_effectiveSourceStrategy(await const DanmakuSettingsStore().load()) ==
         DanmakuSourceStrategy.nasOnly) {
       return false;
     }
@@ -67,6 +82,56 @@ class NativeDanmakuPrefetch {
   static Future<void>? _tempCleanupFuture;
   static int _nasGeneration = 0;
   static int _payloadSequence = 0;
+
+  /// Explicit source selection only reads the service's current-file cache.
+  /// It preserves display preferences and never starts matching or collection.
+  static Future<String?> resolveNasToFile({
+    required String seriesTitle,
+    String itemTitle = '',
+    required int seasonNumber,
+    required int episodeNumber,
+    required String tmdbId,
+    required DanmakuSettings settings,
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    String statsScope = '',
+    bool Function()? isCurrent,
+    FlyNasDanmakuCache? nasCache,
+  }) async {
+    if (statsScope.isEmpty ||
+        itemGuid.isEmpty ||
+        !_hasActiveFlyBinding(statsScope: statsScope)) {
+      return null;
+    }
+    final generation = ++_nasGeneration;
+    final service = FlyDataService.instance;
+    final session = service.session;
+    final epoch = service.scopeIdentity;
+    bool current() =>
+        generation == _nasGeneration &&
+        _hasActiveFlyBinding(statsScope: statsScope) &&
+        (isCurrent?.call() ?? true) &&
+        identical(session, service.session) &&
+        epoch == service.scopeIdentity &&
+        (session == null || statsScope == service.currentScope);
+    try {
+      if (!current()) return null;
+      final result = await (nasCache ?? FlyNasDanmakuCache.instance).resolve(
+        statsScope: statsScope,
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        isCurrent: current,
+      );
+      if (!current() || result == null || !result.isCurrent()) return null;
+      return await _writePayloadFile({
+        ...buildPayload(settings, result.comments, sourceKey: result.sourceKey),
+        'sourceLabel': result.sourceLabel,
+      }, isCurrent: () => current() && result.isCurrent());
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 按持久策略解析弹幕：手动导入文件优先；NAS 优先仅在缓存预算结束后
   /// 回退原有来源，仅 NAS 不触碰弹弹play（包括旧 active 缓存），原有来源不查询 NAS。
@@ -92,17 +157,20 @@ class NativeDanmakuPrefetch {
       final service = FlyDataService.instance;
       final session = service.session;
       final scopeIdentity = service.scopeIdentity;
+      final flyBindingActive = _hasActiveFlyBinding();
+      final sourceStrategy = _effectiveSourceStrategy(settings);
       bool current() =>
           (statsScope.isEmpty || generation == _nasGeneration) &&
           (isCurrent?.call() ?? true) &&
           identical(session, service.session) &&
           scopeIdentity == service.scopeIdentity &&
+          flyBindingActive == _hasActiveFlyBinding() &&
           (session == null ||
               statsScope.isEmpty ||
               statsScope == service.currentScope);
       if (!settings.enabled || !current()) return null;
       final resolvedStore = store ?? const DanmakuSavedSourceStore();
-      if (settings.sourceStrategy != DanmakuSourceStrategy.original) {
+      if (sourceStrategy != DanmakuSourceStrategy.original) {
         // Only an explicitly imported local file precedes NAS. A legacy active
         // DanDanPlay entry may have been saved by automatic matching.
         final mediaKey = _buildMediaKey(
@@ -153,7 +221,7 @@ class NativeDanmakuPrefetch {
             }, isCurrent: () => current() && result.isCurrent());
           }
         }
-        if (settings.sourceStrategy == DanmakuSourceStrategy.nasOnly) {
+        if (sourceStrategy == DanmakuSourceStrategy.nasOnly) {
           return null;
         }
       }
@@ -171,7 +239,7 @@ class NativeDanmakuPrefetch {
         isCurrent: current,
         store: resolvedStore,
         allowSavedOnlineSources:
-            settings.sourceStrategy == DanmakuSourceStrategy.original ||
+            sourceStrategy == DanmakuSourceStrategy.original ||
             statsScope.isEmpty,
       );
       return current() ? path : null;
@@ -476,7 +544,7 @@ class NativeDanmakuPrefetch {
     DanmakuSavedSource source,
   ) async {
     if (source.isDanDanPlay) {
-      if ((await const DanmakuSettingsStore().load()).sourceStrategy ==
+      if (_effectiveSourceStrategy(await const DanmakuSettingsStore().load()) ==
           DanmakuSourceStrategy.nasOnly) {
         return null;
       }

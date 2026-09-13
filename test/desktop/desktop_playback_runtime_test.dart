@@ -674,8 +674,25 @@ void main() {
     final payload = await DesktopDanmakuPayload.load(file.path);
 
     expect(payload.sourceLabel, '弹弹play');
+    expect(payload.sourceKey, 'dandan:42');
     expect(payload.comments.map((item) => item.text), <String>['滚动', '顶部']);
     expect(payload.comments.last.timeMs, 2100);
+
+    // Account changes must distinguish service data by provenance, even when
+    // a custom display label resembles an ordinary imported file.
+    await file.writeAsString(
+      jsonEncode(<String, Object?>{
+        'sourceKey': 'nas:fixture-binding:fixture-file',
+        'sourceLabel': '自定义来源',
+        'commentsCompact': <List<Object?>>[
+          <Object?>['service', 1250, '服务评论', 0, 0xFFFFFFFF],
+        ],
+      }),
+    );
+    final servicePayload = await DesktopDanmakuPayload.load(file.path);
+    expect(servicePayload.sourceKey, 'nas:fixture-binding:fixture-file');
+    expect(servicePayload.sourceLabel, '自定义来源');
+    expect(servicePayload.comments.single.text, '服务评论');
   });
 
   test('Windows 音频滤镜沿用 MPV 设置中的 EQ 与限幅参数', () {
