@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import '../../ui/app_popup_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
 import 'app_option_list.dart';
 
@@ -37,12 +38,13 @@ class TrackOptionSheet {
       floating: isLandscape,
     );
     if (isLandscape) {
+      final popupTheme = AppPopupTheme.capture(context);
       return showDialog<String>(
         context: context,
         useRootNavigator: false,
         barrierDismissible: true,
         barrierColor: colors.overlayScrim,
-        builder: (_) => body,
+        builder: (_) => popupTheme.wrap(body),
       );
     }
     return AppSheetTransitions.showBottomSurface<String>(

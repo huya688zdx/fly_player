@@ -53,7 +53,18 @@ void main() {
           'remote_server_id': 'media-instance',
           'name': 'Emby',
           'addresses': [
-            {'purpose': 'client_remote', 'base_url': root, 'priority': 0},
+            {
+              'purpose': 'nas_api',
+              'base_url': '$root/nas-only',
+              'priority': -1,
+            },
+            {
+              'purpose': 'client_lan',
+              'base_url': '$root/unavailable',
+              'priority': 0,
+            },
+            {'purpose': 'client_remote', 'base_url': root, 'priority': 1},
+            {'purpose': 'vpn', 'base_url': '$root/vpn', 'priority': 2},
           ],
         };
         final bindings = [
@@ -70,14 +81,25 @@ void main() {
             },
         ];
         var mediaIdentity = 'media-instance';
+        var remoteAvailable = true, vpnAvailable = true;
+        final mediaProbes = <String>[];
+        final identityPath = kind == 'feiniu'
+            ? '/v/api/v1/server/info'
+            : '/System/Info/Public';
         server.listen((request) async {
           final text = await utf8.decoder.bind(request).join();
           final body = text.isEmpty ? {} : jsonDecode(text) as Map;
           Object response;
-          if (request.uri.path == '/System/Info/Public' ||
-              request.uri.path == '/v/api/v1/server/info') {
+          if (request.uri.path.endsWith(identityPath)) {
+            mediaProbes.add(request.uri.path);
             expect(request.headers.value('Authorization'), isNull);
             expect(request.headers.value('X-Emby-Token'), isNull);
+            expect(request.headers.value('Cookie'), isNull);
+            if (request.uri.path.startsWith('/unavailable') ||
+                (!remoteAvailable && request.uri.path == identityPath) ||
+                (!vpnAvailable && request.uri.path == '/vpn$identityPath')) {
+              request.response.statusCode = 503;
+            }
             response = kind == 'feiniu'
                 ? {
                     'code': 0,
@@ -153,7 +175,13 @@ void main() {
           expect(account.activeBindingId, isEmpty);
           expect(backend.isConfigured, isFalse);
           mediaIdentity = 'media-instance';
+          // Another account's last choice must not influence this account.
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('fly.address.instance|bob.one', '$root/vpn');
+          mediaProbes.clear();
           await account.activate(account.bindings[0]);
+          expect(mediaProbes, ['/unavailable$identityPath', identityPath]);
+          expect(prefs.getString('fly.address.instance|alice.one'), root);
           final firstScope = stats.currentScope;
           await account.activate(account.bindings[1]);
           expect(stats.currentScope, isNot(firstScope));
@@ -164,6 +192,47 @@ void main() {
             ),
             hasLength(2),
           );
+          mediaProbes.clear();
+          await account.activate(account.bindings[0]);
+          expect(mediaProbes, [identityPath]);
+          expect(backend.currentConnection!.serverUrl, root);
+
+          // Switching networks reuses only a still reachable verified entry.
+          remoteAvailable = false;
+          mediaProbes.clear();
+          await account.activate(account.bindings[0]);
+          expect(mediaProbes, [
+            identityPath,
+            '/unavailable$identityPath',
+            '/vpn$identityPath',
+          ]);
+          expect(backend.currentConnection!.serverUrl, '$root/vpn');
+          expect(
+            prefs.getString('fly.address.instance|alice.one'),
+            '$root/vpn',
+          );
+
+          // Explicit selection is not silently replaced; neither failure path
+          // may overwrite the last successful preference or the active backend.
+          mediaProbes.clear();
+          await expectLater(
+            account.activate(account.bindings[0], address: root),
+            throwsStateError,
+          );
+          expect(mediaProbes, [identityPath]);
+          expect(backend.currentConnection!.serverUrl, '$root/vpn');
+          vpnAvailable = false;
+          await expectLater(
+            account.activate(account.bindings[0]),
+            throwsStateError,
+          );
+          expect(backend.currentConnection!.serverUrl, '$root/vpn');
+          expect(
+            prefs.getString('fly.address.instance|alice.one'),
+            '$root/vpn',
+          );
+          remoteAvailable = vpnAvailable = true;
+          await account.activate(account.bindings[1]);
           bindings[0]['status'] = 'unbound';
           await account.refresh();
           expect(backend.currentConnection!.accessToken, 'media-two');
