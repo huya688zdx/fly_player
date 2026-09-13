@@ -62,3 +62,9 @@ PC 来源菜单使用原 DesktopHoverDropdown，来源卡片操作使用原 Desk
 合并代码的 Windows Release 再次构建成功，用时 61.4 秒。新版仍在 `build/windows/x64-mask-p0-integrated/bundle/`，启动可用其中 `Start-FlyPlayer.ps1`，需要保留完整目录；版本与 SHA256 见同目录 `BUILD-EVIDENCE.json`。本轮未安装 Android APK、未执行 Windows GUI/播放实机验收。
 
 仅回滚这次 PC/登录修正，可在独立目录使用 `ce81a3d`，或逐笔 revert 此后的功能提交，保留此前自动连接、账号绑定和遮罩成果。无需数据库迁移。
+
+## 2026-09-13 精简设置
+
+设置仅保留添加服务器、服务地址、同步记录、媒体账号登录。地址列表在点击后展开，当前地址只显示一次；登录和来源页面删除重复说明。同步页移除历史迁移、归属确认及重复登录表单，仅展示账号、状态、最近同步时间和操作按钮；无来源时直接进入来源选择。
+
+本轮 12 个相关测试文件共 90 项通过，9 个 Dart 文件静态分析通过。界面组件预览位于 `build/concise-ui-evidence/`，不作为实机验收。Windows 因正在运行的 exe 被锁定，改用 `build/windows/x64-mask-p0-integrated/bundle-concise/` 输出，增量重试 10.3 秒成功；同目录启动脚本需在退出当前播放器后使用。便携 CMake 使用 `FLY_PLAYER_BUNDLE_DIR` 指定此输出位置。日志见 `.task-tmp/concise-final-tests.log` 与 `concise-windows-build-success.log`。未进行 Android/Windows GUI 实机验收。本轮代码回滚点为 `ee905f0`，无需数据迁移。
