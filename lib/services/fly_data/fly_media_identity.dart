@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
@@ -10,11 +11,13 @@ Future<void> verifyFlyMediaAddress({
   required String address,
   required String kind,
   required String expectedId,
+  Duration timeout = const Duration(seconds: 15),
 }) async {
   if (expectedId.isEmpty) throw StateError('媒体服务器尚无可验证身份，请重新授权。');
+  if (timeout <= Duration.zero) throw StateError('媒体地址验证已超时，请重试。');
   final dio = createStrictFlyDio();
-  dio.options.connectTimeout = const Duration(seconds: 15);
-  dio.options.sendTimeout = const Duration(seconds: 15);
+  dio.options.connectTimeout = timeout;
+  dio.options.sendTimeout = timeout;
   final feiniu = kind == 'feiniu';
   final path = feiniu ? '/v/api/v1/server/info' : '/System/Info/Public';
   final headers = <String, String>{};
@@ -33,13 +36,21 @@ Future<void> verifyFlyMediaAddress({
       'X-Trim-Client-Version': '616',
     });
   }
+  final cancelToken = CancelToken();
+  // Bound the complete probe, including a body that trickles bytes forever.
+  // Cancel the request and close its isolated transport, not just its Future.
+  final deadline = Timer(timeout, () {
+    cancelToken.cancel('Media identity probe deadline exceeded');
+    dio.close(force: true);
+  });
   try {
     final response = await dio.get<dynamic>(
       '${address.replaceAll(RegExp(r'/+$'), '')}$path',
+      cancelToken: cancelToken,
       options: Options(
         headers: headers,
         followRedirects: false,
-        receiveTimeout: const Duration(seconds: 15),
+        receiveTimeout: timeout,
       ),
     );
     final data = response.data;
@@ -54,6 +65,7 @@ Future<void> verifyFlyMediaAddress({
   } on DioException {
     throw StateError('无法验证媒体地址，请检查地址、网络和 HTTPS 证书。');
   } finally {
+    deadline.cancel();
     dio.close(force: true);
   }
 }

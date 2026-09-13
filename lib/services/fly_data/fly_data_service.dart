@@ -8,6 +8,7 @@ import '../play_stats/play_stats_service.dart';
 import '../secure_credential_store.dart';
 import 'fly_data_api.dart';
 import 'fly_data_sync_store.dart';
+import 'fly_login_history_store.dart';
 
 class FlyDataSession {
   FlyDataSession({
@@ -73,6 +74,9 @@ class FlyDataService {
   final PlayStatsDatabase database;
   final Future<void> Function() drainWrites;
   FlyDataSession? session;
+
+  /// Authentication can succeed even when optional history storage fails.
+  String? loginHistoryWarning;
   bool _busy = false;
   FlyDataSyncStore get store => FlyDataSyncStore(database);
   String get currentScope => database is SqflitePlayStatsDatabase
@@ -104,7 +108,10 @@ class FlyDataService {
     required String username,
     required String password,
     required String deviceName,
+    bool rememberPassword = true,
+    String? expectedInstanceId,
   }) => _exclusive(() async {
+    loginHistoryWarning = null;
     final url = normalizeServerUrl(serverUrl);
     var install = await SecureCredentialStore.read(_installationKey);
     if (install.isUnavailable) {
@@ -119,6 +126,9 @@ class FlyDataService {
       final identity = await api.get('/system/identity');
       final instanceId = identity['service_instance_id'] as String? ?? '';
       if (instanceId.isEmpty) throw StateError('此地址不是支持统一账号的飞翔服务。');
+      if (expectedInstanceId != null && instanceId != expectedInstanceId) {
+        throw StateError('该地址的飞翔服务身份已改变，未发送密码。');
+      }
       final response = await api.post('/auth/login', {
         'username': username.trim(),
         'password': password,
@@ -148,10 +158,35 @@ class FlyDataService {
       await _migrateAccountOwner('$url|${next.userId}', next.accountKey);
       await SecureCredentialStore.write(_sessionKey, jsonEncode(next.toJson()));
       session = next;
+      try {
+        await FlyLoginHistoryStore.save(
+          _loginHistoryEntry(
+            next,
+            rememberPassword: rememberPassword,
+            password: password,
+          ),
+        );
+      } catch (_) {
+        loginHistoryWarning = '已登录，登录记录或记住密码未能保存。';
+      }
     } finally {
       api.close();
     }
   });
+
+  FlyLoginHistoryEntry _loginHistoryEntry(
+    FlyDataSession current, {
+    bool rememberPassword = false,
+    String password = '',
+  }) => FlyLoginHistoryEntry(
+    serverUrl: current.serverUrl,
+    username: current.username,
+    deviceName: current.deviceName,
+    serviceInstanceId: current.serviceInstanceId,
+    updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    rememberPassword: rememberPassword,
+    password: rememberPassword ? password : '',
+  );
 
   Future<void> _migrateAccountOwner(String previousKey, String nextKey) async {
     if (previousKey == nextKey) return;
@@ -273,6 +308,15 @@ class FlyDataService {
     }
     await SecureCredentialStore.write(_sessionKey, jsonEncode(next.toJson()));
     session = next;
+    try {
+      await FlyLoginHistoryStore.updateAddress(
+        _loginHistoryEntry(previous),
+        _loginHistoryEntry(next),
+      );
+      loginHistoryWarning = null;
+    } catch (_) {
+      loginHistoryWarning = '地址已切换，登录记录未能更新。';
+    }
   });
 
   Future<Map<String, dynamic>> request(
