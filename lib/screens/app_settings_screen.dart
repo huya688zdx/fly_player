@@ -33,6 +33,15 @@ import 'screenshot_settings_screen.dart';
 import 'settings_search_screen.dart';
 import 'settings_destination_routes.dart';
 
+/// 语言模式 → 设置行/搜索条目里展示的当前值（语言名本身不做翻译，用各自文字）。
+String _languageModeValue(AppLocalizations l10n, AppLocaleMode mode) =>
+    switch (mode) {
+      AppLocaleMode.system => l10n.settingsLanguageSubtitleSystem,
+      AppLocaleMode.zhCN => l10n.settingsLanguageSubtitleZhCN,
+      AppLocaleMode.en => l10n.settingsLanguageSubtitleEn,
+      AppLocaleMode.ja => l10n.settingsLanguageSubtitleJa,
+    };
+
 class AppSettingsScreen extends StatelessWidget {
   final bool secondaryHost;
 
@@ -161,11 +170,18 @@ class AppSettingsScreen extends StatelessWidget {
       SettingsSearchEntry(
         id: 'language_settings',
         title: l10n.settingsLanguageTitle,
-        subtitle: context.read<AppLocaleProvider>().mode == AppLocaleMode.zhCN
-            ? l10n.settingsLanguageSubtitleZhCN
-            : l10n.settingsLanguageSubtitleSystem,
+        subtitle: _languageModeValue(
+          l10n,
+          context.read<AppLocaleProvider>().mode,
+        ),
         location: l10n.settingsLocationRoot,
-        keywords: <String>[l10n.languageSystem, l10n.languageZhCN, 'language'],
+        keywords: <String>[
+          l10n.languageSystem,
+          l10n.languageZhCN,
+          l10n.languageEn,
+          l10n.languageJa,
+          'language',
+        ],
         onSelect: () => _openSettingsDestination(
           context,
           SettingsDestinationRoutes.language,
@@ -555,9 +571,7 @@ class AppSettingsScreen extends StatelessWidget {
     required bool parallelWindowSupported,
     required String parallelSummary,
   }) {
-    final languageValue = localeProvider.mode == AppLocaleMode.zhCN
-        ? l10n.settingsLanguageSubtitleZhCN
-        : l10n.settingsLanguageSubtitleSystem;
+    final languageValue = _languageModeValue(l10n, localeProvider.mode);
     return <_SettingsSection>[
       // 通用：语言 / 启动直达 / FN Connect 重登。
       _SettingsSection(

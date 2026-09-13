@@ -618,8 +618,10 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   }
 
   Widget _buildCategoryTabs(AppThemeColors colors, AppLocalizations l10n) {
-    return SizedBox(
-      height: 50,
+    // minHeight 而非固定高度：页签文案在英/日等长文案语言下可能折行到两行，
+    // 让行随内容增高（zh 单行时仍保持原 50px 视觉）。
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 50),
       child: Row(
         children: <Widget>[
           for (final category in _SearchCategory.values)
