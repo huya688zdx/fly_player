@@ -31,7 +31,7 @@ class FlyNasDanmakuResult {
     required this.comments,
     required this.sourceKey,
     required this.isCurrent,
-    this.sourceLabel = 'NAS 已确认弹幕',
+    this.sourceLabel = '服务弹幕',
   });
   final List<DanmakuComment> comments;
   final String sourceKey;
@@ -200,8 +200,8 @@ class FlyNasDanmakuCache {
   }
 
   static String _sourceLabel(dynamic value) {
-    if (value is! String) return 'NAS 已确认弹幕';
+    if (value is! String) return '服务弹幕';
     final text = value.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ').trim();
-    return text.isEmpty || text.length > 100 ? 'NAS 已确认弹幕' : text;
+    return text.isEmpty || text.length > 100 ? '服务弹幕' : text;
   }
 }
