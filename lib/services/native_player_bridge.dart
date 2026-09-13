@@ -22,6 +22,8 @@ import 'play_stats/play_stats_service.dart';
 import 'fly_data/fly_playback_service_client.dart';
 import 'fly_data/fly_data_service.dart';
 import 'fly_data/fly_oped_settings.dart';
+import 'fly_data/fly_bif_service.dart';
+import 'fly_data/fly_playback_activity.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -218,7 +220,14 @@ class NativePlayerBridge {
     }
 
     unawaited(_onUnbind?.call());
-    _onUnbind = onUnbind;
+    String bifContext = '';
+    FlyBifAccess? bifAccess;
+    FlyPlaybackActivity? activity;
+    _onUnbind = () async {
+      bifContext = '';
+      await activity?.stop();
+      await onUnbind?.call();
+    };
     _activeBindToken = token;
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -270,6 +279,39 @@ class NativePlayerBridge {
             return false;
           }
           await FlyOpedSettings.save(enabled);
+          return true;
+        case 'resolveFlyBif':
+          final args = (call.arguments as Map?) ?? const {};
+          final context = args['context_id'];
+          if (context is! String || context.isEmpty || !acceptsScope(args['statsScope']) ||
+              !identical(token, _activeBindToken)) {
+            return null;
+          }
+          unawaited(activity?.stop());
+          activity = null;
+          bifContext = context;
+          final access = FlyBifAccess.capture(statsScope: statsScope,
+            itemGuid: (args['itemGuid'] ?? '').toString(), mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            isCurrent: () => identical(token, _activeBindToken) && bifContext == context && acceptsScope(args['statsScope']));
+          bifAccess = access;
+          if (access == null) return null;
+          activity = FlyPlaybackActivity.forAccess(access)..start(paused: args['paused'] == true);
+          if (args['originalFile'] != true) return null;
+          final path = await FlyBifService.instance.resolve(access);
+          return access.isCurrent() ? path : null;
+        case 'flyPlaybackActivity':
+          final args = (call.arguments as Map?) ?? const {};
+          if (!identical(token, _activeBindToken) || args['context_id'] != bifContext || bifContext.isEmpty) return false;
+          if (args['state'] == 'stopped') {
+            bifContext = '';
+            unawaited(activity?.stop()); activity = null; bifAccess = null;
+            return true;
+          }
+          if (bifAccess?.isCurrent() != true) {
+            unawaited(activity?.stop()); activity = null;
+            return false;
+          }
+          activity?.update(paused: args['state'] != 'playing');
           return true;
         case 'resolveFlyOped':
           final args = (call.arguments as Map?) ?? const {};
@@ -737,7 +779,7 @@ class NativePlayerBridge {
 
   /// 取原生壳文案表：语言取 [AppLocaleProvider] 持久化的应用内覆盖值（system 模式为
   /// null 时回退 `PlatformDispatcher.instance.locale` 即系统语言），再用其查找对应的
-  /// [AppLocalizations] 文案实例。查不到（当前仅支持 zh/zh_CN）时回退中文，保证原生壳
+  /// [AppLocalizations] 文案实例。查不到（系统语言不在支持列表）时回退中文，保证原生壳
   /// 始终能拿到一份完整表。
   static Future<Map<String, String>> _loadLocalizedStrings() async {
     final override = await AppLocaleProvider.loadStoredLocale();

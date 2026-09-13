@@ -70,6 +70,73 @@ void main() {
     });
   });
 
+  test('手动获取能区分未关联、资源过期与未登录', () async {
+    final statuses = <FlyNasDanmakuStatus>[];
+    cache = FlyNasDanmakuCache(
+      sessionReader: () => session,
+      scopeReader: () => scope,
+      bindingReader: () => 'binding',
+      apiFactory: (_, _) => api,
+      onStatus: statuses.add,
+    );
+    for (final status in ['miss', 'stale', 'disabled']) {
+      api.responses = [
+        {'status': status},
+      ];
+      expect(await resolve(), isNull);
+    }
+    session = null;
+    expect(await resolve(), isNull);
+    expect(statuses, [
+      FlyNasDanmakuStatus.miss,
+      FlyNasDanmakuStatus.stale,
+      FlyNasDanmakuStatus.disabled,
+      FlyNasDanmakuStatus.notSignedIn,
+    ]);
+  });
+
+  test('自动超时后独立手动预算可取得同一绑定的弹幕', () async {
+    final statuses = <FlyNasDanmakuStatus>[];
+    FlyNasDanmakuCache reader(Duration budget) => FlyNasDanmakuCache(
+      sessionReader: () => session,
+      scopeReader: () => scope,
+      bindingReader: () => 'binding',
+      apiFactory: (_, _) => api,
+      budget: budget,
+      onStatus: statuses.add,
+    );
+    cache = reader(const Duration(milliseconds: 10));
+    api.pending = Completer<Map<String, dynamic>>();
+    expect(await resolve(), isNull);
+    expect(statuses.last, FlyNasDanmakuStatus.timeout);
+    expect(api.closed, isTrue);
+    api = _Api()..payloadPending = Completer<Map<String, dynamic>>();
+    cache = reader(const Duration(milliseconds: 200));
+    final retry = resolve();
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+    api.payloadPending!.complete(_payload);
+    expect(await retry, isNotNull);
+    expect(statuses.last, FlyNasDanmakuStatus.ready);
+    expect(api.calls.first.$2?['binding_id'], 'binding');
+    expect(api.calls.first.$2?['remote_media_source_id'], 'file-2');
+  });
+
+  test('媒体不在当前绑定目录时提示核对连接及同步目录', () async {
+    final statuses = <FlyNasDanmakuStatus>[];
+    cache = FlyNasDanmakuCache(
+      sessionReader: () => session,
+      scopeReader: () => scope,
+      bindingReader: () => 'binding',
+      apiFactory: (_, _) => api,
+      onStatus: statuses.add,
+    );
+    api.pending = Completer<Map<String, dynamic>>()
+      ..completeError(StateError('数据服务拒绝请求：NOT_FOUND'));
+    expect(await resolve(), isNull);
+    expect(statuses, [FlyNasDanmakuStatus.notFound]);
+    expect(statuses.single.message, contains('同步目录'));
+  });
+
   test('ready 保留服务端时间，仅转换滚动顶部底部及 RGB', () async {
     final result = await resolve();
     expect(result, isNotNull);

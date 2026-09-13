@@ -61,6 +61,40 @@ void main() {
     expect(thumbnails.imageAt(15000), isNull);
   });
 
+  test(
+    'NAS local BIF is preferred; damaged local falls back using original Emby headers',
+    () async {
+      final directory = await Directory.systemTemp.createTemp('local-bif-');
+      try {
+        final file = File('${directory.path}/asset.bif');
+        await file.writeAsBytes(_bif());
+        await thumbnails.prepare(
+          bifUrl: '$baseUrl/emby.bif',
+          localBifPath: file.path,
+          chapters: [],
+          headers: headers,
+        );
+        expect((thumbnails.imageAt(10000) as MemoryImage).bytes, [20, 21, 22]);
+        expect(requests, isEmpty);
+        final broken = File('${directory.path}/broken.bif');
+        await broken.writeAsBytes([1, 2, 3]);
+        await thumbnails.prepare(
+          bifUrl: '$baseUrl/emby.bif',
+          localBifPath: broken.path,
+          chapters: [],
+          headers: headers,
+        );
+        expect((thumbnails.imageAt(10000) as MemoryImage).bytes, [20, 21, 22]);
+        expect(requests.single.headers.value('cookie'), headers['Cookie']);
+        expect(requests.single.headers.value('authorization'), isNull);
+        await thumbnails.prepare(bifUrl: '', chapters: [], headers: {});
+        expect(thumbnails.imageAt(10000), isNull);
+      } finally {
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+
   test('BIF 缺失或损坏时退回对应章节，重复刷新不重试失败请求', () async {
     final chapters = [
       MpvSeekThumbnail(positionMs: 0, url: '$baseUrl/chapter/0'),

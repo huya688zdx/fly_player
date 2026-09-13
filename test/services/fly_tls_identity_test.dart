@@ -62,6 +62,10 @@ void main() {
         );
         await expectLater(api.get('/system/identity'), throwsStateError);
         await expectLater(
+          api.bifBytes('/api/v1/bif/assets/e0f07686-66e0-4331-abcd-675476aac219/content', expectedBytes: 84),
+          throwsStateError,
+        );
+        await expectLater(
           api.post('/auth/login', {
             'username': 'alice',
             'password': 'must-not-arrive',
