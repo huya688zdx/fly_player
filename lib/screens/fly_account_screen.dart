@@ -648,10 +648,26 @@ class FlyBindingsScreen extends StatelessWidget {
       ],
       Align(
         alignment: Alignment.centerLeft,
-        child: OutlinedButton.icon(
-          onPressed: account.busy ? null : () => _bindingForm(context, account),
-          icon: const Icon(Icons.add_rounded),
-          label: const Text('添加媒体来源'),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            if (!account.legacyMode)
+              FilledButton.icon(
+                onPressed: account.busy
+                    ? null
+                    : () => _localServiceForm(context, account),
+                icon: const Icon(Icons.home_work_outlined),
+                label: const Text('绑定本机媒体服务'),
+              ),
+            OutlinedButton.icon(
+              onPressed: account.busy
+                  ? null
+                  : () => _bindingForm(context, account),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('添加媒体来源'),
+            ),
+          ],
         ),
       ),
       if (account.busy)
@@ -753,18 +769,107 @@ class FlyBindingsScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _localServiceForm(
+    BuildContext context,
+    FlyAccountController account,
+  ) async {
+    final accountKey = account.accountKey, epoch = account.accountEpoch;
+    bool current() => account.isCurrentFlyAccount(accountKey, epoch);
+    void tip(String text) => AppTopTip().show(
+      context,
+      message: text,
+      color: context.appColors.surfaceStrong,
+    );
+    try {
+      final response = await account.loadLocalServices();
+      if (!context.mounted) return;
+      if (!current()) {
+        _showChangedAccount(context);
+        return;
+      }
+      if (response['enabled'] != true) {
+        tip(response['message'] as String? ?? '此飞翔服务尚未启用本机媒体服务发现，请联系管理员。');
+        return;
+      }
+      final items = (response['items'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .where((item) => (item['key'] as String? ?? '').isNotEmpty)
+          .toList();
+      if (items.isEmpty) {
+        tip('尚未发现本机媒体服务，请先在 NAS 安装并启动媒体服务。');
+        return;
+      }
+      final selected = await _showFlyOptions(
+        context,
+        title: '选择本机媒体服务',
+        items: [
+          for (final item in items)
+            TrackOptionSheetItem(
+              id: item['key'] as String,
+              title: item['name'] as String? ?? _backendLabel(item['kind']),
+              subtitle: item['status'] != 'available'
+                  ? '当前不可用，请先启动服务'
+                  : (item['server_id'] as String? ?? '').isNotEmpty
+                  ? '已启用 · 绑定媒体账号即可使用'
+                  : account.session?.role == 'admin'
+                  ? '启用后绑定媒体账号'
+                  : '请管理员先启用',
+            ),
+        ],
+      );
+      if (selected == null || !context.mounted) return;
+      if (!current()) {
+        _showChangedAccount(context);
+        return;
+      }
+      final item = items.firstWhere((item) => item['key'] == selected);
+      if (item['status'] != 'available') {
+        tip('本机媒体服务当前不可用，请先启动服务后重试。');
+        return;
+      }
+      var serverId = item['server_id'] as String? ?? '';
+      if (serverId.isEmpty) {
+        if (account.session?.role != 'admin') {
+          tip('请管理员先启用此本机媒体服务。');
+          return;
+        }
+        final server = await account.registerLocalService(
+          selected,
+          expectedAccountKey: accountKey,
+          expectedEpoch: epoch,
+        );
+        if (!context.mounted) return;
+        if (!current()) {
+          _showChangedAccount(context);
+          return;
+        }
+        serverId = server['id'] as String? ?? '';
+        if (serverId.isEmpty) {
+          tip('本机服务登记结果不完整，请重试。');
+          return;
+        }
+      }
+      await _bindingForm(context, account, selectedServerId: serverId);
+    } catch (_) {
+      // Controller provides the safe error message in the account page.
+    }
+  }
+
   Future<void> _bindingForm(
     BuildContext context,
     FlyAccountController account, {
     Map<String, dynamic>? binding,
+    String? selectedServerId,
   }) async {
     final accountKey = account.accountKey;
+    final epoch = account.accountEpoch;
     final bindingId = binding?['id'], revision = binding?['revision'];
     bool current() =>
-        account.accountKey == accountKey &&
+        account.isCurrentFlyAccount(accountKey, epoch) &&
         (binding == null ||
             _bindingStillCurrent(account, accountKey, bindingId, revision));
-    String? serverId = binding?['server_id'] as String?;
+    String? serverId = binding?['server_id'] as String? ?? selectedServerId;
     if (serverId == null) {
       if (account.servers.isEmpty) {
         await _run(account.refresh);
