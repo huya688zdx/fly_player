@@ -60,18 +60,12 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 padding: const EdgeInsets.only(right: 4),
                 child: CompositedTransformTarget(
                   link: _searchAnchorLink,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: colors.surface.withValues(alpha: 0.78),
-                      shape: BoxShape.circle,
-                    ),
-                    child: SizedBox.square(
-                      dimension: 44,
-                      child: IconButton(
-                        tooltip: AppLocalizations.of(context).searchPlaceholder,
-                        icon: const Icon(Icons.search_rounded, size: 25),
-                        onPressed: () => unawaited(_openDesktopSearchOverlay()),
-                      ),
+                  child: SizedBox.square(
+                    dimension: 44,
+                    child: IconButton(
+                      tooltip: AppLocalizations.of(context).searchPlaceholder,
+                      icon: const Icon(Icons.search_rounded, size: 25),
+                      onPressed: () => unawaited(_openDesktopSearchOverlay()),
                     ),
                   ),
                 ),
