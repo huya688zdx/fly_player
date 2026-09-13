@@ -818,6 +818,9 @@ void main() {
   testWidgets('Windows 画质面板使用主档与自定义两级结构', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        // 本测试断言中文文案（原画/自定义）；加入 en/ja 后测试默认 locale 会解析到
+        // English，这里显式钉住 zh-CN 以保持原语义。
+        locale: const Locale('zh', 'CN'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
