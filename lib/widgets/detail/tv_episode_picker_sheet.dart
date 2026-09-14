@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../desktop/desktop_environment.dart';
+import '../../desktop/desktop_floating_panel.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../models/tv_episode_browser_models.dart';
 import '../../models/tv_episode_picker_mode.dart';
 import '../../theme/app_theme.dart';
@@ -48,31 +52,53 @@ class TvEpisodePickerSheet {
     required TvEpisodePickerLoader loader,
     required TvEpisodePickerModeChanged onModeChanged,
   }) {
+    final desktop =
+        DesktopEnvironment.isDesktopPlatform &&
+        MediaQuery.sizeOf(context).width >= 800;
+    Widget buildBody(BuildContext context) => _TvEpisodePickerSheetBody(
+      desktop: desktop,
+      title: title,
+      seasons: seasons,
+      initialSeasonGuid: initialSeasonGuid,
+      initialEpisodeGuid: initialEpisodeGuid,
+      initialMode: initialMode,
+      rangeSize: rangeSize,
+      emptyText: emptyText,
+      token: token,
+      accessCode: accessCode,
+      baseUrl: baseUrl,
+      loader: loader,
+      onModeChanged: onModeChanged,
+    );
+    if (desktop) {
+      final colors = context.appColors;
+      final hasRuntimeColors = context.hasRuntimeAppColors;
+      return showDialog<TvEpisodePickerSheetResult>(
+        context: context,
+        builder: (context) => Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.all(32),
+          constraints: const BoxConstraints(maxWidth: 960),
+          child: AppRuntimeColorScope(
+            colors: colors,
+            hasRuntimeColors: hasRuntimeColors,
+            child: buildBody(context),
+          ),
+        ),
+      );
+    }
     return showModalBottomSheet<TvEpisodePickerSheetResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) {
-        return _TvEpisodePickerSheetBody(
-          title: title,
-          seasons: seasons,
-          initialSeasonGuid: initialSeasonGuid,
-          initialEpisodeGuid: initialEpisodeGuid,
-          initialMode: initialMode,
-          rangeSize: rangeSize,
-          emptyText: emptyText,
-          token: token,
-          accessCode: accessCode,
-          baseUrl: baseUrl,
-          loader: loader,
-          onModeChanged: onModeChanged,
-        );
-      },
+      builder: buildBody,
     );
   }
 }
 
 class _TvEpisodePickerSheetBody extends StatefulWidget {
+  final bool desktop;
   final String title;
   final List<TvEpisodeSeasonOptionData> seasons;
   final String initialSeasonGuid;
@@ -87,6 +113,7 @@ class _TvEpisodePickerSheetBody extends StatefulWidget {
   final TvEpisodePickerModeChanged onModeChanged;
 
   const _TvEpisodePickerSheetBody({
+    required this.desktop,
     required this.title,
     required this.seasons,
     required this.initialSeasonGuid,
@@ -168,7 +195,12 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final media = MediaQuery.of(context);
-    final height = media.size.height * 0.72;
+    final height = widget.desktop
+        ? math.min(
+            680.0,
+            math.max(0.0, media.size.height - media.padding.vertical - 64),
+          )
+        : media.size.height * 0.72;
     final ranges = _buildEpisodeRanges(
       _payload.entries,
       rangeSize: widget.rangeSize,
@@ -184,29 +216,26 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
       top: false,
       bottom: false,
       child: SizedBox(
+        width: widget.desktop ? double.infinity : null,
         height: height,
-        child: AppModalSurface(
-          key: const ValueKey<String>('app-modal-surface-episode-picker'),
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 10,
-            bottom: media.padding.bottom > 0 ? media.padding.bottom : 16,
-          ),
+        child: _buildSurface(
+          media: media,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.borderStrong,
-                    borderRadius: BorderRadius.circular(999),
+              if (!widget.desktop) ...[
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.borderStrong,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
+                const SizedBox(height: 14),
+              ],
               Row(
                 children: [
                   Expanded(
@@ -246,6 +275,15 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                             ),
                     ),
                   ),
+                  if (widget.desktop)
+                    IconButton(
+                      tooltip: AppLocalizations.of(context).commonClose,
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: colors.textSecondary,
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -357,6 +395,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                           key: ValueKey<String>(
                             'list-${visibleEntries.length}-$_selectedSeasonGuid',
                           ),
+                          desktop: widget.desktop,
                           entries: visibleEntries,
                           token: widget.token,
                           accessCode: widget.accessCode,
@@ -374,6 +413,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                           key: ValueKey<String>(
                             'grid-${visibleEntries.length}-$_selectedSeasonGuid',
                           ),
+                          desktop: widget.desktop,
                           entries: visibleEntries,
                           onTap: (guid) => Navigator.of(context).pop(
                             TvEpisodePickerSheetResult(
@@ -390,6 +430,27 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSurface({required MediaQueryData media, required Widget child}) {
+    if (widget.desktop) {
+      return DesktopFloatingPanel(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: child,
+        ),
+      );
+    }
+    return AppModalSurface(
+      key: const ValueKey<String>('app-modal-surface-episode-picker'),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 10,
+        bottom: media.padding.bottom > 0 ? media.padding.bottom : 16,
+      ),
+      child: child,
     );
   }
 
@@ -422,7 +483,8 @@ List<List<TvEpisodeCardData>> _buildEpisodeRanges(
   return ranges;
 }
 
-class _EpisodeListView extends StatelessWidget {
+class _EpisodeListView extends StatefulWidget {
+  final bool desktop;
   final List<TvEpisodeCardData> entries;
   final String token;
   final String accessCode;
@@ -431,6 +493,7 @@ class _EpisodeListView extends StatelessWidget {
 
   const _EpisodeListView({
     super.key,
+    required this.desktop,
     required this.entries,
     required this.token,
     required this.accessCode,
@@ -439,84 +502,131 @@ class _EpisodeListView extends StatelessWidget {
   });
 
   @override
+  State<_EpisodeListView> createState() => _EpisodeListViewState();
+}
+
+class _EpisodeListViewState extends State<_EpisodeListView> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!widget.desktop) {
+      return ListView.separated(
+        itemCount: widget.entries.length,
+        padding: EdgeInsets.zero,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: _buildEntry,
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) => Scrollbar(
+        controller: _scrollController,
+        thumbVisibility: true,
+        child: GridView.builder(
+          controller: _scrollController,
+          itemCount: widget.entries.length,
+          padding: const EdgeInsets.only(right: 12),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: constraints.maxWidth >= 760 ? 2 : 1,
+            mainAxisExtent: 88,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+          ),
+          itemBuilder: _buildEntry,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEntry(BuildContext context, int index) {
     final colors = context.appColors;
-    return ListView.separated(
-      itemCount: entries.length,
-      padding: EdgeInsets.zero,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final entry = entries[index];
-        return InkWell(
-          onTap: () => onTap(entry.guid),
-          borderRadius: BorderRadius.circular(14),
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: liquidGlassDecoration(
-              context,
-              radius: 14,
-              tone: entry.selected
-                  ? LiquidGlassTone.accent
-                  : LiquidGlassTone.neutral,
-              selected: entry.selected,
+    final entry = widget.entries[index];
+    final duration = Text(
+      entry.durationText,
+      maxLines: widget.desktop ? 1 : null,
+      overflow: widget.desktop ? TextOverflow.ellipsis : null,
+      style: TextStyle(color: colors.textSecondary, fontSize: 13),
+    );
+    final status = Text(
+      entry.statusLabel,
+      style: TextStyle(
+        color: _episodeStatusColor(context, entry.statusTone),
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+    return InkWell(
+      onTap: () => widget.onTap(entry.guid),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: liquidGlassDecoration(
+          context,
+          radius: 14,
+          tone: entry.selected
+              ? LiquidGlassTone.accent
+              : LiquidGlassTone.neutral,
+          selected: entry.selected,
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: widget.desktop ? 112 : 122,
+                height: widget.desktop ? 63 : 68,
+                child: DetailHeroImage(
+                  images: mediaImageRequestForUrls(
+                    entry.imageUrls,
+                    token: widget.token,
+                    accessCode: widget.accessCode,
+                    baseUrl: widget.baseUrl,
+                  ),
+                ),
+              ),
             ),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: SizedBox(
-                    width: 122,
-                    height: 68,
-                    child: DetailHeroImage(
-                      images: mediaImageRequestForUrls(
-                        entry.imageUrls,
-                        token: token,
-                        accessCode: accessCode,
-                        baseUrl: baseUrl,
-                      ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: widget.desktop
+                    ? MainAxisAlignment.center
+                    : MainAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        entry.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        entry.durationText,
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  entry.statusLabel,
-                  style: TextStyle(
-                    color: _episodeStatusColor(context, entry.statusTone),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  if (widget.desktop)
+                    Row(
+                      children: [
+                        Expanded(child: duration),
+                        const SizedBox(width: 8),
+                        status,
+                      ],
+                    )
+                  else
+                    duration,
+                ],
+              ),
             ),
-          ),
-        );
-      },
+            if (!widget.desktop) ...[const SizedBox(width: 12), status],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -530,25 +640,47 @@ Color _episodeStatusColor(BuildContext context, TvEpisodeStatusTone tone) {
   };
 }
 
-class _EpisodeGridView extends StatelessWidget {
+class _EpisodeGridView extends StatefulWidget {
+  final bool desktop;
   final List<TvEpisodeCardData> entries;
   final ValueChanged<String> onTap;
 
   const _EpisodeGridView({
     super.key,
+    required this.desktop,
     required this.entries,
     required this.onTap,
   });
+
+  @override
+  State<_EpisodeGridView> createState() => _EpisodeGridViewState();
+}
+
+class _EpisodeGridViewState extends State<_EpisodeGridView> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = constraints.maxWidth >= 320 ? 6 : 5;
-        return GridView.builder(
-          itemCount: entries.length,
-          padding: EdgeInsets.zero,
+        final crossAxisCount = widget.desktop
+            ? math.max(1, (constraints.maxWidth - 12) ~/ 80)
+            : constraints.maxWidth >= 320
+            ? 6
+            : 5;
+        final grid = GridView.builder(
+          controller: widget.desktop ? _scrollController : null,
+          itemCount: widget.entries.length,
+          padding: widget.desktop
+              ? const EdgeInsets.only(right: 12)
+              : EdgeInsets.zero,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             mainAxisSpacing: 10,
@@ -556,10 +688,10 @@ class _EpisodeGridView extends StatelessWidget {
             childAspectRatio: 1,
           ),
           itemBuilder: (context, index) {
-            final entry = entries[index];
+            final entry = widget.entries[index];
             final selected = entry.selected;
             return InkWell(
-              onTap: () => onTap(entry.guid),
+              onTap: () => widget.onTap(entry.guid),
               borderRadius: BorderRadius.circular(12),
               child: AnimatedContainer(
                 duration: AppTransitions.switchDuration,
@@ -598,6 +730,13 @@ class _EpisodeGridView extends StatelessWidget {
             );
           },
         );
+        return widget.desktop
+            ? Scrollbar(
+                controller: _scrollController,
+                thumbVisibility: true,
+                child: grid,
+              )
+            : grid;
       },
     );
   }
