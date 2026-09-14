@@ -21,16 +21,20 @@ import 'dart:typed_data';
 
 part 'fly_catalog_widgets.dart';
 
-String _kindLabel(Object? kind) =>
-    const {
-      'movie': '电影',
-      'series': '剧集',
-      'season': '季',
-      'episode': '集',
+String _kindLabel(AppLocalizations l10n, Object? kind) =>
+    {
+      'movie': l10n.nativeCaptureMovie,
+      'series': l10n.playStatsMediaTypeSeries,
+      'season': l10n.detailSeasonDefault,
+      'episode': l10n.flyCatalogKindEpisode,
     }[kind] ??
-    '媒体';
-String _completenessLabel(Object? value) =>
-    const {'confirmed': '目录已完整扫描', 'partial': '显示上次目录，待更新'}[value] ?? '待扫描';
+    l10n.flyCatalogKindMedia;
+String _completenessLabel(AppLocalizations l10n, Object? value) =>
+    {
+      'confirmed': l10n.flyCatalogScanComplete,
+      'partial': l10n.flyCatalogScanPartial,
+    }[value] ??
+    l10n.flyCatalogScanPending;
 
 class FlyCatalogScreen extends StatefulWidget {
   const FlyCatalogScreen({super.key});
@@ -179,6 +183,7 @@ Future<void> openFlyCatalogItem(
   required String expectedAccountKey,
 }) async {
   final account = context.read<FlyAccountController>();
+  final l10n = AppLocalizations.of(context);
   final session = account.session;
   final binding = item['binding_id'];
   bool current() =>
@@ -187,16 +192,16 @@ Future<void> openFlyCatalogItem(
       identical(session, account.session) &&
       account.accountKey == expectedAccountKey &&
       account.activeBindingId == binding;
-  if (!current()) throw StateError('媒体来源已改变，请返回重新选择节目。');
+  if (!current()) throw StateError(l10n.flyCatalogMediaSourceChanged);
   final remoteId = (item['remote_item_id'] as String? ?? '').trim();
-  if (remoteId.isEmpty) throw StateError('节目暂未关联到媒体来源，请刷新同步信息。');
+  if (remoteId.isEmpty) throw StateError(l10n.flyCatalogMediaSourceMissing);
   Future<Map<String, dynamic>> loadParent(String id) async {
-    if (!current()) throw StateError('账号或媒体来源已改变。');
+    if (!current()) throw StateError(l10n.flyCatalogAccountOrSourceChanged);
     final parent = await account.service.request(
       '/media/${Uri.encodeComponent(id)}',
     );
     if (!current() || parent['binding_id'] != binding) {
-      throw StateError('账号或媒体来源已改变。');
+      throw StateError(l10n.flyCatalogAccountOrSourceChanged);
     }
     return parent;
   }
@@ -296,14 +301,18 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final account = context.watch<FlyAccountController>();
+    final l10n = AppLocalizations.of(context);
     if (account.accountKey != widget.accountKey) {
-      return const Scaffold(body: Center(child: Text('账号已改变，请返回目录。')));
+      return Scaffold(body: Center(child: Text(l10n.flyCatalogAccountChanged)));
     }
     final item = media;
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: buildSecondaryHostAppBar(context, title: const Text('同步信息')),
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(l10n.flyCatalogSyncInfo),
+        ),
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -325,7 +334,11 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               Text(
-                '${_kindLabel(item['kind'])} · ${item['year'] ?? '年份未知'} · 评分 ${item['rating'] ?? '未知'}',
+                l10n.flyCatalogMetadata(
+                  _kindLabel(l10n, item['kind']),
+                  item['year']?.toString() ?? l10n.flyCatalogYearUnknown,
+                  item['rating']?.toString() ?? l10n.mediaInfoUnknown,
+                ),
               ),
               Text((item['genres'] as List? ?? []).join(' / ')),
               const SizedBox(height: 16),
@@ -337,13 +350,17 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: () => showFlyAssistant(context, mediaId: widget.mediaId),
+                onPressed: () =>
+                    showFlyAssistant(context, mediaId: widget.mediaId),
                 icon: const Icon(Icons.auto_awesome_outlined),
-                label: const Text('资料助手 · 当前节目'),
+                label: Text(l10n.flyCatalogCurrentTitleAssistant),
               ),
               const SizedBox(height: 16),
               Text(
-                '目录完整性：${_completenessLabel(item['catalog_completeness'])} · 来源数：${item['source_count'] ?? 1}',
+                l10n.flyCatalogCompletenessAndSources(
+                  _completenessLabel(l10n, item['catalog_completeness']),
+                  '${item['source_count'] ?? 1}',
+                ),
               ),
               if ([
                 'movie',
@@ -354,14 +371,14 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
                 FilledButton.icon(
                   onPressed: busy ? null : _open,
                   icon: const Icon(Icons.play_arrow),
-                  label: const Text('打开节目详情'),
+                  label: Text(l10n.flyCatalogOpenDetails),
                 ),
               for (final person in item['people'] as List? ?? [])
                 Text(
                   '${person['name']} · ${person['role'] ?? person['type'] ?? ''}',
                 ),
               if ((item['external_ids'] as Map? ?? {}).isNotEmpty)
-                Text('外部标识：${item['external_ids']}'),
+                Text(l10n.flyCatalogExternalIds('${item['external_ids']}')),
               for (final source in item['sources'] as List? ?? [])
                 Card(
                   color: AppAmbientPage.cardColorOf(
@@ -373,7 +390,15 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
                       '${source['server_name']} · ${source['title']}',
                     ),
                     subtitle: Text(
-                      '状态：${source['status']}\n${(source['versions'] as List? ?? []).map((v) => '${v['label'] ?? ''} ${v['resolution'] ?? ''} ${v['video_codec'] ?? ''}').join('\n')}',
+                      l10n.flyCatalogSourceStatus(
+                        '${source['status']}',
+                        (source['versions'] as List? ?? [])
+                            .map(
+                              (v) =>
+                                  '${v['label'] ?? ''} ${v['resolution'] ?? ''} ${v['video_codec'] ?? ''}',
+                            )
+                            .join('\n'),
+                      ),
                     ),
                   ),
                 ),
@@ -382,8 +407,11 @@ class _FlyCatalogDetailScreenState extends State<FlyCatalogDetailScreen> {
                   padding: const EdgeInsets.only(top: 8),
                   child: AppOptionListTile(
                     title: child['title'] as String? ?? '',
-                    subtitle:
-                        '${_kindLabel(child['kind'])} · 季 ${child['season_number'] ?? '-'} / 集 ${child['episode_number'] ?? '-'}',
+                    subtitle: l10n.flyCatalogChildPosition(
+                      _kindLabel(l10n, child['kind']),
+                      '${child['season_number'] ?? '-'}',
+                      '${child['episode_number'] ?? '-'}',
+                    ),
                     showIndicator: false,
                     outlined: true,
                     trailing: const Icon(Icons.chevron_right),

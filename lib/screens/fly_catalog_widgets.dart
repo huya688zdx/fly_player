@@ -15,10 +15,10 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
           actions: [
             AppInfoPopoverAnchor(
               title: l10n.flyCatalogSyncedTitles,
-              description: '这里展示媒体来源上次同步的节目资料。选择节目后，继续使用原来的详情页与播放器。',
-              detail: '同步资料不代表当前地址可连接。连接遇到问题时，可在“账号与媒体来源”中重试或打开连接设置。',
+              description: l10n.flyCatalogSyncedInfoDescription,
+              detail: l10n.flyCatalogSyncedInfoConnectionHint,
               child: Tooltip(
-                message: '同步节目说明',
+                message: l10n.flyCatalogSyncedInfoTooltip,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Icon(
@@ -126,9 +126,9 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                             runSpacing: 8,
                             children: [
                               for (final filter in [
-                                ('', '全部'),
-                                ('series', '剧集'),
-                                ('movie', '电影'),
+                                ('', l10n.commonAll),
+                                ('series', l10n.playStatsMediaTypeSeries),
+                                ('movie', l10n.listTypeMovie),
                               ])
                                 ChoiceChip(
                                   label: Text(filter.$2),
@@ -159,7 +159,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                                 ),
                                 TextButton(
                                   onPressed: () => _load(),
-                                  child: const Text('重试'),
+                                  child: Text(l10n.commonRetry),
                                 ),
                               ],
                             ),
@@ -177,7 +177,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                           AppErrorState(
                             error: AppException(
                               kind: AppExceptionKind.transient,
-                              action: '读取已同步节目',
+                              action: l10n.flyCatalogLoadTitlesAction,
                               message: message!,
                             ),
                             onRetry: () => _load(),
@@ -217,8 +217,8 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                               const SizedBox(height: 18),
                               Text(
                                 search.text.trim().isEmpty
-                                    ? '这里还没有已同步的节目'
-                                    : '没有找到相关节目',
+                                    ? l10n.flyCatalogEmpty
+                                    : l10n.flyCatalogNoSearchResults,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: colors.textPrimary,
@@ -229,8 +229,8 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                               const SizedBox(height: 8),
                               Text(
                                 search.text.trim().isEmpty
-                                    ? '在账号与媒体来源中同步节目，完成后即可查看。'
-                                    : '换个名称搜索，或查看其他媒体来源。',
+                                    ? l10n.flyCatalogEmptyHint
+                                    : l10n.flyCatalogNoSearchResultsHint,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(color: colors.textSecondary),
                               ),
@@ -278,7 +278,7 @@ extension _FlyCatalogView on _FlyCatalogScreenState {
                                     ),
                                   )
                                 : const Icon(Icons.expand_more_rounded),
-                            label: const Text('加载更多节目'),
+                            label: Text(l10n.flyCatalogLoadMore),
                           ),
                         ),
                       ),
@@ -309,6 +309,7 @@ class _FlyCatalogCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final title = item['title'] as String? ?? '';
     final rating = (item['rating'] as num?)?.toDouble();
     return HoverLift(
@@ -370,7 +371,7 @@ class _FlyCatalogCard extends StatelessWidget {
                         color: colors.surface.withValues(alpha: .92),
                         shape: const CircleBorder(),
                         child: IconButton(
-                          tooltip: '同步信息：$title',
+                          tooltip: l10n.flyCatalogSyncInfoForTitle(title),
                           onPressed: onInfo,
                           constraints: const BoxConstraints.tightFor(
                             width: 34,
@@ -415,7 +416,7 @@ class _FlyCatalogCard extends StatelessWidget {
             Text(
               [
                 if (item['year'] != null) '${item['year']}',
-                _kindLabel(item['kind']),
+                _kindLabel(l10n, item['kind']),
               ].join(' · '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
