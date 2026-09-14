@@ -114,6 +114,30 @@ void main() {
     account.backendSession.dispose();
   });
 
+  testWidgets('English account localization preserves validation and sources', (
+    tester,
+  ) async {
+    account.signedIn = false;
+    await tester.pumpWidget(_app(account, locale: const Locale('en')));
+    await tester.pumpAndSettle();
+    expect(find.text('Sign in to your Fly account'), findsOneWidget);
+    await tester.ensureVisible(find.text('Sign in to Fly'));
+    await tester.tap(find.text('Sign in to Fly'));
+    await tester.pumpAndSettle();
+    expect(find.text('Please fill in Fly service address'), findsOneWidget);
+    expect(account.logins, isEmpty);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    account.signedIn = true;
+    account.bindings = [_binding(multiple: true)];
+    await tester.pumpWidget(_app(account, locale: const Locale('en')));
+    await tester.pumpAndSettle();
+    expect(find.text('Account and media sources'), findsOneWidget);
+    expect(find.text('Available to connect'), findsOneWidget);
+    expect(find.text('家中媒体'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   Finder activateButton() => find.textContaining(RegExp('切换到此来源|选用 / 切换媒体地址'));
 
   for (final desktop in [true, false]) {
@@ -924,6 +948,9 @@ void main() {
     Map<String, String>? submitted;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
@@ -1098,6 +1125,7 @@ Widget _app(
   AppThemePreset preset = AppThemePreset.midnight,
   double textScale = 1,
   Widget? home,
+  Locale locale = const Locale('zh', 'CN'),
 }) => ChangeNotifierProvider<FlyAccountController>.value(
   value: account,
   child: MaterialApp(
@@ -1124,7 +1152,7 @@ Widget _app(
       ).copyWith(textScaler: TextScaler.linear(textScale)),
       child: child!,
     ),
-    locale: const Locale('zh', 'CN'),
+    locale: locale,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     navigatorObservers: [if (observer != null) observer],

@@ -9,7 +9,9 @@ import 'package:fly_player/services/secure_credential_store.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    SharedPreferences.setMockInitialValues(const <String, Object>{
+      'app_locale_mode': 'zh-CN',
+    });
     SecureCredentialStore.setBackendForTesting(MemorySecureCredentialBackend());
     addTearDown(SecureCredentialStore.resetBackendForTesting);
 

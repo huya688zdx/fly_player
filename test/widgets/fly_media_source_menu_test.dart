@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -105,25 +106,60 @@ void main() {
     account.dispose();
     SecureCredentialStore.resetBackendForTesting();
   });
-  Future<void> mount(WidgetTester tester, {AppThemeColors? pageColors}) =>
-      tester.pumpWidget(
-        ChangeNotifierProvider<FlyAccountController>.value(
-          value: account,
-          child: MaterialApp(
-            home: AppRuntimeColorScope(
-              colors: pageColors,
-              hasRuntimeColors: pageColors != null,
-              child: const Scaffold(
-                appBar: null,
-                body: Align(
-                  alignment: Alignment.topLeft,
-                  child: FlyMediaSourceMenu(),
-                ),
-              ),
+  Future<void> mount(
+    WidgetTester tester, {
+    AppThemeColors? pageColors,
+    Locale locale = const Locale('zh', 'CN'),
+  }) => tester.pumpWidget(
+    ChangeNotifierProvider<FlyAccountController>.value(
+      value: account,
+      child: MaterialApp(
+        locale: locale,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: AppRuntimeColorScope(
+          colors: pageColors,
+          hasRuntimeColors: pageColors != null,
+          child: const Scaffold(
+            appBar: null,
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: FlyMediaSourceMenu(),
             ),
           ),
         ),
-      );
+      ),
+    ),
+  );
+
+  testWidgets(
+    'source menu follows locale changes and preserves source labels',
+    (tester) async {
+      await mount(tester, locale: const Locale('en'));
+      await tester.pumpAndSettle();
+      expect(find.text('家里的飞牛'), findsOneWidget);
+      await tester.tap(find.byTooltip('Switch media source'));
+      await tester.pumpAndSettle();
+      expect(find.text('Media sources'), findsOneWidget);
+      expect(find.text('Account and media sources'), findsOneWidget);
+      expect(find.text('Synced titles'), findsOneWidget);
+      expect(find.text('Watch statistics'), findsOneWidget);
+      await tester.tap(find.text('我的 Emby'));
+      await tester.pumpAndSettle();
+      expect(account.activations, ['emby']);
+
+      await mount(tester, locale: const Locale('ja'));
+      await tester.pumpAndSettle();
+      expect(find.text('我的 Emby'), findsOneWidget);
+      await tester.tap(find.byTooltip('メディアソースを切り替え'));
+      await tester.pumpAndSettle();
+      expect(find.text('メディアソース'), findsOneWidget);
+      expect(find.text('同期済みの作品'), findsOneWidget);
+      expect(find.text('視聴統計'), findsOneWidget);
+      expect(find.text('切换媒体来源'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final width in [1200.0, 320.0, 240.0]) {
     testWidgets('PC source menu keeps the desktop panel at width $width', (

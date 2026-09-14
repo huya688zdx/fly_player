@@ -1,18 +1,21 @@
 part of 'fly_account_screen.dart';
 
-String _backendLabel(Object? kind) => switch (kind) {
-  'feiniu' => '飞牛影视',
+String _backendLabel(BuildContext context, Object? kind) => switch (kind) {
+  'feiniu' => AppLocalizations.of(context).connectionFeiniuMedia,
   'emby' => 'Emby',
   'jellyfin' => 'Jellyfin',
-  _ => '媒体服务',
+  _ => AppLocalizations.of(context).flyAccountMediaService,
 };
 
-String _addressLabel(Object? purpose) => switch (purpose) {
-  'client_lan' => '局域网连接',
-  'client_remote' => '远程连接（HTTPS）',
-  'vpn' => 'VPN 连接',
-  _ => '其他连接',
-};
+String _addressLabel(BuildContext context, Object? purpose) =>
+    switch (purpose) {
+      'client_lan' => AppLocalizations.of(context).flyAccountLanConnection,
+      'client_remote' => AppLocalizations.of(
+        context,
+      ).flyAccountRemoteConnection,
+      'vpn' => AppLocalizations.of(context).flyAccountVpnConnection,
+      _ => AppLocalizations.of(context).flyAccountOtherConnection,
+    };
 
 class _FlyAccountPage extends StatelessWidget {
   const _FlyAccountPage({required this.title, required this.children});
@@ -79,7 +82,7 @@ class _FlyLoginPage extends StatelessWidget {
       ),
     );
     final title = Text(
-      '飞翔',
+      AppLocalizations.of(context).flyAccountBrand,
       style: TextStyle(
         color: colors.textPrimary,
         fontSize: desktop ? 36 : 25,
@@ -97,7 +100,7 @@ class _FlyLoginPage extends StatelessWidget {
               children: [
                 title,
                 Text(
-                  '连接你的媒体，继续你的观看',
+                  AppLocalizations.of(context).flyAccountTagline,
                   style: TextStyle(color: colors.textMuted, fontSize: 12),
                 ),
               ],
@@ -115,7 +118,9 @@ class _FlyLoginPage extends StatelessWidget {
         title,
         const SizedBox(height: 12),
         Text(
-          '连接你的媒体，\n继续你的观看',
+          AppLocalizations.of(
+            context,
+          ).flyAccountTagline.replaceFirst('，', '，\n'),
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: 24,
@@ -136,7 +141,7 @@ class _FlyLoginPage extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '登录飞翔账号',
+            AppLocalizations.of(context).flyAccountLoginTitle,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 22,
@@ -273,11 +278,17 @@ class _FlySectionTitle extends StatelessWidget {
                     ),
                   ),
                   AppInfoPopoverAnchor(
-                    title: '媒体来源',
-                    description: '选择来源进入媒体库，连接地址自动匹配。',
-                    detail: '需要更换地址时，打开来源的“连接设置”。',
+                    title: AppLocalizations.of(context).flySourceMediaSources,
+                    description: AppLocalizations.of(
+                      context,
+                    ).flyAccountSourceHelpDescription,
+                    detail: AppLocalizations.of(
+                      context,
+                    ).flyAccountSourceHelpDetail,
                     child: Tooltip(
-                      message: '媒体来源说明',
+                      message: AppLocalizations.of(
+                        context,
+                      ).flyAccountSourceHelp,
                       child: Padding(
                         padding: const EdgeInsets.all(10),
                         child: Icon(
@@ -353,11 +364,13 @@ class _FlySourceCard extends StatelessWidget {
     final available = status == 'active' || status == 'offline';
     final username = binding['remote_username'] as String? ?? '';
     final statusLabel = switch (status) {
-      'active' => '可连接',
-      'offline' => '暂时离线，可尝试连接',
-      'reauth_required' => '需要重新登录媒体账号',
-      'unbound' => '已移除，播放历史保留',
-      _ => '暂不可用',
+      'active' => AppLocalizations.of(context).flyAccountStatusConnectable,
+      'offline' => AppLocalizations.of(context).flyAccountStatusOffline,
+      'reauth_required' => AppLocalizations.of(
+        context,
+      ).flyAccountStatusReauthRequired,
+      'unbound' => AppLocalizations.of(context).flyAccountStatusUnbound,
+      _ => AppLocalizations.of(context).flyAccountStatusUnavailable,
     };
     final logo = switch (kind) {
       'feiniu' => 'lib/img/feiniu_Logo.png',
@@ -391,7 +404,8 @@ class _FlySourceCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      binding['label'] as String? ?? _backendLabel(kind),
+                      binding['label'] as String? ??
+                          _backendLabel(context, kind),
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontSize: 16,
@@ -401,7 +415,7 @@ class _FlySourceCard extends StatelessWidget {
                     const SizedBox(height: 5),
                     Text(
                       [
-                        _backendLabel(kind),
+                        _backendLabel(context, kind),
                         if (username.isNotEmpty) username,
                       ].join(' · '),
                       style: TextStyle(color: colors.textMuted, fontSize: 12),
@@ -411,29 +425,39 @@ class _FlySourceCard extends StatelessWidget {
               ),
               Builder(
                 builder: (buttonContext) => IconButton(
-                  tooltip: '来源设置',
+                  tooltip: AppLocalizations.of(
+                    context,
+                  ).flyAccountSourceSettings,
                   icon: const Icon(Icons.more_horiz_rounded),
                   onPressed: busy
                       ? null
                       : () async {
                           final options = [
                             if (available)
-                              const AppActionSheetOption(
+                              AppActionSheetOption(
                                 value: 'address',
-                                label: '连接设置',
+                                label: AppLocalizations.of(
+                                  context,
+                                ).flyAccountConnectionSettings,
                               ),
-                            const AppActionSheetOption(
+                            AppActionSheetOption(
                               value: 'reauthorize',
-                              label: '重新授权',
+                              label: AppLocalizations.of(
+                                context,
+                              ).flyAccountReauthorize,
                             ),
                             if (status != 'unbound') ...[
-                              const AppActionSheetOption(
+                              AppActionSheetOption(
                                 value: 'sync',
-                                label: '同步节目资料',
+                                label: AppLocalizations.of(
+                                  context,
+                                ).flyAccountSyncCatalog,
                               ),
-                              const AppActionSheetOption(
+                              AppActionSheetOption(
                                 value: 'unbind',
-                                label: '移除媒体来源',
+                                label: AppLocalizations.of(
+                                  context,
+                                ).flyAccountRemoveSourceTitle,
                                 destructive: true,
                               ),
                             ],
@@ -466,7 +490,11 @@ class _FlySourceCard extends StatelessWidget {
                           } else {
                             action = await showAppActionSheet<String>(
                               context,
-                              title: binding['label'] as String? ?? '来源设置',
+                              title:
+                                  binding['label'] as String? ??
+                                  AppLocalizations.of(
+                                    context,
+                                  ).flyAccountSourceSettings,
                               options: options,
                             );
                           }
@@ -496,7 +524,7 @@ class _FlySourceCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    '当前来源',
+                    AppLocalizations.of(context).flyAccountCurrentSource,
                     style: TextStyle(
                       color: colors.selectionStrong,
                       fontSize: 11,
@@ -529,10 +557,10 @@ class _FlySourceCard extends StatelessWidget {
               ),
               label: Text(
                 current
-                    ? '进入媒体库'
+                    ? AppLocalizations.of(context).flyAccountEnterLibrary
                     : available
-                    ? '切换到此来源'
-                    : '重新授权',
+                    ? AppLocalizations.of(context).flyAccountSwitchSource
+                    : AppLocalizations.of(context).flyAccountReauthorize,
               ),
               style: FilledButton.styleFrom(minimumSize: const Size(156, 42)),
             ),

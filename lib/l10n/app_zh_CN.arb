@@ -4163,5 +4163,73 @@
   "flyDataRestoreDescription": "恢复统计数据库会保留原历史来源，新记录使用新的写入来源。完整应用备份与跨设备安全凭据恢复仍需平台验证。服务器删除的历史不会因旧备份重试而恢复。",
   "flySourceSwitchTooltip": "切换媒体来源",
   "flySourceMediaSources": "媒体来源",
-  "flySourceWatchStatistics": "观看统计"
+  "flySourceWatchStatistics": "观看统计",
+  "flyAccountSourceChanged": "账号或媒体来源已改变，请重新打开设置。",
+  "flyAccountNoPlaybackAddresses": "暂无可手动选择的播放地址，请刷新媒体来源后重试。",
+  "flyAccountConnectionSettings": "连接设置",
+  "flyAccountHistoryReadFailed": "登录记录暂时无法读取，可手动登录。",
+  "flyAccountHistoryEmpty": "暂无登录记录",
+  "flyAccountHistory": "登录记录",
+  "flyAccountClearHistory": "清除登录记录",
+  "flyAccountClearHistoryConfirm": "删除保存的账号和密码？",
+  "flyAccountClear": "清除",
+  "flyAccountHistoryUnavailable": "登录记录暂时不可用，请重试。",
+  "flyAccountPasswordClearFailed": "密码未能清除，请重试。",
+  "flyAccountServiceAddressHelp": "飞翔管理后台提供的服务地址",
+  "flyAccountAdminSharedHint": "与飞翔管理后台共用",
+  "flyAccountPasswordHint": "飞翔账号的密码",
+  "flyAccountRememberPassword": "记住密码",
+  "flyAccountMediaLogin": "媒体账号登录",
+  "flyAccountAdminSharedSubtitle": "飞翔账号 · 与管理后台共用",
+  "flyAccountSourceCount": "{count} 个来源",
+  "flyAccountBindNasMedia": "绑定 NAS 媒体服务",
+  "flyAccountAddServer": "添加服务器",
+  "flyAccountAddAddress": "添加地址",
+  "flyAccountDiscoveryDisabled": "此飞翔服务尚未启用本机媒体服务发现，请联系管理员。",
+  "flyAccountDiscoveryEmpty": "尚未发现本机媒体服务，请先在 NAS 安装并启动媒体服务。",
+  "flyAccountChooseNasMedia": "选择 NAS 媒体服务",
+  "flyAccountLocalServiceStopped": "当前不可用，请先启动服务",
+  "flyAccountLocalServiceReady": "已启用 · 绑定媒体账号即可使用",
+  "flyAccountEnableThenBind": "启用后绑定媒体账号",
+  "flyAccountAskAdminEnable": "请管理员先启用",
+  "flyAccountLocalServiceUnavailable": "本机媒体服务当前不可用，请先启动服务后重试。",
+  "flyAccountLocalServiceNeedsAdmin": "请管理员先启用此本机媒体服务。",
+  "flyAccountLocalServiceIncomplete": "本机服务登记结果不完整，请重试。",
+  "flyAccountMediaServer": "媒体服务器",
+  "flyAccountSourceHelp": "媒体来源说明",
+  "flyAccountSourceHelpDescription": "选择来源进入媒体库，连接地址自动匹配。",
+  "flyAccountSourceHelpDetail": "需要更换地址时，打开来源的“连接设置”。",
+  "flySourceReauthorizationRequired": "需要重新授权",
+  "flySyncCompleted": "同步完成",
+  "flySyncNoPendingRecords": "暂无待同步记录",
+  "flySyncFailed": "同步未完成，请重试。",
+  "flySyncStatusUnavailable": "暂时无法读取同步状态",
+  "flySyncNeverSynced": "尚未同步",
+  "flySyncLastSync": "最近同步：{time}",
+  "flySyncInProgress": "正在同步…",
+  "flySyncReading": "读取中…",
+  "flySyncPending": "有记录待同步",
+  "flySyncSignedIn": "已登录",
+  "flySyncRecords": "同步记录",
+  "flySyncSignIn": "登录后同步观看记录",
+  "flySyncChooseSource": "选择媒体来源",
+  "@flyAccountSourceCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@flySyncLastSync": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "flyCatalogSyncedInfoDescription": "这里展示媒体来源上次同步的节目资料。选择节目后，继续使用原来的详情页与播放器。",
+  "flyCatalogSyncedInfoConnectionHint": "同步资料不代表当前地址可连接。连接遇到问题时，可在“账号与媒体来源”中重试或打开连接设置。",
+  "flyCatalogSyncedInfoTooltip": "同步节目说明",
+  "flyCatalogLoadTitlesAction": "读取已同步节目",
+  "flyCatalogCurrentTitleAssistant": "资料助手 · 当前节目"
 }

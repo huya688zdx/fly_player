@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../desktop/desktop_environment.dart';
 import '../desktop/desktop_hover_dropdown.dart';
@@ -28,10 +29,22 @@ class FlyMediaSourceMenu extends StatefulWidget {
 }
 
 class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
-  static const _actions = [
-    (_SourceAction.account, Icons.account_circle_outlined, '账号与媒体来源'),
-    (_SourceAction.catalog, Icons.video_library_outlined, '已同步节目'),
-    (_SourceAction.stats, Icons.bar_chart_rounded, '观看统计'),
+  List<(_SourceAction, IconData, String)> get _actions => [
+    (
+      _SourceAction.account,
+      Icons.account_circle_outlined,
+      AppLocalizations.of(context).flyAccountTitle,
+    ),
+    (
+      _SourceAction.catalog,
+      Icons.video_library_outlined,
+      AppLocalizations.of(context).flyCatalogSyncedTitles,
+    ),
+    (
+      _SourceAction.stats,
+      Icons.bar_chart_rounded,
+      AppLocalizations.of(context).flySourceWatchStatistics,
+    ),
   ];
 
   final _desktopMenu = GlobalKey<DesktopHoverDropdownState>();
@@ -57,7 +70,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
         .where((binding) => binding['status'] != 'unbound')
         .toList();
     return DesktopHoverDropdownSpec(
-      title: '媒体来源',
+      title: AppLocalizations.of(context).flySourceMediaSources,
       groups: [
         if (bindings.isNotEmpty)
           DesktopDropdownOptionGroup(
@@ -65,9 +78,13 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
               for (final binding in bindings)
                 TrackOptionSheetItem(
                   id: binding['id'] as String,
-                  title: binding['label'] as String? ?? '媒体来源',
+                  title:
+                      binding['label'] as String? ??
+                      AppLocalizations.of(context).flySourceMediaSources,
                   subtitle: binding['status'] == 'reauth_required'
-                      ? '需要重新授权'
+                      ? AppLocalizations.of(
+                          context,
+                        ).flySourceReauthorizationRequired
                       : '',
                 ),
             ],
@@ -149,7 +166,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
           : AppSheetTransitions.showBottomSurface<_SourceChoice>(
               context,
               enableDrag: true,
-              barrierLabel: '媒体来源',
+              barrierLabel: AppLocalizations.of(context).flySourceMediaSources,
               barrierColor: colors.overlayScrim,
               builder: (_) => body,
             );
@@ -175,7 +192,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
         account.accountKey == accountKey && !account.busy && !switching;
     return AppOptionSheetPanel(
       surfaceKey: const ValueKey('app-modal-surface-media-sources'),
-      title: '媒体来源',
+      title: AppLocalizations.of(context).flySourceMediaSources,
       floating: floating,
       maxHeight: floating
           ? (media.size.height * .78).clamp(320.0, 560.0)
@@ -208,9 +225,12 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
                   : 'media-source-action-${action!.$1.name}',
             ),
             title: binding != null
-                ? binding['label'] as String? ?? '媒体来源'
+                ? binding['label'] as String? ??
+                      AppLocalizations.of(context).flySourceMediaSources
                 : action!.$3,
-            subtitle: binding?['status'] == 'reauth_required' ? '需要重新授权' : '',
+            subtitle: binding?['status'] == 'reauth_required'
+                ? AppLocalizations.of(context).flySourceReauthorizationRequired
+                : '',
             selected:
                 binding != null && binding['id'] == account.activeBindingId,
             showIndicator: binding != null,
@@ -287,7 +307,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
     final enabled = !switching && !account.busy;
     final desktop = DesktopEnvironment.isDesktopPlatform;
     final trigger = Tooltip(
-      message: '切换媒体来源',
+      message: AppLocalizations.of(context).flySourceSwitchTooltip,
       child: InkWell(
         onTap: enabled
             ? desktop
@@ -318,7 +338,9 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
                 const SizedBox(width: 10),
                 Flexible(
                   child: Text(
-                    label?.isNotEmpty == true ? label! : '影视',
+                    label?.isNotEmpty == true
+                        ? label!
+                        : AppLocalizations.of(context).navMovies,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
