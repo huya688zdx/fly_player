@@ -14,11 +14,13 @@ class DetailLoadingSkeleton extends StatelessWidget {
 
   /// 桌面季详情保留竖海报，单集详情使用横幅标题；移动端布局不受影响。
   final bool showPoster;
+  final bool seriesHeader;
 
   const DetailLoadingSkeleton({
     super.key,
     this.presentation = DetailPresentation.page,
     this.showPoster = true,
+    this.seriesHeader = false,
   });
 
   bool get _isPane => presentation == DetailPresentation.pane;
@@ -332,6 +334,8 @@ class DetailLoadingSkeleton extends StatelessWidget {
             key: const ValueKey('detail-skeleton-hero'),
             height: showPoster
                 ? headerTop + posterHeight + 24
+                : seriesHeader
+                ? DetailLayoutSolver.desktopSeriesHeroHeight(size)
                 : DetailLayoutSolver.desktopHeroHeight(size),
             child: Padding(
               padding: const EdgeInsets.only(bottom: 24),

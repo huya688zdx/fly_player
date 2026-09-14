@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../desktop/desktop_environment.dart';
 import '../desktop/playback/external_player_settings.dart';
 import '../desktop/playback/external_playback_host.dart';
 import '../desktop/playback/external_playback_mini_controller.dart';
@@ -151,8 +152,13 @@ class _ExternalPlayerSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return AppAmbientPage(
+    final colors = AppAmbientPage.controlColorsOf(context);
+    final desktop = DesktopEnvironment.isDesktopPlatform;
+    final buttonForeground =
+        ThemeData.estimateBrightnessForColor(colors.accent) == Brightness.light
+        ? const Color(0xFF172030)
+        : Colors.white;
+    final page = AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: buildSecondaryHostAppBar(context, title: const Text('外部播放器接入')),
@@ -161,9 +167,14 @@ class _ExternalPlayerSettingsScreenState
           child: Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 820),
+              constraints: BoxConstraints(maxWidth: desktop ? 720 : 820),
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                padding: EdgeInsets.fromLTRB(
+                  desktop ? 18 : 20,
+                  desktop ? 12 : 16,
+                  desktop ? 18 : 20,
+                  desktop ? 24 : 32,
+                ),
                 children: <Widget>[
                   Row(
                     children: [
@@ -254,6 +265,7 @@ class _ExternalPlayerSettingsScreenState
                           ),
                           value: _enabled,
                           activeThumbColor: colors.accent,
+                          activeTrackColor: colors.accentSoft,
                           onChanged: _busy
                               ? null
                               : (value) => _save(enabled: value),
@@ -276,12 +288,21 @@ class _ExternalPlayerSettingsScreenState
                                 controller: _pathController,
                                 enabled: !_busy,
                                 style: TextStyle(color: colors.textPrimary),
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                   hintText:
                                       r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
-                                  prefixIcon: Icon(Icons.route_rounded),
+                                  prefixIcon: Icon(
+                                    Icons.route_rounded,
+                                    color: colors.accent,
+                                  ),
                                   isDense: true,
-                                  border: OutlineInputBorder(),
+                                  border: const OutlineInputBorder(),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: colors.accent,
+                                      width: 1.5,
+                                    ),
+                                  ),
                                 ),
                                 onSubmitted: (_) => _save(),
                               ),
@@ -292,6 +313,12 @@ class _ExternalPlayerSettingsScreenState
                                 children: [
                                   OutlinedButton.icon(
                                     onPressed: _busy ? null : _selectExecutable,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: colors.accent,
+                                      side: BorderSide(
+                                        color: colors.borderStrong,
+                                      ),
+                                    ),
                                     icon: const Icon(
                                       Icons.folder_open_rounded,
                                       size: 18,
@@ -300,6 +327,12 @@ class _ExternalPlayerSettingsScreenState
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: _busy ? null : _detectExecutable,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: colors.accent,
+                                      side: BorderSide(
+                                        color: colors.borderStrong,
+                                      ),
+                                    ),
                                     icon: const Icon(
                                       Icons.search_rounded,
                                       size: 18,
@@ -308,6 +341,10 @@ class _ExternalPlayerSettingsScreenState
                                   ),
                                   FilledButton(
                                     onPressed: _busy ? null : () => _save(),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: colors.accent,
+                                      foregroundColor: buttonForeground,
+                                    ),
                                     child: const Text('保存'),
                                   ),
                                 ],
@@ -408,6 +445,8 @@ class _ExternalPlayerSettingsScreenState
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: ExpansionTile(
+                        iconColor: colors.accent,
+                        collapsedIconColor: colors.textSecondary,
                         leading: Icon(
                           Icons.help_outline_rounded,
                           color: colors.textSecondary,
@@ -450,6 +489,10 @@ class _ExternalPlayerSettingsScreenState
           ),
         ),
       ),
+    );
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: page,
     );
   }
 
