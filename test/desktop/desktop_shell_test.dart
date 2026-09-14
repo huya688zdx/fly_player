@@ -172,6 +172,28 @@ void main() {
       expect(sidebar().tvCount, 7);
     });
 
+    testWidgets(
+      'macOS Command+K opens search and Escape closes it',
+      (tester) async {
+        tester.view.physicalSize = const Size(1400, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          _desktopApp(pages: const [Text('影视内容页'), Text('设置内容页')]),
+        );
+        await tester.pumpAndSettle();
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+        await tester.pumpAndSettle();
+        expect(find.byType(TextField), findsOneWidget);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(find.byType(TextField), findsNothing);
+      },
+      variant: const TargetPlatformVariant({TargetPlatform.macOS}),
+    );
+
     testWidgets('1400px：侧栏可见、tab 可切换、收藏在内容区打开（侧栏常驻）', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1.0;

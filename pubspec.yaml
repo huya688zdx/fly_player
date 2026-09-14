@@ -1,5 +1,5 @@
 name: fly_player
-description: "A custom Android player application that integrates with the Feiniu NAS system."
+description: "A media player for Android, Windows, iOS and macOS that integrates with Feiniu NAS."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -41,6 +41,8 @@ dependencies:
   media_kit: 1.2.6
   media_kit_video: 2.0.1
   media_kit_libs_windows_video: 1.0.11
+  media_kit_libs_ios_video: 1.1.4
+  media_kit_libs_macos_video: 1.1.4
   webview_windows: 0.4.0
   window_manager: 0.5.2
 

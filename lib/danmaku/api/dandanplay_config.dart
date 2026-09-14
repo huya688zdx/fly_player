@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// 运行时读取到的 DanDanPlay 凭据和状态。
@@ -57,7 +58,7 @@ class DanDanPlayRuntimeConfig {
 
 /// DanDanPlay 凭据的运行时加载入口。
 ///
-/// 当前凭据来自平台侧安全存储，Flutter 层仅缓存加载结果与状态说明。
+/// Android 从原生安全存储读取；Apple 从构建参数读取，Windows 另支持开发配置。
 class DanDanPlayConfig {
   static const MethodChannel _channel = MethodChannel(
     'fly_player/secret_store',
@@ -72,15 +73,15 @@ class DanDanPlayConfig {
       'DanDanPlay credentials are not configured for this Windows build.';
   static const String _secureStoreUnavailable =
       'DanDanPlay secure storage is unavailable.';
-  static const String _windowsAppId = String.fromEnvironment(
+  static const String _buildAppId = String.fromEnvironment(
     'DANDANPLAY_APP_ID',
     defaultValue: '',
   );
-  static const String _windowsAppSecret = String.fromEnvironment(
+  static const String _buildAppSecret = String.fromEnvironment(
     'DANDANPLAY_APP_SECRET',
     defaultValue: '',
   );
-  static const String _windowsFallbackSecret = String.fromEnvironment(
+  static const String _buildFallbackSecret = String.fromEnvironment(
     'DANDANPLAY_APP_SECRET_FALLBACK',
     defaultValue: '',
   );
@@ -124,6 +125,28 @@ class DanDanPlayConfig {
   static Future<DanDanPlayRuntimeConfig> ensureLoaded({
     bool forceRefresh = false,
   }) {
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS)) {
+      if (!forceRefresh && _loaded) {
+        return Future<DanDanPlayRuntimeConfig>.value(_current);
+      }
+      final appId = _buildAppId.trim();
+      final secrets = <String>{
+        _buildAppSecret.trim(),
+        _buildFallbackSecret.trim(),
+      }..remove('');
+      _current = appId.isNotEmpty && secrets.isNotEmpty
+          ? DanDanPlayRuntimeConfig(
+              appId: appId,
+              appSecrets: secrets.toList(growable: false),
+              configured: true,
+              statusMessage: '',
+            )
+          : const DanDanPlayRuntimeConfig.unconfigured();
+      _loaded = true;
+      return Future<DanDanPlayRuntimeConfig>.value(_current);
+    }
     if (Platform.isWindows) {
       if (!forceRefresh && _loaded) {
         return Future<DanDanPlayRuntimeConfig>.value(_current);
@@ -199,15 +222,15 @@ class DanDanPlayConfig {
   static DanDanPlayRuntimeConfig _loadWindowsConfig() {
     final localProperties = _readWindowsLocalProperties();
     final appId = _firstNonEmpty(<String>[
-      _windowsAppId,
+      _buildAppId,
       Platform.environment['DANDANPLAY_APP_ID'] ?? '',
       localProperties['DANDANPLAY_APP_ID'] ?? '',
       // 与 Android 构建默认 AppId 保持一致，密钥仍必须显式注入。
       'mgfbs9knmv',
     ]);
     final secrets = <String>{
-      _windowsAppSecret.trim(),
-      _windowsFallbackSecret.trim(),
+      _buildAppSecret.trim(),
+      _buildFallbackSecret.trim(),
       (Platform.environment['DANDANPLAY_APP_SECRET'] ?? '').trim(),
       (Platform.environment['DANDANPLAY_APP_SECRET_FALLBACK'] ?? '').trim(),
       (localProperties['DANDANPLAY_APP_SECRET'] ?? '').trim(),

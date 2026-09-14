@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/media_backend.dart';
@@ -18,6 +17,7 @@ import '../services/native_danmaku_prefetch.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
 import '../playback/platform_playback_host.dart';
+import '../playback/playback_platform.dart';
 import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
 import '../services/play_stats/play_stats_service.dart';
@@ -29,8 +29,8 @@ import '../utils/detail_top_tip.dart';
 class TvSeasonPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
 
-  /// 非 Windows 桌面端的播放入口提示文案，暂以常量承载。
-  static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
+  /// 未支持平台的播放入口提示。
+  static const String desktopPlaybackBlockedMessage = '当前平台暂不支持播放';
 
   /// 创建一个季度播放拉起器实例。
   const TvSeasonPlaybackLauncher();
@@ -43,8 +43,8 @@ class TvSeasonPlaybackLauncher {
     String seriesGuid = '',
     List<Map<String, dynamic>>? episodes,
   }) async {
-    // Linux/macOS 本轮仍未接入，避免落入 Android MethodChannel。
-    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+    // 未支持的平台不可落入 Android MethodChannel。
+    if (!PlaybackPlatform.isSupported) {
       _topTip.show(
         context,
         message: desktopPlaybackBlockedMessage,

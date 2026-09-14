@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,7 @@ import '../providers/parallel_window_settings_provider.dart';
 import '../providers/startup_preferences_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/fn_connect_web_session_service.dart';
+import '../services/storage_access_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_l10n.dart';
 import '../ui/adaptive_text.dart';
@@ -515,6 +517,9 @@ class AppSettingsScreen extends StatelessWidget {
       );
     }
 
+    if (!StorageAccessService.supportsScreenshotLibrary) {
+      entries.removeWhere((entry) => entry.id.startsWith('screenshot_'));
+    }
     return entries;
   }
 
@@ -1247,6 +1252,12 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
                 control: true,
               ): () =>
                   _openSearch(),
+              if (defaultTargetPlatform == TargetPlatform.macOS)
+                const SingleActivator(
+                  LogicalKeyboardKey.keyK,
+                  meta: true,
+                ): () =>
+                    _openSearch(),
             },
             child: SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
@@ -1430,7 +1441,9 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
                   border: Border.all(color: colors.borderSubtle),
                 ),
                 child: Text(
-                  'Ctrl K',
+                  defaultTargetPlatform == TargetPlatform.macOS
+                      ? '⌘ K'
+                      : 'Ctrl K',
                   style: TextStyle(
                     color: colors.textMuted,
                     fontSize: AdaptiveText.roleSize(10),

@@ -244,12 +244,13 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
                         summary: _danmakuSummary(),
                         onTap: _openDanmakuSettings,
                       ),
-                      _OtherEntryCard(
-                        icon: Icons.photo_camera_back_outlined,
-                        title: l10n.settingsScreenshotTitle,
-                        summary: _screenshotSummary(),
-                        onTap: _openScreenshotSettings,
-                      ),
+                      if (StorageAccessService.supportsScreenshotLibrary)
+                        _OtherEntryCard(
+                          icon: Icons.photo_camera_back_outlined,
+                          title: l10n.settingsScreenshotTitle,
+                          summary: _screenshotSummary(),
+                          onTap: _openScreenshotSettings,
+                        ),
                     ];
                     // 宽窗三列入口卡撑起构图；窄窗纵向堆叠。
                     if (constraints.maxWidth >= 720) {

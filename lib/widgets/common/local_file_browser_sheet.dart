@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/generated/app_localizations.dart';
@@ -25,6 +26,12 @@ class LocalFileBrowserSheet extends StatelessWidget {
     required List<String> allowedExtensions,
   }) async {
     if (!context.mounted) return null;
+    if (!StorageAccessService.supportsScopedTreeAccess) {
+      return _pickSystemFile(
+        title: title,
+        allowedExtensions: allowedExtensions,
+      );
+    }
 
     return AppSheetTransitions.showAdaptiveSheet<LocalBrowserFileSelection>(
       context,
@@ -160,6 +167,22 @@ class LocalFileBrowserSheet extends StatelessWidget {
   }
 }
 
+Future<LocalBrowserFileSelection?> _pickSystemFile({
+  required String title,
+  required List<String> allowedExtensions,
+}) async {
+  final result = await FilePicker.platform.pickFiles(
+    dialogTitle: title,
+    type: allowedExtensions.isEmpty ? FileType.any : FileType.custom,
+    allowedExtensions: allowedExtensions.isEmpty ? null : allowedExtensions,
+  );
+  if (result == null || result.files.isEmpty) return null;
+  final file = result.files.single;
+  final path = file.path;
+  if (path == null || path.trim().isEmpty) return null;
+  return LocalBrowserFileSelection(identifier: path, displayName: file.name);
+}
+
 class LocalFileBrowserBody extends StatefulWidget {
   final List<String> allowedExtensions;
   final Future<void> Function(LocalBrowserFileSelection selection)?
@@ -189,7 +212,9 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
   @override
   void initState() {
     super.initState();
-    unawaited(_bootstrap());
+    if (StorageAccessService.supportsScopedTreeAccess) {
+      unawaited(_bootstrap());
+    }
   }
 
   @override
@@ -319,6 +344,22 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
+    if (!StorageAccessService.supportsScopedTreeAccess) {
+      return Center(
+        child: FilledButton.tonalIcon(
+          icon: const Icon(Icons.folder_open_rounded),
+          label: Text(l10n.danmakuLocalFile),
+          onPressed: () async {
+            final selection = await _pickSystemFile(
+              title: l10n.danmakuLocalFile,
+              allowedExtensions: widget.allowedExtensions,
+            );
+            if (!mounted || selection == null) return;
+            await widget.onFileSelected?.call(selection);
+          },
+        ),
+      );
+    }
     if (_loading) {
       return const Center(
         child: SizedBox(width: 24, height: 24, child: BirdGlyph(size: 24)),

@@ -2,14 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../danmaku/cache/dandanplay_comment_cache_store.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
-import '../desktop/desktop_environment.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../playback/bookmarks/bookmark_store.dart';
 import '../providers/app_theme_provider.dart';
@@ -292,29 +290,20 @@ class StorageManagementService {
 
   static final StorageManagementService instance = StorageManagementService._();
 
-  /// 平台储存宿主：Android 走 `fly_player/storage` 原生通道；桌面端无该通道实现，
-  /// 改用 Dart 等价宿主（此前 loadOverview 首个调用即抛 MissingPluginException，
-  /// 储存管理页显示「加载失败」）。测试环境保持通道语义，兼容既有 mock。
+  /// Android 使用原生存储统计；iOS / 桌面由 Dart 宿主提供支持的项目，
+  /// 避免在这些平台调用仅 Android 注册的 `fly_player/storage` 通道。
   static StorageManagementHost? _debugHostOverride;
 
   static StorageManagementHost get _host {
     final override = _debugHostOverride;
     if (override != null) return override;
-    if (_isTestMessenger()) return const MethodChannelStorageManagementHost();
-    if (DesktopEnvironment.isDesktopPlatform) {
-      return const DesktopStorageManagementHost();
-    }
-    return const MethodChannelStorageManagementHost();
-  }
-
-  static bool _isTestMessenger() {
-    try {
-      return ServicesBinding.instance.defaultBinaryMessenger.runtimeType
-          .toString()
-          .contains('Test');
-    } catch (_) {
-      return true;
-    }
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => const IosStorageManagementHost(),
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => const DesktopStorageManagementHost(),
+      _ => const MethodChannelStorageManagementHost(),
+    };
   }
 
   @visibleForTesting

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/app_exception.dart';
@@ -514,6 +515,10 @@ class AppLogService extends ChangeNotifier {
   }
 
   Future<String> _buildExternalExportPath(String fileName) async {
+    if (!StorageAccessService.supportsScopedTreeAccess) {
+      final downloads = await StorageAccessService.downloadDirectory();
+      return p.join(downloads, 'FlyPlayer', 'logs', fileName);
+    }
     var hasAccess = await StorageAccessService.hasFileAccess();
     if (!hasAccess) {
       await StorageAccessService.requestFileAccess();
