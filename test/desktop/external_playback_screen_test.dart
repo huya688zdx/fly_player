@@ -5,10 +5,15 @@ import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/desktop/desktop_hover_dropdown.dart';
 import 'package:fly_player/desktop/playback/external_playback_host.dart';
 import 'package:fly_player/desktop/playback/external_playback_screen.dart';
+import 'package:fly_player/desktop/playback/external_player_playlist.dart';
+import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/desktop/playback/external_playback_notice.dart';
 import 'package:fly_player/models/playback_stream.dart';
+import 'package:fly_player/models/stream_track_data.dart';
+import 'package:fly_player/widgets/app_atmospheric_background.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/ui/media_detail_components.dart';
 import 'package:provider/provider.dart';
@@ -41,12 +46,38 @@ void main() {
           videoGuid: 'video',
           url: 'local.mkv',
           headers: {},
-          title: '外部播放',
+          title: '轻音少女 第1季 第3集 特训！',
+          seriesTitle: '轻音少女',
+          seasonNumber: 1,
+          episodeNumber: 3,
           posterPath: '/v/poster.jpg',
           playbackMode: PlayerPlaybackMode.serverSession,
           resolution: '720',
           bitrate: 1000000,
+          subtitleTracks: [
+            SubtitleTrackOption.fromJson({
+              'guid': 'ass',
+              'language': 'zh',
+              'title': 'zh',
+              'format': 'ass',
+              'is_external': 1,
+            }),
+            SubtitleTrackOption.fromJson({
+              'guid': 'vtt',
+              'language': 'zh',
+              'format': 'vtt',
+              'title': '默认字幕',
+              'is_external': 1,
+              'is_default': 1,
+            }),
+          ],
           qualities: [
+            PlaybackQualityOption.fromJson({
+              'media_guid': 'media',
+              'video_guid': 'video',
+              'resolution': '1080',
+              'bitrate': 1020000,
+            }, source: PlaybackQualitySource.originalProxy),
             for (final resolution in ['1080', '720'])
               PlaybackQualityOption.fromJson({
                 'media_guid': 'media',
@@ -54,6 +85,12 @@ void main() {
                 'resolution': resolution,
                 'bitrate': 1000000,
               }, source: PlaybackQualitySource.serverSession),
+            PlaybackQualityOption.fromJson({
+              'media_guid': 'media',
+              'video_guid': 'video',
+              'resolution': '720',
+              'bitrate': 500000,
+            }, source: PlaybackQualitySource.serverSession),
           ],
         ),
         position: const Duration(seconds: 5),
@@ -63,6 +100,20 @@ void main() {
         danmakuLabel: '本地弹幕',
         danmakuCount: 2,
         danmakuSettings: settings,
+        playlist: const [
+          ExternalPlaylistEpisode(
+            itemGuid: 'item',
+            title: '第1季 第3集 特训！',
+            seasonNumber: 1,
+            episodeNumber: 3,
+          ),
+          ExternalPlaylistEpisode(
+            itemGuid: 's2e1',
+            title: '第2季 第1集 高三！',
+            seasonNumber: 2,
+            episodeNumber: 1,
+          ),
+        ],
         phase: ready
             ? ExternalPlaybackPhase.ready
             : ExternalPlaybackPhase.preparing,
@@ -75,6 +126,9 @@ void main() {
         value: nas,
         child: MaterialApp(
           theme: AppThemeBuilder.build(AppThemePreset.ocean),
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: const ExternalPlaybackScreen(),
         ),
       ),
@@ -82,9 +136,28 @@ void main() {
     final applied = DanmakuSettings.defaults.copyWith(fontScale: 1.2);
     publish(applied);
     await tester.pump();
+    expect(find.byType(AppAtmosphericBackground), findsOneWidget);
+    expect(
+      tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+      Colors.transparent,
+    );
+    expect(find.text('特训！'), findsNWidgets(2));
+    expect(find.text('第1季 第3集 特训！'), findsNothing);
+    await tester.tap(find.text('第 1 季'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    await tester.tap(find.text('第 2 季'));
+    await tester.pumpAndSettle();
+    expect(find.text('高三！'), findsOneWidget);
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+    await tester.tap(find.text('第 2 季'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('第 1 季'));
+    await tester.pumpAndSettle();
     final artwork = tester
         .widget<DetailHeroImage>(find.byType(DetailHeroImage))
         .images;
+    expect(tester.getSize(find.byType(DetailHeroImage)).aspectRatio, 16 / 10);
     expect(Uri.parse(artwork.urls.first).host, 'nas.invalid');
     expect(
       artwork.headers.values.any((value) => value.contains('test-token')),
@@ -104,10 +177,6 @@ void main() {
     await tester.tap(find.text('片源与字幕'));
     await tester.pumpAndSettle();
     expect(find.text('由 PotPlayer 选择'), findsOneWidget);
-    final qualityDropdown = tester.widget<DesktopHoverDropdown>(
-      find.byType(DesktopHoverDropdown).first,
-    );
-    expect(qualityDropdown.spec!.groups.single.selectedId, '1');
     await tester.tap(
       find.descendant(
         of: find.byType(DesktopHoverDropdown).first,
@@ -116,26 +185,44 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsOneWidget);
-    expect(find.textContaining('1080'), findsOneWidget);
-    await tester.tap(find.textContaining('720').last);
+    expect(find.byType(DesktopHoverQualityPanel), findsOneWidget);
+    expect(find.text('原画'), findsOneWidget);
+    expect(find.text('720P'), findsOneWidget);
+    expect(find.text('1080P'), findsNothing);
+    await tester.tap(find.text('自定义'));
+    await tester.pumpAndSettle();
+    expect(find.text('自定义视频质量'), findsOneWidget);
+    expect(find.text('1 Mbps'), findsOneWidget);
+    expect(find.text('500 Kbps'), findsOneWidget);
+    await tester.tap(find.text('1080P'));
+    await tester.pumpAndSettle();
+    expect(find.text('1.02 Mbps · 原画'), findsOneWidget);
+    await tester.tap(find.text('自定义视频质量'));
+    await tester.pumpAndSettle();
+    expect(find.text('原画'), findsOneWidget);
+    final qualityPanel = tester.getRect(find.byType(DesktopFloatingPanel));
+    await tester.tapAt(Offset(qualityPanel.right + 8, qualityPanel.top + 8));
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsNothing);
     await tester.tap(find.text('由 PotPlayer 选择'));
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsOneWidget);
     expect(tester.getSize(find.byType(DesktopFloatingPanel)).width, 360);
-    await tester.tap(find.text('关闭字幕'));
+    expect(find.text('中文-外挂'), findsOneWidget);
+    expect(find.text('中文-默认'), findsOneWidget);
+    expect(find.text('ASS  zh'), findsOneWidget);
+    await tester.tap(find.text('字幕关'));
     await tester.pumpAndSettle();
     expect(find.byType(DesktopFloatingPanel), findsNothing);
     publish(applied);
     await tester.pump();
-    expect(find.text('关闭字幕'), findsOneWidget);
-    await tester.tap(find.text('关闭字幕'));
+    expect(find.text('字幕关'), findsOneWidget);
+    await tester.tap(find.text('字幕关'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('由 PotPlayer 选择'));
     await tester.pumpAndSettle();
     expect(find.text('由 PotPlayer 选择'), findsOneWidget);
-    expect(find.text('关闭字幕'), findsNothing);
+    expect(find.text('字幕关'), findsNothing);
     showExternalPlaybackNotice(
       tester.element(find.byType(ExternalPlaybackScreen)),
       'Bad state: 播放失败',

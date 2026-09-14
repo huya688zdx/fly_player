@@ -21,6 +21,35 @@ constexpr WPARAM kGetFile = 0x6020;
 using Value = flutter::EncodableValue;
 using Map = flutter::EncodableMap;
 
+// 只在极简模式钉住期间监听；回调和通道均在主窗口线程执行。
+HWND pinned_mini_window = nullptr;
+
+void CALLBACK KeepMiniAbovePlayer(HWINEVENTHOOK, DWORD event, HWND player,
+                                  LONG object, LONG child, DWORD, DWORD) {
+  const HWND mini = pinned_mini_window;
+  if (!mini || !IsWindowVisible(mini) || IsIconic(mini)) return;
+  if (event != EVENT_SYSTEM_FOREGROUND && event != EVENT_OBJECT_SHOW &&
+      event != EVENT_OBJECT_REORDER && event != EVENT_OBJECT_LOCATIONCHANGE) return;
+  if (event != EVENT_SYSTEM_FOREGROUND &&
+      (object != OBJID_WINDOW || child != CHILDID_SELF)) return;
+  if (event == EVENT_OBJECT_REORDER) player = GetForegroundWindow();
+  if (!player || player == mini || !IsWindowVisible(player) || IsIconic(player)) {
+    return;
+  }
+  wchar_t name[64] = {};
+  GetClassNameW(player, name, 64);
+  if (wcscmp(name, L"PotPlayer64") != 0 && wcscmp(name, L"PotPlayer") != 0) {
+    return;
+  }
+  // 同为 TOPMOST 的播放器进入全屏后仍能盖住小窗；已在上方时不重复调整。
+  for (HWND above = GetWindow(player, GW_HWNDPREV); above;
+       above = GetWindow(above, GW_HWNDPREV)) {
+    if (above == mini) return;
+  }
+  SetWindowPos(mini, HWND_TOPMOST, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
 struct WindowSearch {
   DWORD pid;
   HWND window = nullptr;
@@ -103,14 +132,27 @@ std::wstring QuoteArgument(const std::wstring& text) {
 }
 }
 
-PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
+PotPlayerBridge::PotPlayerBridge(HWND host_window,
+                                 flutter::BinaryMessenger* messenger)
     : channel_(std::make_unique<flutter::MethodChannel<Value>>(
           messenger, "fly_player/potplayer",
-          &flutter::StandardMethodCodec::GetInstance())) {
+          &flutter::StandardMethodCodec::GetInstance())),
+      host_window_(host_window) {
   channel_->SetMethodCallHandler(
       [this](const flutter::MethodCall<Value>& call,
              std::unique_ptr<flutter::MethodResult<Value>> result) {
         const auto& method = call.method_name();
+        if (method == "setMiniPinned") {
+          const auto* pinned = call.arguments()
+                                   ? std::get_if<bool>(call.arguments())
+                                   : nullptr;
+          if (!pinned || !SetMiniPinned(*pinned)) {
+            result->Error("mini_pin_failed", "悬浮条置顶设置失败");
+          } else {
+            result->Success();
+          }
+          return;
+        }
         if (method != "snapshot" && method != "activate" && method != "close" &&
             method != "configure" && method != "launch" &&
             method != "subtitle" && method != "stepPlaylist") {
@@ -232,6 +274,7 @@ PotPlayerBridge::PotPlayerBridge(flutter::BinaryMessenger* messenger)
 }
 
 PotPlayerBridge::~PotPlayerBridge() {
+  StopMiniPinWatch();
   channel_->SetMethodCallHandler(nullptr);
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -239,6 +282,42 @@ PotPlayerBridge::~PotPlayerBridge() {
   }
   ready_.notify_one();
   if (worker_.joinable()) worker_.join();
+}
+
+void PotPlayerBridge::StopMiniPinWatch() {
+  if (pinned_mini_window == host_window_) pinned_mini_window = nullptr;
+  if (mini_foreground_hook_) UnhookWinEvent(mini_foreground_hook_);
+  if (mini_location_hook_) UnhookWinEvent(mini_location_hook_);
+  mini_foreground_hook_ = nullptr;
+  mini_location_hook_ = nullptr;
+}
+
+bool PotPlayerBridge::SetMiniPinned(bool pinned) {
+  if (pinned && !mini_foreground_hook_) {
+    const DWORD flags = WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS;
+    mini_foreground_hook_ = SetWinEventHook(
+        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
+        KeepMiniAbovePlayer, 0, 0, flags);
+    mini_location_hook_ = SetWinEventHook(
+        EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE, nullptr,
+        KeepMiniAbovePlayer, 0, 0, flags);
+    if (!mini_foreground_hook_ || !mini_location_hook_) {
+      StopMiniPinWatch();
+      return false;
+    }
+  }
+  if (!SetWindowPos(host_window_, pinned ? HWND_TOPMOST : HWND_NOTOPMOST,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER)) {
+    if (pinned_mini_window != host_window_) StopMiniPinWatch();
+    return false;
+  }
+  if (pinned) {
+    pinned_mini_window = host_window_;
+  } else {
+    StopMiniPinWatch();
+  }
+  return true;
 }
 
 void PotPlayerBridge::Run() {

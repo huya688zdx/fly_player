@@ -306,7 +306,7 @@ abstract final class DesktopMpvRuntime {
     if (bitrate <= 0) return '';
     if (bitrate < 1000000) return '${(bitrate / 1000).round()} Kbps';
     final mbps = (bitrate / 1000000).toStringAsFixed(2);
-    return '${mbps.replaceFirst(RegExp(r'\.0+$'), '').replaceFirst(RegExp(r'(\.\d)0$'), r'$1')} Mbps';
+    return '${mbps.replaceFirst(RegExp(r'\.?0+$'), '')} Mbps';
   }
 
   static bool isCurrentQuality(

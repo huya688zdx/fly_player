@@ -10,7 +10,6 @@ import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_sheet_controller.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../desktop/desktop_environment.dart';
-import '../desktop/playback/external_playback_controls.dart';
 import '../desktop/playback/external_playback_host.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
@@ -1104,11 +1103,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                           onDownloadTap: _neutralDownloadUnavailable,
                         ),
                       ),
-                      if (DesktopEnvironment.isWindows)
-                        ExternalPlaybackControls(
-                          itemGuid: _currentItemGuid,
-                          onApplySelection: _startNeutralPlayback,
-                        ),
                       if (showVersionSelector)
                         DetailResolutionSection(
                           options: versionLabels,
@@ -3800,11 +3794,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                     ),
                                   ),
                                 ),
-                                if (DesktopEnvironment.isWindows)
-                                  ExternalPlaybackControls(
-                                    itemGuid: _currentItemGuid,
-                                    onApplySelection: _openPlayer,
-                                  ),
                                 AnimatedBuilder(
                                   animation: _actionsPopController,
                                   builder: (context, child) {
