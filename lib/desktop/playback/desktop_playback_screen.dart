@@ -49,7 +49,7 @@ typedef DesktopResolvedEpisode = ({
 /// 片头片尾跳过提示种类。
 enum _SkipPromptKind { intro, outro }
 
-/// Windows 桌面正式播放页。
+/// Windows 和 Linux 共用的桌面播放页。
 ///
 /// 桌面媒体播放页：播放状态由 media_kit 持有，页面只负责桌面控制层和面板。
 class DesktopPlaybackScreen extends StatefulWidget {

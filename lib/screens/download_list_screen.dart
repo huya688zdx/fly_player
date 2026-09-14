@@ -894,7 +894,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final actionKey = 'download_group_play:${widget.groupId.trim()}';
-    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+    if (DesktopEnvironment.isDesktopPlatform &&
+        !DesktopEnvironment.supportsPlayback) {
       _topTip.show(
         context,
         message: ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
@@ -902,7 +903,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
       );
       return;
     }
-    if (!DesktopEnvironment.isWindows &&
+    if (!DesktopEnvironment.supportsPlayback &&
         (_playLaunchingRecordId != null ||
             AsyncActionGuard.isRunning(actionKey))) {
       _topTip.show(
@@ -951,8 +952,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
               : await _nativeEpisodesPayload(provider, source);
 
           if (!mounted || !playbackLaunchIsCurrent(host)) return;
-          // Windows 先进入桌面宿主，不注册 Android 反向 MethodChannel。
-          if (DesktopEnvironment.isWindows) {
+          // 桌面平台直接进入播放宿主，不注册 Android 反向 MethodChannel。
+          if (DesktopEnvironment.supportsPlayback) {
             if (await host.launch(
               source: source,
               episodes: nativeEpisodes,
@@ -1273,7 +1274,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                                     : () => _handleRecordLongPress(lead.id),
                                 onTap:
                                     launchingRecordId != null &&
-                                        !DesktopEnvironment.isWindows
+                                        !DesktopEnvironment.supportsPlayback
                                     ? null
                                     : () => _playDownloadedRecord(lead),
                               );
@@ -1297,7 +1298,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                               },
                               onRecordTap: (record) {
                                 if (launchingRecordId != null &&
-                                    !DesktopEnvironment.isWindows) {
+                                    !DesktopEnvironment.supportsPlayback) {
                                   return;
                                 }
                                 _playDownloadedRecord(record);
@@ -1353,7 +1354,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                                       : null,
                                   onTap:
                                       launchingRecordId != null &&
-                                          (!DesktopEnvironment.isWindows ||
+                                          (!DesktopEnvironment
+                                                  .supportsPlayback ||
                                               _editing)
                                       ? null
                                       : _editing

@@ -1400,7 +1400,7 @@ class _DesktopPlaybackSettingsPanelState
     ),
     _SettingsMenuTile(
       title: l10n.playerAdvancedSettingsTitle,
-      subtitle: 'Windows media_kit / libmpv',
+      subtitle: 'media_kit / libmpv',
       trailing: _decoderMode == 'software'
           ? l10n.playerSoftwareDecoderTitle
           : l10n.playerHardwareDecoderTitle,

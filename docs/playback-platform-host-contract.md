@@ -19,7 +19,10 @@
 ## Compatibility
 
 - Android 使用 `NativePlayerActivity`，Dart 侧实现为 `NativePlaybackHost`。
-- iOS、macOS、Windows 应在 `PlaybackHost` 后实现等价的宿主行为。
+- Windows、Linux 使用 `DesktopPlaybackHost`，共用桌面控制层和 media_kit/libmpv 播放会话。
+- iOS、macOS 尚未接入，需在 `PlaybackHost` 后实现等价的宿主行为。
 - 新平台可以使用 libmpv、AVPlayer 或其他原生内核，但不得恢复 Flutter 播放页面作为平台兜底。
 - 未来平台若不能启动宿主，应返回 `false`，由调用方展示统一的播放失败反馈。
+
+Linux 构建依赖和设备验收步骤见 [Linux 开发说明](linux-playback.md)。
 
