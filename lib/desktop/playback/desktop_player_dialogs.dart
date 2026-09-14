@@ -2,6 +2,8 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
+import '../../playback/playback_platform.dart';
+
 /// 播放器内浮层面板的呈现样式。
 enum PlayerOverlayPanelStyle {
   /// 右侧全高抽屉（轨道/画质等短列表）。
@@ -74,6 +76,42 @@ Future<void> showPlayerOverlayPanel(
       }
     },
     pageBuilder: (context, animation, secondaryAnimation) {
+      if (PlaybackPlatform.usesTouchControls) {
+        return SafeArea(
+          minimum: const EdgeInsets.all(8),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 780),
+              child: Material(
+                color: const Color(0xF00B111C),
+                borderRadius: BorderRadius.circular(16),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _DialogScrollless(child: builder(context)),
+                    if (closeTooltip != null)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: IconButton(
+                          tooltip: closeTooltip,
+                          color: Colors.white,
+                          constraints: const BoxConstraints(
+                            minWidth: 48,
+                            minHeight: 48,
+                          ),
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
       switch (style) {
         case PlayerOverlayPanelStyle.floatCard:
           return _FloatCardPanel(builder: builder);

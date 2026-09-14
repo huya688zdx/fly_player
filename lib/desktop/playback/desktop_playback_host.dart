@@ -29,7 +29,7 @@ import 'desktop_playback_session.dart';
 import 'external_playback_host.dart';
 import 'external_player_settings.dart';
 
-/// Windows 桌面播放宿主：初始化桌面内核并把正式播放页推入根导航栈。
+/// Windows / macOS / iOS 的 media_kit 播放宿主，共用换源与进度上报。
 final class DesktopPlaybackHost implements PlaybackHost {
   const DesktopPlaybackHost(
     this.context, {

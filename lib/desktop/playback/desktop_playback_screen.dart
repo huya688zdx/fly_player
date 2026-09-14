@@ -20,9 +20,14 @@ import '../../danmaku/models/danmaku_settings.dart';
 import '../../danmaku/settings/danmaku_settings_store.dart';
 import '../../media_backend/playback/media_session_reload.dart';
 import '../../playback/bookmarks/bookmark_store.dart';
+import '../../playback/playback_file_uri.dart';
+import '../../playback/playback_platform.dart';
 import '../../playback/playback_source.dart';
 import '../../playback/weak_network_quality_recommender.dart';
+import '../../playback/player_controls_auto_hide.dart';
+import '../../playback/player_window_close_protection.dart';
 import '../../playback/settings/mpv_settings_store.dart';
+import '../../playback/widgets/touch_player_controls.dart';
 import '../../services/native_danmaku_prefetch.dart';
 import '../../services/fly_data/fly_oped.dart';
 import '../../services/fly_data/fly_playback_service_client.dart';
@@ -56,7 +61,7 @@ typedef DesktopResolvedEpisode = ({
 /// 片头片尾跳过提示种类。
 enum _SkipPromptKind { intro, outro }
 
-/// Windows 桌面正式播放页。
+/// Windows / Apple 共用 media_kit 播放会话，iOS 使用触控呈现。
 ///
 /// 桌面媒体播放页：播放状态由 media_kit 持有，页面只负责桌面控制层和面板。
 class DesktopPlaybackScreen extends StatefulWidget {
@@ -137,7 +142,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   late final StreamSubscription<Duration> _positionSubscription;
   late final StreamSubscription<Duration> _durationSubscription;
 
-  Timer? _controlsHideTimer;
+  late final PlayerControlsAutoHide _controlsAutoHide = PlayerControlsAutoHide(
+    delay: _controlsHideDelay,
+    canHide: () => mounted && _isPlaying && _controlsVisible,
+    onHide: () => _updateView(() => _controlsVisible = false),
+  );
   Timer? _hoverOpenTimer;
   Timer? _hoverCloseTimer;
   Timer? _hoverClearTimer;
@@ -401,7 +410,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _finishFlyAction('cancelled');
     unawaited(_systemMediaControls?.dispose());
     windowManager.removeListener(this);
-    if (_isLocked) unawaited(windowManager.setPreventClose(false));
+    if (_isLocked) unawaited(setPlayerWindowPreventClose(false));
     _weakNetwork.dispose();
     final session = widget.session;
     final retain =
@@ -426,7 +435,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _clearPreloadedNext();
     _progressTimer?.cancel();
     _directLinkTimer?.cancel();
-    _controlsHideTimer?.cancel();
+    _controlsAutoHide.dispose();
     _hoverOpenTimer?.cancel();
     _hoverCloseTimer?.cancel();
     _hoverClearTimer?.cancel();
@@ -1724,11 +1733,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     );
   }
 
-  String _subtitleUri(String path) {
-    final parsed = Uri.tryParse(path);
-    if (parsed != null && parsed.hasScheme) return path;
-    return Uri.file(path, windows: true).toString();
-  }
+  String _subtitleUri(String path) => playbackFileUri(path);
 
   void _finishLoading() {
     if (_flyContextId.isEmpty) _resetFlyOped();
@@ -1768,7 +1773,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     } else {
       _progressTimer?.cancel();
       _directLinkTimer?.cancel();
-      _controlsHideTimer?.cancel();
+      _controlsAutoHide.cancel();
     }
   }
 
@@ -1790,7 +1795,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _reportProgress();
     _progressTimer?.cancel();
     _directLinkTimer?.cancel();
-    _controlsHideTimer?.cancel();
+    _controlsAutoHide.cancel();
     _resumePromptTimer?.cancel();
     _startAutoNextCountdown(completed: true);
     _updateView(() {
@@ -1937,18 +1942,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!_controlsVisible && mounted) {
       _updateView(() => _controlsVisible = true);
     }
-    _controlsHideTimer?.cancel();
+    _controlsAutoHide.cancel();
     if (scheduleHide && _isPlaying) _scheduleControlsHide();
   }
 
-  void _scheduleControlsHide() {
-    _controlsHideTimer?.cancel();
-    _controlsHideTimer = Timer(_controlsHideDelay, () {
-      if (mounted && _isPlaying) {
-        _updateView(() => _controlsVisible = false);
-      }
-    });
-  }
+  void _scheduleControlsHide() => _controlsAutoHide.schedule();
 
   Future<void> _togglePlayback() async {
     _wakeControls();
@@ -3714,7 +3712,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _lastLockedEscapeTime = null;
     _dismissHoverOverlay();
     _updateView(() => _isLocked = !_isLocked);
-    unawaited(windowManager.setPreventClose(_isLocked));
+    unawaited(setPlayerWindowPreventClose(_isLocked));
     _wakeControls();
     _showPlayerMessage(
       _isLocked ? _l10n.nativePlayerText0009 : _l10n.nativePlayerText0010,
@@ -3860,6 +3858,74 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     );
   }
 
+  Widget _buildTouchControls(VideoState videoState) {
+    return StreamBuilder<Duration>(
+      stream: _player.stream.duration,
+      initialData: _player.state.duration,
+      builder: (context, duration) => StreamBuilder<Duration>(
+        stream: _player.stream.position,
+        initialData: _player.state.position,
+        builder: (context, position) => TouchPlayerControls(
+          title: _source.title,
+          playing: _isPlaying,
+          loading: _isLoading || _isBuffering,
+          position: position.data ?? Duration.zero,
+          duration: duration.data ?? Duration.zero,
+          rate: _playbackRate,
+          isFullscreen: videoState.isFullscreen(),
+          danmakuEnabled: _danmakuSettings.enabled,
+          onBack: () => unawaited(_leavePlayer(videoState)),
+          onToggle: () => unawaited(_togglePlayback()),
+          onSeek: (position) => unawaited(_seekTo(position)),
+          onFullscreen: () => unawaited(videoState.toggleFullscreen()),
+          onSettings: () => unawaited(_showPlaybackSettingsPanel()),
+          onSpeed: () => unawaited(_showTouchPlaybackSpeed()),
+          onDanmaku: _toggleDanmaku,
+          onAudio: () => unawaited(_showTracks(audio: true)),
+          onSubtitle: () => unawaited(_showTracks(audio: false)),
+          onScreenshot: () => unawaited(_captureScreenshot()),
+          onEpisodes: _canBrowseEpisodes
+              ? () => unawaited(_showEpisodes())
+              : null,
+          onPrevious: _previousEpisode == null
+              ? null
+              : () => unawaited(_showPreviousEpisode()),
+          onNext: _nextEpisode == null
+              ? null
+              : () => unawaited(_showNextEpisode()),
+          onQuality: _source.qualities.isEmpty || widget.reloadSource == null
+              ? null
+              : () => unawaited(_showQualities()),
+          qualityLabel: _resolutionLabel,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTouchPlaybackSpeed() async {
+    _wakeControls(scheduleHide: false);
+    final rate = await showModalBottomSheet<double>(
+      context: context,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (context) => ListView(
+        shrinkWrap: true,
+        children: [
+          for (final rate in <double>[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3])
+            ListTile(
+              title: Text('$rate×'),
+              selected: _playbackRate == rate,
+              trailing: _playbackRate == rate ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(rate),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (rate != null) await _setPlaybackRate(rate);
+    _wakeControls();
+  }
+
   Widget _buildVideoControls(VideoState videoState) {
     return ListenableBuilder(
       listenable: Listenable.merge(<Listenable>[
@@ -3884,6 +3950,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             onHover: (_) =>
                 _wakeControls(scheduleHide: _hoverOverlayKind == null),
             child: Listener(
+              onPointerDown: (event) {
+                if (PlaybackPlatform.usesTouchControls &&
+                    event.kind != PointerDeviceKind.mouse) {
+                  _controlsAutoHide.pointerDown(event.pointer);
+                }
+              },
+              onPointerUp: (event) =>
+                  _controlsAutoHide.pointerEnded(event.pointer),
+              onPointerCancel: (event) =>
+                  _controlsAutoHide.pointerEnded(event.pointer),
               onPointerSignal: (event) {
                 if (_isLocked) return;
                 if (event is! PointerScrollEvent) return;
@@ -3900,6 +3976,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                   }
                   if (_hoverOverlayKind != null) {
                     _dismissHoverOverlay();
+                    return;
+                  }
+                  if (PlaybackPlatform.usesTouchControls) {
+                    if (_controlsVisible) {
+                      _controlsAutoHide.cancel();
+                      _updateView(() => _controlsVisible = false);
+                    } else {
+                      _wakeControls();
+                    }
                     return;
                   }
                   unawaited(_togglePlayback());
@@ -3931,6 +4016,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                           }
                           if (_hoverOverlayKind != null) return;
                           _wakeControls();
+                          if (PlaybackPlatform.usesTouchControls) {
+                            unawaited(_togglePlayback());
+                            return;
+                          }
                           unawaited(videoState.toggleFullscreen());
                         },
                       ),
@@ -3955,170 +4044,192 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                         opacity: _controlsVisible && !_isLocked ? 1 : 0,
                         duration: _controlsAnimationDuration,
                         curve: Curves.easeOutCubic,
-                        child: ValueListenableBuilder<PlayerHoverOverlaySnapshot>(
-                          valueListenable: _hoverOverlayNotifier,
-                          builder: (context, hover, _) => DesktopPlayerControls(
-                            activeMenu: hover.visible ? hover.kind?.name : null,
-                            player: _player,
-                            showBuffer: !Uri.parse(
-                              _source.url,
-                            ).isScheme('file'),
-                            chapters: _chapters,
-                            flyOpedSet: _currentFlyOped,
-                            seekThumbnails: _source.seekThumbnails,
-                            seekThumbnailBifUrl: _source.seekThumbnailBifUrl,
-                            seekThumbnailLocalBifPath: _nasBifLocalPath,
-                            thumbnailHeaders: _source.headers,
-                            videoState: videoState,
-                            title: _source.title,
-                            resolution: _resolutionLabel,
-                            playing: _isPlaying,
-                            loading: _isLoading || _isBuffering,
-                            volume: _volume,
-                            rate: _playbackRate,
-                            nowPlayingLabel: _l10n.nativeNotificationNowPlaying,
-                            playTooltip: _l10n.desktopPlaybackPlayTooltip,
-                            pauseTooltip: _l10n.desktopPlaybackPauseTooltip,
-                            muteTooltip: _volume > 0
-                                ? _l10n.desktopPlaybackMuteTooltip
-                                : _l10n.desktopPlaybackRestoreVolumeTooltip,
-                            speedTooltip: _l10n.playerDiagnosticsSpeed,
-                            fullscreenTooltip: videoState.isFullscreen()
-                                ? _l10n.desktopPlaybackExitFullscreenTooltip
-                                : _l10n.desktopPlaybackFullscreenTooltip,
-                            settingsTooltip: _l10n.desktopPlaybackMoreOptions,
-                            prevTooltip:
-                                _l10n.desktopPlaybackPrevEpisodeTooltip,
-                            bookmarkTooltip: _l10n.playerBookmarkAddCurrent,
-                            episodeLabel: _l10n.playerEpisodeAction,
-                            subtitleLabel:
-                                _player.state.track.subtitle.id == 'no'
-                                ? _l10n.playerSubtitleOffAction
-                                : _l10n.playerSubtitleAction,
-                            audioTooltip: _l10n.playerAudioTrackAction,
-                            screenshotLabel:
-                                _l10n.desktopPlaybackScreenshotAction,
-                            danmakuEnabled: _danmakuSettings.enabled,
-                            danmakuLabel: _danmakuSettings.enabled
-                                ? '弹幕设置 · 已开启'
-                                : '弹幕设置 · 已关闭',
-                            onBack: () => unawaited(_leavePlayer(videoState)),
-                            onToggle: () => unawaited(_togglePlayback()),
-                            onSeek: _seekTo,
-                            onVolume: (value) => unawaited(_setVolume(value)),
-                            onMute: () => unawaited(_toggleMute()),
-                            onRate: (value) =>
-                                unawaited(_setPlaybackRate(value)),
-                            onScreenshot: () => unawaited(_captureScreenshot()),
-                            abRepeatLabel: _abLoopEnd != null
-                                ? 'A-B'
-                                : _abLoopStart != null
-                                ? 'A'
-                                : 'AB',
-                            abRepeatTooltip: _abLoopEnd != null
-                                ? '关闭 A-B 循环'
-                                : _abLoopStart != null
-                                ? '设置 B 点'
-                                : '设置 A 点',
-                            onAbRepeat: () => unawaited(_toggleAbRepeat()),
-                            onToggleDanmaku: _toggleDanmaku,
-                            onSettings: () =>
-                                unawaited(_showPlaybackSettingsPanel()),
-                            onSettingsAt: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.settings,
-                              anchor,
-                              immediate: true,
-                            ),
-                            onNext: _nextEpisode == null
-                                ? null
-                                : () => unawaited(_showNextEpisode()),
-                            onHoverNext: _nextEpisode == null
-                                ? null
-                                : (anchor) => _openHoverOverlay(
-                                    PlayerHoverOverlayKind.nextEpisode,
-                                    anchor,
-                                  ),
-                            onPrevious: _previousEpisode == null
-                                ? null
-                                : () => unawaited(_showPreviousEpisode()),
-                            onHoverPrevious: _previousEpisode == null
-                                ? null
-                                : (anchor) => _openHoverOverlay(
-                                    PlayerHoverOverlayKind.previousEpisode,
-                                    anchor,
-                                  ),
-                            onEpisodes: _canBrowseEpisodes
-                                ? () => unawaited(_showEpisodes())
-                                : null,
-                            onEpisodesAt: _canBrowseEpisodes
-                                ? (anchor) => _openHoverOverlay(
-                                    PlayerHoverOverlayKind.episodes,
+                        child: PlaybackPlatform.usesTouchControls
+                            ? _buildTouchControls(videoState)
+                            : ValueListenableBuilder<
+                                PlayerHoverOverlaySnapshot
+                              >(
+                                valueListenable: _hoverOverlayNotifier,
+                                builder: (context, hover, _) => DesktopPlayerControls(
+                                  activeMenu: hover.visible
+                                      ? hover.kind?.name
+                                      : null,
+                                  player: _player,
+                                  showBuffer: !Uri.parse(
+                                    _source.url,
+                                  ).isScheme('file'),
+                                  chapters: _chapters,
+                                  flyOpedSet: _currentFlyOped,
+                                  seekThumbnails: _source.seekThumbnails,
+                                  seekThumbnailBifUrl:
+                                      _source.seekThumbnailBifUrl,
+                                  seekThumbnailLocalBifPath: _nasBifLocalPath,
+                                  thumbnailHeaders: _source.headers,
+                                  videoState: videoState,
+                                  title: _source.title,
+                                  resolution: _resolutionLabel,
+                                  playing: _isPlaying,
+                                  loading: _isLoading || _isBuffering,
+                                  volume: _volume,
+                                  rate: _playbackRate,
+                                  nowPlayingLabel:
+                                      _l10n.nativeNotificationNowPlaying,
+                                  playTooltip: _l10n.desktopPlaybackPlayTooltip,
+                                  pauseTooltip:
+                                      _l10n.desktopPlaybackPauseTooltip,
+                                  muteTooltip: _volume > 0
+                                      ? _l10n.desktopPlaybackMuteTooltip
+                                      : _l10n
+                                            .desktopPlaybackRestoreVolumeTooltip,
+                                  speedTooltip: _l10n.playerDiagnosticsSpeed,
+                                  fullscreenTooltip: videoState.isFullscreen()
+                                      ? _l10n
+                                            .desktopPlaybackExitFullscreenTooltip
+                                      : _l10n.desktopPlaybackFullscreenTooltip,
+                                  settingsTooltip:
+                                      _l10n.desktopPlaybackMoreOptions,
+                                  prevTooltip:
+                                      _l10n.desktopPlaybackPrevEpisodeTooltip,
+                                  bookmarkTooltip:
+                                      _l10n.playerBookmarkAddCurrent,
+                                  episodeLabel: _l10n.playerEpisodeAction,
+                                  subtitleLabel:
+                                      _player.state.track.subtitle.id == 'no'
+                                      ? _l10n.playerSubtitleOffAction
+                                      : _l10n.playerSubtitleAction,
+                                  audioTooltip: _l10n.playerAudioTrackAction,
+                                  screenshotLabel:
+                                      _l10n.desktopPlaybackScreenshotAction,
+                                  danmakuEnabled: _danmakuSettings.enabled,
+                                  danmakuLabel: _danmakuSettings.enabled
+                                      ? '弹幕设置 · 已开启'
+                                      : '弹幕设置 · 已关闭',
+                                  onBack: () =>
+                                      unawaited(_leavePlayer(videoState)),
+                                  onToggle: () => unawaited(_togglePlayback()),
+                                  onSeek: _seekTo,
+                                  onVolume: (value) =>
+                                      unawaited(_setVolume(value)),
+                                  onMute: () => unawaited(_toggleMute()),
+                                  onRate: (value) =>
+                                      unawaited(_setPlaybackRate(value)),
+                                  onScreenshot: () =>
+                                      unawaited(_captureScreenshot()),
+                                  abRepeatLabel: _abLoopEnd != null
+                                      ? 'A-B'
+                                      : _abLoopStart != null
+                                      ? 'A'
+                                      : 'AB',
+                                  abRepeatTooltip: _abLoopEnd != null
+                                      ? '关闭 A-B 循环'
+                                      : _abLoopStart != null
+                                      ? '设置 B 点'
+                                      : '设置 A 点',
+                                  onAbRepeat: () =>
+                                      unawaited(_toggleAbRepeat()),
+                                  onToggleDanmaku: _toggleDanmaku,
+                                  onSettings: () =>
+                                      unawaited(_showPlaybackSettingsPanel()),
+                                  onSettingsAt: (anchor) => _openHoverOverlay(
+                                    PlayerHoverOverlayKind.settings,
                                     anchor,
                                     immediate: true,
-                                  )
-                                : null,
-                            onAudio: () => unawaited(_showTracks(audio: true)),
-                            onSubtitle: () =>
-                                unawaited(_showTracks(audio: false)),
-                            onAudioAt: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.audio,
-                              anchor,
-                              immediate: true,
-                            ),
-                            onSubtitleAt: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.subtitle,
-                              anchor,
-                              immediate: true,
-                            ),
-                            onQuality:
-                                _source.qualities.isEmpty ||
-                                    widget.reloadSource == null
-                                ? null
-                                : () => unawaited(_showQualities()),
-                            onQualityAt: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.quality,
-                              anchor,
-                              immediate: true,
-                            ),
-                            onSpeedAt: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.speed,
-                              anchor,
-                              immediate: true,
-                            ),
-                            onHoverSpeed: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.speed,
-                              anchor,
-                            ),
-                            onHoverEpisodes: _canBrowseEpisodes
-                                ? (anchor) => _openHoverOverlay(
-                                    PlayerHoverOverlayKind.episodes,
+                                  ),
+                                  onNext: _nextEpisode == null
+                                      ? null
+                                      : () => unawaited(_showNextEpisode()),
+                                  onHoverNext: _nextEpisode == null
+                                      ? null
+                                      : (anchor) => _openHoverOverlay(
+                                          PlayerHoverOverlayKind.nextEpisode,
+                                          anchor,
+                                        ),
+                                  onPrevious: _previousEpisode == null
+                                      ? null
+                                      : () => unawaited(_showPreviousEpisode()),
+                                  onHoverPrevious: _previousEpisode == null
+                                      ? null
+                                      : (anchor) => _openHoverOverlay(
+                                          PlayerHoverOverlayKind
+                                              .previousEpisode,
+                                          anchor,
+                                        ),
+                                  onEpisodes: _canBrowseEpisodes
+                                      ? () => unawaited(_showEpisodes())
+                                      : null,
+                                  onEpisodesAt: _canBrowseEpisodes
+                                      ? (anchor) => _openHoverOverlay(
+                                          PlayerHoverOverlayKind.episodes,
+                                          anchor,
+                                          immediate: true,
+                                        )
+                                      : null,
+                                  onAudio: () =>
+                                      unawaited(_showTracks(audio: true)),
+                                  onSubtitle: () =>
+                                      unawaited(_showTracks(audio: false)),
+                                  onAudioAt: (anchor) => _openHoverOverlay(
+                                    PlayerHoverOverlayKind.audio,
                                     anchor,
-                                  )
-                                : null,
-                            onHoverQuality:
-                                _source.qualities.isEmpty ||
-                                    widget.reloadSource == null
-                                ? null
-                                : (anchor) => _openHoverOverlay(
+                                    immediate: true,
+                                  ),
+                                  onSubtitleAt: (anchor) => _openHoverOverlay(
+                                    PlayerHoverOverlayKind.subtitle,
+                                    anchor,
+                                    immediate: true,
+                                  ),
+                                  onQuality:
+                                      _source.qualities.isEmpty ||
+                                          widget.reloadSource == null
+                                      ? null
+                                      : () => unawaited(_showQualities()),
+                                  onQualityAt: (anchor) => _openHoverOverlay(
                                     PlayerHoverOverlayKind.quality,
                                     anchor,
+                                    immediate: true,
                                   ),
-                            onHoverSubtitle: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.subtitle,
-                              anchor,
-                            ),
-                            onHoverAudio: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.audio,
-                              anchor,
-                            ),
-                            onHoverSettings: (anchor) => _openHoverOverlay(
-                              PlayerHoverOverlayKind.settings,
-                              anchor,
-                            ),
-                            onHoverExit: _scheduleHoverOverlayClose,
-                            onAddBookmark: () => unawaited(_addBookmark()),
-                          ),
-                        ),
+                                  onSpeedAt: (anchor) => _openHoverOverlay(
+                                    PlayerHoverOverlayKind.speed,
+                                    anchor,
+                                    immediate: true,
+                                  ),
+                                  onHoverSpeed: (anchor) => _openHoverOverlay(
+                                    PlayerHoverOverlayKind.speed,
+                                    anchor,
+                                  ),
+                                  onHoverEpisodes: _canBrowseEpisodes
+                                      ? (anchor) => _openHoverOverlay(
+                                          PlayerHoverOverlayKind.episodes,
+                                          anchor,
+                                        )
+                                      : null,
+                                  onHoverQuality:
+                                      _source.qualities.isEmpty ||
+                                          widget.reloadSource == null
+                                      ? null
+                                      : (anchor) => _openHoverOverlay(
+                                          PlayerHoverOverlayKind.quality,
+                                          anchor,
+                                        ),
+                                  onHoverSubtitle: (anchor) =>
+                                      _openHoverOverlay(
+                                        PlayerHoverOverlayKind.subtitle,
+                                        anchor,
+                                      ),
+                                  onHoverAudio: (anchor) => _openHoverOverlay(
+                                    PlayerHoverOverlayKind.audio,
+                                    anchor,
+                                  ),
+                                  onHoverSettings: (anchor) =>
+                                      _openHoverOverlay(
+                                        PlayerHoverOverlayKind.settings,
+                                        anchor,
+                                      ),
+                                  onHoverExit: _scheduleHoverOverlayClose,
+                                  onAddBookmark: () =>
+                                      unawaited(_addBookmark()),
+                                ),
+                              ),
                       ),
                     ),
                     _buildHoverOverlayLayer(),

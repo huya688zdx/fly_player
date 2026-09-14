@@ -33,6 +33,10 @@ Four top-level providers (`lib/providers/`): `NasProvider` (NAS connection + aut
 
 实际播放走平台宿主接口 `lib/playback/playback_host.dart`。Android 实现通过 `NativePlaybackHost` / `NativePlayerBridge` 拉起 `NativePlayerActivity`，原生壳只消费 `MpvMediaSource.toMap()` 产出的 loadArgs JSON 与反向通道回调。新增后端不得直接依赖 Android Activity；新增平台只实现 `PlaybackHost`。
 
+Apple 适配：`PlaybackPlatform` 独立判断播放能力，Windows / iOS / macOS 使用 `DesktopPlaybackHost` 的 media_kit 会话，iOS 使用 `TouchPlayerControls`；Linux 等未支持平台返回 `UnsupportedPlaybackHost`。播放入口必须在注册 Android 反向通道前分流。桌面 UI 断点仍用 `DesktopEnvironment`，不要将 iOS 视为桌面。
+
+Apple 原生工程位于 `ios/` / `macos/`，共用 `ios/Runner/AppleCredentialStore.swift` 实现 Keychain 通道。iOS 文件访问使用 Documents 沙盒，macOS 使用系统 Downloads；Android SAF 接口仅 Android 可调用。最低版本、构建与验证说明见 `docs/apple-platform-support.md`。
+
 ### Danmaku module (`lib/danmaku/`)
 
 弹幕数据源、设置、导入解析和原生壳回调仍由 Flutter 侧维护；已删除旧 Flutter render/controller 层。弹幕网络请求走 `lib/danmaku/api/`，不得直接通过 `feiniu_api.dart`。

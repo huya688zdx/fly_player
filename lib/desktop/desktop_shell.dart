@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -430,14 +431,22 @@ class _DesktopShellState extends State<DesktopShell>
     return ChangeNotifierProvider<DesktopSplitController>.value(
       value: _splitController,
       child: Shortcuts(
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.keyK, control: true):
-              _DesktopOpenSearchIntent(),
-          SingleActivator(LogicalKeyboardKey.escape): _DesktopEscapeIntent(),
-          SingleActivator(LogicalKeyboardKey.digit1): _DesktopTabIntent(0),
-          SingleActivator(LogicalKeyboardKey.numpad1): _DesktopTabIntent(0),
-          SingleActivator(LogicalKeyboardKey.digit2): _DesktopTabIntent(1),
-          SingleActivator(LogicalKeyboardKey.numpad2): _DesktopTabIntent(1),
+        shortcuts: <ShortcutActivator, Intent>{
+          const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+              const _DesktopOpenSearchIntent(),
+          if (defaultTargetPlatform == TargetPlatform.macOS)
+            const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+                const _DesktopOpenSearchIntent(),
+          const SingleActivator(LogicalKeyboardKey.escape):
+              const _DesktopEscapeIntent(),
+          const SingleActivator(LogicalKeyboardKey.digit1):
+              const _DesktopTabIntent(0),
+          const SingleActivator(LogicalKeyboardKey.numpad1):
+              const _DesktopTabIntent(0),
+          const SingleActivator(LogicalKeyboardKey.digit2):
+              const _DesktopTabIntent(1),
+          const SingleActivator(LogicalKeyboardKey.numpad2):
+              const _DesktopTabIntent(1),
         },
         child: Actions(
           actions: <Type, Action<Intent>>{

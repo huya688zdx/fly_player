@@ -1,6 +1,6 @@
 # Fly Player
 
-基于 Flutter 开发的 Android 播放器，面向飞牛 NAS 媒体库场景，集成 `mpv-android` 作为原生播放内核。
+基于 Flutter 开发的播放器，面向飞牛 NAS 媒体库场景。Android 使用 `mpv-android`，Windows、iOS、macOS 使用 `media_kit`。Apple 工程、构建方式和待完成的实机验证见 [iOS / macOS 适配说明](docs/apple-platform-support.md)。
 
 当前项目重点是：
 
@@ -69,7 +69,7 @@ android/app/src/main/kotlin/.../mpv/
 
 ## 环境要求
 
-- Flutter SDK `3.11.0` 或兼容版本
+- Flutter SDK `3.41.9`（Dart `3.11`）或兼容版本
 - Android 开发环境
 - JDK / Android SDK / Gradle
 

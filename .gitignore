@@ -45,6 +45,16 @@ flutter
 !windows/flutter/generated_plugin_registrant.cc
 !windows/flutter/generated_plugin_registrant.h
 !windows/flutter/generated_plugins.cmake
+# Apple runner configuration is source; generated build files remain ignored
+# by the platform .gitignore files.
+!ios/Flutter/
+!ios/Flutter/AppFrameworkInfo.plist
+!ios/Flutter/Debug.xcconfig
+!ios/Flutter/Release.xcconfig
+!macos/Flutter/
+!macos/Flutter/Flutter-Debug.xcconfig
+!macos/Flutter/Flutter-Release.xcconfig
+!macos/Flutter/GeneratedPluginRegistrant.swift
 *.rar
 probe_*
 tmp_*

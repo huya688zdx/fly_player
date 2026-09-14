@@ -61,7 +61,7 @@ void main() {
       );
     });
 
-    test('Windows 宿主负责初始化桌面内核并推入根 Navigator', () {
+    test('media_kit 宿主负责初始化内核并推入根 Navigator', () {
       const selectorPath = 'lib/playback/platform_playback_host.dart';
       const desktopHostPath = 'lib/desktop/playback/desktop_playback_host.dart';
       expect(File(selectorPath).existsSync(), isTrue);
@@ -77,7 +77,7 @@ void main() {
         'lib/playback/native_playback_host.dart',
       ).readAsStringSync();
 
-      expect(selector, contains('DesktopEnvironment.isWindows'));
+      expect(selector, contains('PlaybackPlatform.usesMediaKit'));
       expect(selector, contains('DesktopPlaybackHost(context)'));
       expect(selector, contains('NativePlaybackHost'));
       expect(desktopHost, contains('MediaKit.ensureInitialized()'));

@@ -201,3 +201,9 @@ class MethodChannelStorageManagementHost implements StorageManagementHost {
   Future<bool?> requestFileAccess() =>
       _channel.invokeMethod<bool>('requestFileAccess');
 }
+
+/// iOS 没有 Android 原生磁盘缓存、MediaStore 截图库或 SAF 授权。
+/// 下载、数据库和偏好设置继续由 StorageManagementService 的 Dart 层统计。
+class IosStorageManagementHost extends DesktopStorageManagementHost {
+  const IosStorageManagementHost();
+}

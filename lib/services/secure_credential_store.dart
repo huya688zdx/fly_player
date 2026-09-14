@@ -165,7 +165,8 @@ class MemorySecureCredentialBackend implements SecureCredentialBackend {
 class SecureCredentialStore {
   static SecureCredentialBackend _backend = _defaultBackend();
 
-  /// 平台默认后端：Android 走 `fly_player/secret_store` 原生通道；Windows 桌面
+  /// 平台默认后端：Android 和 Apple 走 `fly_player/secret_store` 原生通道，
+  /// Apple Runner 用 Keychain 实现该通道；Windows 桌面
   /// 无该通道实现，改用 DPAPI（当前用户加密）后端，否则 NasProvider 启动恢复
   /// 凭据时会抛 SecureCredentialUnavailableException（桌面首启「加载失败」）。
   /// 测试环境（TestDefaultBinaryMessenger）保持内存后端语义不变。

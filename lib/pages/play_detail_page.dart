@@ -32,6 +32,7 @@ import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../playback/platform_playback_host.dart';
+import '../playback/playback_platform.dart';
 import '../playback/playback_source.dart';
 import '../playback/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
@@ -2540,16 +2541,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       action: () async {
         if (!mounted) return;
         final l10n = AppLocalizations.of(context);
-        if (DesktopEnvironment.isDesktopPlatform &&
-            !DesktopEnvironment.isWindows) {
+        if (!PlaybackPlatform.isSupported) {
           _showTopTip(
             ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
             context.appColors.warning,
           );
           return;
         }
-        // Windows 必须在 Android 反向通道、弹幕预取和回前台标记之前分流。
-        if (DesktopEnvironment.isWindows) {
+        // media_kit 平台在 Android 反向通道、弹幕预取和回前台标记之前分流。
+        if (PlaybackPlatform.usesMediaKit) {
           if (await playbackHostFor(context).launch(source: source)) {
             return;
           }
