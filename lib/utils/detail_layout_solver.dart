@@ -21,11 +21,15 @@ class DetailLayoutSolver {
   const DetailLayoutSolver._();
 
   static const desktopPosterWidth = 168.0;
-  static const desktopActionWidth = 420.0;
+  static const desktopActionWidth = 360.0;
+  static const desktopControlHeight = 42.0;
   static const desktopInlineControlsWidth = 1000.0;
 
   static bool usesDesktopLayout(double width) =>
       DesktopEnvironment.isDesktopPlatform && width >= 800;
+
+  static double desktopPosterWidthFor(double width) =>
+      width < 1180 ? 152.0 : desktopPosterWidth;
 
   /// 正文、标题和骨架共用边距，背景仍铺满窗口。
   static double horizontalPadding(double width) => usesDesktopLayout(width)
@@ -36,10 +40,8 @@ class DetailLayoutSolver {
       (size.height * 0.50).clamp(300.0, 420.0);
 
   static double desktopSeasonHeaderTop(Size size, double safeTop) =>
-      (desktopHeroHeight(size) - desktopPosterWidth * 1.45 - 24).clamp(
-        safeTop + 72,
-        double.infinity,
-      );
+      (desktopHeroHeight(size) - desktopPosterWidthFor(size.width) * 1.45 - 24)
+          .clamp(safeTop + 72, double.infinity);
 
   static double _safeClamp(double value, double a, double b) {
     final min = a <= b ? a : b;

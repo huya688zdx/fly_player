@@ -947,6 +947,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   }
 
   Widget _seasonNumberWidget(AppThemeColors colors, MediaLibraryItem season) {
+    final desktop = DetailLayoutSolver.usesDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    );
     final metaPrimary = colors.backgroundBase.computeLuminance() >= 0.58
         ? const Color(0xFF182132)
         : colors.textPrimary;
@@ -956,7 +959,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _seasonLabel(season),
         style: TextStyle(
           color: metaPrimary,
-          fontSize: 20,
+          fontSize: desktop ? 14 : 20,
           fontWeight: FontWeight.w500,
         ),
       );
@@ -969,7 +972,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         key: ValueKey<int>(seasonNo),
         style: TextStyle(
           color: metaPrimary,
-          fontSize: 20,
+          fontSize: desktop ? 14 : 20,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1695,7 +1698,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         : expectedCount > 0;
 
     final posterWidth = desktop
-        ? DetailLayoutSolver.desktopPosterWidth
+        ? DetailLayoutSolver.desktopPosterWidthFor(screenSize.width)
         : (screenSize.width * (isLandscape ? 0.30 : 0.36)).clamp(
             136.0,
             isLandscape ? 182.0 : 188.0,
@@ -1731,7 +1734,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     final titleFontSize = isLandscape
         ? (screenSize.width * 0.028).clamp(30.0, 38.0)
         : 24.0;
-    final playLabelFontSize = (20.0 * textScale).clamp(18.0, 24.0);
+    final playLabelFontSize = desktop
+        ? 16.0
+        : (20.0 * textScale).clamp(18.0, 24.0);
 
     final metaPrimary = colors.backgroundBase.computeLuminance() >= 0.58
         ? const Color(0xFF182132)
@@ -1747,7 +1752,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             seasonLabel,
             style: TextStyle(
               color: metaPrimary,
-              fontSize: 20,
+              fontSize: desktop ? 14 : 20,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1759,21 +1764,27 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                   AppLocalizations.of(
                     context,
                   ).detailRatingScore(rating.toStringAsFixed(1)),
-                  style: const TextStyle(
-                    color: Color(0xFFF2D34B),
-                    fontSize: 17,
+                  style: TextStyle(
+                    color: const Color(0xFFF2D34B),
+                    fontSize: desktop ? 14 : 17,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               if (rating > 0 && year.isNotEmpty)
                 Text(
                   '  /  ',
-                  style: TextStyle(color: colors.textSecondary, fontSize: 17),
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: desktop ? 13 : 17,
+                  ),
                 ),
               if (year.isNotEmpty)
                 Text(
                   year,
-                  style: TextStyle(color: colors.textSecondary, fontSize: 17),
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: desktop ? 13 : 17,
+                  ),
                 ),
             ],
           ),
@@ -1800,6 +1811,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
               transitionTintColor: heroFogBase,
               transitionBodyColor: colors.backgroundBase,
               overlayOpacity: 0.0,
+              useDesktopReadingScrim: desktop,
             );
           },
         ),
@@ -3118,7 +3130,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             .toList();
 
         final posterWidth = desktop
-            ? DetailLayoutSolver.desktopPosterWidth
+            ? DetailLayoutSolver.desktopPosterWidthFor(screenSize.width)
             : (screenSize.width * (isLandscape ? 0.30 : 0.36)).clamp(
                 136.0,
                 isLandscape ? 182.0 : 188.0,
@@ -3155,7 +3167,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         final titleFontSize = isLandscape
             ? (screenSize.width * 0.028).clamp(30.0, 38.0)
             : 24.0;
-        final playLabelFontSize = (20.0 * textScale).clamp(18.0, 24.0);
+        final playLabelFontSize = desktop
+            ? 16.0
+            : (20.0 * textScale).clamp(18.0, 24.0);
 
         final pageBody = _loading
             ? DetailLoadingSkeleton(presentation: widget.presentation)
@@ -3184,6 +3198,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         transitionTintColor: heroFogBase,
                         transitionBodyColor: colors.backgroundBase,
                         overlayOpacity: 0.0,
+                        useDesktopReadingScrim: desktop,
                       );
                     },
                   ),
@@ -3248,9 +3263,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                               ).detailRatingScore(
                                                 rating.toStringAsFixed(1),
                                               ),
-                                              style: const TextStyle(
-                                                color: Color(0xFFF2D34B),
-                                                fontSize: 17,
+                                              style: TextStyle(
+                                                color: const Color(0xFFF2D34B),
+                                                fontSize: desktop ? 14 : 17,
                                                 fontWeight: FontWeight.w500,
                                               ),
                                             ),
@@ -3259,7 +3274,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                               '  /  ',
                                               style: TextStyle(
                                                 color: colors.textSecondary,
-                                                fontSize: 17,
+                                                fontSize: desktop ? 13 : 17,
                                               ),
                                             ),
                                           if (year.isNotEmpty)
@@ -3267,7 +3282,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                               year,
                                               style: TextStyle(
                                                 color: colors.textSecondary,
-                                                fontSize: 17,
+                                                fontSize: desktop ? 13 : 17,
                                               ),
                                             ),
                                         ],
