@@ -9,6 +9,7 @@ import '../../theme/detail_tokens.dart';
 import '../../ui/app_transitions.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
+import '../../utils/detail_layout_solver.dart';
 import '../common/liquid_glass.dart';
 import 'capability_badge.dart';
 
@@ -331,11 +332,11 @@ class _PreviewGridState extends State<_PreviewGrid> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final cardWidth =
-            ((width - DetailTokens.screenHorizontalPadding * 2 - 10) / 2).clamp(
-              160.0,
-              206.0,
-            );
+        final desktop = DetailLayoutSolver.usesDesktopLayout(width);
+        final cardWidth = desktop
+            ? (width - 12 * 3) / 4
+            : ((width - DetailTokens.screenHorizontalPadding * 2 - 10) / 2)
+                  .clamp(160.0, 206.0);
         final imageHeight = cardWidth * 9 / 16;
         final textScale = MediaQuery.of(
           context,
@@ -352,7 +353,9 @@ class _PreviewGridState extends State<_PreviewGrid> {
             controller: _scrollController,
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.only(right: 4),
+            padding: desktop
+                ? EdgeInsets.zero
+                : const EdgeInsets.only(right: 4),
             itemCount: widget.entries.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
             itemBuilder: (context, index) {

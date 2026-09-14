@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
+import '../../utils/detail_layout_solver.dart';
 import '../common/liquid_glass.dart';
 import 'detail_surface.dart';
 
@@ -29,15 +30,20 @@ class DetailIconButton extends StatelessWidget {
     final colors = context.appColors;
     final accentForeground = Theme.of(context).colorScheme.onPrimary;
     final isTop = style == DetailIconButtonStyle.top;
+    final desktop = DetailLayoutSolver.usesDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    );
     final isHeart = iconAsset.contains('heart.svg');
     final size = isTop
         ? DetailTokens.topButtonSize
+        : desktop
+        ? DetailLayoutSolver.desktopControlHeight
         : DetailTokens.circleButtonSize;
-    final radius = isTop
-        ? DetailTokens.topButtonRadius
-        : DetailTokens.circleButtonRadius;
+    final radius = isTop ? DetailTokens.topButtonRadius : size / 2;
     final iconSize = isTop
         ? DetailTokens.topButtonIconSize
+        : desktop
+        ? 18.0
         : DetailTokens.circleButtonIconSize;
     final resolvedIconAsset = selected && selectedIconAsset != null
         ? selectedIconAsset!

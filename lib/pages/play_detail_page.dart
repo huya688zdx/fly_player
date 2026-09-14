@@ -3274,6 +3274,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               imageAlignment: persistentImageAlignment,
               parallaxFactor: 1.0,
               overlayOpacity: 0.62,
+              useDesktopReadingScrim: DetailLayoutSolver.usesDesktopLayout(
+                persistentMedia.size.width,
+              ),
               ambientTintOverride: ambientTint,
             );
           },

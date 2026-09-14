@@ -128,7 +128,8 @@ void main() {
     );
     expect(poster.left, 50);
     expect(actions.left, greaterThan(poster.right));
-    expect(actions.width, lessThanOrEqualTo(420));
+    expect(actions.width, 360);
+    expect(actions.height, 42);
     expect(actions.bottom, closeTo(poster.bottom, 0.1));
     await tester.pumpWidget(
       const MaterialApp(
@@ -142,7 +143,7 @@ void main() {
       tester
           .getTopLeft(find.byKey(const ValueKey('detail-skeleton-actions')))
           .dx,
-      810,
+      870,
     );
     expect(tester.takeException(), isNull);
   });

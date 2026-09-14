@@ -79,7 +79,9 @@ class TvEpisodePickerSheet {
           backgroundColor: Colors.transparent,
           elevation: 0,
           insetPadding: const EdgeInsets.all(32),
-          constraints: const BoxConstraints(maxWidth: 960),
+          constraints: BoxConstraints(
+            maxWidth: math.min(860, MediaQuery.sizeOf(context).width * 0.80),
+          ),
           child: AppRuntimeColorScope(
             colors: colors,
             hasRuntimeColors: hasRuntimeColors,
@@ -197,8 +199,8 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
     final media = MediaQuery.of(context);
     final height = widget.desktop
         ? math.min(
-            680.0,
-            math.max(0.0, media.size.height - media.padding.vertical - 64),
+            600.0,
+            math.max(0.0, media.size.height - media.padding.vertical) * 0.78,
           )
         : media.size.height * 0.72;
     final ranges = _buildEpisodeRanges(
@@ -300,7 +302,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                               '/',
                               style: TextStyle(
                                 color: colors.textSecondary,
-                                fontSize: 17,
+                                fontSize: widget.desktop ? 13 : 17,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -319,7 +321,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                                   widget.seasons[i].guid == _selectedSeasonGuid
                                   ? colors.selection
                                   : colors.textSecondary,
-                              fontSize: 17,
+                              fontSize: widget.desktop ? 14 : 17,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -328,7 +330,8 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                     ],
                   ),
                 ),
-              const SizedBox(height: 14),
+              if (!widget.desktop || ranges.length > 1)
+                const SizedBox(height: 14),
               if (ranges.length > 1)
                 Container(
                   padding: const EdgeInsets.all(10),
@@ -533,8 +536,8 @@ class _EpisodeListViewState extends State<_EpisodeListView> {
           itemCount: widget.entries.length,
           padding: const EdgeInsets.only(right: 12),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: constraints.maxWidth >= 760 ? 2 : 1,
-            mainAxisExtent: 88,
+            crossAxisCount: constraints.maxWidth >= 640 ? 2 : 1,
+            mainAxisExtent: 80,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
           ),
@@ -551,36 +554,48 @@ class _EpisodeListViewState extends State<_EpisodeListView> {
       entry.durationText,
       maxLines: widget.desktop ? 1 : null,
       overflow: widget.desktop ? TextOverflow.ellipsis : null,
-      style: TextStyle(color: colors.textSecondary, fontSize: 13),
+      style: TextStyle(
+        color: colors.textSecondary,
+        fontSize: widget.desktop ? 11 : 13,
+      ),
     );
     final status = Text(
       entry.statusLabel,
       style: TextStyle(
         color: _episodeStatusColor(context, entry.statusTone),
-        fontSize: 13,
+        fontSize: widget.desktop ? 11 : 13,
         fontWeight: FontWeight.w600,
       ),
     );
     return InkWell(
       onTap: () => widget.onTap(entry.guid),
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(widget.desktop ? 10 : 14),
       child: Container(
         padding: const EdgeInsets.all(10),
-        decoration: liquidGlassDecoration(
-          context,
-          radius: 14,
-          tone: entry.selected
-              ? LiquidGlassTone.accent
-              : LiquidGlassTone.neutral,
-          selected: entry.selected,
-        ),
+        decoration: widget.desktop && !entry.selected
+            ? BoxDecoration(
+                color: colors.surface.withValues(alpha: 0.40),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: colors.borderSubtle.withValues(alpha: 0.60),
+                  width: 0.7,
+                ),
+              )
+            : liquidGlassDecoration(
+                context,
+                radius: widget.desktop ? 10 : 14,
+                tone: entry.selected
+                    ? LiquidGlassTone.accent
+                    : LiquidGlassTone.neutral,
+                selected: entry.selected,
+              ),
         child: Row(
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: SizedBox(
-                width: widget.desktop ? 112 : 122,
-                height: widget.desktop ? 63 : 68,
+                width: widget.desktop ? 96 : 122,
+                height: widget.desktop ? 54 : 68,
                 child: DetailHeroImage(
                   images: mediaImageRequestForUrls(
                     entry.imageUrls,
@@ -605,11 +620,11 @@ class _EpisodeListViewState extends State<_EpisodeListView> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: colors.textPrimary,
-                      fontSize: 16,
+                      fontSize: widget.desktop ? 13 : 16,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: widget.desktop ? 6 : 8),
                   if (widget.desktop)
                     Row(
                       children: [
@@ -692,18 +707,27 @@ class _EpisodeGridViewState extends State<_EpisodeGridView> {
             final selected = entry.selected;
             return InkWell(
               onTap: () => widget.onTap(entry.guid),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(widget.desktop ? 10 : 12),
               child: AnimatedContainer(
                 duration: AppTransitions.switchDuration,
                 curve: Curves.easeOutCubic,
-                decoration: liquidGlassDecoration(
-                  context,
-                  radius: 12,
-                  tone: selected
-                      ? LiquidGlassTone.accent
-                      : LiquidGlassTone.neutral,
-                  selected: selected,
-                ),
+                decoration: widget.desktop && !selected
+                    ? BoxDecoration(
+                        color: colors.surface.withValues(alpha: 0.40),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: colors.borderSubtle.withValues(alpha: 0.60),
+                          width: 0.7,
+                        ),
+                      )
+                    : liquidGlassDecoration(
+                        context,
+                        radius: widget.desktop ? 10 : 12,
+                        tone: selected
+                            ? LiquidGlassTone.accent
+                            : LiquidGlassTone.neutral,
+                        selected: selected,
+                      ),
                 child: Stack(
                   children: [
                     Center(

@@ -33,6 +33,7 @@ class ImmersiveDetailBackground extends StatefulWidget {
   final double parallaxFactor;
   final double overlayOpacity;
   final double maxScrollZoom;
+  final bool useDesktopReadingScrim;
 
   const ImmersiveDetailBackground({
     super.key,
@@ -50,6 +51,7 @@ class ImmersiveDetailBackground extends StatefulWidget {
     this.parallaxFactor = 0.40,
     this.overlayOpacity = 1.0,
     this.maxScrollZoom = 1.24,
+    this.useDesktopReadingScrim = false,
   });
 
   @override
@@ -318,6 +320,26 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                         ),
                       ),
                     ),
+                    if (widget.useDesktopReadingScrim)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              // 横排标题需要左侧阅读底色，不能只依赖图片底部渐变。
+                              gradient: LinearGradient(
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                colors: [
+                                  transitionBody.withValues(alpha: 0.94),
+                                  transitionBody.withValues(alpha: 0.82),
+                                  transitionBody.withValues(alpha: 0.28),
+                                ],
+                                stops: const [0, 0.48, 1],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     Positioned(
                       key: const ValueKey<String>('detail-hero-transition'),
                       left: 0,
