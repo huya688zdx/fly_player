@@ -24,7 +24,7 @@ import '../../services/server_reentry_support.dart';
 import 'desktop_playback_screen.dart';
 import 'desktop_playback_session.dart';
 
-/// Windows 桌面播放宿主：初始化桌面内核并把正式播放页推入根导航栈。
+/// 桌面播放宿主：初始化内核并把正式播放页推入根导航栈。
 final class DesktopPlaybackHost implements PlaybackHost {
   const DesktopPlaybackHost(this.context);
 
@@ -84,7 +84,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
       return false;
     }
 
-    // 只在 Windows 桌面播放真正启动时初始化，Android 主路径不会触发。
+    // 只在桌面播放真正启动时初始化，Android 主路径不会触发。
     MediaKit.ensureInitialized();
     if (_route?.isActive == false) await _route!.completed;
     await _session?.dispose();

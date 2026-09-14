@@ -894,7 +894,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final actionKey = 'download_group_play:${widget.groupId.trim()}';
-    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+    if (DesktopEnvironment.isDesktopPlatform &&
+        !DesktopEnvironment.supportsPlayback) {
       _topTip.show(
         context,
         message: ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
@@ -947,8 +948,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
               : await _nativeEpisodesPayload(provider, source);
 
           if (!mounted) return;
-          // Windows 先进入桌面宿主，不注册 Android 反向 MethodChannel。
-          if (DesktopEnvironment.isWindows) {
+          // 桌面平台直接进入播放宿主，不注册 Android 反向 MethodChannel。
+          if (DesktopEnvironment.supportsPlayback) {
             if (await playbackHostFor(context).launch(
               source: source,
               episodes: nativeEpisodes,

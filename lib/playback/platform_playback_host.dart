@@ -5,9 +5,9 @@ import '../desktop/playback/desktop_playback_host.dart';
 import 'native_playback_host.dart';
 import 'playback_host.dart';
 
-/// 按当前平台选择唯一播放宿主；本轮仅 Windows 启用桌面播放页。
+/// Windows 和 Linux 复用桌面播放宿主。
 PlaybackHost playbackHostFor(BuildContext context) {
-  if (DesktopEnvironment.isWindows) {
+  if (DesktopEnvironment.supportsPlayback) {
     return DesktopPlaybackHost(context);
   }
   return NativePlaybackHost(context);
