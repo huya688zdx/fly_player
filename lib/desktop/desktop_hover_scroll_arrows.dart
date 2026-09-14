@@ -144,7 +144,7 @@ class _HoverScrollArrowsState extends State<HoverScrollArrows> {
 }
 
 /// 自带控制器的横向滚动行宿主：桌面档（[enabled]）把 builder 产物接上
-/// [HoverScrollArrows]（居中圆角按钮）；非桌面档原样透出，零改动。
+/// [HoverScrollArrows]（居中圆形按钮）；非桌面档原样透出，零改动。
 /// 控制器由宿主持有与销毁，调用方只需把 controller 挂到滚动视图上。
 class HoverScrollRow extends StatefulWidget {
   const HoverScrollRow({
@@ -185,7 +185,7 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
   }
 }
 
-/// 可见区域与点击区域一致的圆角按钮，隐藏时不拦截卡片点击。
+/// 圆形翻页按钮，隐藏时不拦截卡片点击。
 class _ScrollArrow extends StatefulWidget {
   const _ScrollArrow({
     required this.visible,
@@ -209,8 +209,13 @@ class _ScrollArrowState extends State<_ScrollArrow> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     final isLeft = widget.icon == Icons.chevron_left;
     final hovering = widget.enabled && _hovering;
+    final foreground = isLight ? colors.surface : colors.textPrimary;
+    final neutralScrim = HSLColor.fromColor(
+      colors.overlayScrim,
+    ).withSaturation(0).toColor();
     return IgnorePointer(
       ignoring: !widget.visible,
       child: AnimatedOpacity(
@@ -237,18 +242,25 @@ class _ScrollArrowState extends State<_ScrollArrow> {
                   height: 48,
                   duration: DesktopTokens.hoverDuration,
                   decoration: BoxDecoration(
-                    color: hovering ? colors.accentSoft : colors.surfaceStrong,
-                    borderRadius: BorderRadius.circular(12),
+                    color: Color.lerp(
+                      neutralScrim,
+                      foreground,
+                      hovering ? 0.12 : 0,
+                    )!.withValues(alpha: isLight ? 0.74 : 0.64),
+                    shape: BoxShape.circle,
                     border: Border.all(
-                      color: hovering ? colors.accent : colors.borderSubtle,
+                      color: foreground.withValues(
+                        alpha: hovering ? 0.3 : 0.16,
+                      ),
+                      width: 0.8,
                     ),
                   ),
                   child: Icon(
                     widget.icon,
                     size: 24,
-                    color: widget.enabled
-                        ? colors.textPrimary
-                        : colors.textMuted,
+                    color: foreground.withValues(
+                      alpha: widget.enabled ? 0.94 : 0.38,
+                    ),
                   ),
                 ),
               ),

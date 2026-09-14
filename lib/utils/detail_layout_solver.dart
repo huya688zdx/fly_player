@@ -39,6 +39,9 @@ class DetailLayoutSolver {
   static double desktopHeroHeight(Size size) =>
       (size.height * 0.50).clamp(300.0, 420.0);
 
+  static double desktopSeriesHeroHeight(Size size) =>
+      (size.height * 0.34).clamp(200.0, 280.0);
+
   static double desktopSeasonHeaderTop(Size size, double safeTop) =>
       (desktopHeroHeight(size) - desktopPosterWidthFor(size.width) * 1.45 - 24)
           .clamp(safeTop + 72, double.infinity);
