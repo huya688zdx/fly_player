@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 import '../services/fly_data/fly_account_controller.dart';
 import '../services/fly_data/fly_data_service.dart';
@@ -85,16 +86,17 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
     final service = _service!;
     final session = _session;
     if (session == null || !_current(generation)) return;
+    final l10n = AppLocalizations.of(context);
     String? message;
     var failed = false;
     if (sync) {
       try {
         await service.syncNow();
-        message = '同步完成';
+        message = l10n.flySyncCompleted;
       } on FlyNoFactsToSync {
-        message = '暂无待同步记录';
+        message = l10n.flySyncNoPendingRecords;
       } catch (_) {
-        message = '同步未完成，请重试。';
+        message = l10n.flySyncFailed;
         failed = true;
       }
     }
@@ -104,7 +106,7 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
     try {
       state = await service.store.state(session.accountKey);
     } catch (_) {
-      message = '暂时无法读取同步状态';
+      message = l10n.flySyncStatusUnavailable;
       failed = true;
       loaded = false;
     }
@@ -142,10 +144,14 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
 
   String _lastSync(BuildContext context) {
     final milliseconds = _syncState?['last_success_ms'];
-    if (milliseconds is! int) return '尚未同步';
+    if (milliseconds is! int) {
+      return AppLocalizations.of(context).flySyncNeverSynced;
+    }
     final date = DateTime.fromMillisecondsSinceEpoch(milliseconds).toLocal();
     final localizations = MaterialLocalizations.of(context);
-    return '最近同步：${localizations.formatCompactDate(date)} ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date), alwaysUse24HourFormat: true)}';
+    return AppLocalizations.of(context).flySyncLastSync(
+      '${localizations.formatCompactDate(date)} ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date), alwaysUse24HourFormat: true)}',
+    );
   }
 
   @override
@@ -158,14 +164,19 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
     final status =
         _message ??
         (_busy
-            ? (_loaded ? '正在同步…' : '读取中…')
+            ? (_loaded
+                  ? AppLocalizations.of(context).flySyncInProgress
+                  : AppLocalizations.of(context).flySyncReading)
             : pending
-            ? '有记录待同步'
-            : '已登录');
+            ? AppLocalizations.of(context).flySyncPending
+            : AppLocalizations.of(context).flySyncSignedIn);
     return AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: buildSecondaryHostAppBar(context, title: const Text('同步记录')),
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(AppLocalizations.of(context).flySyncRecords),
+        ),
         body: SafeArea(
           top: false,
           child: Align(
@@ -191,7 +202,10 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
                                   ? Icons.person_outline
                                   : Icons.cloud_sync_outlined,
                             ),
-                            title: Text(session?.username ?? '登录后同步观看记录'),
+                            title: Text(
+                              session?.username ??
+                                  AppLocalizations.of(context).flySyncSignIn,
+                            ),
                             subtitle: session == null
                                 ? null
                                 : Semantics(
@@ -214,7 +228,11 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
                                 onPressed: account?.busy == true
                                     ? null
                                     : _openAccount,
-                                child: const Text('选择媒体来源'),
+                                child: Text(
+                                  AppLocalizations.of(
+                                    context,
+                                  ).flySyncChooseSource,
+                                ),
                               )
                             else
                               FilledButton.icon(
@@ -222,7 +240,13 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
                                     ? null
                                     : () => _sync(generation),
                                 icon: const Icon(Icons.sync),
-                                label: Text(_failed || pending ? '重试' : '立即同步'),
+                                label: Text(
+                                  _failed || pending
+                                      ? AppLocalizations.of(context).commonRetry
+                                      : AppLocalizations.of(
+                                          context,
+                                        ).flyDataSyncNowAction,
+                                ),
                               ),
                             if (_busy)
                               const Padding(
@@ -234,7 +258,9 @@ class _FlyDataSettingsScreenState extends State<FlyDataSettingsScreen> {
                               onPressed: account?.busy == true
                                   ? null
                                   : _openAccount,
-                              child: const Text('登录飞翔'),
+                              child: Text(
+                                AppLocalizations.of(context).flyAccountLogin,
+                              ),
                             ),
                         ],
                       ),

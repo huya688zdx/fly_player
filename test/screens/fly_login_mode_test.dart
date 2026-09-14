@@ -41,7 +41,7 @@ void main() {
   });
 
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({'app_locale_mode': 'zh-CN'});
     SecureCredentialStore.setBackendForTesting(MemorySecureCredentialBackend());
     DesktopEnvironment.debugOverridePlatform = false;
   });
