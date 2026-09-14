@@ -108,7 +108,8 @@ MediaSeasonSummary mapFeiniuSeason(MediaLibraryItem item) {
 MediaEpisodeSummary mapFeiniuEpisode(MediaLibraryItem item) {
   return MediaEpisodeSummary(
     id: item.guid,
-    title: item.displayTitle,
+    // displayTitle 优先剧名，选集应保留单集自己的标题。
+    title: item.title.trim().isNotEmpty ? item.title : item.displayTitle,
     seasonNumber: item.seasonNumber,
     episodeNumber: item.episodeNumber,
     overview: item.overview,

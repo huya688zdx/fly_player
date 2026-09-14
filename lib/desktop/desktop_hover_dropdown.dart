@@ -33,7 +33,15 @@ class DesktopHoverDropdownSpec {
     required this.groups,
     this.width = 280,
     this.maxHeight = 380,
-  });
+  }) : contentBuilder = null;
+
+  /// 复用已有复杂面板的内容，定位、外壳和关闭行为仍由公共弹窗负责。
+  const DesktopHoverDropdownSpec.custom({
+    required this.contentBuilder,
+    this.width = 280,
+    this.maxHeight = 380,
+  }) : title = null,
+       groups = const [];
 
   /// 单组便捷构造（字幕/音轨等单列表场景）。
   factory DesktopHoverDropdownSpec.single({
@@ -61,6 +69,7 @@ class DesktopHoverDropdownSpec {
   /// 面板标题；null 时不渲染标题行（排序/布局下拉直接以选项开头）。
   final String? title;
   final List<DesktopDropdownOptionGroup> groups;
+  final WidgetBuilder? contentBuilder;
 
   /// 面板固定宽度（紧凑下拉样式，条目过长省略号截断）。
   final double width;
@@ -116,7 +125,9 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
   bool get _tapMode => widget.activation == DesktopDropdownActivation.tap;
 
-  bool get _enabled => widget.spec != null && widget.spec!.groups.isNotEmpty;
+  bool get _enabled =>
+      widget.spec != null &&
+      (widget.spec!.groups.isNotEmpty || widget.spec!.contentBuilder != null);
 
   void _notifyOpenChanged() => widget.onOpenChanged?.call(_visible);
 
@@ -273,80 +284,88 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                       maxWidth: placement.width,
-                      maxHeight: placement.maxHeight,
+                      maxHeight: spec.contentBuilder == null
+                          ? placement.maxHeight
+                          : spec.maxHeight.clamp(0.0, placement.maxHeight),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (spec.title != null) ...<Widget>[
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 9,
-                              ),
-                              child: Text(
-                                spec.title!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: colors.textSecondary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.3,
+                    child:
+                        spec.contentBuilder?.call(context) ??
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (spec.title != null) ...<Widget>[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                  ),
+                                  child: Text(
+                                    spec.title!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            const SizedBox(height: 9),
-                            Divider(height: 1, color: colors.borderSubtle),
-                            const SizedBox(height: 6),
-                          ],
-                          Flexible(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxHeight: spec.maxHeight,
-                              ),
-                              child: SingleChildScrollView(
-                                padding: EdgeInsets.zero,
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    for (
-                                      var i = 0;
-                                      i < spec.groups.length;
-                                      i++
-                                    ) ...<Widget>[
-                                      if (i > 0) ...<Widget>[
-                                        const SizedBox(height: 4),
-                                        Divider(
-                                          height: 1,
-                                          thickness: 1,
-                                          color: colors.borderSubtle,
-                                        ),
-                                        const SizedBox(height: 4),
+                                const SizedBox(height: 9),
+                                Divider(height: 1, color: colors.borderSubtle),
+                                const SizedBox(height: 6),
+                              ],
+                              Flexible(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxHeight: spec.maxHeight,
+                                  ),
+                                  child: SingleChildScrollView(
+                                    padding: EdgeInsets.zero,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        for (
+                                          var i = 0;
+                                          i < spec.groups.length;
+                                          i++
+                                        ) ...<Widget>[
+                                          if (i > 0) ...<Widget>[
+                                            const SizedBox(height: 4),
+                                            Divider(
+                                              height: 1,
+                                              thickness: 1,
+                                              color: colors.borderSubtle,
+                                            ),
+                                            const SizedBox(height: 4),
+                                          ],
+                                          for (final item
+                                              in spec.groups[i].items)
+                                            _HoverDropdownOptionRow(
+                                              item: item,
+                                              selected:
+                                                  item.id ==
+                                                  spec.groups[i].selectedId,
+                                              onTap: () {
+                                                _close();
+                                                spec.groups[i].onSelected(
+                                                  item.id,
+                                                );
+                                              },
+                                            ),
+                                        ],
                                       ],
-                                      for (final item in spec.groups[i].items)
-                                        _HoverDropdownOptionRow(
-                                          item: item,
-                                          selected:
-                                              item.id ==
-                                              spec.groups[i].selectedId,
-                                          onTap: () {
-                                            _close();
-                                            spec.groups[i].onSelected(item.id);
-                                          },
-                                        ),
-                                    ],
-                                  ],
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
                   ),
                 ),
               ),

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'external_playback_host.dart';
 import 'external_playback_mini_player.dart';
+import 'potplayer_session.dart';
 
 /// 极简模式复用主窗口和播放会话；离开时恢复窗口，不重建导航器。
 class ExternalPlaybackMiniController {
@@ -77,7 +80,8 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
       await windowManager.setAlignment(Alignment.topCenter);
       final position = await windowManager.getPosition();
       await windowManager.setPosition(position + const Offset(0, 12));
-      await windowManager.setAlwaysOnTop(true);
+      if (!mounted) return;
+      await _setPinned(true);
       if (mounted) setState(() => _pinned = true);
     } catch (_) {
       if (_active) await _restore();
@@ -98,6 +102,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
   }
 
   Future<void> _restore() async {
+    await _setPinned(false);
     await windowManager.setResizable(_resizable);
     if (_bounds != null) await windowManager.setBounds(_bounds!);
     if (_maximized) await windowManager.maximize();
@@ -138,12 +143,15 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
     _changing = true;
     try {
       final pinned = !_pinned;
-      await windowManager.setAlwaysOnTop(pinned);
+      await _setPinned(pinned);
       if (mounted) setState(() => _pinned = pinned);
     } finally {
       _changing = false;
     }
   }
+
+  Future<void> _setPinned(bool pinned) =>
+      PotPlayerSession.channel.invokeMethod<void>('setMiniPinned', pinned);
 
   Future<void> _toggleSettings() async {
     if (!_active || !_expanded || _changing) return;
@@ -169,6 +177,13 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
 
   @override
   void dispose() {
+    if (_active) {
+      unawaited(
+        _setPinned(false).catchError((Object error) {
+          debugPrint('关闭极简模式置顶失败：$error');
+        }),
+      );
+    }
     if (identical(ExternalPlaybackMiniController._host, this)) {
       ExternalPlaybackMiniController._host = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
