@@ -2,12 +2,87 @@ import 'package:flutter/gestures.dart';
 import 'package:fly_player/desktop/desktop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/models/tv_episode_browser_models.dart';
 import 'package:fly_player/models/tv_episode_picker_mode.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/detail/tv_episode_browser_section.dart';
+import 'package:fly_player/widgets/detail/tv_episode_picker_sheet.dart';
 
 void main() {
+  testWidgets('桌面选集居中打开并以数字模式返回所选剧集', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    const episode = TvEpisodeCardData(
+      guid: 'episode-1',
+      shortLabel: '1',
+      title: '第一集',
+      summary: '',
+      durationText: '24 分钟',
+      statusLabel: '',
+      imageUrls: <String>[],
+      resolutions: <String>[],
+      selected: false,
+      playing: false,
+      completed: false,
+      progress: 0,
+    );
+    TvEpisodePickerSheetResult? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppThemeBuilder.build(AppThemePreset.midnight),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await TvEpisodePickerSheet.show(
+                  context,
+                  title: '选集',
+                  seasons: const <TvEpisodeSeasonOptionData>[],
+                  initialSeasonGuid: 'season-1',
+                  initialEpisodeGuid: '',
+                  initialMode: TvEpisodePickerMode.list,
+                  rangeSize: 30,
+                  emptyText: '暂无',
+                  token: '',
+                  accessCode: '',
+                  baseUrl: '',
+                  loader: (_) async => const TvEpisodePickerPayload(
+                    totalCount: 1,
+                    entries: <TvEpisodeCardData>[episode],
+                  ),
+                  onModeChanged: (_) async {},
+                );
+              },
+              child: const Text('打开选集'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开选集'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(find.byTooltip('关闭'), findsOneWidget);
+    final panel = tester.getRect(find.byType(DesktopFloatingPanel));
+    expect(panel.center, const Offset(640, 400));
+    expect(panel.size, const Size(960, 680));
+    await tester.tap(find.byIcon(Icons.grid_view_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1'));
+    await tester.pumpAndSettle();
+    expect(result?.seasonGuid, 'season-1');
+    expect(result?.episodeGuid, 'episode-1');
+    expect(result?.mode, TvEpisodePickerMode.grid);
+    expect(find.byType(Dialog), findsNothing);
+  });
+
   testWidgets('桌面窄栏选集定位到续看集后仍可左右翻页', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);

@@ -183,7 +183,10 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return DetailLoadingSkeleton(presentation: widget.presentation);
+      return DetailLoadingSkeleton(
+        presentation: widget.presentation,
+        showPoster: false,
+      );
     }
 
     if (_error != null) {
