@@ -117,7 +117,10 @@ class NativeDanmakuPrefetch {
         (session == null || statsScope == service.currentScope);
     try {
       if (!current()) return null;
-      final result = await (nasCache ?? FlyNasDanmakuCache.instance).resolve(
+      // Explicit reads can wait for a remote NAS; startup keeps its short budget.
+      final cache =
+          nasCache ?? FlyNasDanmakuCache(budget: const Duration(seconds: 12));
+      final result = await cache.resolve(
         statsScope: statsScope,
         itemGuid: itemGuid,
         mediaGuid: mediaGuid,
