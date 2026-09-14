@@ -69,8 +69,10 @@ void main() {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
       await initializeWindowsDataHome();
-      if (Platform.isWindows) {
+      if (Platform.isWindows || Platform.isMacOS) {
         await windowManager.ensureInitialized();
+      }
+      if (Platform.isWindows) {
         await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
         await windowManager.setTitle('飞翔播放器');
       }
