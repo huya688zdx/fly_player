@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../media_backend/media_image_request.dart';
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import 'detail_info_block.dart';
 
@@ -24,13 +25,18 @@ class DetailHeroOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final onImageShadows = <Shadow>[
-      Shadow(
-        color: Colors.black.withValues(alpha: 0.30),
-        blurRadius: 18,
-        offset: const Offset(0, 3),
-      ),
-    ];
+    final colors = context.appColors;
+    final isLight = colors.backgroundBase.computeLuminance() >= 0.58;
+    // 标题位于向页面底色过渡的阅读区，浅色主题不再靠黑色投影托住白字。
+    final onImageShadows = isLight
+        ? const <Shadow>[]
+        : const <Shadow>[
+            Shadow(
+              color: Color(0x38000000),
+              blurRadius: 8,
+              offset: Offset(0, 1),
+            ),
+          ];
     return SizedBox(
       height: height,
       child: Stack(
@@ -44,8 +50,10 @@ class DetailHeroOverlay extends StatelessWidget {
               subtitle: subtitle,
               titleFontSize: titleFontSize,
               titleChild: titleChild,
-              titleColor: Colors.white,
-              subtitleColor: Colors.white.withValues(alpha: 0.92),
+              titleColor: colors.textPrimary,
+              subtitleColor: isLight
+                  ? colors.textSecondary
+                  : colors.textPrimary,
               textShadows: onImageShadows,
             ),
           ),
@@ -141,22 +149,26 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
   }
 
   Widget _fallbackTitle(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = colors.backgroundBase.computeLuminance() >= 0.58;
     return Text(
       widget.fallbackTitle,
       maxLines: 2,
       overflow: TextOverflow.clip,
       style: TextStyle(
-        color: Colors.white,
+        color: colors.textPrimary,
         fontSize: widget.fallbackFontSize ?? DetailTokens.titleFontSize,
         fontWeight: FontWeight.w600,
         height: 1.12,
-        shadows: [
-          Shadow(
-            color: Colors.black.withValues(alpha: 0.30),
-            blurRadius: 18,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        shadows: isLight
+            ? const <Shadow>[]
+            : const <Shadow>[
+                Shadow(
+                  color: Color(0x38000000),
+                  blurRadius: 8,
+                  offset: Offset(0, 1),
+                ),
+              ],
       ),
     );
   }
