@@ -396,10 +396,11 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                       : _mode == TvEpisodePickerMode.list
                       ? _EpisodeListView(
                           key: ValueKey<String>(
-                            'list-${visibleEntries.length}-$_selectedSeasonGuid',
+                            'list-${visibleEntries.length}-$_selectedSeasonGuid-$safeRangeIndex',
                           ),
                           desktop: widget.desktop,
                           entries: visibleEntries,
+                          initialEpisodeGuid: widget.initialEpisodeGuid,
                           token: widget.token,
                           accessCode: widget.accessCode,
                           baseUrl: widget.baseUrl,
@@ -414,10 +415,11 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                         )
                       : _EpisodeGridView(
                           key: ValueKey<String>(
-                            'grid-${visibleEntries.length}-$_selectedSeasonGuid',
+                            'grid-${visibleEntries.length}-$_selectedSeasonGuid-$safeRangeIndex',
                           ),
                           desktop: widget.desktop,
                           entries: visibleEntries,
+                          initialEpisodeGuid: widget.initialEpisodeGuid,
                           onTap: (guid) => Navigator.of(context).pop(
                             TvEpisodePickerSheetResult(
                               seasonGuid: _selectedSeasonGuid,
@@ -463,9 +465,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
     required int rangeSize,
   }) {
     if (entries.isEmpty || rangeSize <= 0) return 0;
-    final index = entries.indexWhere(
-      (entry) => entry.guid == selectedEpisodeGuid,
-    );
+    final index = _currentEpisodeIndex(entries, selectedEpisodeGuid);
     if (index < 0) return 0;
     return index ~/ rangeSize;
   }
@@ -486,9 +486,37 @@ List<List<TvEpisodeCardData>> _buildEpisodeRanges(
   return ranges;
 }
 
+int _currentEpisodeIndex(List<TvEpisodeCardData> entries, String episodeGuid) {
+  final selectedIndex = entries.indexWhere((entry) => entry.selected);
+  return selectedIndex >= 0
+      ? selectedIndex
+      : entries.indexWhere((entry) => entry.guid == episodeGuid);
+}
+
+// 只在视图首次创建时定位，后续重建不会覆盖用户手动滚动的位置。
+double _initialEpisodeOffset({
+  required List<TvEpisodeCardData> entries,
+  required String episodeGuid,
+  required int columns,
+  required double rowHeight,
+  required double spacing,
+  required double viewportHeight,
+}) {
+  final index = _currentEpisodeIndex(entries, episodeGuid);
+  if (index < 0) return 0;
+  final stride = rowHeight + spacing;
+  final contentHeight =
+      ((entries.length + columns - 1) ~/ columns) * stride - spacing;
+  return ((index ~/ columns) * stride - (viewportHeight - rowHeight) / 2).clamp(
+    0.0,
+    math.max(0.0, contentHeight - viewportHeight),
+  );
+}
+
 class _EpisodeListView extends StatefulWidget {
   final bool desktop;
   final List<TvEpisodeCardData> entries;
+  final String initialEpisodeGuid;
   final String token;
   final String accessCode;
   final String baseUrl;
@@ -498,6 +526,7 @@ class _EpisodeListView extends StatefulWidget {
     super.key,
     required this.desktop,
     required this.entries,
+    required this.initialEpisodeGuid,
     required this.token,
     required this.accessCode,
     required this.baseUrl,
@@ -509,11 +538,11 @@ class _EpisodeListView extends StatefulWidget {
 }
 
 class _EpisodeListViewState extends State<_EpisodeListView> {
-  final _scrollController = ScrollController();
+  ScrollController? _scrollController;
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _scrollController?.dispose();
     super.dispose();
   }
 
@@ -528,22 +557,35 @@ class _EpisodeListViewState extends State<_EpisodeListView> {
       );
     }
     return LayoutBuilder(
-      builder: (context, constraints) => Scrollbar(
-        controller: _scrollController,
-        thumbVisibility: true,
-        child: GridView.builder(
-          controller: _scrollController,
-          itemCount: widget.entries.length,
-          padding: const EdgeInsets.only(right: 12),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: constraints.maxWidth >= 640 ? 2 : 1,
-            mainAxisExtent: 80,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 640 ? 2 : 1;
+        final controller = _scrollController ??= ScrollController(
+          initialScrollOffset: _initialEpisodeOffset(
+            entries: widget.entries,
+            episodeGuid: widget.initialEpisodeGuid,
+            columns: columns,
+            rowHeight: 80,
+            spacing: 12,
+            viewportHeight: constraints.maxHeight,
           ),
-          itemBuilder: _buildEntry,
-        ),
-      ),
+        );
+        return Scrollbar(
+          controller: controller,
+          thumbVisibility: true,
+          child: GridView.builder(
+            controller: controller,
+            itemCount: widget.entries.length,
+            padding: const EdgeInsets.only(right: 12),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisExtent: 80,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+            ),
+            itemBuilder: _buildEntry,
+          ),
+        );
+      },
     );
   }
 
@@ -658,12 +700,14 @@ Color _episodeStatusColor(BuildContext context, TvEpisodeStatusTone tone) {
 class _EpisodeGridView extends StatefulWidget {
   final bool desktop;
   final List<TvEpisodeCardData> entries;
+  final String initialEpisodeGuid;
   final ValueChanged<String> onTap;
 
   const _EpisodeGridView({
     super.key,
     required this.desktop,
     required this.entries,
+    required this.initialEpisodeGuid,
     required this.onTap,
   });
 
@@ -672,11 +716,11 @@ class _EpisodeGridView extends StatefulWidget {
 }
 
 class _EpisodeGridViewState extends State<_EpisodeGridView> {
-  final _scrollController = ScrollController();
+  ScrollController? _scrollController;
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _scrollController?.dispose();
     super.dispose();
   }
 
@@ -690,6 +734,20 @@ class _EpisodeGridViewState extends State<_EpisodeGridView> {
             : constraints.maxWidth >= 320
             ? 6
             : 5;
+        if (widget.desktop) {
+          _scrollController ??= ScrollController(
+            initialScrollOffset: _initialEpisodeOffset(
+              entries: widget.entries,
+              episodeGuid: widget.initialEpisodeGuid,
+              columns: crossAxisCount,
+              rowHeight:
+                  (constraints.maxWidth - 12 - 10 * (crossAxisCount - 1)) /
+                  crossAxisCount,
+              spacing: 10,
+              viewportHeight: constraints.maxHeight,
+            ),
+          );
+        }
         final grid = GridView.builder(
           controller: widget.desktop ? _scrollController : null,
           itemCount: widget.entries.length,
