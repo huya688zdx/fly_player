@@ -10,6 +10,7 @@ import '../media_backend/media_backend.dart';
 import '../providers/nas_provider.dart';
 import 'native_player_bridge.dart';
 import 'native_reentry_support.dart';
+import 'play_stats/play_stats_service.dart';
 import 'playback_progress_offline_queue.dart';
 import 'server_native_picker_support.dart';
 import 'server_reentry_support.dart';
@@ -62,14 +63,27 @@ class NativePlaybackReentry {
   }) {
     if (backend.capabilities.usesLegacyFeiniuFlow) {
       final subtitles = FeiniuSegmentedSubtitle(FeiniuApi(nas));
+      final boundScope = 'feiniu:${nas.baseUrl}:${nas.userName}';
+      final boundStatsScope = PlayStatsService.instance.currentScope;
+      final releaseSession = FeiniuApi(nas).captureServerSessionRelease();
       return NativePlayerBridge.bindReentry(
         onUnbind: subtitles.dispose,
         onResolveSegmentedSubtitle: (raw, positionMs) => subtitles.resolve(
           MpvMediaSource.fromMap(jsonDecode(raw) as Map<String, dynamic>),
           Duration(milliseconds: positionMs),
         ),
-        onReleaseServerSession: (link) =>
-            NativeReentrySupport.releaseServerSession(nas, link),
+        onReleaseServerSession: (link, {scope}) async {
+          if (scope != null && scope != boundScope) return;
+          try {
+            if (boundScope == 'feiniu:${nas.baseUrl}:${nas.userName}' &&
+                boundStatsScope == PlayStatsService.instance.currentScope) {
+              await PlaybackProgressOfflineQueue.flush(nas);
+            }
+            await releaseSession(link);
+          } catch (_) {
+            // 回收失败不影响当前播放，服务端仍可通过超时回收。
+          }
+        },
         onResolvePlayback: onResolvePlayback,
         onRecordProgress: (progress) =>
             NativeReentrySupport.recordProgress(nas, progress),

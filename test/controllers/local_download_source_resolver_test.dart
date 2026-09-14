@@ -16,6 +16,7 @@ import 'package:fly_player/models/play_info.dart';
 import 'package:fly_player/models/playback_stream.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/services/app_log_service.dart';
+import 'package:fly_player/services/play_stats/play_stats_service.dart';
 
 /// 可控制首个元数据请求的响应，其余接口抛错以验证本地回退。
 class _ThrowingGateway implements FeiniuDetailDataGateway {
@@ -218,6 +219,10 @@ void main() {
   });
 
   test('离线入口不提供网络网关，直接解析本地文件', () async {
+    final stats = PlayStatsService.instance;
+    final previousScope = stats.currentScope;
+    await stats.bindOwnerScope('local-download-test');
+    addTearDown(() => stats.bindOwnerScope(previousScope));
     final file = File('${tempDir.path}/offline.mkv')
       ..writeAsStringSync('video');
     final result = await resolveLocalDownloadSource(
@@ -227,6 +232,7 @@ void main() {
       startPositionMs: 18000,
     ).timeout(const Duration(seconds: 1));
     expect(result!.source.url, Uri.file(file.path).toString());
+    expect(result.source.statsScope, 'local-download-test');
     expect(result.source.startPosition, const Duration(seconds: 18));
     expect(result.playInfo, isNull);
   });

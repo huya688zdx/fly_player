@@ -2368,6 +2368,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   Future<void> _openLocalPlayer(DownloadTaskRecord record) async {
+    final statsScope = PlayStatsService.instance.currentScope;
     final itemGuid = _currentItemGuid;
     final data = _data;
     if (data == null) return;
@@ -2464,9 +2465,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       localSubtitleBundle,
       manualBundle,
     );
-    if (!mounted || _currentItemGuid != itemGuid) return;
+    if (!mounted ||
+        _currentItemGuid != itemGuid ||
+        statsScope != PlayStatsService.instance.currentScope) {
+      return;
+    }
     var source = MpvMediaSource.localFile(
       filePath: record.filePath,
+      statsScope: statsScope,
       itemGuid: itemGuid,
       seriesGuid: widget.seriesGuid.trim().isNotEmpty
           ? widget.seriesGuid.trim()

@@ -87,8 +87,10 @@ class NativePlayerBridge {
     // 对话框，无需再反向请求列表）。不污染 source.toMap() 本身。
     final mergedArgs = <String, dynamic>{
       ...loadArgs,
-      'flyAccountSignedIn': FlyPlaybackServiceClient.instance.hasActiveAccountBinding(
-        statsScope: (loadArgs['statsScope'] ?? '').toString()),
+      'flyAccountSignedIn': FlyPlaybackServiceClient.instance
+          .hasActiveAccountBinding(
+            statsScope: (loadArgs['statsScope'] ?? '').toString(),
+          ),
       'flyAccountScopeIdentity': FlyDataService.instance.accountChanges.value,
       'flyOpedSettings': {'flyVerifiedEnabled': await FlyOpedSettings.load()},
       if (episodes != null && episodes.isNotEmpty) 'episodes': episodes,
@@ -142,9 +144,12 @@ class NativePlayerBridge {
     // MediaSession 通知封面），断网也能显示。失败静默（原生回退网络 URL）。
     await _mergeArtworkLocalPath(mergedArgs, nas);
     // Account state may change while artwork or preferences are loading.
-    mergedArgs['flyAccountSignedIn'] = FlyPlaybackServiceClient.instance.hasActiveAccountBinding(
-      statsScope: (loadArgs['statsScope'] ?? '').toString());
-    mergedArgs['flyAccountScopeIdentity'] = FlyDataService.instance.accountChanges.value;
+    mergedArgs['flyAccountSignedIn'] = FlyPlaybackServiceClient.instance
+        .hasActiveAccountBinding(
+          statsScope: (loadArgs['statsScope'] ?? '').toString(),
+        );
+    mergedArgs['flyAccountScopeIdentity'] =
+        FlyDataService.instance.accountChanges.value;
     await _channel.invokeMethod<void>('launch', <String, dynamic>{
       'loadArgs': jsonEncode(mergedArgs),
       if (danmakuFilePath != null && danmakuFilePath.isNotEmpty)
@@ -179,7 +184,8 @@ class NativePlayerBridge {
       MediaSessionReloadIntent intent,
     )?
     onReloadServerSession,
-    Future<void> Function(String playLink)? onReleaseServerSession,
+    Future<void> Function(String playLink, {String? scope})?
+    onReleaseServerSession,
     Future<String?> Function(String loadArgs, int positionMs)?
     onResolveSegmentedSubtitle,
     Future<void> Function()? onUnbind,
@@ -203,19 +209,40 @@ class NativePlayerBridge {
         ((scope == null || scope == '')
             ? !PlayStatsService.instance.hasUnifiedBinding
             : scope == statsScope);
-    Map<String, dynamic>? scopedResult(Map<String, dynamic>? result) {
-      if (result == null ||
+    Future<Map<String, dynamic>?> scopedResult(
+      Map<String, dynamic>? result, {
+      String? retainedPlayLink,
+    }) async {
+      if (result == null) return null;
+      final raw = result['loadArgs'];
+      final args = raw is String
+          ? Map<String, dynamic>.from(jsonDecode(raw) as Map)
+          : const <String, dynamic>{};
+      if (!identical(_activeBindToken, token) ||
           statsScope != PlayStatsService.instance.currentScope) {
+        final link = (args['playLink'] ?? '').toString().trim();
+        if (link.isNotEmpty && link != retainedPlayLink) {
+          try {
+            await onReleaseServerSession?.call(
+              link,
+              scope: args['playbackSessionScope']?.toString(),
+            );
+          } catch (_) {
+            // 清理失败也不能把过期结果交给新账户播放。
+          }
+        }
         return null;
       }
-      final raw = result['loadArgs'];
       if (raw is! String) return result;
-      final args = Map<String, dynamic>.from(jsonDecode(raw) as Map);
       return {
         ...result,
-        'loadArgs': jsonEncode({...args, 'statsScope': statsScope,
+        'loadArgs': jsonEncode({
+          ...args,
+          'statsScope': statsScope,
           'flyAccountSignedIn': flyAccountActive(),
-          'flyAccountScopeIdentity': FlyDataService.instance.accountChanges.value}),
+          'flyAccountScopeIdentity':
+              FlyDataService.instance.accountChanges.value,
+        }),
       };
     }
 
@@ -243,9 +270,12 @@ class NativePlayerBridge {
           final service = FlyDataService.instance;
           final session = service.session;
           final epoch = service.scopeIdentity;
-          bool current() => identical(_activeBindToken, token) &&
-              acceptsScope(args['statsScope']) && flyAccountActive() &&
-              identical(session, service.session) && epoch == service.scopeIdentity;
+          bool current() =>
+              identical(_activeBindToken, token) &&
+              acceptsScope(args['statsScope']) &&
+              flyAccountActive() &&
+              identical(session, service.session) &&
+              epoch == service.scopeIdentity;
           if (!current()) return {'status': 'unavailable'};
           final settings = await const DanmakuSettingsStore().load();
           if (!current()) return {'status': 'unavailable'};
@@ -258,23 +288,29 @@ class NativePlayerBridge {
             itemGuid: (args['itemGuid'] ?? '').toString(),
             mediaGuid: (args['mediaGuid'] ?? '').toString(),
             seasonGuid: (args['seasonGuid'] ?? '').toString(),
-            statsScope: statsScope, settings: settings, isCurrent: current,
+            statsScope: statsScope,
+            settings: settings,
+            isCurrent: current,
           );
           if (!current()) return {'status': 'unavailable'};
           if (path == null) return {'status': 'missing'};
           try {
             final payload = jsonDecode(await File(path).readAsString()) as Map;
             if (!current()) return {'status': 'unavailable'};
-            return {'status': 'ready', 'danmakuFile': path,
+            return {
+              'status': 'ready',
+              'danmakuFile': path,
               'sourceKey': payload['sourceKey'],
-              'sourceLabel': payload['sourceLabel'] ?? '服务弹幕'};
+              'sourceLabel': payload['sourceLabel'] ?? '服务弹幕',
+            };
           } catch (_) {
             return {'status': 'unavailable'};
           }
         case 'persistFlyOpedSettings':
           final args = (call.arguments as Map?) ?? const {};
           final enabled = args['enabled'];
-          if (enabled is! bool || !flyAccountActive() ||
+          if (enabled is! bool ||
+              !flyAccountActive() ||
               !acceptsScope(args['statsScope'])) {
             return false;
           }
@@ -283,58 +319,90 @@ class NativePlayerBridge {
         case 'resolveFlyBif':
           final args = (call.arguments as Map?) ?? const {};
           final context = args['context_id'];
-          if (context is! String || context.isEmpty || !acceptsScope(args['statsScope']) ||
+          if (context is! String ||
+              context.isEmpty ||
+              !acceptsScope(args['statsScope']) ||
               !identical(token, _activeBindToken)) {
             return null;
           }
           unawaited(activity?.stop());
           activity = null;
           bifContext = context;
-          final access = FlyBifAccess.capture(statsScope: statsScope,
-            itemGuid: (args['itemGuid'] ?? '').toString(), mediaGuid: (args['mediaGuid'] ?? '').toString(),
-            isCurrent: () => identical(token, _activeBindToken) && bifContext == context && acceptsScope(args['statsScope']));
+          final access = FlyBifAccess.capture(
+            statsScope: statsScope,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            isCurrent: () =>
+                identical(token, _activeBindToken) &&
+                bifContext == context &&
+                acceptsScope(args['statsScope']),
+          );
           bifAccess = access;
           if (access == null) return null;
-          activity = FlyPlaybackActivity.forAccess(access)..start(paused: args['paused'] == true);
+          activity = FlyPlaybackActivity.forAccess(access)
+            ..start(paused: args['paused'] == true);
           if (args['originalFile'] != true) return null;
           final path = await FlyBifService.instance.resolve(access);
           return access.isCurrent() ? path : null;
         case 'flyPlaybackActivity':
           final args = (call.arguments as Map?) ?? const {};
-          if (!identical(token, _activeBindToken) || args['context_id'] != bifContext || bifContext.isEmpty) return false;
+          if (!identical(token, _activeBindToken) ||
+              args['context_id'] != bifContext ||
+              bifContext.isEmpty)
+            return false;
           if (args['state'] == 'stopped') {
             bifContext = '';
-            unawaited(activity?.stop()); activity = null; bifAccess = null;
+            unawaited(activity?.stop());
+            activity = null;
+            bifAccess = null;
             return true;
           }
           if (bifAccess?.isCurrent() != true) {
-            unawaited(activity?.stop()); activity = null;
+            unawaited(activity?.stop());
+            activity = null;
             return false;
           }
           activity?.update(paused: args['state'] != 'playing');
           return true;
         case 'resolveFlyOped':
           final args = (call.arguments as Map?) ?? const {};
-          if (!acceptsScope(args['statsScope']) || !flyAccountActive() ||
+          if (!acceptsScope(args['statsScope']) ||
+              !flyAccountActive() ||
               !await FlyOpedSettings.load()) {
             return null;
           }
           final contextId = args['playback_context_id'];
           final generation = args['generation'];
-          if (contextId is! String || generation is! int || generation < 0) return null;
+          if (contextId is! String || generation is! int || generation < 0)
+            return null;
           final result = await FlyPlaybackServiceClient.instance.resolve(
-            statsScope: statsScope, itemGuid: (args['itemGuid'] ?? '').toString(),
-            mediaGuid: (args['mediaGuid'] ?? '').toString(), contextId: contextId, generation: generation);
+            statsScope: statsScope,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            contextId: contextId,
+            generation: generation,
+          );
           if (!acceptsScope(args['statsScope'])) return null;
           return result?.wire;
         case 'validateFlyScope':
           final args = (call.arguments as Map?) ?? const {};
-          return acceptsScope(args['statsScope']) && FlyPlaybackServiceClient.instance.sourceRef(
-            statsScope: statsScope, itemGuid: (args['itemGuid'] ?? '').toString(), mediaGuid: (args['mediaGuid'] ?? '').toString()) != null;
+          return acceptsScope(args['statsScope']) &&
+              FlyPlaybackServiceClient.instance.sourceRef(
+                    statsScope: statsScope,
+                    itemGuid: (args['itemGuid'] ?? '').toString(),
+                    mediaGuid: (args['mediaGuid'] ?? '').toString(),
+                  ) !=
+                  null;
         case 'recordFlyOpedAction':
           final args = (call.arguments as Map?) ?? const {};
-          if (!acceptsScope(args['statsScope']) || args['event'] is! Map) return null;
-          unawaited(FlyPlaybackServiceClient.instance.record(Map<String, dynamic>.from(args['event'] as Map), statsScope: statsScope));
+          if (!acceptsScope(args['statsScope']) || args['event'] is! Map)
+            return null;
+          unawaited(
+            FlyPlaybackServiceClient.instance.record(
+              Map<String, dynamic>.from(args['event'] as Map),
+              statsScope: statsScope,
+            ),
+          );
           return null;
         case 'resolveSegmentedSubtitle':
           final args = (call.arguments as Map?) ?? const {};
@@ -345,7 +413,12 @@ class NativePlayerBridge {
         case 'releaseServerSession':
           final args = (call.arguments as Map?) ?? const {};
           final link = (args['playLink'] ?? '').toString().trim();
-          if (link.isNotEmpty) await onReleaseServerSession?.call(link);
+          if (link.isNotEmpty) {
+            await onReleaseServerSession?.call(
+              link,
+              scope: args['playbackSessionScope']?.toString(),
+            );
+          }
           return null;
         case 'resolvePlayback':
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
@@ -356,7 +429,7 @@ class NativePlayerBridge {
             '[DANMAKU][NATIVE_SWITCH] bridge resolvePlayback recv '
             'item="$guid" keys=${args.keys.toList()}',
           );
-          final resolved = scopedResult(
+          final resolved = await scopedResult(
             await onResolvePlayback(
               guid,
               qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
@@ -385,6 +458,7 @@ class NativePlayerBridge {
                 return v.isEmpty ? null : v;
               }(),
             ),
+            retainedPlayLink: (args['currentPlayLink'] ?? '').toString().trim(),
           );
           // 统计元数据缓存:预取/切集/切版本的解析结果都进缓存;会话切换只认 recordProgress。
           NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
@@ -402,7 +476,8 @@ class NativePlayerBridge {
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final current = (args['loadArgs'] ?? '').toString();
           if (current.isEmpty) return null;
-          if (!acceptsScope((jsonDecode(current) as Map)['statsScope'])) {
+          final currentArgs = jsonDecode(current) as Map;
+          if (!acceptsScope(currentArgs['statsScope'])) {
             return null;
           }
           // 把 channel 的「带 key=override / 空串=关闭 / 不带=保留」语义组装成中立意图：
@@ -413,7 +488,7 @@ class NativePlayerBridge {
               ? (args['subtitleGuid'] ?? '').toString()
               : null;
           final startMs = (args['startPositionMs'] as num?)?.toInt();
-          final reloaded = scopedResult(
+          final reloaded = await scopedResult(
             await onReloadServerSession(
               current,
               MediaSessionReloadIntent(
@@ -431,6 +506,7 @@ class NativePlayerBridge {
                     : null,
               ),
             ),
+            retainedPlayLink: (currentArgs['playLink'] ?? '').toString().trim(),
           );
           NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
             reloaded?['loadArgs'],
@@ -630,7 +706,8 @@ class NativePlayerBridge {
           final flyOpedEnabled = await FlyOpedSettings.load();
           final result = <String, dynamic>{
             'flyAccountSignedIn': flyAccountActive(),
-            'flyAccountScopeIdentity': FlyDataService.instance.accountChanges.value,
+            'flyAccountScopeIdentity':
+                FlyDataService.instance.accountChanges.value,
             'flyOpedSettings': {'flyVerifiedEnabled': flyOpedEnabled},
             'mpvAdvancedSettings': mpvBundle.settings,
             'videoAdjustments': mpvBundle.videoAdjustments,

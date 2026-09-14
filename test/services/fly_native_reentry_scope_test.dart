@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +17,9 @@ void main() {
       messenger.setMockMethodCallHandler(channel, (_) async => null);
       final stats = PlayStatsService.instance;
       var calls = 0;
+      final released = <String>[];
+      Completer<Map<String, dynamic>?>? pendingReload;
+      Completer<void>? reloadStarted;
       Object bind() => NativePlayerBridge.bindReentry(
         onResolvePlayback:
             (
@@ -36,10 +40,15 @@ void main() {
             },
         onReloadServerSession: (_, _) async {
           calls++;
+          if (pendingReload != null) {
+            reloadStarted!.complete();
+            return pendingReload!.future;
+          }
           return {
             'loadArgs': jsonEncode({'itemGuid': 'same'}),
           };
         },
+        onReleaseServerSession: (link, {scope}) async => released.add(link),
         onRecordProgress: (_) async {},
       );
       Future<Object?> send(String method, String scope) async {
@@ -55,6 +64,7 @@ void main() {
                       'loadArgs': jsonEncode({
                         'itemGuid': 'same',
                         'statsScope': scope,
+                        'playLink': 'kept-link',
                       }),
                     },
             ),
@@ -87,6 +97,26 @@ void main() {
           'scope-b',
         );
         expect(calls, 2);
+
+        Future<void> finishStaleReload(String link) async {
+          await stats.bindOwnerScope('scope-b');
+          token = bind();
+          pendingReload = Completer<Map<String, dynamic>?>();
+          reloadStarted = Completer<void>();
+          final response = send('reloadServerSession', 'scope-b');
+          await reloadStarted!.future;
+          await stats.bindOwnerScope('scope-c');
+          pendingReload!.complete({
+            'loadArgs': jsonEncode({'itemGuid': 'same', 'playLink': link}),
+          });
+          expect(await response, isNull);
+        }
+
+        // 换账户后的迟到结果只回收新建链接，保留当前流复用的链接。
+        await finishStaleReload('discarded-link');
+        expect(released, ['discarded-link']);
+        await finishStaleReload('kept-link');
+        expect(released, ['discarded-link']);
       } finally {
         NativePlayerBridge.unbindReentry(token);
         messenger.setMockMethodCallHandler(channel, null);
