@@ -17,6 +17,7 @@ import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../playback/platform_playback_host.dart';
+import '../playback/playback_platform.dart';
 import '../playback/playback_source.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
@@ -161,6 +162,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   }
 
   Future<void> _chooseDownloadDirectory() async {
+    if (!DesktopEnvironment.isWindows && !DesktopEnvironment.isLinux) return;
     setState(() => _choosingDirectory = true);
     try {
       final selected = await FilePicker.platform.getDirectoryPath(
@@ -426,12 +428,14 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
                             ),
                           ),
                         ),
-                        TextButton(
-                          onPressed: _choosingDirectory
-                              ? null
-                              : _chooseDownloadDirectory,
-                          child: const Text('更改目录'),
-                        ),
+                        if (DesktopEnvironment.isWindows ||
+                            DesktopEnvironment.isLinux)
+                          TextButton(
+                            onPressed: _choosingDirectory
+                                ? null
+                                : _chooseDownloadDirectory,
+                            child: const Text('更改目录'),
+                          ),
                         IconButton(
                           tooltip: '打开下载文件夹',
                           onPressed: _downloadDirectory == null
@@ -894,7 +898,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final actionKey = 'download_group_play:${widget.groupId.trim()}';
-    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+    if (!PlaybackPlatform.isSupported) {
       _topTip.show(
         context,
         message: ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
@@ -947,8 +951,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
               : await _nativeEpisodesPayload(provider, source);
 
           if (!mounted) return;
-          // Windows 先进入桌面宿主，不注册 Android 反向 MethodChannel。
-          if (DesktopEnvironment.isWindows) {
+          // media_kit 平台先进入独立宿主，不注册 Android 反向 MethodChannel。
+          if (PlaybackPlatform.usesMediaKit) {
             if (await playbackHostFor(context).launch(
               source: source,
               episodes: nativeEpisodes,

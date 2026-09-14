@@ -1,7 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../desktop/desktop_environment.dart';
 import 'storage_access_host.dart';
 
 /// 表示通过系统授权访问的目录节点。
@@ -193,38 +194,35 @@ class ScreenshotLibraryItem {
 
 /// 封装文件访问、目录授权与截图库相关的平台桥接。
 ///
-/// 截图与文件访问面经 [StorageAccessHost] 分发：Android 透传
-/// `fly_player/storage` 原生通道，桌面端（Windows/Linux/macOS）由
-/// `DesktopStorageAccessHost` 提供语义等价实现（该通道仅 Android 注册，
-/// 直连在桌面必抛 MissingPluginException，曾让「其他」设置页永久卡在
-/// 加载态）。`primaryStorageRoot` 与 Scoped Tree 系列仍为 Android 专属
-/// 流程（外部存储导出 / SAF 浏览），桌面端不可达，接入桌面语义时迁移进宿主。
+/// 截图与文件访问面经 [StorageAccessHost] 分发：Android 使用原生通道，
+/// iOS 使用沙盒目录，桌面使用系统下载目录。Android 目录树与权限设置
+/// 调用在其他平台直接返回不支持，文件选择交给系统文件选择器。
 class StorageAccessService {
   static const MethodChannel _channel = MethodChannel('fly_player/storage');
 
   static StorageAccessHost? _debugHostOverride;
 
-  /// 平台存储宿主：Android 走 `fly_player/storage` 原生通道；桌面端无该通道
-  /// 实现，改用 Dart 等价宿主。测试环境保持通道语义，兼容既有 mock。
+  /// 按运行平台选择宿主；Flutter 测试默认 Android，可用平台 variant
+  /// 验证 Apple 分支，不因测试 messenger 而绕过实际的分发逻辑。
   static StorageAccessHost get _host {
     final override = _debugHostOverride;
     if (override != null) return override;
-    if (_isTestMessenger()) return const MethodChannelStorageAccessHost();
-    if (DesktopEnvironment.isDesktopPlatform) {
-      return const DesktopStorageAccessHost();
-    }
-    return const MethodChannelStorageAccessHost();
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => const IosStorageAccessHost(),
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => const DesktopStorageAccessHost(),
+      _ => const MethodChannelStorageAccessHost(),
+    };
   }
 
-  static bool _isTestMessenger() {
-    try {
-      return ServicesBinding.instance.defaultBinaryMessenger.runtimeType
-          .toString()
-          .contains('Test');
-    } catch (_) {
-      return true;
-    }
-  }
+  /// Android MediaStore / SAF 保存设置只用于 Android 截图库。
+  static bool get supportsScreenshotLibrary =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// 其他平台通过系统文件选择器导入文件，无 Android 目录树授权流程。
+  static bool get supportsScopedTreeAccess =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   @visibleForTesting
   static StorageAccessHost get debugHost => _host;
@@ -248,6 +246,7 @@ class StorageAccessService {
 
   /// 打开系统文件访问权限设置页。
   static Future<bool> openFileAccessSettings() async {
+    if (!supportsScopedTreeAccess) return false;
     final result = await _channel.invokeMethod<bool>('openFileAccessSettings');
     return result == true;
   }
@@ -257,12 +256,16 @@ class StorageAccessService {
 
   /// 读取安卓主存储根目录路径。
   static Future<String> primaryStorageRoot() async {
+    if (!supportsScopedTreeAccess) {
+      throw const FileSystemException('Android primary storage is unavailable');
+    }
     final path = await _channel.invokeMethod<String>('getPrimaryStorageRoot');
     return (path ?? '/storage/emulated/0').trim();
   }
 
   /// 返回当前已授权的目录树根节点。
   static Future<ScopedBrowserDirectory?> getScopedTreeRoot() async {
+    if (!supportsScopedTreeAccess) return null;
     final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
       'getScopedTreeRoot',
     );
@@ -274,6 +277,7 @@ class StorageAccessService {
 
   /// 请求用户授予新的目录树访问权限。
   static Future<ScopedBrowserDirectory?> requestScopedTreeAccess() async {
+    if (!supportsScopedTreeAccess) return null;
     final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
       'requestScopedTreeAccess',
     );
@@ -288,6 +292,7 @@ class StorageAccessService {
     String? directoryId,
     List<String> allowedExtensions = const <String>[],
   }) async {
+    if (!supportsScopedTreeAccess) return null;
     final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
       'listScopedTreeEntries',
       <String, Object?>{
@@ -301,6 +306,7 @@ class StorageAccessService {
 
   /// 读取授权目录中文件的原始字节内容。
   static Future<Uint8List?> readScopedFileBytes(String identifier) async {
+    if (!supportsScopedTreeAccess) return null;
     final trimmed = identifier.trim();
     if (trimmed.isEmpty) return null;
     return _channel.invokeMethod<Uint8List>(

@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -134,7 +136,13 @@ class DesktopStorageAccessHost implements StorageAccessHost {
   Future<String> downloadDirectory() async {
     final prefs = await SharedPreferences.getInstance();
     final custom = prefs.getString(downloadDirectoryKey);
-    if (custom != null && custom.isNotEmpty) return custom;
+    // macOS 沙盒授权需持久化 security scoped bookmark；普通路径偏好不能
+    // 在重启后恢复访问权限，因此当前仅使用应用默认 Downloads。
+    if (defaultTargetPlatform != TargetPlatform.macOS &&
+        custom != null &&
+        custom.isNotEmpty) {
+      return custom;
+    }
     return (await getDownloadsDirectory() ??
             await getApplicationDocumentsDirectory())
         .path;
@@ -169,4 +177,19 @@ class DesktopStorageAccessHost implements StorageAccessHost {
   Future<Map<Object?, Object?>?> deleteScreenshotFiles(
     List<Map<String, String>> items,
   ) async => const <String, Object?>{'deletedCount': 0};
+}
+
+/// iOS 文件选择器将外部文件导入沙盒；下载始终使用应用 Documents，
+/// 不复用桌面保存的自定义路径，也不请求 Android 外部存储权限。
+/// 截图库尚未接入，沿用桌面宿主的空图库语义。
+class IosStorageAccessHost extends DesktopStorageAccessHost {
+  const IosStorageAccessHost();
+
+  @override
+  Future<String> downloadDirectory() async {
+    final documents = await getApplicationDocumentsDirectory();
+    final downloads = Directory(p.join(documents.path, 'Downloads'));
+    await downloads.create(recursive: true);
+    return downloads.path;
+  }
 }

@@ -7,6 +7,7 @@ import '../../media_backend/detail/media_season_summary.dart';
 import '../../danmaku/models/danmaku_settings.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../playback/bookmarks/bookmark_store.dart';
+import '../../playback/playback_file_uri.dart';
 import '../../playback/playback_source.dart';
 import '../../playback/settings/mpv_settings_l10n.dart';
 import '../../playback/settings/mpv_settings_store.dart';
@@ -1486,7 +1487,7 @@ class _DesktopPlaybackSettingsPanelState
     ),
     _SettingsMenuTile(
       title: l10n.playerAdvancedSettingsTitle,
-      subtitle: 'Windows media_kit / libmpv',
+      subtitle: 'media_kit / libmpv',
       trailing: _decoderMode == 'software'
           ? l10n.playerSoftwareDecoderTitle
           : l10n.playerHardwareDecoderTitle,
@@ -3135,7 +3136,6 @@ class DesktopEpisodePoster extends StatelessWidget {
   final double progress;
   @override
   Widget build(BuildContext c) {
-    final uri = Uri.tryParse(path);
     final image = path.startsWith('http://') || path.startsWith('https://')
         ? Image.network(
             path,
@@ -3145,7 +3145,7 @@ class DesktopEpisodePoster extends StatelessWidget {
           )
         : path.isNotEmpty
         ? Image.file(
-            File(uri?.scheme == 'file' ? uri!.toFilePath(windows: true) : path),
+            File(playbackFilePath(path)),
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => _placeholder(),
           )

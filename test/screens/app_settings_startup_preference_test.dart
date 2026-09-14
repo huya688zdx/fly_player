@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/providers/app_locale_provider.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/providers/parallel_window_settings_provider.dart';
@@ -67,6 +68,49 @@ void main() {
     expect(startupPreferences.openPosterHomeOnStartup, isTrue);
     expect(saved, isTrue);
   });
+
+  testWidgets(
+    'macOS Command K opens settings search',
+    (tester) async {
+      DesktopEnvironment.debugOverridePlatform = true;
+      addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+      final startupPreferences = StartupPreferencesProvider(autoLoad: false);
+      await tester.pumpWidget(_settingsApp(startupPreferences));
+      await tester.pumpAndSettle();
+
+      expect(find.text('⌘ K'), findsOneWidget);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'Apple settings search hides Android screenshot options',
+    (tester) async {
+      DesktopEnvironment.debugOverridePlatform = false;
+      addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
+      final startupPreferences = StartupPreferencesProvider(autoLoad: false);
+      await tester.pumpWidget(_settingsApp(startupPreferences));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('settings_open_full_search')),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '截图');
+      await tester.pumpAndSettle();
+      expect(find.text('截图设置'), findsNothing);
+      expect(find.text('自定义保存目录'), findsNothing);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.iOS,
+      TargetPlatform.macOS,
+    }),
+  );
 }
 
 Widget _settingsApp(StartupPreferencesProvider startupPreferences) {

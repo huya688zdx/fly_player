@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../desktop/desktop.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/media_backend.dart';
@@ -20,6 +19,7 @@ import '../services/native_player_bridge.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
 import '../playback/platform_playback_host.dart';
+import '../playback/playback_platform.dart';
 import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
 import '../services/play_stats/play_stats_service.dart';
@@ -35,8 +35,8 @@ import '../services/download_task_service.dart';
 class ItemPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
 
-  /// 非 Windows 桌面端的播放入口提示文案，暂以常量承载。
-  static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
+  /// 未支持平台的播放入口提示。
+  static const String desktopPlaybackBlockedMessage = '当前平台暂不支持播放';
 
   /// 创建一个条目播放拉起器实例。
   const ItemPlaybackLauncher();
@@ -53,8 +53,8 @@ class ItemPlaybackLauncher {
     String? audioTrackId,
     String? subtitleTrackId,
   }) async {
-    // Linux/macOS 本轮仍未接入，避免落入 Android MethodChannel。
-    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+    // 未支持的平台不可落入 Android MethodChannel。
+    if (!PlaybackPlatform.isSupported) {
       _topTip.show(
         context,
         message: desktopPlaybackBlockedMessage,
@@ -124,8 +124,8 @@ class ItemPlaybackLauncher {
             : await _serverNativeEpisodes(backend, source);
         if (!context.mounted) return null;
 
-        // Windows 先进入 Flutter 桌面宿主，不注册 Android 反向通道。
-        if (DesktopEnvironment.isWindows) {
+        // media_kit 平台先进入独立宿主，不注册 Android 反向通道。
+        if (PlaybackPlatform.usesMediaKit) {
           final danmakuSettings = await const DanmakuSettingsStore().load();
           final danmakuFile = source.isDownloadedFile
               ? null
@@ -334,7 +334,7 @@ class ItemPlaybackLauncher {
                   'episodes': episodes,
               };
               // 桌面播放页会在起播后加载弹幕，本地切集无需在入口重复等待。
-              if (DesktopEnvironment.isWindows) {
+              if (PlaybackPlatform.usesMediaKit) {
                 return <String, dynamic>{'loadArgs': jsonEncode(loadArgs)};
               }
               final settings = await const DanmakuSettingsStore().load();
