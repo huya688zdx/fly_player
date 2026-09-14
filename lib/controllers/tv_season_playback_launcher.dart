@@ -28,7 +28,7 @@ import '../utils/detail_top_tip.dart';
 class TvSeasonPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
 
-  /// 非 Windows 桌面端的播放入口提示文案，暂以常量承载。
+  /// 尚未接入播放宿主的平台提示文案。
   static const String desktopPlaybackBlockedMessage = '桌面端播放内核规划中，播放页暂未开放';
 
   /// 创建一个季度播放拉起器实例。
@@ -42,8 +42,9 @@ class TvSeasonPlaybackLauncher {
     String seriesGuid = '',
     List<Map<String, dynamic>>? episodes,
   }) async {
-    // Linux/macOS 本轮仍未接入，避免落入 Android MethodChannel。
-    if (DesktopEnvironment.isDesktopPlatform && !DesktopEnvironment.isWindows) {
+    // 未接入的桌面平台不能落入 Android MethodChannel。
+    if (DesktopEnvironment.isDesktopPlatform &&
+        !DesktopEnvironment.supportsPlayback) {
       _topTip.show(
         context,
         message: desktopPlaybackBlockedMessage,
