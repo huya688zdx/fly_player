@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_image_request.dart';
 import '../theme/app_theme.dart';
+import '../utils/detail_layout_solver.dart';
 import '../widgets/common/liquid_glass.dart';
 import 'app_transitions.dart';
 import 'media_placeholder.dart';
@@ -200,7 +201,10 @@ class DetailPrimaryPlayButton extends StatelessWidget {
           );
 
     return SizedBox(
-      height: 52,
+      height:
+          DetailLayoutSolver.usesDesktopLayout(MediaQuery.sizeOf(context).width)
+          ? DetailLayoutSolver.desktopControlHeight
+          : 52,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: Stack(
