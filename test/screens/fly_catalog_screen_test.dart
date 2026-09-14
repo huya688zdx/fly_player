@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/screens/fly_catalog_screen.dart';
 import 'package:fly_player/services/fly_data/fly_account_controller.dart';
 import 'package:fly_player/services/fly_data/fly_data_service.dart';
@@ -12,18 +13,10 @@ import 'package:fly_player/services/play_stats/play_stats_database.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/providers/backend_session_provider.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
-import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/ui/app_info_popover.dart';
 import 'package:fly_player/ui/media_detail_components.dart';
 import 'package:fly_player/widgets/common/app_error_state.dart';
 import 'package:fly_player/widgets/common/app_option_list.dart';
-
-Widget _material(Widget home) => MaterialApp(
-  locale: const Locale('zh', 'CN'),
-  localizationsDelegates: AppLocalizations.localizationsDelegates,
-  supportedLocales: AppLocalizations.supportedLocales,
-  home: home,
-);
 
 class _CatalogService extends FlyDataService {
   _CatalogService()
@@ -102,6 +95,7 @@ class _CatalogService extends FlyDataService {
       expect(query?['binding_id'], 'binding');
       return {
         'items': [series],
+        'total': 1,
         'next_cursor': null,
       };
     }
@@ -125,63 +119,114 @@ class _CatalogService extends FlyDataService {
 
 void main() {
   _scopeTests();
-  testWidgets(
-    'synced poster collection keeps NAS metadata behind explicit sync information',
-    (tester) async {
-      SharedPreferences.setMockInitialValues({});
-      SecureCredentialStore.setBackendForTesting(
-        MemorySecureCredentialBackend(),
-      );
-      final nas = NasProvider(),
-          backend = BackendSessionProvider(autoLoad: false),
-          service = _CatalogService();
-      final account =
-          FlyAccountController(
-              nas: nas,
-              backendSession: backend,
-              service: service,
-              autoLoad: false,
-            )
-            ..ready = true
-            ..activeBindingId = 'binding';
-      account.bindings = [
-        {'id': 'binding', 'label': 'Emby'},
-      ];
-      await tester.pumpWidget(
-        ChangeNotifierProvider.value(
-          value: account,
-          child: _material(const FlyCatalogScreen()),
+  for (final (locale, catalogTitle, syncTooltip, openDetails, metadata, count)
+      in [
+        (
+          const Locale('zh', 'CN'),
+          '已同步节目',
+          '同步信息：NAS 番剧',
+          '打开节目详情',
+          '剧集 · 2026 · 评分 未知',
+          '1 部节目',
         ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('已同步节目'), findsOneWidget);
-      expect(find.byType(SliverGrid), findsOneWidget);
-      expect(find.byType(ListTile), findsNothing);
-      expect(find.text('NAS 番剧'), findsOneWidget);
-      expect(find.byType(AppInfoPopoverAnchor), findsOneWidget);
-      await tester.tap(find.byTooltip('同步信息：NAS 番剧'));
-      await tester.pumpAndSettle();
-      expect(find.text('真实剧集简介'), findsOneWidget);
-      expect(find.byType(DetailOverview), findsOneWidget);
-      expect(find.byType(AppOptionListTile), findsOneWidget);
-      await tester.tap(find.text('第 1 季'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('第 1 集'));
-      await tester.pumpAndSettle();
-      expect(find.text('真实单集简介'), findsOneWidget);
-      expect(find.text('打开节目详情'), findsOneWidget);
-      expect(service.requests, [
-        '/media',
-        '/media/series',
-        '/media/season',
-        '/media/episode',
-      ]);
-      await tester.pumpWidget(const SizedBox());
-      account.dispose();
-      nas.dispose();
-      backend.dispose();
-    },
-  );
+        (
+          const Locale('en'),
+          'Synced titles',
+          'Sync information: NAS 番剧',
+          'Open title details',
+          'TV series · 2026 · Rating Unknown',
+          '1 title',
+        ),
+        (
+          const Locale('ja'),
+          '同期済みの作品',
+          '同期情報：NAS 番剧',
+          '作品の詳細を開く',
+          'TVシリーズ · 2026 · 評価 不明',
+          '1 作品',
+        ),
+      ]) {
+    testWidgets(
+      'synced poster collection localizes sync information in $locale',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        SecureCredentialStore.setBackendForTesting(
+          MemorySecureCredentialBackend(),
+        );
+        final nas = NasProvider(),
+            backend = BackendSessionProvider(autoLoad: false),
+            service = _CatalogService();
+        final account =
+            FlyAccountController(
+                nas: nas,
+                backendSession: backend,
+                service: service,
+                autoLoad: false,
+              )
+              ..ready = true
+              ..activeBindingId = 'binding';
+        account.bindings = [
+          {'id': 'binding', 'label': 'Emby'},
+        ];
+        await tester.pumpWidget(
+          ChangeNotifierProvider.value(
+            value: account,
+            child: MaterialApp(
+              locale: locale,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: const FlyCatalogScreen(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(catalogTitle), findsOneWidget);
+        expect(find.text(count), findsOneWidget);
+        expect(find.byType(SliverGrid), findsOneWidget);
+        expect(find.byType(ListTile), findsNothing);
+        expect(find.text('NAS 番剧'), findsOneWidget);
+        expect(find.byType(AppInfoPopoverAnchor), findsOneWidget);
+        expect(
+          find.byTooltip(switch (locale.languageCode) {
+            'en' => 'About synced titles',
+            'ja' => '同期済み作品について',
+            _ => '同步节目说明',
+          }),
+          findsOneWidget,
+        );
+        await tester.tap(find.byTooltip(syncTooltip));
+        await tester.pumpAndSettle();
+        expect(find.text('真实剧集简介'), findsOneWidget);
+        expect(find.byType(DetailOverview), findsOneWidget);
+        expect(
+          find.text(switch (locale.languageCode) {
+            'en' => 'Info assistant · Current title',
+            'ja' => '情報アシスタント · 現在の作品',
+            _ => '资料助手 · 当前节目',
+          }),
+          findsOneWidget,
+        );
+        expect(find.byType(AppOptionListTile), findsOneWidget);
+        expect(find.text(metadata), findsOneWidget);
+        await tester.tap(find.text('第 1 季'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('第 1 集'));
+        await tester.pumpAndSettle();
+        expect(find.text('真实单集简介'), findsOneWidget);
+        expect(find.text(openDetails), findsOneWidget);
+        expect(service.requests, [
+          '/media',
+          '/media/series',
+          '/media/season',
+          '/media/episode',
+        ]);
+        await tester.pumpWidget(const SizedBox());
+        account.dispose();
+        nas.dispose();
+        backend.dispose();
+      },
+    );
+  }
 }
 
 class _ScopeService extends _CatalogService {
@@ -255,10 +300,15 @@ void _scopeTests() {
     account.dispose();
     SecureCredentialStore.resetBackendForTesting();
   });
-  Widget host(Widget child) =>
+  Widget host(Widget child, {Locale locale = const Locale('zh', 'CN')}) =>
       ChangeNotifierProvider<FlyAccountController>.value(
         value: account,
-        child: _material(child),
+        child: MaterialApp(
+          locale: locale,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: child,
+        ),
       );
   Map<String, dynamic> page(String name) => {
     'items': [
@@ -372,5 +422,38 @@ void _scopeTests() {
     );
     expect(find.text('首页'), findsOneWidget);
     expect(service.loads, isEmpty);
+  });
+
+  testWidgets('missing media source uses the active English locale', (
+    tester,
+  ) async {
+    late BuildContext pageContext;
+    await tester.pumpWidget(
+      host(
+        Builder(
+          builder: (context) {
+            pageContext = context;
+            return const Scaffold(body: Text('Home'));
+          },
+        ),
+        locale: const Locale('en'),
+      ),
+    );
+    await expectLater(
+      openFlyCatalogItem(pageContext, {
+        'binding_id': 'binding',
+        'remote_item_id': '',
+        'kind': 'series',
+      }, expectedAccountKey: account.accountKey),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          'This title is not linked to a media source yet. Refresh the sync information.',
+        ),
+      ),
+    );
+    expect(service.loads, isEmpty);
+    expect(find.text('Home'), findsOneWidget);
   });
 }

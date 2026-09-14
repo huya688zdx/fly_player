@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'package:provider/provider.dart';
 
 import '../desktop/desktop_environment.dart';
@@ -39,7 +40,7 @@ void _showChangedAccount(BuildContext context) {
   if (!context.mounted) return;
   AppTopTip().show(
     context,
-    message: '账号或媒体来源已改变，请重新打开设置。',
+    message: AppLocalizations.of(context).flyAccountSourceChanged,
     color: context.appColors.surfaceStrong,
   );
 }
@@ -79,7 +80,7 @@ Future<bool> activateFlyBinding(
     if (addresses.isEmpty) {
       AppTopTip().show(
         context,
-        message: '暂无可手动选择的播放地址，请刷新媒体来源后重试。',
+        message: AppLocalizations.of(context).flyAccountNoPlaybackAddresses,
         color: context.appColors.surfaceStrong,
       );
       return false;
@@ -102,13 +103,13 @@ Future<bool> activateFlyBinding(
     }
     final selected = await _showFlyOptions(
       context,
-      title: '连接设置',
+      title: AppLocalizations.of(context).flyAccountConnectionSettings,
       selectedId: selectedId,
       items: [
         for (final address in addresses)
           TrackOptionSheetItem(
             id: address['base_url'] as String,
-            title: _addressLabel(address['purpose']),
+            title: _addressLabel(context, address['purpose']),
             subtitle: address['base_url'] as String,
           ),
       ],
@@ -225,7 +226,11 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
       }
     } catch (_) {
       if (_canUseForm(account) && epoch == _historyEpoch) {
-        setState(() => _historyMessage = '登录记录暂时无法读取，可手动登录。');
+        setState(
+          () => _historyMessage = AppLocalizations.of(
+            context,
+          ).flyAccountHistoryReadFailed,
+        );
       }
     }
   }
@@ -241,13 +246,17 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
       final entries = await FlyLoginHistoryStore.load();
       if (!_canUseForm(account)) return;
       if (entries.isEmpty) {
-        setState(() => _historyMessage = '暂无登录记录');
+        setState(
+          () => _historyMessage = AppLocalizations.of(
+            context,
+          ).flyAccountHistoryEmpty,
+        );
         return;
       }
       if (!mounted) return;
       final selected = await _showFlyOptions(
         context,
-        title: '登录记录',
+        title: AppLocalizations.of(context).flyAccountHistory,
         selectedId: _selectedHistory?.id,
         items: [
           for (final entry in entries)
@@ -256,7 +265,10 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               title: entry.username,
               subtitle: entry.serverUrl,
             ),
-          const TrackOptionSheetItem(id: 'clear-history', title: '清除登录记录'),
+          TrackOptionSheetItem(
+            id: 'clear-history',
+            title: AppLocalizations.of(context).flyAccountClearHistory,
+          ),
         ],
       );
       if (selected == null || !_canUseForm(account)) return;
@@ -264,10 +276,10 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
         if (!mounted) return;
         final confirmed = await showAppConfirmDialog(
           context,
-          title: '清除登录记录',
-          content: '删除保存的账号和密码？',
-          cancelText: '取消',
-          confirmText: '清除',
+          title: AppLocalizations.of(context).flyAccountClearHistory,
+          content: AppLocalizations.of(context).flyAccountClearHistoryConfirm,
+          cancelText: AppLocalizations.of(context).commonCancel,
+          confirmText: AppLocalizations.of(context).flyAccountClear,
         );
         if (!confirmed || !_canUseForm(account)) return;
         await FlyLoginHistoryStore.clear();
@@ -282,7 +294,11 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
       }
     } catch (_) {
       if (_canUseForm(account)) {
-        setState(() => _historyMessage = '登录记录暂时不可用，请重试。');
+        setState(
+          () => _historyMessage = AppLocalizations.of(
+            context,
+          ).flyAccountHistoryUnavailable,
+        );
       }
     } finally {
       if (mounted) setState(() => _historyBusy = false);
@@ -309,7 +325,9 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
       if (_canUseForm(account)) {
         setState(() {
           _rememberPassword = true;
-          _historyMessage = '密码未能清除，请重试。';
+          _historyMessage = AppLocalizations.of(
+            context,
+          ).flyAccountPasswordClearFailed;
         });
       }
     } finally {
@@ -378,16 +396,21 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
           children: [
             _field(
               url,
-              '飞翔服务地址',
-              hint: '飞翔管理后台提供的服务地址',
+              AppLocalizations.of(context).flyAccountServiceAddress,
+              hint: AppLocalizations.of(context).flyAccountServiceAddressHelp,
               enabled: !blocked,
               keyboard: TextInputType.url,
             ),
-            _field(username, '飞翔账号', hint: '与飞翔管理后台共用', enabled: !blocked),
+            _field(
+              username,
+              AppLocalizations.of(context).flyAccountUsername,
+              hint: AppLocalizations.of(context).flyAccountAdminSharedHint,
+              enabled: !blocked,
+            ),
             _field(
               password,
-              '密码',
-              hint: '飞翔账号的密码',
+              AppLocalizations.of(context).connectionPasswordHint,
+              hint: AppLocalizations.of(context).flyAccountPasswordHint,
               secret: true,
               enabled: !blocked,
               onSubmitted: (_) => _login(account),
@@ -427,7 +450,9 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                         const SizedBox(width: 6),
                         Flexible(
                           child: Text(
-                            '记住密码',
+                            AppLocalizations.of(
+                              context,
+                            ).flyAccountRememberPassword,
                             style: TextStyle(
                               color: context.appColors.textSecondary,
                               fontSize: 13,
@@ -441,7 +466,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                 TextButton.icon(
                   onPressed: blocked ? null : () => _openHistory(account),
                   icon: const Icon(Icons.history_rounded, size: 18),
-                  label: const Text('登录记录'),
+                  label: Text(AppLocalizations.of(context).flyAccountHistory),
                 ),
               ],
             ),
@@ -449,10 +474,18 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               tilePadding: EdgeInsets.zero,
               childrenPadding: EdgeInsets.zero,
               title: Text(
-                '设备名称 · ${device.text}',
+                AppLocalizations.of(
+                  context,
+                ).flyAccountDeviceNameSummary(device.text),
                 style: const TextStyle(fontSize: 13),
               ),
-              children: [_field(device, '当前设备名称', enabled: !blocked)],
+              children: [
+                _field(
+                  device,
+                  AppLocalizations.of(context).flyAccountCurrentDeviceName,
+                  enabled: !blocked,
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -461,7 +494,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                 minimumSize: const Size.fromHeight(48),
               ),
               icon: const Icon(Icons.login_rounded, size: 20),
-              label: const Text('登录飞翔'),
+              label: Text(AppLocalizations.of(context).flyAccountLogin),
             ),
             if (account.busy)
               const Padding(
@@ -474,7 +507,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
             OutlinedButton.icon(
               onPressed: blocked ? null : () => _enterMediaMode(account),
               icon: const Icon(Icons.lan_outlined, size: 18),
-              label: const Text('媒体账号登录'),
+              label: Text(AppLocalizations.of(context).flyAccountMediaLogin),
             ),
           ],
         ),
@@ -533,10 +566,10 @@ class FlyBindingsScreen extends StatelessWidget {
       case 'unbind':
         final yes = await showAppConfirmDialog(
           context,
-          title: '移除媒体来源',
-          content: '停止同步此来源并清除其媒体凭据，已有播放历史保留。',
-          cancelText: '取消',
-          confirmText: '移除',
+          title: AppLocalizations.of(context).flyAccountRemoveSourceTitle,
+          content: AppLocalizations.of(context).flyAccountRemoveSourceMessage,
+          cancelText: AppLocalizations.of(context).commonCancel,
+          confirmText: AppLocalizations.of(context).flyAccountRemove,
         );
         if (yes && context.mounted) {
           if (!_bindingStillCurrent(account, accountKey, bindingId, revision)) {
@@ -555,7 +588,7 @@ class FlyBindingsScreen extends StatelessWidget {
     final session = account.session!;
     final colors = context.appColors;
     final accountKey = account.accountKey;
-    return _page('账号与媒体来源', [
+    return _page(AppLocalizations.of(context).flyAccountTitle, [
       _FlySurface(
         child: Row(
           children: [
@@ -582,7 +615,7 @@ class FlyBindingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '飞翔账号 · 与管理后台共用',
+                    AppLocalizations.of(context).flyAccountAdminSharedSubtitle,
                     style: TextStyle(color: colors.textMuted, fontSize: 12),
                   ),
                 ],
@@ -590,34 +623,36 @@ class FlyBindingsScreen extends StatelessWidget {
             ),
             TextButton(
               onPressed: account.busy ? null : () => _run(account.logout),
-              child: const Text('退出账号'),
+              child: Text(AppLocalizations.of(context).flyAccountLogout),
             ),
           ],
         ),
       ),
       const SizedBox(height: 28),
       _FlySectionTitle(
-        title: '我的媒体来源',
-        subtitle: '${account.bindings.length} 个来源',
+        title: AppLocalizations.of(context).flyAccountMySources,
+        subtitle: AppLocalizations.of(
+          context,
+        ).flyAccountSourceCount(account.bindings.length.toString()),
         action: IconButton(
-          tooltip: '刷新媒体来源',
+          tooltip: AppLocalizations.of(context).flyAccountRefreshSources,
           onPressed: account.busy ? null : () => _run(account.refresh),
           icon: const Icon(Icons.refresh_rounded),
         ),
       ),
       const SizedBox(height: 12),
       if (account.bindings.isEmpty)
-        const _FlySurface(
+        _FlySurface(
           child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 12),
             child: Column(
               children: [
-                Icon(Icons.video_library_outlined, size: 36),
-                SizedBox(height: 12),
-                Text('添加第一个媒体来源'),
-                SizedBox(height: 6),
+                const Icon(Icons.video_library_outlined, size: 36),
+                const SizedBox(height: 12),
+                Text(AppLocalizations.of(context).flyAccountAddFirstSource),
+                const SizedBox(height: 6),
                 Text(
-                  '绑定飞牛、Emby 或 Jellyfin 账号后即可进入媒体库。',
+                  AppLocalizations.of(context).flyAccountAddFirstSourceSubtitle,
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -658,14 +693,16 @@ class FlyBindingsScreen extends StatelessWidget {
                     ? null
                     : () => _localServiceForm(context, account),
                 icon: const Icon(Icons.home_work_outlined),
-                label: const Text('绑定 NAS 媒体服务'),
+                label: Text(
+                  AppLocalizations.of(context).flyAccountBindNasMedia,
+                ),
               ),
             OutlinedButton.icon(
               onPressed: account.busy
                   ? null
                   : () => _bindingForm(context, account),
               icon: const Icon(Icons.add_rounded),
-              label: const Text('添加媒体来源'),
+              label: Text(AppLocalizations.of(context).flyAccountAddSource),
             ),
           ],
         ),
@@ -685,19 +722,19 @@ class FlyBindingsScreen extends StatelessWidget {
           shape: const Border(),
           collapsedShape: const Border(),
           leading: const Icon(Icons.tune_rounded),
-          title: const Text('设置'),
+          title: Text(AppLocalizations.of(context).nativePlayerText0071),
           children: [
             if (session.role == 'admin')
               _managementRow(
                 icon: Icons.dns_outlined,
-                title: '添加服务器',
+                title: AppLocalizations.of(context).flyAccountAddServer,
                 onTap: account.busy
                     ? null
                     : () => _serverForm(context, account),
               ),
             _managementRow(
               icon: Icons.public_rounded,
-              title: '服务地址',
+              title: AppLocalizations.of(context).flyDataServiceAddressLabel,
               subtitle: session.serverUrl,
               onTap: account.busy
                   ? null
@@ -705,7 +742,7 @@ class FlyBindingsScreen extends StatelessWidget {
             ),
             _managementRow(
               icon: Icons.cloud_sync_outlined,
-              title: '同步记录',
+              title: AppLocalizations.of(context).flySyncRecords,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const FlyDataSettingsScreen(),
@@ -714,7 +751,7 @@ class FlyBindingsScreen extends StatelessWidget {
             ),
             _managementRow(
               icon: Icons.lan_outlined,
-              title: '媒体账号登录',
+              title: AppLocalizations.of(context).flyAccountMediaLogin,
               onTap: account.busy
                   ? null
                   : () async {
@@ -743,12 +780,15 @@ class FlyBindingsScreen extends StatelessWidget {
     final accountKey = account.accountKey;
     final address = await _showFlyOptions(
       context,
-      title: '服务地址',
+      title: AppLocalizations.of(context).flyDataServiceAddressLabel,
       selectedId: session.serverUrl,
       items: [
         for (final url in {session.serverUrl, ...session.addresses})
           TrackOptionSheetItem(id: url, title: url),
-        const TrackOptionSheetItem(id: 'add', title: '添加地址'),
+        TrackOptionSheetItem(
+          id: 'add',
+          title: AppLocalizations.of(context).flyAccountAddAddress,
+        ),
       ],
     );
     if (address == null || !context.mounted || account.busy) return;
@@ -757,7 +797,11 @@ class FlyBindingsScreen extends StatelessWidget {
       return;
     }
     if (address == 'add') {
-      final values = await flyForm(context, '添加地址', {'url': '服务地址'});
+      final values = await flyForm(
+        context,
+        AppLocalizations.of(context).flyAccountAddAddress,
+        {'url': AppLocalizations.of(context).flyDataServiceAddressLabel},
+      );
       if (values == null || !context.mounted || account.busy) return;
       if (account.accountKey != accountKey) {
         _showChangedAccount(context);
@@ -788,7 +832,10 @@ class FlyBindingsScreen extends StatelessWidget {
         return;
       }
       if (response['enabled'] != true) {
-        tip(response['message'] as String? ?? '此飞翔服务尚未启用本机媒体服务发现，请联系管理员。');
+        tip(
+          response['message'] as String? ??
+              AppLocalizations.of(context).flyAccountDiscoveryDisabled,
+        );
         return;
       }
       final items = (response['items'] as List? ?? [])
@@ -797,24 +844,26 @@ class FlyBindingsScreen extends StatelessWidget {
           .where((item) => (item['key'] as String? ?? '').isNotEmpty)
           .toList();
       if (items.isEmpty) {
-        tip('尚未发现本机媒体服务，请先在 NAS 安装并启动媒体服务。');
+        tip(AppLocalizations.of(context).flyAccountDiscoveryEmpty);
         return;
       }
       final selected = await _showFlyOptions(
         context,
-        title: '选择 NAS 媒体服务',
+        title: AppLocalizations.of(context).flyAccountChooseNasMedia,
         items: [
           for (final item in items)
             TrackOptionSheetItem(
               id: item['key'] as String,
-              title: item['name'] as String? ?? _backendLabel(item['kind']),
+              title:
+                  item['name'] as String? ??
+                  _backendLabel(context, item['kind']),
               subtitle: item['status'] != 'available'
-                  ? '当前不可用，请先启动服务'
+                  ? AppLocalizations.of(context).flyAccountLocalServiceStopped
                   : (item['server_id'] as String? ?? '').isNotEmpty
-                  ? '已启用 · 绑定媒体账号即可使用'
+                  ? AppLocalizations.of(context).flyAccountLocalServiceReady
                   : account.session?.role == 'admin'
-                  ? '启用后绑定媒体账号'
-                  : '请管理员先启用',
+                  ? AppLocalizations.of(context).flyAccountEnableThenBind
+                  : AppLocalizations.of(context).flyAccountAskAdminEnable,
             ),
         ],
       );
@@ -825,13 +874,13 @@ class FlyBindingsScreen extends StatelessWidget {
       }
       final item = items.firstWhere((item) => item['key'] == selected);
       if (item['status'] != 'available') {
-        tip('本机媒体服务当前不可用，请先启动服务后重试。');
+        tip(AppLocalizations.of(context).flyAccountLocalServiceUnavailable);
         return;
       }
       var serverId = item['server_id'] as String? ?? '';
       if (serverId.isEmpty) {
         if (account.session?.role != 'admin') {
-          tip('请管理员先启用此本机媒体服务。');
+          tip(AppLocalizations.of(context).flyAccountLocalServiceNeedsAdmin);
           return;
         }
         final server = await account.registerLocalService(
@@ -846,7 +895,7 @@ class FlyBindingsScreen extends StatelessWidget {
         }
         serverId = server['id'] as String? ?? '';
         if (serverId.isEmpty) {
-          tip('本机服务登记结果不完整，请重试。');
+          tip(AppLocalizations.of(context).flyAccountLocalServiceIncomplete);
           return;
         }
       }
@@ -878,20 +927,22 @@ class FlyBindingsScreen extends StatelessWidget {
       if (account.servers.isEmpty) {
         AppTopTip().show(
           context,
-          message: '没有可用服务器，请管理员先登记。',
+          message: AppLocalizations.of(context).flyAccountNoRegisteredServers,
           color: context.appColors.surfaceStrong,
         );
         return;
       }
       serverId = await _showFlyOptions(
         context,
-        title: '选择已登记服务器',
+        title: AppLocalizations.of(context).flyAccountChooseRegisteredServer,
         items: [
           for (final server in account.servers)
             TrackOptionSheetItem(
               id: server['id'] as String,
-              title: server['name'] as String? ?? '媒体服务器',
-              subtitle: _backendLabel(server['kind']),
+              title:
+                  server['name'] as String? ??
+                  AppLocalizations.of(context).flyAccountMediaServer,
+              subtitle: _backendLabel(context, server['kind']),
             ),
         ],
       );
@@ -903,11 +954,14 @@ class FlyBindingsScreen extends StatelessWidget {
     }
     final values = await flyForm(
       context,
-      binding == null ? '绑定媒体账号' : '重新授权',
+      binding == null
+          ? AppLocalizations.of(context).flyAccountLinkMediaAccount
+          : AppLocalizations.of(context).flyAccountReauthorize,
       {
-        if (binding == null) 'label': '绑定名称',
-        'username': '媒体账号',
-        'password': '媒体密码',
+        if (binding == null)
+          'label': AppLocalizations.of(context).flyAccountBindingName,
+        'username': AppLocalizations.of(context).flyAccountMediaUsername,
+        'password': AppLocalizations.of(context).flyAccountMediaPassword,
       },
       secretKeys: {'password'},
     );
@@ -940,18 +994,24 @@ class FlyBindingsScreen extends StatelessWidget {
     final selection = DesktopEnvironment.isDesktopPlatform
         ? _showFlyOptions(
             context,
-            title: '媒体服务器类型',
+            title: AppLocalizations.of(context).flyAccountMediaServerType,
             items: [
               for (final kind in kinds)
-                TrackOptionSheetItem(id: kind, title: _backendLabel(kind)),
+                TrackOptionSheetItem(
+                  id: kind,
+                  title: _backendLabel(context, kind),
+                ),
             ],
           )
         : showAppActionSheet<String>(
             context,
-            title: '媒体服务器类型',
+            title: AppLocalizations.of(context).flyAccountMediaServerType,
             options: [
               for (final kind in kinds)
-                AppActionSheetOption(value: kind, label: _backendLabel(kind)),
+                AppActionSheetOption(
+                  value: kind,
+                  label: _backendLabel(context, kind),
+                ),
             ],
           );
     final kind = await selection;
@@ -962,13 +1022,17 @@ class FlyBindingsScreen extends StatelessWidget {
     }
     final values = await flyForm(
       context,
-      '登记服务器',
+      AppLocalizations.of(context).flyAccountRegisterServer,
       {
-        'name': '服务器名称',
-        'nas_api': 'NAS 访问地址（必填）',
-        'client_lan': 'App 局域网地址（选填）',
-        'client_remote': 'App HTTPS 地址（选填）',
-        'vpn': 'App VPN 地址（选填）',
+        'name': AppLocalizations.of(context).flyAccountServerName,
+        'nas_api': AppLocalizations.of(context).flyAccountNasAddressRequired,
+        'client_lan': AppLocalizations.of(
+          context,
+        ).flyAccountAppLanAddressOptional,
+        'client_remote': AppLocalizations.of(
+          context,
+        ).flyAccountAppHttpsAddressOptional,
+        'vpn': AppLocalizations.of(context).flyAccountAppVpnAddressOptional,
       },
       optionalKeys: {'client_lan', 'client_remote', 'vpn'},
     );
@@ -1047,7 +1111,7 @@ Widget _field(
         onFieldSubmitted: onSubmitted,
         validator: (value) =>
             !optional && (value == null || value.trim().isEmpty)
-            ? '请填写$label'
+            ? AppLocalizations.of(context).flyAccountFieldRequired(label)
             : null,
         decoration: InputDecoration(
           labelText: label,
@@ -1191,7 +1255,7 @@ class _FlyDesktopPanel extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: '关闭',
+                tooltip: AppLocalizations.of(context).commonClose,
                 icon: const Icon(Icons.close_rounded, size: 18),
                 onPressed: () => AppSheetTransitions.close(context),
               ),
@@ -1270,7 +1334,7 @@ class _FlyAccountFormState extends State<_FlyAccountForm> {
               Expanded(
                 child: TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('取消'),
+                  child: Text(AppLocalizations.of(context).commonCancel),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1283,7 +1347,7 @@ class _FlyAccountFormState extends State<_FlyAccountForm> {
                         entry.key: entry.value.text,
                     });
                   },
-                  child: const Text('确定'),
+                  child: Text(AppLocalizations.of(context).flyAccountConfirm),
                 ),
               ),
             ],
