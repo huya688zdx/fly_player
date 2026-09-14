@@ -30,6 +30,38 @@ void main() {
     account.backendSession.dispose();
     SecureCredentialStore.resetBackendForTesting();
   });
+  for (final language in ['en', 'ja']) {
+    testWidgets('$language sync localization preserves the current sync flow', (
+      tester,
+    ) async {
+      service.session = _session('alice');
+      await tester.pumpWidget(_app(account, locale: Locale(language)));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(language == 'en' ? 'Sync history' : '履歴の同期'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(language == 'en' ? 'Not synced yet' : 'まだ同期していません'),
+        findsOneWidget,
+      );
+      expect(find.text('alice'), findsOneWidget);
+      final syncLabel = language == 'en' ? 'Sync now' : '今すぐ同期';
+      await tester.tap(find.text(syncLabel));
+      await tester.pumpAndSettle();
+      expect(service.syncCalls, 1);
+      expect(service.ownershipCalls, 0);
+      expect(
+        find.text(language == 'en' ? 'Sync complete' : '同期が完了しました'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(language == 'en' ? 'Last synced:' : '最終同期：'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('未登录只保留现有账号页入口，没有重复登录或迁移表单', (tester) async {
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
@@ -139,12 +171,12 @@ void main() {
   });
 }
 
-Widget _app(_Account account) =>
+Widget _app(_Account account, {Locale locale = const Locale('zh', 'CN')}) =>
     ChangeNotifierProvider<FlyAccountController>.value(
       value: account,
       child: MaterialApp(
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
-        locale: const Locale('zh', 'CN'),
+        locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: FlyDataSettingsScreen(service: account.service),
