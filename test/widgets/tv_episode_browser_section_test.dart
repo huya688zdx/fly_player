@@ -13,8 +13,8 @@ void main() {
   testWidgets('桌面选集居中打开并以数字模式返回所选剧集', (tester) async {
     DesktopEnvironment.debugOverridePlatform = true;
     addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 2;
+    tester.view.physicalSize = const Size(2110, 1431);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     const episode = TvEpisodeCardData(
@@ -71,8 +71,13 @@ void main() {
     expect(find.byType(Dialog), findsOneWidget);
     expect(find.byTooltip('关闭'), findsOneWidget);
     final panel = tester.getRect(find.byType(DesktopFloatingPanel));
-    expect(panel.center, const Offset(640, 400));
-    expect(panel.size, const Size(960, 680));
+    expect(panel.center.dx, closeTo(527.5, 0.01));
+    expect(panel.center.dy, closeTo(357.75, 0.01));
+    expect(panel.width, closeTo(1055 * 0.80, 0.01));
+    expect(panel.height, closeTo(715.5 * 0.78, 0.01));
+    expect(panel.left, greaterThan(100));
+    expect(panel.top, greaterThan(70));
+    expect(tester.takeException(), isNull);
     await tester.tap(find.byIcon(Icons.grid_view_rounded));
     await tester.pumpAndSettle();
     await tester.tap(find.text('1'));
@@ -80,6 +85,7 @@ void main() {
     expect(result?.seasonGuid, 'season-1');
     expect(result?.episodeGuid, 'episode-1');
     expect(result?.mode, TvEpisodePickerMode.grid);
+    expect(result?.openDetail, isTrue);
     expect(find.byType(Dialog), findsNothing);
   });
 
