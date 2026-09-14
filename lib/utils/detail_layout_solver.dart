@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../desktop/desktop_environment.dart';
+import '../theme/detail_tokens.dart';
+
 class DetailLayoutMetrics {
   final double infoStart;
   final double contentTopPadding;
@@ -16,6 +19,27 @@ class DetailLayoutMetrics {
 
 class DetailLayoutSolver {
   const DetailLayoutSolver._();
+
+  static const desktopPosterWidth = 168.0;
+  static const desktopActionWidth = 420.0;
+  static const desktopInlineControlsWidth = 1000.0;
+
+  static bool usesDesktopLayout(double width) =>
+      DesktopEnvironment.isDesktopPlatform && width >= 800;
+
+  /// 正文、标题和骨架共用边距，背景仍铺满窗口。
+  static double horizontalPadding(double width) => usesDesktopLayout(width)
+      ? ((width - 1180) / 2).clamp(32.0, double.infinity)
+      : DetailTokens.screenHorizontalPadding;
+
+  static double desktopHeroHeight(Size size) =>
+      (size.height * 0.50).clamp(300.0, 420.0);
+
+  static double desktopSeasonHeaderTop(Size size, double safeTop) =>
+      (desktopHeroHeight(size) - desktopPosterWidth * 1.45 - 24).clamp(
+        safeTop + 72,
+        double.infinity,
+      );
 
   static double _safeClamp(double value, double a, double b) {
     final min = a <= b ? a : b;

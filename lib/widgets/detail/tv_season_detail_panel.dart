@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 import '../../ui/app_transitions.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
+import '../../utils/detail_layout_solver.dart';
 import 'detail_description_section.dart';
 import 'detail_icon_button.dart';
 
@@ -221,6 +222,156 @@ class TvSeasonDetailPanel extends StatelessWidget {
     final creditsSection = content.creditsSection;
     final linkSection = content.linkSection;
     final onOverviewTap = content.onOverviewTap;
+    final desktop = DetailLayoutSolver.usesDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    );
+    final actionBar = AnimatedBuilder(
+      animation: headerMetaOpacity,
+      builder: (context, child) =>
+          Opacity(opacity: headerMetaOpacity.value, child: child),
+      child: SizedBox(
+        width: desktop ? DetailLayoutSolver.desktopActionWidth : null,
+        child: Row(
+          children: [
+            Expanded(
+              child: DetailPrimaryPlayButton(
+                text: playLabel,
+                textSwitchKey: 'play-label-$playLabel',
+                textStyle: TextStyle(
+                  fontSize: playLabelFontSize,
+                  fontWeight: FontWeight.w600,
+                ),
+                onTap: onPlayTap,
+                backgroundColor: colors.accent,
+                foregroundColor: primaryForeground,
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (favorite != null && onFavoriteTap != null) ...[
+              DetailIconButton(
+                iconAsset: 'assets/icons/heart.svg',
+                selected: favorite,
+                onTap: onFavoriteTap,
+              ),
+              const SizedBox(width: 10),
+            ],
+            DetailIconButton(
+              iconAsset: 'assets/icons/download.svg',
+              selectedIconAsset: 'assets/icons/check.svg',
+              selected: downloaded,
+              onTap: onDownloadTap,
+            ),
+            const SizedBox(width: 10),
+            DetailIconButton(
+              iconAsset: 'assets/icons/watched.svg',
+              selectedIconAsset: 'assets/icons/watched_selected.svg',
+              selected: watched,
+              onTap: onWatchedTap,
+            ),
+          ],
+        ),
+      ),
+    );
+    final headerRow = Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: SizedBox(
+            width: posterWidth,
+            height: posterCardHeight,
+            child: DetailHeroImage(
+              images: mediaImageRequestForUrls(
+                posterUrls,
+                token: token,
+                accessCode: accessCode,
+                baseUrl: baseUrl,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: desktop ? 28 : 16),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(bottom: desktop ? 0 : 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AnimatedBuilder(
+                  animation: headerMetaOpacity,
+                  builder: (context, child) {
+                    return Opacity(
+                      opacity: headerMetaOpacity.value,
+                      child: child,
+                    );
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: titleFontSize,
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      metaContent,
+                    ],
+                  ),
+                ),
+                if (desktop) ...[const SizedBox(height: 20), actionBar],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AnimatedSize(
+          duration: switchDuration,
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppTransitions.fadeDownSwitch(
+                switchKey:
+                    'overview-$descriptionVisible-${hasOverview ? 1 : 0}-${overview.hashCode}',
+                duration: switchDuration,
+                child: (hasOverview && descriptionVisible)
+                    ? DetailDescriptionSection(
+                        text: overview,
+                        maxLines: 3,
+                        baseFontSize: 14,
+                        onMoreTap: onOverviewTap,
+                      )
+                    : const SizedBox.shrink(),
+              ),
+              SizedBox(height: hasOverview ? 12 : 8),
+            ],
+          ),
+        ),
+        episodeSection,
+        if (creditsSection != null) ...[
+          const SizedBox(height: 20),
+          creditsSection,
+        ],
+        if (linkSection != null) ...[const SizedBox(height: 20), linkSection],
+      ],
+    );
+    if (desktop) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [headerRow, const SizedBox(height: 24), body],
+      );
+    }
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -228,59 +379,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
           left: 0,
           right: 0,
           top: -posterBridgeOverlap - panelDropOffset,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: SizedBox(
-                  width: posterWidth,
-                  height: posterCardHeight,
-                  child: DetailHeroImage(
-                    images: mediaImageRequestForUrls(
-                      posterUrls,
-                      token: token,
-                      accessCode: accessCode,
-                      baseUrl: baseUrl,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: AnimatedBuilder(
-                    animation: headerMetaOpacity,
-                    builder: (context, child) {
-                      return Opacity(
-                        opacity: headerMetaOpacity.value,
-                        child: child,
-                      );
-                    },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.textPrimary,
-                            fontSize: titleFontSize,
-                            fontWeight: FontWeight.w600,
-                            height: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        metaContent,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          child: headerRow,
         ),
         Padding(
           padding: EdgeInsets.only(top: headerBodyTopPadding),
@@ -288,88 +387,9 @@ class TvSeasonDetailPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 4),
-              AnimatedBuilder(
-                animation: headerMetaOpacity,
-                builder: (context, child) {
-                  return Opacity(
-                    opacity: headerMetaOpacity.value,
-                    child: child,
-                  );
-                },
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: DetailPrimaryPlayButton(
-                        text: playLabel,
-                        textSwitchKey: 'play-label-$playLabel',
-                        textStyle: TextStyle(
-                          fontSize: playLabelFontSize,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        onTap: onPlayTap,
-                        backgroundColor: colors.accent,
-                        foregroundColor: primaryForeground,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    if (favorite != null && onFavoriteTap != null) ...[
-                      DetailIconButton(
-                        iconAsset: 'assets/icons/heart.svg',
-                        selected: favorite,
-                        onTap: onFavoriteTap,
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                    DetailIconButton(
-                      iconAsset: 'assets/icons/download.svg',
-                      selectedIconAsset: 'assets/icons/check.svg',
-                      selected: downloaded,
-                      onTap: onDownloadTap,
-                    ),
-                    const SizedBox(width: 10),
-                    DetailIconButton(
-                      iconAsset: 'assets/icons/watched.svg',
-                      selectedIconAsset: 'assets/icons/watched_selected.svg',
-                      selected: watched,
-                      onTap: onWatchedTap,
-                    ),
-                  ],
-                ),
-              ),
+              actionBar,
               const SizedBox(height: 10),
-              AnimatedSize(
-                duration: switchDuration,
-                curve: Curves.easeOut,
-                alignment: Alignment.topCenter,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    AppTransitions.fadeDownSwitch(
-                      switchKey:
-                          'overview-$descriptionVisible-${hasOverview ? 1 : 0}-${overview.hashCode}',
-                      duration: switchDuration,
-                      child: (hasOverview && descriptionVisible)
-                          ? DetailDescriptionSection(
-                              text: overview,
-                              maxLines: 3,
-                              baseFontSize: 14,
-                              onMoreTap: onOverviewTap,
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                    SizedBox(height: hasOverview ? 12 : 8),
-                  ],
-                ),
-              ),
-              episodeSection,
-              if (creditsSection != null) ...[
-                const SizedBox(height: 20),
-                creditsSection,
-              ],
-              if (linkSection != null) ...[
-                const SizedBox(height: 20),
-                linkSection,
-              ],
+              body,
             ],
           ),
         ),
