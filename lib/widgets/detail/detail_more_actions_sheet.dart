@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../desktop/desktop_environment.dart';
+import '../../desktop/desktop_floating_panel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../providers/app_theme_provider.dart';
 import '../../theme/app_theme.dart';
@@ -54,46 +56,70 @@ Future<void> showDetailMoreActionsSheet(
     ),
   ];
 
-  final selectedAction = await showModalBottomSheet<_DetailMoreSheetResult>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    barrierColor: colors.overlayScrim,
-    builder: (sheetContext) {
-      final sheetColors = sheetContext.appColors;
-      final sheetL10n = AppLocalizations.of(sheetContext);
-      return SafeArea(
-        top: false,
-        child: AppModalSurface(
-          key: const ValueKey<String>('app-modal-surface-detail-more'),
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-          child: Column(
+  final desktop =
+      DesktopEnvironment.isDesktopPlatform &&
+      MediaQuery.sizeOf(context).width >= 800;
+  final sheetTheme = AppThemeBuilder.buildFromColors(
+    colors,
+    baseTheme: Theme.of(context),
+  );
+  Widget buildBody(BuildContext sheetContext) => AppRuntimeColorScope(
+    colors: colors,
+    hasRuntimeColors: dynamicReady || context.hasRuntimeAppColors,
+    child: Theme(
+      data: sheetTheme,
+      child: Builder(
+        builder: (sheetContext) {
+          final sheetColors = sheetContext.appColors;
+          final sheetL10n = AppLocalizations.of(sheetContext);
+          final content = Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: sheetColors.borderStrong,
-                    borderRadius: BorderRadius.circular(999),
+              if (!desktop) ...[
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: sheetColors.borderStrong,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                sheetL10n.detailMoreActionsTitle,
-                style: TextStyle(
-                  color: sheetColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
+                const SizedBox(height: 14),
+              ],
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      sheetL10n.detailMoreActionsTitle,
+                      style: TextStyle(
+                        color: sheetColors.textPrimary,
+                        fontSize: desktop ? 18 : 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (desktop)
+                    IconButton(
+                      tooltip: MaterialLocalizations.of(
+                        sheetContext,
+                      ).closeButtonTooltip,
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      color: sheetColors.textSecondary,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                ],
               ),
               const SizedBox(height: 6),
               Text(
                 pageTitle.trim().isEmpty
                     ? sheetL10n.detailCurrentPage
                     : pageTitle,
+                maxLines: desktop ? 2 : null,
+                overflow: desktop ? TextOverflow.ellipsis : null,
                 style: TextStyle(
                   color: sheetColors.textSecondary,
                   fontSize: 13.5,
@@ -102,6 +128,7 @@ Future<void> showDetailMoreActionsSheet(
               ),
               const SizedBox(height: 14),
               _DetailMoreActionTile(
+                desktop: desktop,
                 icon: Icons.bookmark_add_outlined,
                 title: sheetL10n.detailSaveCurrentTheme,
                 subtitle: dynamicReady
@@ -114,6 +141,7 @@ Future<void> showDetailMoreActionsSheet(
               ),
               for (final result in actions.skip(1))
                 _DetailMoreActionTile(
+                  desktop: desktop,
                   icon: result.action!.icon,
                   title: result.action!.title,
                   subtitle: result.action!.subtitle,
@@ -123,11 +151,52 @@ Future<void> showDetailMoreActionsSheet(
                       : null,
                 ),
             ],
-          ),
-        ),
-      );
-    },
+          );
+          if (desktop) {
+            return DesktopFloatingPanel(
+              key: const ValueKey<String>('desktop-detail-more-panel'),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.75,
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+                  child: content,
+                ),
+              ),
+            );
+          }
+          return SafeArea(
+            top: false,
+            child: AppModalSurface(
+              key: const ValueKey<String>('app-modal-surface-detail-more'),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+              child: content,
+            ),
+          );
+        },
+      ),
+    ),
   );
+  final selectedAction = await (desktop
+      ? showDialog<_DetailMoreSheetResult>(
+          context: context,
+          useRootNavigator: false,
+          barrierColor: colors.overlayScrim.withValues(alpha: 0.20),
+          builder: (sheetContext) => Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            insetPadding: const EdgeInsets.all(24),
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: buildBody(sheetContext),
+          ),
+        )
+      : showModalBottomSheet<_DetailMoreSheetResult>(
+          context: context,
+          backgroundColor: Colors.transparent,
+          barrierColor: colors.overlayScrim,
+          builder: buildBody,
+        ));
 
   if (!context.mounted) {
     return;
@@ -210,6 +279,7 @@ class _DetailMoreSheetResult {
 }
 
 class _DetailMoreActionTile extends StatelessWidget {
+  final bool desktop;
   final IconData icon;
   final String title;
   final String? subtitle;
@@ -217,6 +287,7 @@ class _DetailMoreActionTile extends StatelessWidget {
   final VoidCallback? onTap;
 
   const _DetailMoreActionTile({
+    required this.desktop,
     required this.icon,
     required this.title,
     this.subtitle,
@@ -232,15 +303,19 @@ class _DetailMoreActionTile extends StatelessWidget {
       opacity: enabled ? 1 : 0.58,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(desktop ? 12 : 18),
+        hoverColor: colors.textPrimary.withValues(alpha: 0.05),
+        focusColor: colors.selection.withValues(alpha: 0.10),
         child: Container(
           width: double.infinity,
           margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(14),
+          padding: EdgeInsets.all(desktop ? 12 : 14),
           decoration: BoxDecoration(
-            color: appModalTileColor(colors),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: appModalTileBorderColor(colors)),
+            color: desktop ? null : appModalTileColor(colors),
+            borderRadius: BorderRadius.circular(desktop ? 12 : 18),
+            border: desktop
+                ? null
+                : Border.all(color: appModalTileBorderColor(colors)),
           ),
           child: Row(
             children: <Widget>[
@@ -248,11 +323,18 @@ class _DetailMoreActionTile extends StatelessWidget {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: appModalTileColor(colors, selected: true),
+                  color: desktop
+                      ? colors.accent.withValues(alpha: 0.10)
+                      : appModalTileColor(colors, selected: true),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: appModalTileBorderColor(colors, selected: true),
-                  ),
+                  border: desktop
+                      ? null
+                      : Border.all(
+                          color: appModalTileBorderColor(
+                            colors,
+                            selected: true,
+                          ),
+                        ),
                 ),
                 alignment: Alignment.center,
                 child: Icon(icon, color: colors.accentStrong, size: 20),
@@ -266,8 +348,8 @@ class _DetailMoreActionTile extends StatelessWidget {
                       title,
                       style: TextStyle(
                         color: textColor,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
+                        fontSize: desktop ? 14 : 15,
+                        fontWeight: desktop ? FontWeight.w600 : FontWeight.w700,
                       ),
                     ),
                     if (subtitle != null && subtitle!.trim().isNotEmpty) ...[

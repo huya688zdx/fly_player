@@ -937,7 +937,7 @@ class AppThemeProvider extends ChangeNotifier {
       AppThemePreset.ocean => const _PresetDefaults(
         backgroundTone: AppBackgroundTone.ocean,
         accentTone: AppAccentTone.cyan,
-        selectionTone: AppAccentTone.blue,
+        selectionTone: AppAccentTone.cyan,
         linkTone: AppAccentTone.cyan,
       ),
       AppThemePreset.forest => const _PresetDefaults(
@@ -961,14 +961,14 @@ class AppThemeProvider extends ChangeNotifier {
       AppThemePreset.aurora => const _PresetDefaults(
         backgroundTone: AppBackgroundTone.ocean,
         accentTone: AppAccentTone.mint,
-        selectionTone: AppAccentTone.blue,
+        selectionTone: AppAccentTone.mint,
         linkTone: AppAccentTone.mint,
       ),
       AppThemePreset.latte => const _PresetDefaults(
         backgroundTone: AppBackgroundTone.ivory,
-        accentTone: AppAccentTone.indigo,
-        selectionTone: AppAccentTone.blue,
-        linkTone: AppAccentTone.indigo,
+        accentTone: AppAccentTone.amber,
+        selectionTone: AppAccentTone.amber,
+        linkTone: AppAccentTone.coral,
       ),
     };
   }

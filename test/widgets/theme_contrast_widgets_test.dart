@@ -16,7 +16,7 @@ Widget _themedApp(AppThemePreset preset, Widget child) {
 }
 
 void main() {
-  test('应用栏系统图标样式跟随亮暗主题', () {
+  test('应用栏图标跟随亮暗主题，柔和强调色按钮保留足够文字对比度', () {
     final light = AppThemeBuilder.build(AppThemePreset.latte);
     final dark = AppThemeBuilder.build(AppThemePreset.midnight);
 
@@ -28,6 +28,26 @@ void main() {
       dark.appBarTheme.systemOverlayStyle?.statusBarIconBrightness,
       Brightness.light,
     );
+    for (final tone in [
+      AppAccentTone.cyan,
+      AppAccentTone.green,
+      AppAccentTone.amber,
+      AppAccentTone.coral,
+      AppAccentTone.mint,
+    ]) {
+      final scheme = AppThemeBuilder.build(
+        AppThemePreset.midnight,
+        accentTone: tone,
+      ).colorScheme;
+      final luminances = [
+        scheme.primary.computeLuminance(),
+        scheme.onPrimary.computeLuminance(),
+      ]..sort();
+      expect(
+        (luminances.last + 0.05) / (luminances.first + 0.05),
+        greaterThanOrEqualTo(4.5),
+      );
+    }
   });
 
   testWidgets('能力徽章 SVG 在亮暗主题下都使用语义前景色', (tester) async {
