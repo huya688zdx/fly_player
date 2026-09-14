@@ -84,7 +84,7 @@ bool FlutterWindow::OnCreate() {
   desktop_danmaku_segmenter_ = std::make_unique<DesktopDanmakuSegmenter>(
       flutter_controller_->engine()->messenger());
   potplayer_bridge_ = std::make_unique<PotPlayerBridge>(
-      flutter_controller_->engine()->messenger());
+      GetHandle(), flutter_controller_->engine()->messenger());
   system_media_controls_ = std::make_unique<SystemMediaControls>(
       GetHandle(), flutter_controller_->engine()->messenger());
   display_channel_ =

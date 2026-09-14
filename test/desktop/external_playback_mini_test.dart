@@ -5,19 +5,30 @@ import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/desktop/playback/external_playback_host.dart';
 import 'package:fly_player/desktop/playback/external_playback_mini_controller.dart';
 import 'package:fly_player/playback/playback_source.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/theme/app_theme.dart';
 
 void main() {
   testWidgets('极简模式置顶、展开和退出保留页面；置顶失败恢复窗口', (tester) async {
     const window = MethodChannel('window_manager');
     const screen = MethodChannel('dev.leanflutter.plugins/screen_retriever');
+    const potplayer = MethodChannel('fly_player/potplayer');
     const original = Rect.fromLTWH(100, 80, 1200, 800);
     var bounds = original;
     var top = false;
     var resizable = true;
     var maximized = true;
     var failPin = false;
+    var pinWatch = false;
     final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(potplayer, (call) async {
+      expectSync(call.method, 'setMiniPinned');
+      final pinned = call.arguments as bool;
+      if (failPin && pinned) throw PlatformException(code: 'pin-failed');
+      top = pinned;
+      pinWatch = pinned;
+      return null;
+    });
     messenger.setMockMethodCallHandler(window, (call) async {
       final args = call.arguments as Map? ?? {};
       switch (call.method) {
@@ -50,9 +61,6 @@ void main() {
         case 'setResizable':
           resizable = args['isResizable'];
         case 'setAlwaysOnTop':
-          if (failPin && args['isAlwaysOnTop'] == true) {
-            throw PlatformException(code: 'pin-failed');
-          }
           top = args['isAlwaysOnTop'];
       }
       return null;
@@ -78,6 +86,7 @@ void main() {
       ExternalPlaybackHost.status.value = null;
       messenger.setMockMethodCallHandler(window, null);
       messenger.setMockMethodCallHandler(screen, null);
+      messenger.setMockMethodCallHandler(potplayer, null);
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
@@ -103,6 +112,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppThemeBuilder.build(AppThemePreset.ocean),
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         builder: (_, child) => ExternalPlaybackMiniHost(child: child!),
         home: Scaffold(body: TextField(key: field)),
       ),
@@ -113,6 +125,7 @@ void main() {
     await tester.pumpAndSettle();
     await entering;
     expect(top, isTrue);
+    expect(pinWatch, isTrue);
     expect(resizable, isFalse);
     expect(maximized, isFalse);
     expect(bounds, const Rect.fromLTWH(780, 12, 360, 64));
@@ -127,6 +140,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('external-mini-取消置顶')));
     await tester.pumpAndSettle();
     expect(top, isFalse);
+    expect(pinWatch, isFalse);
     expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
     failPin = true;
     await tester.tap(find.byKey(const ValueKey('external-mini-置顶悬浮条')));
@@ -182,10 +196,10 @@ void main() {
     );
     expect(subtitlePanel.top, greaterThanOrEqualTo(12));
     expect(subtitlePanel.bottom, lessThan(subtitleTrigger.top));
-    await tester.tap(find.text('关闭影片字幕'));
+    await tester.tap(find.text('字幕关'));
     await tester.pumpAndSettle();
     expect(find.text('影片字幕'), findsNothing);
-    expect(find.text('关闭影片字幕'), findsOneWidget);
+    expect(find.text('字幕关'), findsOneWidget);
     expect(find.text('调节后点击应用'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('external-mini-返回完整界面')));
     await tester.pumpAndSettle();
@@ -193,6 +207,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(bounds, original);
     expect(top, isFalse);
+    expect(pinWatch, isFalse);
     expect(resizable, isTrue);
     expect(maximized, isTrue);
     expect(field.currentContext, same(element));
