@@ -258,8 +258,9 @@ class DetailLoadingSkeleton extends StatelessWidget {
   ) {
     final horizontal = DetailLayoutSolver.horizontalPadding(size.width);
     final bodyWidth = size.width - horizontal * 2;
-    const posterWidth = DetailLayoutSolver.desktopPosterWidth;
-    const posterHeight = posterWidth * 1.45;
+    final posterWidth = DetailLayoutSolver.desktopPosterWidthFor(size.width);
+    final posterHeight = posterWidth * 1.45;
+    const controlHeight = DetailLayoutSolver.desktopControlHeight;
     final headerTop = DetailLayoutSolver.desktopSeasonHeaderTop(
       size,
       MediaQuery.paddingOf(context).top,
@@ -270,14 +271,35 @@ class DetailLoadingSkeleton extends StatelessWidget {
       width: DetailLayoutSolver.desktopActionWidth,
       child: Row(
         children: [
-          Expanded(child: _Bar(height: 56, radius: 28, color: subtle)),
+          Expanded(
+            child: _Bar(
+              height: controlHeight,
+              radius: controlHeight / 2,
+              color: subtle,
+            ),
+          ),
           const SizedBox(width: 12),
-          _Bar(width: 56, height: 56, radius: 28, color: fill),
+          _Bar(
+            width: controlHeight,
+            height: controlHeight,
+            radius: controlHeight / 2,
+            color: fill,
+          ),
           const SizedBox(width: 10),
-          _Bar(width: 56, height: 56, radius: 28, color: fill),
+          _Bar(
+            width: controlHeight,
+            height: controlHeight,
+            radius: controlHeight / 2,
+            color: fill,
+          ),
           if (!showPoster) ...[
             const SizedBox(width: 10),
-            _Bar(width: 56, height: 56, radius: 28, color: fill),
+            _Bar(
+              width: controlHeight,
+              height: controlHeight,
+              radius: controlHeight / 2,
+              color: fill,
+            ),
           ],
         ],
       ),
