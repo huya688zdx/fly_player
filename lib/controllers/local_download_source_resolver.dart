@@ -9,6 +9,7 @@ import '../models/playback_stream.dart';
 import '../models/stream_track_data.dart';
 import '../playback/playback_source.dart';
 import '../services/download_task_service.dart';
+import '../services/play_stats/play_stats_service.dart';
 import '../utils/play_detail_track_selector.dart';
 import '../utils/playback_resume_position_resolver.dart';
 import '../utils/player_artwork_path_resolver.dart';
@@ -47,6 +48,7 @@ resolveLocalDownloadSource(
   required AppLocalizations l10n,
   int? startPositionMs,
 }) async {
+  final statsScope = PlayStatsService.instance.currentScope;
   final path = record.filePath.trim();
   if (path.isEmpty || !await File(path).exists()) return null;
   final fallbackTitle = localDownloadRecordTitle(record);
@@ -181,8 +183,12 @@ resolveLocalDownloadSource(
   final durationSeconds = resume.effectiveDurationSeconds;
   final localArtwork = await DownloadTaskService.instance
       .resolveExistingLocalCover(record);
+  if (statsScope != PlayStatsService.instance.currentScope) {
+    throw StateError('媒体账号已切换，请重新播放。');
+  }
   final source = MpvMediaSource.localFile(
     filePath: path,
+    statsScope: statsScope,
     itemGuid: playItem?.guid.trim().isNotEmpty == true
         ? playItem!.guid.trim()
         : normalizedItemGuid,

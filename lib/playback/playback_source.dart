@@ -322,6 +322,7 @@ class MpvMediaSource {
     required String itemGuid,
     required String mediaGuid,
     required String title,
+    String statsScope = '',
     String seriesGuid = '',
     String seasonGuid = '',
     String posterPath = '',
@@ -492,6 +493,7 @@ class MpvMediaSource {
             ));
     return MpvMediaSource(
       loadNonce: loadNonce ?? createMpvLoadNonce(),
+      statsScope: statsScope,
       itemGuid: normalizedItemGuid,
       seriesGuid: seriesGuid,
       seasonGuid: seasonGuid,
