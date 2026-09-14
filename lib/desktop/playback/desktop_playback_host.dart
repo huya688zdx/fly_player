@@ -30,7 +30,7 @@ import 'desktop_playback_launch_guard.dart';
 import 'external_playback_host.dart';
 import 'external_player_settings.dart';
 
-/// Windows 桌面播放宿主：初始化桌面内核并把正式播放页推入根导航栈。
+/// 桌面播放宿主：初始化内核并把正式播放页推入根导航栈。
 final class DesktopPlaybackHost implements PlaybackHost {
   const DesktopPlaybackHost(
     this.context, {
@@ -262,7 +262,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
         );
       }
 
-      // 只在 Windows 桌面播放真正启动时初始化，Android 主路径不会触发。
+      // 只在桌面播放真正启动时初始化，Android 主路径不会触发。
       await ExternalPlaybackHost.stop();
       if (!context.mounted || !_isCurrentRequest(request, requestScope)) {
         return false;
