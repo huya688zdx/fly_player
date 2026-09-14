@@ -16,6 +16,7 @@ void main() {
 
   testWidgets('首次凭据迁移写入失败时显示可重试错误', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
+      'app_locale_mode': 'zh-CN',
       'token': 'legacy-token',
     });
     final backend = _SwitchableCredentialBackend()..failWrite = true;
@@ -33,6 +34,7 @@ void main() {
 
   testWidgets('首次凭据清理失败时显示可重试错误', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{
+      'app_locale_mode': 'zh-CN',
       'remember_password': false,
     });
     final backend = _SwitchableCredentialBackend()..failDelete = true;
@@ -49,7 +51,9 @@ void main() {
   });
 
   testWidgets('首次会话加载不可用时显示重试并在恢复后进入登录页', (tester) async {
-    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    SharedPreferences.setMockInitialValues(const <String, Object>{
+      'app_locale_mode': 'zh-CN',
+    });
     final backend = _SwitchableCredentialBackend()..unavailable = true;
     SecureCredentialStore.setBackendForTesting(backend);
     addTearDown(SecureCredentialStore.resetBackendForTesting);
