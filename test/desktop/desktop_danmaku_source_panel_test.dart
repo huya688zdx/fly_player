@@ -11,6 +11,7 @@ import 'package:fly_player/services/play_stats/play_stats_service.dart';
 Widget _panel({
   bool signedIn = false,
   Object identity = 'episode-a',
+  String serviceStatus = '',
   Future<bool> Function({void Function(String)? onStatus})? refresh,
 }) => DesktopDanmakuSourcePanel(
   currentSourceLabel: '已导入的本地文件',
@@ -19,6 +20,7 @@ Widget _panel({
   initialKeyword: '当前作品',
   flyAccountSignedIn: signedIn,
   serviceSourceIdentity: identity,
+  serviceStatus: serviceStatus,
   onRefreshServiceSource: refresh,
   onLoadSavedSources: () async => [],
   onSearch: (_) async => [],
@@ -37,6 +39,25 @@ Future<void> _pump(WidgetTester tester, Widget panel) async {
 }
 
 void main() {
+  testWidgets('自动弹幕进度与待核对状态无需点击即可更新', (tester) async {
+    var status = '正在后台查找这集弹幕，完成后自动加载';
+    var requests = 0;
+    late StateSetter update;
+    await _pump(tester, StatefulBuilder(builder: (context, setState) {
+      update = setState;
+      return _panel(signedIn: true, serviceStatus: status,
+          refresh: ({onStatus}) async { requests++; return true; });
+    }));
+    expect(find.text(status), findsOneWidget);
+    update(() => status = '已提交获取任务，飞翔后台正在更新这集弹幕。');
+    await tester.pumpAndSettle();
+    expect(find.text(status), findsOneWidget);
+    update(() => status = '飞翔后台未能自动确认这集的弹幕来源，需要核对匹配结果。');
+    await tester.pumpAndSettle();
+    expect(find.text(status), findsOneWidget);
+    expect(requests, 0);
+  });
+
   testWidgets('保留飞翔会话的普通登录隐藏服务入口，活动绑定才显示', (tester) async {
     final service = FlyDataService.instance;
     final stats = PlayStatsService.instance;
