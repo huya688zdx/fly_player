@@ -279,9 +279,9 @@ class NativeDanmakuPrefetch {
     final service = FlyDataService.instance;
     final session = service.session;
     final epoch = service.scopeIdentity;
+    // 播放宿主已用当前媒体票据判断有效性，下一集预取不能取消当前集任务。
     bool current() =>
-        generation == _nasGeneration &&
-        (isCurrent?.call() ?? true) &&
+        (isCurrent?.call() ?? generation == _nasGeneration) &&
         identical(session, service.session) &&
         epoch == service.scopeIdentity &&
         _hasActiveFlyBinding(statsScope: statsScope);
