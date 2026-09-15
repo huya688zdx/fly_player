@@ -98,9 +98,21 @@ void main() {
   test('播放后台只提交一次精确版本任务，就绪后复用弹幕读取', () {
     fakeAsync((clock) {
       api.responses = [
-        {'status': 'queued', 'request_id': 'request'},
-        ...List.generate(91, (_) => {'goal_status': 'working'}),
-        {'goal_status': 'ready'},
+        {'status': 'queued', 'request_id': 'request', 'item_id': 'current'},
+        ...List.generate(91, (_) => {
+          'goal_status': 'needs_decision',
+          'items': [
+            {'id': 'other', 'resource_kind': 'danmaku', 'state': 'needs_decision'},
+            {'id': 'current', 'resource_kind': 'danmaku', 'state': 'working'},
+          ],
+        }),
+        {
+          'goal_status': 'needs_decision',
+          'items': [
+            {'id': 'other', 'resource_kind': 'danmaku', 'state': 'needs_decision'},
+            {'id': 'current', 'resource_kind': 'danmaku', 'state': 'ready'},
+          ],
+        },
         _ready,
         _payload,
       ];
