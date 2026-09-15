@@ -149,11 +149,13 @@ class FlyNasDanmakuCache {
       if (!current()) return false;
       if (prepared['status'] == 'ready') return true;
       final requestId = prepared['request_id'];
+      final itemId = prepared['item_id'];
       final jobId = prepared['job_id'], matchId = prepared['match_id'];
       final downloading = jobId is String && jobId.isNotEmpty &&
           matchId is String && matchId.isNotEmpty;
       if (!['queued', 'running'].contains(prepared['status']) ||
-          (!downloading && (requestId is! String || requestId.isEmpty))) {
+          (!downloading && (requestId is! String || requestId.isEmpty ||
+              itemId is! String || itemId.isEmpty))) {
         onStatus?.call(prepared['status'] == 'disabled'
             ? FlyNasDanmakuStatus.disabled : FlyNasDanmakuStatus.stale);
         return false;
@@ -182,8 +184,16 @@ class FlyNasDanmakuCache {
           }
           continue;
         }
-        if (request['goal_status'] == 'ready') return true;
-        if (!['working', 'waiting'].contains(request['goal_status'])) {
+        final items = (request['items'] as List? ?? []).whereType<Map>().where(
+          (item) => item['id'] == itemId);
+        if (items.length != 1 || items.single['resource_kind'] != 'danmaku') {
+          onStatus?.call(FlyNasDanmakuStatus.stale);
+          return false;
+        }
+        // 同批其他集可能仍需处理，只等待当前播放集自己的弹幕条目。
+        final state = items.single['state'];
+        if (state == 'ready') return true;
+        if (!['pending', 'working', 'waiting'].contains(state)) {
           onStatus?.call(FlyNasDanmakuStatus.stale);
           return false;
         }
