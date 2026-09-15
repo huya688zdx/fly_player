@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/danmaku/models/danmaku_comment.dart';
+import 'package:fly_player/danmaku/api/fly_danmaku_api.dart';
 import 'package:fly_player/services/fly_data/fly_data_api.dart';
 import 'package:fly_player/services/fly_data/fly_data_service.dart';
 import 'package:fly_player/services/fly_data/fly_nas_danmaku_cache.dart';
@@ -47,6 +48,52 @@ void main() {
     enabled: enabled,
     isCurrent: () => current,
   );
+
+  test('飞翔正式来源检索选集后只读取本次任务发布的新版本', () {
+    fakeAsync((clock) {
+      final transport = _InteractiveApi();
+      final fly = _interactiveClient(transport);
+      FlyNasDanmakuResult? result;
+      unawaited(() async {
+        final series = await fly.search('作品');
+        expect(series.single['episodeId'], isNull);
+        final episodes = await fly.expand(series.single);
+        result = await fly.importCandidate(episodes.single);
+      }());
+      clock.flushMicrotasks();
+      expect(transport.selection?['expected_revision'], 4);
+      expect(transport.payloadQueries, isEmpty);
+      clock.elapse(const Duration(seconds: 2));
+      expect(transport.payloadQueries, isEmpty);
+      clock.elapse(const Duration(seconds: 2));
+      expect(result?.sourceKey, 'nas:match:6:$_version');
+      expect(result?.comments.single.text, '本次选择');
+      expect(transport.payloadQueries, [
+        {'revision': 6},
+      ]);
+      fly.close();
+    });
+  });
+
+  test('任务结束但新选择尚未发布时拒绝旧published', () {
+    fakeAsync((clock) {
+      final transport = _InteractiveApi()..stalePublication = true;
+      final fly = _interactiveClient(transport);
+      FlyNasDanmakuResult? result;
+      var finished = false;
+      unawaited(() async {
+        final episodes = await fly.expand((await fly.search('作品')).single);
+        result = await fly.importCandidate(episodes.single);
+        finished = true;
+      }());
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 4));
+      expect(finished, isTrue);
+      expect(result, isNull);
+      expect(transport.payloadQueries, isEmpty);
+      fly.close();
+    });
+  });
 
   test('播放后台只提交一次精确版本任务，就绪后复用弹幕读取', () {
     fakeAsync((clock) {
@@ -368,5 +415,138 @@ class _Api extends FlyDataApi {
   void close() {
     closed = true;
     super.close();
+  }
+}
+
+const _version =
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+FlyDanmakuApi _interactiveClient(_InteractiveApi api) => FlyDanmakuApi(
+  api: api,
+  sourceQuery: {
+    'binding_id': 'binding',
+    'remote_item_id': 'item',
+    'remote_media_source_id': 'file',
+  },
+  scopeIdentity: 'scope',
+  sessionIdentity: 1,
+  isCurrent: () => true,
+);
+
+class _InteractiveApi extends FlyDataApi {
+  _InteractiveApi() : super('https://fly.example');
+  Map<String, dynamic>? selection;
+  final payloadQueries = <Map<String, dynamic>?>[];
+  bool stalePublication = false;
+  int polls = 0;
+  Map<String, dynamic> get selected => {
+    'provider_id': 'bilibili',
+    'remote_ref': 'https://www.bilibili.com/bangumi/play/ep1',
+    'title': '第1集',
+    'offset_ms': 0,
+  };
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
+    if (path == '/danmaku/context') {
+      expect(query?['remote_media_source_id'], 'file');
+      return {
+        'media_id': 'media',
+        'version_key': _version,
+        'enabled': true,
+        'configured': true,
+        'matches': [
+          {
+            'id': 'match',
+            'revision': selection == null
+                ? 4
+                : stalePublication
+                ? 5
+                : 6,
+            'sources': [
+              selection == null
+                  ? {
+                      ...selected,
+                      'remote_ref': 'https://www.bilibili.com/bangumi/play/ep0',
+                      'title': '旧选择',
+                    }
+                  : selected,
+            ],
+            'selection_pending': stalePublication,
+            'last_job': {'id': 'selected-job'},
+          },
+        ],
+      };
+    }
+    if (path == '/danmaku/providers') {
+      return {
+        'items': [
+          {'id': 'bilibili', 'enabled': true, 'configured': true},
+        ],
+      };
+    }
+    if (path == '/danmaku/jobs') {
+      return {
+        'items': [
+          {
+            'id': 'selected-job',
+            'match_id': 'match',
+            'status': ++polls == 1 ? 'running' : 'succeeded',
+          },
+        ],
+      };
+    }
+    if (path == '/danmaku/matches/match/payload') {
+      payloadQueries.add(query);
+      return {
+        'match_id': 'match',
+        'revision': 6,
+        'version_key': _version,
+        'sources': [selected],
+        'items': [
+          {'time_ms': 1000, 'mode': 1, 'color': 0xffffff, 'text': '本次选择'},
+        ],
+      };
+    }
+    throw StateError('意外的接口请求：$path');
+  }
+
+  @override
+  Future<Map<String, dynamic>> post(String path, Object body) async {
+    if (path == '/danmaku/search') {
+      return {
+        'items': [
+          {
+            'provider_id': 'bilibili',
+            'remote_ref': 'series-1',
+            'title': '作品',
+            'kind': 'series',
+          },
+        ],
+      };
+    }
+    if (path == '/danmaku/episodes') {
+      return {
+        'items': [
+          {...selected, 'kind': 'episode'},
+        ],
+      };
+    }
+    if (path == '/danmaku/matches') {
+      selection = Map<String, dynamic>.from(body as Map);
+      return {
+        'match': {
+          'id': 'match',
+          'revision': 5,
+          'version_key': _version,
+          'sources': [selected],
+        },
+        'job': {'id': 'selected-job', 'match_id': 'match'},
+        'cached': false,
+      };
+    }
+    throw StateError('意外的接口请求：$path');
   }
 }

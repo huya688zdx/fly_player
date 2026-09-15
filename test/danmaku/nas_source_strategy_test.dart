@@ -4,6 +4,9 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:dio/dio.dart';
+import 'package:fly_player/danmaku/api/dandanplay_api.dart';
+import 'package:fly_player/danmaku/api/fly_danmaku_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fly_player/danmaku/models/danmaku_comment.dart';
 import 'package:fly_player/danmaku/models/danmaku_saved_source.dart';
@@ -51,6 +54,8 @@ void main() {
   tearDown(() async {
     NativeDanmakuPrefetch.cacheRootOverrideForTest = null;
     NativeDanmakuPrefetch.originalConfiguredOverrideForTest = null;
+    NativeDanmakuPrefetch.flyApiFactoryForTest = null;
+    NativeDanmakuPrefetch.originalApiFactoryForTest = null;
     FlyDataService.instance.session = null;
     await PlayStatsService.instance.bindOwnerScope('');
     await directory.delete(recursive: true);
@@ -90,7 +95,19 @@ void main() {
     );
   }
 
-  test('三种来源策略保存和重载后不丢失', () async {
+  test('保存的优先顺序决定真实查询来源，首选无结果后才回退', () async {
+    final events = <String>[];
+    final transport = _PriorityApi(events);
+    NativeDanmakuPrefetch.originalConfiguredOverrideForTest = () async => true;
+    NativeDanmakuPrefetch.originalApiFactoryForTest = () =>
+        _OriginalApi(events);
+    NativeDanmakuPrefetch.flyApiFactoryForTest = () => FlyDanmakuApi(
+      api: transport,
+      sourceQuery: {},
+      scopeIdentity: 'test',
+      sessionIdentity: 1,
+      isCurrent: () => true,
+    );
     for (final strategy in ['nasPreferred', 'nasOnly', 'original']) {
       await const DanmakuSettingsStore().save(
         DanmakuSettings.fromJson({'sourceStrategy': strategy}),
@@ -99,7 +116,31 @@ void main() {
         (await const DanmakuSettingsStore().load()).toJson()['sourceStrategy'],
         strategy,
       );
+      events.clear();
+      final candidates = await NativeDanmakuPrefetch.searchCandidates(
+        keyword: '作品',
+      );
+      expect(candidates.single['source'], 'fly');
+      expect(events, [
+        if (strategy == 'original') 'dandan:search',
+        'fly:context',
+        'fly:providers',
+        'fly:search',
+      ]);
     }
+    await const DanmakuSettingsStore().save(DanmakuSettings.defaults);
+    transport.empty = true;
+    events.clear();
+    expect(
+      await NativeDanmakuPrefetch.searchCandidates(keyword: '作品'),
+      isEmpty,
+    );
+    expect(events, [
+      'fly:context',
+      'fly:providers',
+      'fly:search',
+      'dandan:search',
+    ]);
   });
   test('普通登录即使保留Fly账号和仅NAS偏好也能读取原缓存且不读NAS', () async {
     await PlayStatsService.instance.bindOwnerScope('');
@@ -189,7 +230,7 @@ void main() {
     expect(originalAttempts, 0);
     expect(directory.listSync().whereType<File>(), isEmpty);
   });
-  test('NAS 优先等待受完整预算约束，到期关闭请求后才启动原来源', () async {
+  test('后端优先起播只等短预算，播放后查找失败才回退弹弹play', () async {
     final session = FlyDataService.instance.session!;
     final scope = PlayStatsService.instance.currentScope;
     final api = _PendingApi();
@@ -218,8 +259,26 @@ void main() {
     expect(api.calls, 1);
     expect(api.closed, isTrue);
     expect(path, isNull);
-    expect(originalAttempts, 1);
+    expect(originalAttempts, 0);
     api.pending.complete({'status': 'miss'});
+    cache.miss = true;
+    expect(
+      await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
+        seriesTitle: '作品',
+        seasonNumber: 1,
+        episodeNumber: 1,
+        tmdbId: '',
+        itemGuid: 'item',
+        mediaGuid: 'file',
+        statsScope: scope,
+        settings: DanmakuSettings.defaults,
+        nasCache: cache,
+        store: store,
+      ),
+      isNull,
+    );
+    expect(cache.prepares, 1);
+    expect(originalAttempts, 1);
   });
   test('NAS 优先时旧自动 active 不会抢先返回', () async {
     await oldAutoSource();
@@ -258,8 +317,20 @@ void main() {
 
 class _Cache extends FlyNasDanmakuCache {
   int calls = 0;
+  int prepares = 0;
   bool miss = false;
   Completer<void>? gate;
+  @override
+  Future<bool> prepareOnPlayback({
+    required String statsScope,
+    required String itemGuid,
+    String mediaGuid = '',
+    required bool Function() isCurrent,
+  }) async {
+    prepares++;
+    return !miss && isCurrent();
+  }
+
   @override
   Future<FlyNasDanmakuResult?> resolve({
     required String statsScope,
@@ -283,6 +354,65 @@ class _Cache extends FlyNasDanmakuCache {
       ],
       sourceKey: 'nas:confirmed',
       isCurrent: isCurrent ?? () => true,
+    );
+  }
+}
+
+class _PriorityApi extends FlyDataApi {
+  _PriorityApi(this.events) : super('https://fly.example');
+  final List<String> events;
+  bool empty = false;
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
+    events.add('fly:${path.split('/').last}');
+    if (path == '/danmaku/context') {
+      return {
+        'media_id': 'media',
+        'version_key': 'a' * 64,
+        'enabled': true,
+        'configured': true,
+      };
+    }
+    return {
+      'items': [
+        {'id': 'bilibili', 'enabled': true, 'configured': true},
+      ],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> post(String path, Object body) async {
+    events.add('fly:search');
+    return {
+      'items': [
+        if (!empty)
+          {
+            'provider_id': 'bilibili',
+            'remote_ref': 'series',
+            'title': '作品',
+            'kind': 'series',
+          },
+      ],
+    };
+  }
+}
+
+class _OriginalApi extends DanDanPlayApi {
+  _OriginalApi(this.events) : super(appId: 'synthetic', appSecret: 'synthetic');
+  final List<String> events;
+  @override
+  Future<Response<Map<String, dynamic>>> searchEpisodes({
+    String anime = '',
+    int? episode,
+    int? tmdbId,
+  }) async {
+    events.add('dandan:search');
+    return Response(
+      requestOptions: RequestOptions(path: '/api/v2/search/episodes'),
+      data: {'animes': []},
     );
   }
 }

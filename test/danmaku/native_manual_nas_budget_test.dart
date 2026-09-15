@@ -90,37 +90,34 @@ void main() {
     },
   );
 
-  test(
-    'automatic default budget falls back quickly and drops the late payload',
-    () async {
-      final elapsed = Stopwatch()..start();
-      final result = NativeDanmakuPrefetch.resolveToFile(
-        seriesTitle: 'series',
-        seasonNumber: 1,
-        episodeNumber: 2,
-        tmdbId: '',
-        itemGuid: 'episode',
-        mediaGuid: 'file',
-        statsScope: PlayStatsService.instance.currentScope,
-        settings: DanmakuSettings.defaults.copyWith(
-          sourceStrategy: DanmakuSourceStrategy.nasPreferred,
-        ),
-        store: DanmakuSavedSourceStore(
-          directoryPath: '${directory.path}/sources',
-        ),
-      );
-      await server.payloadRequested.future;
-      expect(await result, isNull);
-      expect(elapsed.elapsedMilliseconds, greaterThanOrEqualTo(1100));
-      expect(elapsed.elapsedMilliseconds, lessThan(5000));
-      expect(originalCalls, 1);
+  test('自动起播短预算结束后交给播放后查找并丢弃迟到缓存', () async {
+    final elapsed = Stopwatch()..start();
+    final result = NativeDanmakuPrefetch.resolveToFile(
+      seriesTitle: 'series',
+      seasonNumber: 1,
+      episodeNumber: 2,
+      tmdbId: '',
+      itemGuid: 'episode',
+      mediaGuid: 'file',
+      statsScope: PlayStatsService.instance.currentScope,
+      settings: DanmakuSettings.defaults.copyWith(
+        sourceStrategy: DanmakuSourceStrategy.nasPreferred,
+      ),
+      store: DanmakuSavedSourceStore(
+        directoryPath: '${directory.path}/sources',
+      ),
+    );
+    await server.payloadRequested.future;
+    expect(await result, isNull);
+    expect(elapsed.elapsedMilliseconds, greaterThanOrEqualTo(1100));
+    expect(elapsed.elapsedMilliseconds, lessThan(5000));
+    expect(originalCalls, 0);
 
-      server.releasePayload();
-      await server.payloadFinished.future;
-      expect(directory.listSync().whereType<File>(), isEmpty);
-      expect(originalCalls, 1);
-    },
-  );
+    server.releasePayload();
+    await server.payloadFinished.future;
+    expect(directory.listSync().whereType<File>(), isEmpty);
+    expect(originalCalls, 0);
+  });
 
   test(
     'manual delayed payload is discarded after the account changes',

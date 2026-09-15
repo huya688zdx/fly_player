@@ -134,15 +134,15 @@ enum DanmakuSourceStrategy {
   original;
 
   String get label => switch (this) {
-    nasPreferred => 'NAS 优先',
-    nasOnly => '仅 NAS',
-    original => '原有来源',
+    nasPreferred => '飞翔后端优先',
+    nasOnly => '仅飞翔后端',
+    original => '弹弹play 优先',
   };
 
   String get description => switch (this) {
-    nasPreferred => '优先使用服务弹幕，暂无缓存时使用原有来源。',
-    nasOnly => '只使用服务弹幕或手动导入文件。',
-    original => '使用弹弹play与本地来源。',
+    nasPreferred => '先由飞翔后端查找，未找到时再使用弹弹play。',
+    nasOnly => '仅由飞翔后端查找；仍可手动导入本地文件。',
+    original => '先使用弹弹play，未找到时再由飞翔后端查找。',
   };
 }
 
