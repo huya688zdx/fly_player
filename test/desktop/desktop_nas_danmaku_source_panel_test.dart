@@ -9,6 +9,7 @@ void main() {
     final pending = Completer<bool>();
     var requests = 0;
     var applied = false;
+    void Function(String)? reportStatus;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -22,8 +23,10 @@ void main() {
               initialKeyword: '测试作品',
               flyAccountSignedIn: true,
               serviceSourceIdentity: 'Emby · 测试作品 第 1 集',
-              onRefreshServiceSource: () {
+              onRefreshServiceSource: ({onStatus}) {
                 requests++;
+                reportStatus = onStatus;
+                onStatus?.call('已提交获取任务，飞翔后台正在更新这集弹幕。');
                 return pending.future;
               },
               onLoadSavedSources: () async => [],
@@ -50,10 +53,11 @@ void main() {
     await tester.tap(find.text('重新获取'));
     await tester.pump();
     expect(requests, 1);
-    expect(find.text('正在获取'), findsOneWidget);
+    expect(find.text('已提交获取任务，飞翔后台正在更新这集弹幕。'), findsOneWidget);
+    reportStatus?.call('来源访问失败，请在后台查看这集的获取任务。');
     pending.complete(false);
     await tester.pumpAndSettle();
-    expect(find.text('暂无可自动使用的弹幕，可点“查找来源”选择'), findsOneWidget);
+    expect(find.text('来源访问失败，请在后台查看这集的获取任务。'), findsOneWidget);
     expect(find.text('本地导入'), findsOneWidget);
     expect(find.text('20 条'), findsOneWidget);
     await tester.tap(find.text('查找来源'));

@@ -704,7 +704,8 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final String currentTmdbId;
   final bool flyAccountSignedIn;
   final Object? serviceSourceIdentity;
-  final Future<bool> Function()? onRefreshServiceSource;
+  final Future<bool> Function({void Function(String)? onStatus})?
+      onRefreshServiceSource;
   final Future<List<Map<String, dynamic>>> Function() onLoadSavedSources;
   final Future<List<Map<String, dynamic>>> Function(String keyword) onSearch;
   final Future<List<Map<String, dynamic>>> Function(String keyword)? onSearchFly;
@@ -772,7 +773,12 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     });
     var applied = false;
     try {
-      applied = await refresh();
+      applied = await refresh(onStatus: (message) {
+        if (mounted && generation == _serviceRefreshGeneration &&
+            widget.flyAccountSignedIn) {
+          setState(() => _serviceStatus = message);
+        }
+      });
     } catch (_) {
       // Keep the existing source available when the service cannot be read.
     }
@@ -783,7 +789,9 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     }
     setState(() {
       _refreshingService = false;
-      _serviceStatus = applied ? '已加载飞翔后端弹幕' : '暂无可自动使用的弹幕，可点“查找来源”选择';
+      _serviceStatus = applied ? '已加载飞翔后端弹幕'
+          : _serviceStatus.isNotEmpty ? _serviceStatus
+          : '暂无可自动使用的弹幕，可点“查找来源”选择';
     });
   }
 
@@ -932,11 +940,9 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                     const SizedBox(height: 10),
                     _SettingsStatusCard(
                       title: '飞翔后端弹幕',
-                      value: _refreshingService
-                          ? '正在获取'
-                          : _serviceStatus.isEmpty
-                          ? '通过飞翔后端查找并获取弹幕'
-                          : _serviceStatus,
+                      value: _serviceStatus.isNotEmpty ? _serviceStatus
+                          : _refreshingService ? '正在获取'
+                          : '通过飞翔后端查找并获取弹幕',
                       description: '',
                     ),
                     if (widget.onSearchFly != null)
@@ -2077,16 +2083,22 @@ class _DesktopPlaybackSettingsPanelState
   }) {
     final definition = MpvSettingsL10n.definitionByKey(l10n, key);
     if (definition == null) return const SizedBox.shrink();
+    final interpolationSync =
+        key == MpvSettingsCatalog.videoSyncKey &&
+        _mpvSettings[MpvSettingsCatalog.frameInterpolationKey] == 'on';
     return _SettingsSegmentTile(
-      title: definition.title,
+      title: interpolationSync
+          ? '${definition.title} · 插帧期间自动同步'
+          : definition.title,
       options: <(String, String)>[
         for (final option in definition.options) (option.value, option.label),
       ],
-      selectedValue:
-          _mpvSettings[key] ??
-          MpvSettingsCatalog.defaults[key] ??
-          definition.options.first.value,
-      enabled: enabled,
+      selectedValue: interpolationSync
+          ? 'auto'
+          : _mpvSettings[key] ??
+                MpvSettingsCatalog.defaults[key] ??
+                definition.options.first.value,
+      enabled: enabled && !interpolationSync,
       onSelected: (value) => _setMpvAdvanced(key, value),
     );
   }

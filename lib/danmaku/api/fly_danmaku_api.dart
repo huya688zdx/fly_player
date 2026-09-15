@@ -213,8 +213,8 @@ class FlyDanmakuApi {
     var revision = match['revision'] as int;
     if (job is Map && job['id'] is String && job['match_id'] == id) {
       var succeeded = false;
-      final deadline = DateTime.now().add(const Duration(seconds: 330));
-      while (DateTime.now().isBefore(deadline)) {
+      // 排队时继续观察本次选择，直到当前视频退出或下载进入终态。
+      while (isCurrent()) {
         await Future<void>.delayed(const Duration(seconds: 2));
         final jobs = await _get('/danmaku/jobs');
         final current = (jobs['items'] as List? ?? []).whereType<Map>().where(

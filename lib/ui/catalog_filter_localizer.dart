@@ -82,6 +82,8 @@ class CatalogFilterLocalizer {
   /// 排序字段的显示文案；未知字段回退“按添加时间”（与分类页一致）。
   String sortLabel(String field) {
     switch (field) {
+      case 'sort_num':
+        return '频道顺序';
       case 'release_date':
         return l10n.listSortReleaseDate;
       case 'title':

@@ -6,15 +6,16 @@ import 'package:flutter/material.dart';
 
 /// 青鸟加载动效。
 ///
-/// 使用 288 张透明手绘姿势，以 25 FPS 表现少女后退、蜷缩成茧、连续扑翼、
-/// 化为青鸟并飞远的完整过程。系统关闭动画时显示完整青鸟静态帧；素材无法
+/// 使用透明 WebP，以 30 FPS、8.7 秒表现少女欲伸又止、收回自抱、蜷缩成茧、
+/// 化为青鸟并飞远的完整过程。系统关闭动画时显示青鸟展翼静态帧；素材无法
 /// 解码时回退到原有矢量青鸟，避免加载位空白。
 enum BirdLoaderStyle { theme, logo }
 
-const _loopDuration = Duration(milliseconds: 7000);
 const _birdVisualScale = 2.1;
 const _storyAnimationAsset = 'assets/refresh/shoujo_bird_loading.webp';
 const _storyStaticAsset = 'assets/refresh/shoujo_bird_loading_static.png';
+const _glyphAnimationAsset = 'assets/refresh/bluebird_glyph.webp';
+const _glyphStaticAsset = 'assets/refresh/bluebird_glyph_static.png';
 
 class BirdLoader extends StatefulWidget {
   const BirdLoader({
@@ -97,65 +98,39 @@ class _BirdPalette {
   }
 }
 
-/// 仅燕形本体的迷你加载指示：无轨道、无残影，扇翅与 [BirdLoader]
-/// 共享同一节奏。用于行内小尺寸等待位。
-class BirdGlyph extends StatefulWidget {
+/// 从正式动画截取的青鸟扑翼循环，用于行内小尺寸等待位。
+class BirdGlyph extends StatelessWidget {
   const BirdGlyph({super.key, this.size = 20, this.color});
 
   /// 正方形渲染区边长。
   final double size;
 
-  /// 覆盖主题强调色（如按钮前景色场景）。
+  /// 显式指定时染成该颜色；默认保留素材蓝色。
   final Color? color;
 
   @override
-  State<BirdGlyph> createState() => _BirdGlyphState();
-}
-
-class _BirdGlyphState extends State<BirdGlyph>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: _loopDuration,
-  );
-  bool _static = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final disabled = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (disabled) {
-      if (_controller.isAnimating) _controller.stop();
-      _static = true;
-    } else {
-      _static = false;
-      if (!_controller.isAnimating) _controller.repeat();
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final palette = _BirdPalette.fromColor(
-      widget.color ?? Theme.of(context).colorScheme.primary,
-    );
-    Widget paint(double t) => SizedBox.square(
-      dimension: widget.size,
-      child: CustomPaint(
-        painter: _BirdGlyphPainter(t: t, palette: palette),
+    final disabled = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    return SizedBox.square(
+      dimension: size,
+      child: Image.asset(
+        disabled ? _glyphStaticAsset : _glyphAnimationAsset,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.medium,
+        gaplessPlayback: true,
+        isAntiAlias: true,
+        color: color,
+        colorBlendMode: BlendMode.srcIn,
+        errorBuilder: (_, _, _) => CustomPaint(
+          painter: _BirdGlyphPainter(
+            t: 0.65,
+            palette: _BirdPalette.fromColor(
+              color ?? Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
       ),
     );
-    return _static
-        ? paint(0.65)
-        : AnimatedBuilder(
-            animation: _controller,
-            builder: (_, _) => paint(_controller.value),
-          );
   }
 }
 
@@ -169,7 +144,7 @@ class _BirdGlyphPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final scale = size.shortestSide / 46;
     final phase = _BirdAssets.instance.phaseOf(t);
-    final blend = (math.sin(phase) * 17 / 18).clamp(-1.0, 1.0); // 与主加载器同幅度扇翅
+    final blend = (math.sin(phase) * 17 / 18).clamp(-1.0, 1.0); // 素材失败时沿用旧轮廓
     final bob = math.sin(phase * 0.875) * 1.2; // 单位：舞台坐标
 
     canvas.save();

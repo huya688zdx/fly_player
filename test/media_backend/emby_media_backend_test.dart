@@ -26,6 +26,9 @@ class _FakeEmbyApi extends EmbyApi {
     this.pageTotal = 0,
     this.resumeItems = const [],
     this.nextUpItems = const [],
+    this.liveChannels = const [],
+    this.playbackInfos = const [],
+    this.openedLiveSources = const [],
   });
 
   final List<Map<String, Object?>> views;
@@ -35,6 +38,11 @@ class _FakeEmbyApi extends EmbyApi {
   final List<Map<String, Object?>> genres;
   final List<Map<String, Object?>> resumeItems;
   final List<Map<String, Object?>> nextUpItems;
+  final List<Map<String, Object?>> liveChannels;
+  final List<EmbyPlaybackInfo> playbackInfos;
+  final List<Map<String, Object?>> openedLiveSources;
+  int playbackInfoCalls = 0;
+  int openLiveStreamCalls = 0;
   // 计数桩：键=IncludeItemTypes（如 'Movie'/'Series'），值=TotalRecordCount。
   final Map<String, int> countByIncludeItemTypes;
   final int favoriteCount;
@@ -78,6 +86,13 @@ class _FakeEmbyApi extends EmbyApi {
   String? lastProgressMediaSourceId;
   int? lastProgressPositionTicks;
   bool? lastProgressIsPaused;
+  String? lastPlaybackInfoMediaSourceId;
+  String? lastReportedPlaySessionId;
+  String? lastReportedLiveStreamId;
+  bool? lastReportedCanSeek;
+  String? closedLiveStreamId;
+  String? closedPlaySessionId;
+  final List<String> closedSessions = <String>[];
   // downloadSubtitleText 桩 + 入参捕获。
   String subtitleText = '';
   String? lastSubtitleItemId;
@@ -114,9 +129,16 @@ class _FakeEmbyApi extends EmbyApi {
     required String itemId,
     required String mediaSourceId,
     int positionTicks = 0,
+    String playSessionId = '',
+    String liveStreamId = '',
+    bool canSeek = true,
+    String playMethod = 'DirectStream',
   }) async {
     playSessionCalls.add('start:$itemId');
     lastStartPositionTicks = positionTicks;
+    lastReportedPlaySessionId = playSessionId;
+    lastReportedLiveStreamId = liveStreamId;
+    lastReportedCanSeek = canSeek;
   }
 
   @override
@@ -127,9 +149,16 @@ class _FakeEmbyApi extends EmbyApi {
     required String itemId,
     required String mediaSourceId,
     required int positionTicks,
+    String playSessionId = '',
+    String liveStreamId = '',
+    bool canSeek = true,
+    String playMethod = 'DirectStream',
   }) async {
     playSessionCalls.add('stopped:$itemId');
     lastStoppedPositionTicks = positionTicks;
+    lastReportedPlaySessionId = playSessionId;
+    lastReportedLiveStreamId = liveStreamId;
+    lastReportedCanSeek = canSeek;
   }
 
   @override
@@ -141,11 +170,78 @@ class _FakeEmbyApi extends EmbyApi {
     required String mediaSourceId,
     required int positionTicks,
     bool isPaused = false,
+    String playSessionId = '',
+    String liveStreamId = '',
+    bool canSeek = true,
+    String playMethod = 'DirectStream',
   }) async {
     lastProgressItemId = itemId;
     lastProgressMediaSourceId = mediaSourceId;
     lastProgressPositionTicks = positionTicks;
     lastProgressIsPaused = isPaused;
+    lastReportedPlaySessionId = playSessionId;
+    lastReportedLiveStreamId = liveStreamId;
+    lastReportedCanSeek = canSeek;
+  }
+
+  @override
+  Future<EmbyItemPage> getLiveTvChannels({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    int startIndex = 0,
+    int? limit,
+    bool addCurrentProgram = true,
+  }) async => EmbyItemPage(
+    items: liveChannels
+        .skip(startIndex)
+        .take(limit ?? liveChannels.length)
+        .toList(),
+    totalRecordCount: liveChannels.length,
+  );
+
+  @override
+  Future<EmbyPlaybackInfo> getPlaybackInfo({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    String mediaSourceId = '',
+  }) async {
+    lastPlaybackInfoMediaSourceId = mediaSourceId;
+    if (playbackInfoCalls < playbackInfos.length) {
+      return playbackInfos[playbackInfoCalls++];
+    }
+    playbackInfoCalls++;
+    return const EmbyPlaybackInfo(mediaSources: []);
+  }
+
+  @override
+  Future<Map<String, Object?>> openLiveStream({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String playSessionId,
+    required String openToken,
+  }) async {
+    if (openLiveStreamCalls < openedLiveSources.length) {
+      return openedLiveSources[openLiveStreamCalls++];
+    }
+    openLiveStreamCalls++;
+    return const <String, Object?>{};
+  }
+
+  @override
+  Future<void> closeLiveStream({
+    required String serverUrl,
+    required String accessToken,
+    required String liveStreamId,
+    required String playSessionId,
+  }) async {
+    closedLiveStreamId = liveStreamId;
+    closedPlaySessionId = playSessionId;
+    closedSessions.add('$playSessionId:$liveStreamId');
   }
 
   @override
@@ -425,7 +521,7 @@ void main() {
     expect(items.first.resumePositionSeconds, 300);
   });
 
-  test('searchItems：SearchTerm + Movie,Series,Episode', () async {
+  test('searchItems：SearchTerm + 影视和直播频道', () async {
     final api = _FakeEmbyApi(
       pageItems: <Map<String, Object?>>[
         <String, Object?>{'Id': 's-1', 'Name': '命中', 'Type': 'Movie'},
@@ -434,7 +530,7 @@ void main() {
     final backend = EmbyMediaBackend(api: api, connection: connection);
     final results = await backend.searchItems('  关键词  ');
     expect(api.lastPageSearchTerm, '关键词');
-    expect(api.lastPageIncludeItemTypes, 'Movie,Series,Episode');
+    expect(api.lastPageIncludeItemTypes, 'Movie,Series,Episode,TvChannel');
     expect(results, hasLength(1));
     expect(results.first.id, 's-1');
   });
@@ -468,26 +564,23 @@ void main() {
     expect(api.lastPagePersonIds, '');
   });
 
-  test(
-    'queryFavoriteItems：favoritesOnly + 全部 Tab=Movie,Series,Episode',
-    () async {
-      final api = _FakeEmbyApi(
-        pageItems: <Map<String, Object?>>[
-          <String, Object?>{'Id': 'f-1', 'Name': '收藏', 'Type': 'Movie'},
-        ],
-        pageTotal: 1,
-      );
-      final backend = EmbyMediaBackend(api: api, connection: connection);
-      final page = await backend.queryFavoriteItems(
-        const MediaCatalogQuery(catalogId: ''),
-      );
-      expect(api.lastPageFavoritesOnly, isTrue);
-      expect(api.lastPageIncludeItemTypes, 'Movie,Series,Episode');
-      expect(page.items, hasLength(1));
-      expect(page.items.first.id, 'f-1');
-      expect(page.total, 1);
-    },
-  );
+  test('queryFavoriteItems：favoritesOnly + 全部 Tab 含直播频道', () async {
+    final api = _FakeEmbyApi(
+      pageItems: <Map<String, Object?>>[
+        <String, Object?>{'Id': 'f-1', 'Name': '收藏', 'Type': 'Movie'},
+      ],
+      pageTotal: 1,
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final page = await backend.queryFavoriteItems(
+      const MediaCatalogQuery(catalogId: ''),
+    );
+    expect(api.lastPageFavoritesOnly, isTrue);
+    expect(api.lastPageIncludeItemTypes, 'Movie,Series,Episode,TvChannel');
+    expect(page.items, hasLength(1));
+    expect(page.items.first.id, 'f-1');
+    expect(page.total, 1);
+  });
 
   test('queryFavoriteItems：person Tab → IncludeItemTypes=Person', () async {
     final api = _FakeEmbyApi();
@@ -893,6 +986,108 @@ void main() {
     expect(bundle.audioTracks, hasLength(2));
     expect(bundle.subtitleTracks, hasLength(1));
     expect(resolution.backendContext, isA<EmbyPlaybackContext>());
+  });
+
+  test('Live TV：虚拟目录、开流及同频道并发会话按所有权释放', () async {
+    final api = _FakeEmbyApi(
+      item: <String, Object?>{
+        'Id': 'channel-1',
+        'Name': '新闻频道',
+        'Type': 'TvChannel',
+      },
+      liveChannels: <Map<String, Object?>>[
+        <String, Object?>{
+          'Id': 'channel-1',
+          'Name': '新闻频道',
+          'Type': 'TvChannel',
+        },
+      ],
+      playbackInfos: <EmbyPlaybackInfo>[
+        const EmbyPlaybackInfo(
+          playSessionId: 'play-1',
+          mediaSources: <Map<String, Object?>>[
+            <String, Object?>{
+              'Id': 'source-1',
+              'RequiresOpening': true,
+              'OpenToken': 'open-1',
+            },
+          ],
+        ),
+        const EmbyPlaybackInfo(
+          playSessionId: 'play-2',
+          mediaSources: <Map<String, Object?>>[
+            <String, Object?>{
+              'Id': 'source-1',
+              'RequiresOpening': true,
+              'OpenToken': 'open-2',
+            },
+          ],
+        ),
+      ],
+      openedLiveSources: <Map<String, Object?>>[
+        <String, Object?>{
+          'Id': 'source-1',
+          'Container': 'ts',
+          'SupportsDirectStream': true,
+          'RequiresClosing': true,
+          'LiveStreamId': 'live-1',
+          'DirectStreamUrl': '//cdn.example.test/live/news.ts',
+          'RequiredHttpHeaders': <String, Object?>{'User-Agent': 'iptv'},
+        },
+        <String, Object?>{
+          'Id': 'source-1',
+          'Container': 'ts',
+          'SupportsDirectStream': true,
+          'RequiresClosing': true,
+          'LiveStreamId': 'live-2',
+        },
+      ],
+    );
+    const liveConnection = MediaBackendConnection(
+      kind: MediaBackendKind.emby,
+      serverUrl: 'https://emby.example.test/emby',
+      userId: 'user-1',
+      accessToken: 'tok',
+      entryToken: 'entry-secret',
+    );
+    final backend = EmbyMediaBackend(api: api, connection: liveConnection);
+
+    final catalogs = await backend.getCatalogs();
+    expect(catalogs.single.type, 'livetv');
+    final cards = await backend.getCatalogPreviewItems(catalogs.single.id);
+    expect(cards.single.type, 'LiveChannel');
+
+    final first = await backend.getPlayback(
+      const MediaPlaybackRequest(itemId: 'channel-1'),
+    );
+    final second = await backend.getPlayback(
+      const MediaPlaybackRequest(itemId: 'channel-1'),
+    );
+    expect(first.bundle.selectedSource.id, 'live:play-1:source-1');
+    expect(second.bundle.selectedSource.id, 'live:play-2:source-1');
+    expect(first.bundle.selectedSource.reliableSeek, isFalse);
+    expect(first.bundle.durationSeconds, 0);
+    expect(first.bundle.qualities, isEmpty);
+    expect(
+      first.bundle.selectedSource.url,
+      'https://cdn.example.test/live/news.ts',
+    );
+    expect(first.bundle.selectedSource.url, isNot(contains('api_key')));
+    expect(first.bundle.selectedSource.headers.containsKey('Cookie'), isFalse);
+    expect(first.bundle.selectedSource.headers['User-Agent'], 'iptv');
+
+    await backend.reportPlaybackStopped(
+      itemId: 'channel-1',
+      mediaSourceId: first.bundle.selectedSource.id,
+      positionSeconds: 0,
+    );
+    expect(api.lastReportedPlaySessionId, 'play-1');
+    expect(api.lastReportedLiveStreamId, 'live-1');
+    expect(api.lastReportedCanSeek, isFalse);
+    expect(api.closedSessions, <String>['play-1:live-1']);
+    await backend.releasePlaybackSession(second.bundle.session.id);
+    expect(api.closedSessions, <String>['play-1:live-1', 'play-2:live-2']);
+    expect(api.lastReportedPlaySessionId, 'play-2');
   });
 
   test('getPlayback：fnos 中转域注入 entry-token cookie', () async {

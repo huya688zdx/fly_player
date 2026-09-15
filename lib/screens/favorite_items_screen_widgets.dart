@@ -2,13 +2,40 @@ part of 'favorite_items_screen.dart';
 
 extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
   Widget _buildTabButton(_FavoriteTab tab, String text) {
-    final desktop = DesktopEnvironment.isDesktopPlatform;
+    final desktop =
+        DesktopEnvironment.isDesktopPlatform &&
+        MediaLayoutProfile.of(context).isDesktopTier;
     final selected = _selectedTab == tab;
     final colors = context.appColors;
     final selectedColors = AppTonalControlPalette.resolve(
       colors: colors,
       active: true,
     );
+    if (desktop) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: InkWell(
+          onTap: () => _switchTab(tab),
+          borderRadius: BorderRadius.circular(10),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+            decoration: BoxDecoration(
+              color: colors.selection.withValues(alpha: selected ? 0.12 : 0),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              text,
+              style: TextStyle(
+                color: selected ? colors.textPrimary : colors.textSecondary,
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return Expanded(
       child: InkWell(
         onTap: () => _switchTab(tab),
@@ -71,13 +98,9 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
     final provider = context.read<NasProvider>();
     final layout = MediaLayoutProfile.of(context);
     final colors = context.appColors;
-    final atmosphere = AppAtmospherePalette.resolve(
-      baseColors: context.baseAppColors,
-      effectiveColors: colors,
-      hasDynamicTheme: context.hasRuntimeAppColors,
-    );
-    return AppAtmosphericBackground(
-      palette: atmosphere,
+    final desktopSearch = desktop && layout.isDesktopTier;
+    return AppAmbientPage(
+      shareBackground: true,
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
@@ -104,22 +127,43 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           ),
           title: Text(AppLocalizations.of(context).actionFavoriteAdd),
           actions: <Widget>[
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () {
-                Navigator.of(context).push(
-                  AppTransitions.fadeSlideRoute(
-                    SearchScreen(initialLocaleMap: _localeMap),
+            if (desktopSearch)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: CompositedTransformTarget(
+                  link: _searchAnchorLink,
+                  child: SizedBox.square(
+                    dimension: 44,
+                    child: IconButton(
+                      tooltip: AppLocalizations.of(context).searchPlaceholder,
+                      icon: const Icon(Icons.search_rounded, size: 25),
+                      onPressed: () => unawaited(
+                        showDesktopSearch(context, anchor: _searchAnchorLink),
+                      ),
+                    ),
                   ),
-                );
-              },
-            ),
+                ),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.search),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    AppTransitions.fadeSlideRoute(
+                      SearchScreen(initialLocaleMap: _localeMap),
+                    ),
+                  );
+                },
+              ),
           ],
         ),
         body: Column(
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: EdgeInsets.symmetric(
+                horizontal: desktopSearch ? layout.pageHorizontalPadding : 10,
+                vertical: desktopSearch ? 8 : 0,
+              ),
               child: Row(
                 children: <Widget>[
                   _buildTabButton(
@@ -166,7 +210,10 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
     final showFilter = tab != _FavoriteTab.person && _isFeiniuBackend;
     final colors = context.appColors;
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: desktop ? 6 : 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: desktop ? layout.pageHorizontalPadding : 12,
+        vertical: 8,
+      ),
       child: Row(
         children: <Widget>[
           Expanded(

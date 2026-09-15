@@ -267,6 +267,7 @@ class NativeDanmakuPrefetch {
     String statsScope = '',
     bool Function()? isCurrent,
     bool allowDisabled = false,
+    void Function(String)? onStatus,
     FlyNasDanmakuCache? nasCache,
     DanmakuSavedSourceStore? store,
   }) async {
@@ -284,14 +285,17 @@ class NativeDanmakuPrefetch {
         identical(session, service.session) &&
         epoch == service.scopeIdentity &&
         _hasActiveFlyBinding(statsScope: statsScope);
-    final cache =
-        nasCache ?? FlyNasDanmakuCache(budget: const Duration(seconds: 12));
+    final cache = nasCache ?? FlyNasDanmakuCache(
+      budget: const Duration(seconds: 12),
+      onStatus: (status) { if (current()) onStatus?.call(status.message); },
+    );
     try {
       if (!current()) return null;
       final ready = await cache.prepareOnPlayback(
         statsScope: statsScope,
         itemGuid: itemGuid,
         mediaGuid: mediaGuid,
+        refreshExisting: allowDisabled,
         isCurrent: current,
       );
       if (!current()) return null;

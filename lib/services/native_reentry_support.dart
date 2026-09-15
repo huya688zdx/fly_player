@@ -179,6 +179,16 @@ class NativeReentrySupport {
       return;
     }
     final duration = (progress['duration'] as num?)?.toInt() ?? 0;
+    if (MpvMediaSource.fromMap(progress).isLive) {
+      await FeiniuApi(nas).recordPlayback(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        videoGuid: '',
+        ts: 0,
+        duration: 0,
+      );
+      return;
+    }
     if (duration <= 0) {
       onResult?.call(PlaybackProgressResult.failed);
       return;

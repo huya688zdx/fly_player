@@ -6,14 +6,21 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/detail_presentation.dart';
+import '../../utils/detail_layout_solver.dart';
 import 'detail_status_page.dart';
 
 class DetailLoadingSkeleton extends StatelessWidget {
   final DetailPresentation presentation;
 
+  /// 桌面季详情保留竖海报，单集详情使用横幅标题；移动端布局不受影响。
+  final bool showPoster;
+  final bool seriesHeader;
+
   const DetailLoadingSkeleton({
     super.key,
     this.presentation = DetailPresentation.page,
+    this.showPoster = true,
+    this.seriesHeader = false,
   });
 
   bool get _isPane => presentation == DetailPresentation.pane;
@@ -53,6 +60,15 @@ class DetailLoadingSkeleton extends StatelessWidget {
         builder: (context, constraints) {
           final width = constraints.maxWidth;
           final height = constraints.maxHeight;
+          if (DetailLayoutSolver.usesDesktopLayout(width)) {
+            return _buildDesktop(
+              context,
+              Size(width, height),
+              fill,
+              subtle,
+              line,
+            );
+          }
           final contentWidth = math.min(width, 640.0);
           final minHero = _isPane
               ? _SkeletonMetrics.paneMinHero
@@ -231,6 +247,178 @@ class DetailLoadingSkeleton extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildDesktop(
+    BuildContext context,
+    Size size,
+    Color fill,
+    Color subtle,
+    Color line,
+  ) {
+    final horizontal = DetailLayoutSolver.horizontalPadding(size.width);
+    final bodyWidth = size.width - horizontal * 2;
+    final posterWidth = DetailLayoutSolver.desktopPosterWidthFor(size.width);
+    final posterHeight = posterWidth * 1.45;
+    const controlHeight = DetailLayoutSolver.desktopControlHeight;
+    final headerTop = DetailLayoutSolver.desktopSeasonHeaderTop(
+      size,
+      MediaQuery.paddingOf(context).top,
+    );
+    final textWidth = showPoster ? bodyWidth - posterWidth - 28 : bodyWidth;
+    final actions = SizedBox(
+      key: const ValueKey('detail-skeleton-actions'),
+      width: DetailLayoutSolver.desktopActionWidth,
+      child: Row(
+        children: [
+          Expanded(
+            child: _Bar(
+              height: controlHeight,
+              radius: controlHeight / 2,
+              color: subtle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          _Bar(
+            width: controlHeight,
+            height: controlHeight,
+            radius: controlHeight / 2,
+            color: fill,
+          ),
+          const SizedBox(width: 10),
+          _Bar(
+            width: controlHeight,
+            height: controlHeight,
+            radius: controlHeight / 2,
+            color: fill,
+          ),
+          if (!showPoster) ...[
+            const SizedBox(width: 10),
+            _Bar(
+              width: controlHeight,
+              height: controlHeight,
+              radius: controlHeight / 2,
+              color: fill,
+            ),
+          ],
+        ],
+      ),
+    );
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!showPoster) ...[
+          _Bar(width: textWidth * 0.36, height: 14, radius: 5, color: line),
+          const SizedBox(height: 12),
+        ],
+        _Bar(width: textWidth * 0.64, height: 32, radius: 6, color: fill),
+        if (showPoster) ...[
+          const SizedBox(height: 18),
+          _Bar(width: textWidth * 0.36, height: 16, radius: 5, color: line),
+          const SizedBox(height: 12),
+          _Bar(width: textWidth * 0.24, height: 12, radius: 5, color: line),
+          const SizedBox(height: 20),
+          actions,
+        ],
+      ],
+    );
+    return SingleChildScrollView(
+      padding: EdgeInsets.symmetric(horizontal: horizontal),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            key: const ValueKey('detail-skeleton-hero'),
+            height: showPoster
+                ? headerTop + posterHeight + 24
+                : seriesHeader
+                ? DetailLayoutSolver.desktopSeriesHeroHeight(size)
+                : DetailLayoutSolver.desktopHeroHeight(size),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 24),
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: showPoster
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          SizedBox(
+                            key: const ValueKey('detail-skeleton-poster'),
+                            width: posterWidth,
+                            height: posterHeight,
+                            child: _Bar(
+                              height: posterHeight,
+                              radius: 18,
+                              color: fill,
+                            ),
+                          ),
+                          const SizedBox(width: 28),
+                          Expanded(child: title),
+                        ],
+                      )
+                    : title,
+              ),
+            ),
+          ),
+          if (!showPoster) ...[
+            _Bar(width: bodyWidth * 0.30, height: 14, radius: 5, color: line),
+            const SizedBox(height: 8),
+            _Bar(width: bodyWidth * 0.24, height: 14, radius: 5, color: line),
+            const SizedBox(height: 16),
+            if (bodyWidth >= DetailLayoutSolver.desktopInlineControlsWidth)
+              Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _Bar(
+                        width: 240,
+                        height: 16,
+                        radius: 5,
+                        color: line,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  actions,
+                ],
+              )
+            else
+              actions,
+            const SizedBox(height: 24),
+          ],
+          _Bar(width: bodyWidth * 0.90, height: 12, radius: 5, color: line),
+          const SizedBox(height: 12),
+          _Bar(width: bodyWidth * 0.68, height: 12, radius: 5, color: line),
+          const SizedBox(height: 32),
+          _Bar(width: 96, height: 24, radius: 5, color: fill),
+          const SizedBox(height: 24),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < (showPoster ? 4 : 2); i++) ...[
+                if (i > 0) const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: showPoster ? 16 / 9 : 3.5,
+                        child: _Bar(height: 112, radius: 12, color: fill),
+                      ),
+                      const SizedBox(height: 12),
+                      _Bar(height: 12, radius: 5, color: line),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }

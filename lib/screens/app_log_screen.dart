@@ -274,7 +274,11 @@ class _LogSummaryCard extends StatelessWidget {
                 icon: Icons.download_rounded,
                 label: exporting ? l10n.logExporting : l10n.logExportTxt,
                 backgroundColor: colors.accent,
-                foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                foregroundColor:
+                    ThemeData.estimateBrightnessForColor(colors.accent) ==
+                        Brightness.light
+                    ? const Color(0xFF172030)
+                    : Colors.white,
                 onPressed: exporting || clearing ? null : onExport,
               ),
               _ActionButton(
