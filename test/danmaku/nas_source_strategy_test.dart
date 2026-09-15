@@ -280,6 +280,31 @@ void main() {
     expect(cache.prepares, 1);
     expect(originalAttempts, 1);
   });
+  test('下一集预取不会取消当前播放集正在等待的后台弹幕', () async {
+    cache.prepareGate = Completer<void>();
+    final scope = PlayStatsService.instance.currentScope;
+    final current = NativeDanmakuPrefetch.resolveOnPlaybackToFile(
+      seriesTitle: '作品', seasonNumber: 1, episodeNumber: 1, tmdbId: '',
+      itemGuid: 'item', mediaGuid: 'file', statsScope: scope,
+      settings: DanmakuSettings.defaults, nasCache: cache, store: store,
+      isCurrent: () => true,
+    );
+    expect(cache.prepares, 1);
+    final nextCache = _Cache()..miss = true;
+    expect(await NativeDanmakuPrefetch.resolveToFile(
+      seriesTitle: '作品', seasonNumber: 1, episodeNumber: 2, tmdbId: '',
+      itemGuid: 'next-item', mediaGuid: 'next-file', statsScope: scope,
+      settings: DanmakuSettings.defaults, nasCache: nextCache, store: store,
+      isCurrent: () => true,
+    ), isNull);
+    cache.prepareGate!.complete();
+    final path = await current;
+    expect(path, isNotNull);
+    final payload = jsonDecode(await File(path!).readAsString()) as Map;
+    expect(payload['sourceKey'], 'nas:confirmed');
+    expect(payload['commentsCompact'], hasLength(1));
+    expect(originalAttempts, 0);
+  });
   test('NAS 优先时旧自动 active 不会抢先返回', () async {
     await oldAutoSource();
     final path = await resolve('nasPreferred');
@@ -320,6 +345,7 @@ class _Cache extends FlyNasDanmakuCache {
   int prepares = 0;
   bool miss = false;
   Completer<void>? gate;
+  Completer<void>? prepareGate;
   @override
   Future<bool> prepareOnPlayback({
     required String statsScope,
@@ -329,6 +355,7 @@ class _Cache extends FlyNasDanmakuCache {
     required bool Function() isCurrent,
   }) async {
     prepares++;
+    if (prepareGate != null) await prepareGate!.future;
     return !miss && isCurrent();
   }
 
