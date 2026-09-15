@@ -93,6 +93,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       context.read<MediaBackendProvider>().backend.capabilities.kind ==
       MediaBackendKind.feiniu;
 
+  bool get _isLiveCatalog => const {
+    'iptv',
+    'livetv',
+  }.contains(widget.category.type?.trim().toLowerCase());
+
   /// 按当前 l10n + schema 构造筛选文案本地化器（schema 变更后自动反映）。
   CatalogFilterLocalizer get _filterLocalizer => CatalogFilterLocalizer(
     l10n: AppLocalizations.of(context),
@@ -120,6 +125,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   @override
   void initState() {
     super.initState();
+    if (_isLiveCatalog) {
+      _viewType = MediaCollectionViewType.list;
+      _sortColumn = widget.category.type?.toLowerCase() == 'iptv'
+          ? 'sort_num'
+          : 'title';
+      _sortType = 'ASC';
+    }
     _scrollController.addListener(_onScroll);
     _initLoad();
   }
@@ -139,6 +151,19 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   Future<void> _loadMeta() async {
     if (_metaLoaded) return;
+    if (_isLiveCatalog) {
+      setState(() {
+        _metaLoaded = true;
+        _schema = MediaCatalogFilterSchema(
+          sortOptions: [
+            if (widget.category.type?.toLowerCase() == 'iptv')
+              const MediaSortOption(field: 'sort_num'),
+            const MediaSortOption(field: 'title'),
+          ],
+        );
+      });
+      return;
+    }
     final provider = context.read<NasProvider>();
     final api = FeiniuApi(provider);
     final backend = context.read<MediaBackendProvider>().backend;

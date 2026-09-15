@@ -43,6 +43,9 @@ dependencies:
   media_kit_libs_windows_video: 1.0.11
   media_kit_libs_ios_video: 1.1.4
   media_kit_libs_macos_video: 1.1.4
+  media_kit_libs_linux: 1.2.1
+  # Linux 凭据使用桌面密钥环，保留 Android 原生通道和 Windows DPAPI。
+  flutter_secure_storage_linux: 3.0.2
   webview_windows: 0.4.0
   window_manager: 0.5.2
 
@@ -60,4 +63,6 @@ flutter:
     - assets/icons/
     - assets/refresh/shoujo_bird_loading.webp
     - assets/refresh/shoujo_bird_loading_static.png
+    - assets/refresh/bluebird_glyph.webp
+    - assets/refresh/bluebird_glyph_static.png
     - lib/img/

@@ -23,10 +23,12 @@ class NativeServiceDanmakuRequestsTest {
         assertTrue(requests.accepts(ticket, current, activityDestroying = false))
         // A file-read completion can arrive after the reverse-channel result.
         assertTrue(requests.accepts(ticket, current.copy(), activityDestroying = false))
+        // 快进没有更换视频，已完成的全集弹幕仍应自动加载。
+        assertTrue(requests.accepts(ticket, current.copy(seekEpoch = 4L), activityDestroying = false))
         assertFalse(requests.accepts(ticket, current, activityDestroying = true))
     }
 
-    @Test fun logoutAccountBindingLoadSeekOrEpisodeChangesRejectLatePayload() {
+    @Test fun logoutAccountBindingLoadOrEpisodeChangesRejectLatePayload() {
         val requests = NativeServiceDanmakuRequests()
         val current = context()
         val ticket = requests.begin(current)
@@ -35,7 +37,6 @@ class NativeServiceDanmakuRequestsTest {
             current.copy(accountIdentity = "account-session-2"),
             current.copy(statsScope = "binding-scope-2"),
             current.copy(playbackContextId = "load-2"),
-            current.copy(seekEpoch = 4L),
             current.copy(mediaArgs = current.mediaArgs + ("itemGuid" to "episode-2")),
             current.copy(mediaArgs = current.mediaArgs + ("mediaGuid" to "file-2")),
             current.copy(mediaArgs = current.mediaArgs + ("seasonGuid" to "season-2")),

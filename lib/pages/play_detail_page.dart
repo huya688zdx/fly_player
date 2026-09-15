@@ -10,7 +10,6 @@ import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_sheet_controller.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../desktop/desktop_environment.dart';
-import '../desktop/playback/external_playback_controls.dart';
 import '../desktop/playback/external_playback_host.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
@@ -33,6 +32,7 @@ import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../playback/platform_playback_host.dart';
 import '../playback/playback_platform.dart';
+import '../playback/playback_host.dart';
 import '../playback/playback_source.dart';
 import '../playback/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
@@ -236,6 +236,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   late final Animation<double> _actionsTranslateY;
 
   double _backdropHeroHeight(Size screenSize) {
+    if (DetailLayoutSolver.usesDesktopLayout(screenSize.width)) {
+      return DetailLayoutSolver.desktopHeroHeight(screenSize);
+    }
     final isLandscape = screenSize.width > screenSize.height;
     if (isLandscape) {
       return screenSize.height * 0.50;
@@ -243,6 +246,61 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final byHeight = screenSize.height * 0.38;
     final byWidth = screenSize.width / 1.36;
     return math.min(byHeight, byWidth).clamp(300.0, 560.0).toDouble();
+  }
+
+  Widget _constrainDesktopSliver(double width, Widget sliver) {
+    if (!DetailLayoutSolver.usesDesktopLayout(width)) return sliver;
+    final outerPadding =
+        DetailLayoutSolver.horizontalPadding(width) -
+        DetailTokens.screenHorizontalPadding;
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: outerPadding),
+      sliver: sliver,
+    );
+  }
+
+  Widget _buildSelectorActionLayout({
+    Widget? selector,
+    required Widget actions,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontal =
+            DetailLayoutSolver.usesDesktopLayout(
+              MediaQuery.sizeOf(context).width,
+            ) &&
+            constraints.maxWidth >=
+                DetailLayoutSolver.desktopInlineControlsWidth;
+        if (horizontal) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: selector ?? const SizedBox.shrink()),
+                  const SizedBox(width: 24),
+                  SizedBox(
+                    width: DetailLayoutSolver.desktopActionWidth,
+                    child: actions,
+                  ),
+                ],
+              ),
+            ],
+          );
+        }
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (selector != null) ...[const SizedBox(height: 8), selector],
+            const SizedBox(height: 16),
+            actions,
+          ],
+        );
+      },
+    );
   }
 
   bool _isPhonePortrait(Size screenSize) {
@@ -798,6 +856,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
     final media = MediaQuery.of(context);
     final screenSize = media.size;
+    final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+      screenSize.width,
+    );
     final posterHeight = _backdropHeroHeight(screenSize);
     final layout = DetailLayoutSolver.solve(
       screenSize: screenSize,
@@ -968,10 +1029,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               SliverToBoxAdapter(
                 child: Container(
                   color: Colors.transparent,
-                  padding: const EdgeInsets.fromLTRB(
-                    DetailTokens.screenHorizontalPadding,
+                  padding: EdgeInsets.fromLTRB(
+                    horizontalPadding,
                     8,
-                    DetailTokens.screenHorizontalPadding,
+                    horizontalPadding,
                     10,
                   ),
                   child: Column(
@@ -982,73 +1043,70 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         metaLineA: metaLineA,
                         metaLineB: metaLineB,
                       ),
-                      if (showSelectorRow) ...[
-                        const SizedBox(height: 8),
-                        DetailSelectorRow(
-                          subtitleLabel: _neutralSubtitleLabel(),
-                          audioLabel: _neutralAudioLabel(),
-                          capabilityLabels: capabilityLabels,
-                          showSubtitleArrow: subtitleTracks.isNotEmpty,
-                          showAudioArrow: audioTracks.length > 1,
-                          subtitleExpanded: _neutralSubtitleSelectorExpanded,
-                          audioExpanded: _neutralAudioSelectorExpanded,
-                          subtitleHoverPopup: subtitleHoverPopup,
-                          audioHoverPopup: audioHoverPopup,
-                          onSubtitleOpenChanged: (open) {
-                            if (!mounted) return;
-                            setState(
-                              () => _neutralSubtitleSelectorExpanded = open,
-                            );
-                          },
-                          onAudioOpenChanged: (open) {
-                            if (!mounted) return;
-                            setState(
-                              () => _neutralAudioSelectorExpanded = open,
-                            );
-                          },
-                          onSubtitleTap: subtitleTracks.isNotEmpty
-                              ? () => _showNeutralSubtitleSheet()
-                              : null,
-                          onAudioTap: audioTracks.length > 1
-                              ? () => _showNeutralAudioSheet()
-                              : null,
-                        ),
-                      ],
-                      const SizedBox(height: 16),
                       // 与飞牛同一动作条组件:续看进度条 + 主播放键 + 收藏/下载/已看。收藏/已看走
                       // 中立后端接口（按能力开关启用，不支持的后端置灰 null）；下载暂无公共后端
                       // 实现,统一提示不可用。
-                      PlayActionBar(
-                        progress: PlayDetailFormatters.progress(
-                          effectiveDuration,
-                          resumeTs,
-                        ),
-                        remainText: PlayDetailFormatters.remainText(
-                          effectiveDuration,
-                          resumeTs,
-                          AppLocalizations.of(context),
-                        ),
-                        showProgress: showResumeProgress,
-                        primaryText: resolvedPlayText,
-                        primaryEnabled: true,
-                        liked: _liked,
-                        watched: _watched,
-                        downloaded: false,
-                        onPrimaryTap: _startNeutralPlayback,
-                        onLikeTap: capabilities.supportsFavorite
-                            ? _toggleFavorite
+                      _buildSelectorActionLayout(
+                        selector: showSelectorRow
+                            ? DetailSelectorRow(
+                                subtitleLabel: _neutralSubtitleLabel(),
+                                audioLabel: _neutralAudioLabel(),
+                                capabilityLabels: capabilityLabels,
+                                showSubtitleArrow: subtitleTracks.isNotEmpty,
+                                showAudioArrow: audioTracks.length > 1,
+                                subtitleExpanded:
+                                    _neutralSubtitleSelectorExpanded,
+                                audioExpanded: _neutralAudioSelectorExpanded,
+                                subtitleHoverPopup: subtitleHoverPopup,
+                                audioHoverPopup: audioHoverPopup,
+                                onSubtitleOpenChanged: (open) {
+                                  if (!mounted) return;
+                                  setState(
+                                    () =>
+                                        _neutralSubtitleSelectorExpanded = open,
+                                  );
+                                },
+                                onAudioOpenChanged: (open) {
+                                  if (!mounted) return;
+                                  setState(
+                                    () => _neutralAudioSelectorExpanded = open,
+                                  );
+                                },
+                                onSubtitleTap: subtitleTracks.isNotEmpty
+                                    ? () => _showNeutralSubtitleSheet()
+                                    : null,
+                                onAudioTap: audioTracks.length > 1
+                                    ? () => _showNeutralAudioSheet()
+                                    : null,
+                              )
                             : null,
-                        onWatchedTap: capabilities.supportsWatched
-                            ? _toggleWatched
-                            : null,
-                        onDownloadTap: _neutralDownloadUnavailable,
+                        actions: PlayActionBar(
+                          progress: PlayDetailFormatters.progress(
+                            effectiveDuration,
+                            resumeTs,
+                          ),
+                          remainText: PlayDetailFormatters.remainText(
+                            effectiveDuration,
+                            resumeTs,
+                            AppLocalizations.of(context),
+                          ),
+                          showProgress: showResumeProgress,
+                          primaryText: resolvedPlayText,
+                          primaryEnabled: true,
+                          liked: _liked,
+                          watched: _watched,
+                          downloaded: false,
+                          onPrimaryTap: _startNeutralPlayback,
+                          onLikeTap: capabilities.supportsFavorite
+                              ? _toggleFavorite
+                              : null,
+                          onWatchedTap: capabilities.supportsWatched
+                              ? _toggleWatched
+                              : null,
+                          onDownloadTap: _neutralDownloadUnavailable,
+                        ),
                       ),
                       FlyAssistantAction(itemGuid: _currentItemGuid),
-                      if (DesktopEnvironment.isWindows)
-                        ExternalPlaybackControls(
-                          itemGuid: _currentItemGuid,
-                          onApplySelection: _startNeutralPlayback,
-                        ),
                       if (showVersionSelector)
                         DetailResolutionSection(
                           options: versionLabels,
@@ -1079,10 +1137,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   child: _sectionReveal(
                     child: Container(
                       color: Colors.transparent,
-                      padding: const EdgeInsets.fromLTRB(
-                        DetailTokens.screenHorizontalPadding,
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
                         8,
-                        DetailTokens.screenHorizontalPadding,
+                        horizontalPadding,
                         20,
                       ),
                       child: FileInfoSection(
@@ -1108,10 +1166,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   child: _sectionReveal(
                     child: Container(
                       color: Colors.transparent,
-                      padding: const EdgeInsets.fromLTRB(
-                        DetailTokens.screenHorizontalPadding,
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
                         8,
-                        DetailTokens.screenHorizontalPadding,
+                        horizontalPadding,
                         20,
                       ),
                       // 与飞牛同一「视频信息」组件（紧凑三行 + 查看全部）；「查看全部」展开
@@ -1170,14 +1228,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     required List<CreditPersonItem> items,
     ValueChanged<CreditPersonItem>? onTap,
   }) {
+    final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+      MediaQuery.sizeOf(context).width,
+    );
     return SliverToBoxAdapter(
       child: _sectionReveal(
         child: Container(
           color: Colors.transparent,
-          padding: const EdgeInsets.fromLTRB(
-            DetailTokens.screenHorizontalPadding,
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
             8,
-            DetailTokens.screenHorizontalPadding,
+            horizontalPadding,
             20,
           ),
           child: CreditsSection(
@@ -1201,6 +1262,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     required String overlayTitle,
     required double bottomPadding,
   }) {
+    final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+      MediaQuery.sizeOf(context).width,
+    );
     return SliverToBoxAdapter(
       child: AnimatedBuilder(
         animation: _descriptionPopController,
@@ -1223,9 +1287,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         child: Container(
           color: Colors.transparent,
           padding: EdgeInsets.fromLTRB(
-            DetailTokens.screenHorizontalPadding,
+            horizontalPadding,
             4,
-            DetailTokens.screenHorizontalPadding,
+            horizontalPadding,
             bottomPadding,
           ),
           child: DetailDescriptionSection(
@@ -1256,16 +1320,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     required double bottomInset,
     Widget? titleChild,
   }) {
-    return SliverToBoxAdapter(
-      child: FadeTransition(
-        opacity: _headerTitleOpacity,
-        child: DetailHeroOverlay(
-          height: height,
-          title: title,
-          subtitle: subtitle,
-          titleFontSize: titleFontSize,
-          bottomInset: bottomInset,
-          titleChild: titleChild,
+    final width = MediaQuery.sizeOf(context).width;
+    return _constrainDesktopSliver(
+      width,
+      SliverToBoxAdapter(
+        child: FadeTransition(
+          opacity: _headerTitleOpacity,
+          child: DetailHeroOverlay(
+            height: height,
+            title: title,
+            subtitle: subtitle,
+            titleFontSize: titleFontSize,
+            bottomInset: bottomInset,
+            titleChild: titleChild,
+          ),
         ),
       ),
     );
@@ -1275,14 +1343,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   /// 读 `_imdbId`/`_trimId`(两后端都在 `_load` 设好)与 `_openImdb`/`_openTmdb`;非空门控由调用方负责。
   /// `colors` 由调用方传 builder 作用域值(`DynamicPageThemeScope` 改写子树主题,不可在此重取)。
   Widget _buildLinkSliver({required AppThemeColors colors}) {
+    final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+      MediaQuery.sizeOf(context).width,
+    );
     return SliverToBoxAdapter(
       child: _sectionReveal(
         child: Container(
           color: Colors.transparent,
-          padding: const EdgeInsets.fromLTRB(
-            DetailTokens.screenHorizontalPadding,
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
             8,
-            DetailTokens.screenHorizontalPadding,
+            horizontalPadding,
             24,
           ),
           child: LinkSection(
@@ -2106,7 +2177,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final statsScope = PlayStatsService.instance.currentScope;
     final itemGuid = _currentItemGuid;
     final actionKey = 'play_detail_player:${itemGuid.trim()}';
-    if (_playerRouteActive || AsyncActionGuard.isRunning(actionKey)) {
+    if (!DesktopEnvironment.isWindows &&
+        (_playerRouteActive || AsyncActionGuard.isRunning(actionKey))) {
       _showTopTip(
         AppLocalizations.of(context).detailPreparingPlayback,
         context.appColors.warning,
@@ -2115,14 +2187,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     }
     final l10n = AppLocalizations.of(context);
 
-    await AsyncActionGuard.run<void>(
-      actionKey,
-      settleDuration: const Duration(milliseconds: 500),
-      action: () async {
+    await runPlaybackLaunch<void>(
+      context,
+      title: _data?.item.displayTitle ?? '',
+      actionKey: actionKey,
+      action: (host) async {
         final data = _data;
         if (data == null) return;
 
-        if (await playbackHostFor(context).resume(
+        if (await host.resume(
           itemGuid: itemGuid,
           mediaGuid: _currentStreamOption()?.mediaGuid ?? data.mediaGuid,
           audioGuid: _selectedAudioGuid,
@@ -2130,11 +2203,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         )) {
           return;
         }
-        if (!mounted || _currentItemGuid != itemGuid) return;
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
 
         final localRecord = _downloadedRecordForCurrentItem();
         if (localRecord != null) {
-          await _openLocalPlayer(localRecord);
+          await _openLocalPlayer(localRecord, host: host);
           return;
         }
 
@@ -2167,14 +2244,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         try {
           playbackStream = await api.getPlaybackStream(mediaGuid);
         } catch (error) {
-          if (!mounted) return;
+          if (!mounted || !playbackLaunchIsCurrent(host)) return;
           _showTopTip(
             AppLocalizations.of(context).detailPlaybackError('$error'),
             context.appColors.danger,
           );
           return;
         }
-        if (!mounted || _currentItemGuid != itemGuid) return;
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
 
         final effectiveDuration =
             (selectedOption != null && selectedOption.duration > 0)
@@ -2193,7 +2274,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           networkPositionAvailable: true,
           networkCompleted: playbackCompleted,
         );
-        if (!mounted || _currentItemGuid != itemGuid) return;
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
         final externalPosition = _externalPlaybackPosition;
         final effectiveTs = (externalPosition ?? resume.position).inSeconds;
         final item = data.item;
@@ -2285,7 +2370,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               selectedSubtitle: selectedSubtitle,
               startPosition: Duration(seconds: effectiveTs),
             );
-        if (!mounted || _currentItemGuid != itemGuid) return;
         final playableSource = initialPlayback.playableSource;
         final resolvedStartPosition =
             externalPosition ??
@@ -2362,12 +2446,21 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           qualities: mergedQualities,
         );
 
-        await _launchPlayer(source: source);
+        rememberPlaybackLaunchSource(host, source);
+        if (!mounted ||
+            _currentItemGuid != itemGuid ||
+            !playbackLaunchIsCurrent(host)) {
+          return;
+        }
+        await _launchPlayer(source: source, host: host);
       },
     );
   }
 
-  Future<void> _openLocalPlayer(DownloadTaskRecord record) async {
+  Future<void> _openLocalPlayer(
+    DownloadTaskRecord record, {
+    required PlaybackHost host,
+  }) async {
     final statsScope = PlayStatsService.instance.currentScope;
     final itemGuid = _currentItemGuid;
     final data = _data;
@@ -2399,7 +2492,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       networkPositionAvailable: true,
       networkCompleted: playbackCompleted,
     );
-    if (!mounted || _currentItemGuid != itemGuid) return;
+    if (!mounted ||
+        _currentItemGuid != itemGuid ||
+        !playbackLaunchIsCurrent(host)) {
+      return;
+    }
     final startPosition = _externalPlaybackPosition ?? resume.position;
     final item = data.item;
     final title = formatPlayerTitleFromPlayItem(
@@ -2446,6 +2543,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       mediaGuid: resolvedMediaGuid,
       videoFilePath: record.filePath,
     );
+    if (!mounted || !playbackLaunchIsCurrent(host)) return;
     // 合并当前媒体的持久化手动导入本地字幕（SAF 添加），使本地文件播放也能 sub-add。
     final manualEntries = await const ManualSubtitleStore().loadForMedia(
       resolvedMediaGuid,
@@ -2467,7 +2565,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
     if (!mounted ||
         _currentItemGuid != itemGuid ||
-        statsScope != PlayStatsService.instance.currentScope) {
+        statsScope != PlayStatsService.instance.currentScope ||
+        !playbackLaunchIsCurrent(host)) {
       return;
     }
     var source = MpvMediaSource.localFile(
@@ -2522,10 +2621,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
     }
 
-    await _launchPlayer(source: source);
+    rememberPlaybackLaunchSource(host, source);
+    await _launchPlayer(source: source, host: host);
   }
 
-  Future<void> _launchPlayer({required MpvMediaSource source}) async {
+  Future<void> _launchPlayer({
+    required MpvMediaSource source,
+    required PlaybackHost host,
+  }) async {
+    if (PlaybackPlatform.usesMediaKit) {
+      if (!mounted || !playbackLaunchIsCurrent(host)) return;
+      if (await host.launch(source: source)) return;
+      if (!mounted || !playbackLaunchIsCurrent(host)) return;
+      _showTopTip(
+        AppLocalizations.of(context).detailPlayInfoFailed,
+        context.appColors.danger,
+      );
+      return;
+    }
     final actionKey = <String>[
       'play_detail_launch',
       source.itemGuid.trim(),
@@ -2552,15 +2665,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             ItemPlaybackLauncher.desktopPlaybackBlockedMessage,
             context.appColors.warning,
           );
-          return;
-        }
-        // media_kit 平台在 Android 反向通道、弹幕预取和回前台标记之前分流。
-        if (PlaybackPlatform.usesMediaKit) {
-          if (await playbackHostFor(context).launch(source: source)) {
-            return;
-          }
-          if (!mounted) return;
-          _showTopTip(l10n.detailPlayInfoFailed, context.appColors.danger);
           return;
         }
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑）。
@@ -2658,7 +2762,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           if (!mounted) return;
           _nativePlayerLaunched = true;
           _lastNativePlayedItemGuid = source.itemGuid.trim();
-          if (await playbackHostFor(context).launch(
+          if (await host.launch(
             source: source,
             danmakuFilePath: danmakuFile,
             episodes: episodes.isEmpty ? null : episodes,
@@ -3174,6 +3278,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               imageAlignment: persistentImageAlignment,
               parallaxFactor: 1.0,
               overlayOpacity: 0.62,
+              useDesktopReadingScrim: DetailLayoutSolver.usesDesktopLayout(
+                persistentMedia.size.width,
+              ),
               ambientTintOverride: ambientTint,
             );
           },
@@ -3182,7 +3289,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         if (_loading) {
           final initial = widget.initialItemDetail;
           if (initial == null) {
-            pageBody = DetailLoadingSkeleton(presentation: widget.presentation);
+            pageBody = DetailLoadingSkeleton(
+              presentation: widget.presentation,
+              showPoster: false,
+            );
           } else {
             final provider = context.read<NasProvider>();
             final artworkResolver = DetailArtworkResolver(
@@ -3273,14 +3383,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               body: CustomScrollView(
                 physics: const NeverScrollableScrollPhysics(),
                 slivers: [
-                  SliverToBoxAdapter(
-                    child: DetailHeroOverlay(
-                      height: layout.infoStart,
-                      title: title,
-                      subtitle: episodeHeroSubtitle,
-                      titleFontSize: initialItemType == 'episode' ? 28 : null,
-                      bottomInset: initialItemType == 'episode' ? 20 : 36,
-                      titleChild: initialHeroTitleChild,
+                  _constrainDesktopSliver(
+                    media.size.width,
+                    SliverToBoxAdapter(
+                      child: DetailHeroOverlay(
+                        height: layout.infoStart,
+                        title: title,
+                        subtitle: episodeHeroSubtitle,
+                        titleFontSize: initialItemType == 'episode' ? 28 : null,
+                        bottomInset: initialItemType == 'episode' ? 20 : 36,
+                        titleChild: initialHeroTitleChild,
+                      ),
                     ),
                   ),
                 ],
@@ -3316,6 +3429,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           final detail = _detail!;
           final media = MediaQuery.of(context);
           final screenSize = media.size;
+          final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+            screenSize.width,
+          );
           final logoRequestWidth =
               (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
                   .clamp(480.0, 1200.0)
@@ -3565,10 +3681,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     SliverToBoxAdapter(
                       child: Container(
                         color: Colors.transparent,
-                        padding: const EdgeInsets.fromLTRB(
-                          DetailTokens.screenHorizontalPadding,
+                        padding: EdgeInsets.fromLTRB(
+                          horizontalPadding,
                           8,
-                          DetailTokens.screenHorizontalPadding,
+                          horizontalPadding,
                           10,
                         ),
                         child: AnimatedSize(
@@ -3595,107 +3711,103 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                     switchKey: 'meta:$metaLineA|$metaLineB',
                                   ),
                                 ),
-                                const SizedBox(height: 8),
-                                FadeTransition(
-                                  opacity: _headerSelectorOpacity,
-                                  child: _asyncFadeSwitcher(
-                                    DetailSelectorRow(
-                                      subtitleLabel: subtitleLabel,
-                                      audioLabel: audioLabel,
-                                      capabilityLabels: capabilityLabels,
-                                      showSubtitleArrow: showSubtitleArrow,
-                                      showAudioArrow: showAudioArrow,
-                                      subtitleExpanded:
-                                          _subtitleSelectorExpanded,
-                                      audioExpanded: _audioSelectorExpanded,
-                                      subtitleHoverPopup: subtitleHoverPopup,
-                                      audioHoverPopup: audioHoverPopup,
-                                      onSubtitleOpenChanged: (open) {
-                                        if (!mounted) return;
-                                        setState(() {
-                                          _subtitleSelectorExpanded = open;
-                                        });
-                                        if (open) {
-                                          // 打开前刷新本地字幕元数据，原生壳刚导入的
-                                          // 字幕立即可见（不阻塞弹出，刷新后原位更新）。
-                                          unawaited(
-                                            _refreshManualSubtitleEntries(),
+                                _buildSelectorActionLayout(
+                                  selector: FadeTransition(
+                                    opacity: _headerSelectorOpacity,
+                                    child: _asyncFadeSwitcher(
+                                      DetailSelectorRow(
+                                        subtitleLabel: subtitleLabel,
+                                        audioLabel: audioLabel,
+                                        capabilityLabels: capabilityLabels,
+                                        showSubtitleArrow: showSubtitleArrow,
+                                        showAudioArrow: showAudioArrow,
+                                        subtitleExpanded:
+                                            _subtitleSelectorExpanded,
+                                        audioExpanded: _audioSelectorExpanded,
+                                        subtitleHoverPopup: subtitleHoverPopup,
+                                        audioHoverPopup: audioHoverPopup,
+                                        onSubtitleOpenChanged: (open) {
+                                          if (!mounted) return;
+                                          setState(() {
+                                            _subtitleSelectorExpanded = open;
+                                          });
+                                          if (open) {
+                                            // 打开前刷新本地字幕元数据，原生壳刚导入的
+                                            // 字幕立即可见（不阻塞弹出，刷新后原位更新）。
+                                            unawaited(
+                                              _refreshManualSubtitleEntries(),
+                                            );
+                                          }
+                                        },
+                                        onAudioOpenChanged: (open) {
+                                          if (!mounted) return;
+                                          setState(
+                                            () => _audioSelectorExpanded = open,
                                           );
-                                        }
-                                      },
-                                      onAudioOpenChanged: (open) {
-                                        if (!mounted) return;
-                                        setState(
-                                          () => _audioSelectorExpanded = open,
-                                        );
-                                      },
-                                      onSubtitleTap: showSubtitleArrow
-                                          ? () => _showSubtitleSheet(context)
-                                          : null,
-                                      onAudioTap: showAudioArrow
-                                          ? () => _showAudioSheet(context)
-                                          : null,
-                                    ),
-                                    switchKey:
-                                        'selector:$subtitleLabel|$audioLabel|${capabilityLabels.join(",")}',
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                AnimatedBuilder(
-                                  animation: _actionsPopController,
-                                  builder: (context, child) {
-                                    return Opacity(
-                                      opacity: _actionsOpacity.value,
-                                      child: Transform.translate(
-                                        offset: Offset(
-                                          0,
-                                          _actionsTranslateY.value,
-                                        ),
-                                        child: Transform.scale(
-                                          scale: _actionsScale.value,
-                                          alignment: Alignment.topCenter,
-                                          child: child,
-                                        ),
+                                        },
+                                        onSubtitleTap: showSubtitleArrow
+                                            ? () => _showSubtitleSheet(context)
+                                            : null,
+                                        onAudioTap: showAudioArrow
+                                            ? () => _showAudioSheet(context)
+                                            : null,
                                       ),
-                                    );
-                                  },
-                                  child: AnimatedBuilder(
-                                    animation: _downloadTaskService,
-                                    builder: (context, _) {
-                                      final downloaded =
-                                          _downloadedRecordForCurrentItem() !=
-                                          null;
-                                      return PlayActionBar(
-                                        progress: PlayDetailFormatters.progress(
-                                          effectiveDuration,
-                                          effectiveTs,
+                                      switchKey:
+                                          'selector:$subtitleLabel|$audioLabel|${capabilityLabels.join(",")}',
+                                    ),
+                                  ),
+                                  actions: AnimatedBuilder(
+                                    animation: _actionsPopController,
+                                    builder: (context, child) {
+                                      return Opacity(
+                                        opacity: _actionsOpacity.value,
+                                        child: Transform.translate(
+                                          offset: Offset(
+                                            0,
+                                            _actionsTranslateY.value,
+                                          ),
+                                          child: Transform.scale(
+                                            scale: _actionsScale.value,
+                                            alignment: Alignment.topCenter,
+                                            child: child,
+                                          ),
                                         ),
-                                        remainText:
-                                            PlayDetailFormatters.remainText(
-                                              effectiveDuration,
-                                              effectiveTs,
-                                              AppLocalizations.of(context),
-                                            ),
-                                        showProgress: showProgress,
-                                        primaryText: resolvedPlayText,
-                                        primaryEnabled: item.canPlay == 1,
-                                        liked: _liked,
-                                        watched: _watched,
-                                        downloaded: downloaded,
-                                        onPrimaryTap: _openPlayer,
-                                        onLikeTap: _toggleFavorite,
-                                        onDownloadTap: _handleDownloadTap,
-                                        onWatchedTap: _toggleWatched,
                                       );
                                     },
+                                    child: AnimatedBuilder(
+                                      animation: _downloadTaskService,
+                                      builder: (context, _) {
+                                        final downloaded =
+                                            _downloadedRecordForCurrentItem() !=
+                                            null;
+                                        return PlayActionBar(
+                                          progress:
+                                              PlayDetailFormatters.progress(
+                                                effectiveDuration,
+                                                effectiveTs,
+                                              ),
+                                          remainText:
+                                              PlayDetailFormatters.remainText(
+                                                effectiveDuration,
+                                                effectiveTs,
+                                                AppLocalizations.of(context),
+                                              ),
+                                          showProgress: showProgress,
+                                          primaryText: resolvedPlayText,
+                                          primaryEnabled: item.canPlay == 1,
+                                          liked: _liked,
+                                          watched: _watched,
+                                          downloaded: downloaded,
+                                          onPrimaryTap: _openPlayer,
+                                          onLikeTap: _toggleFavorite,
+                                          onDownloadTap: _handleDownloadTap,
+                                          onWatchedTap: _toggleWatched,
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
                                 FlyAssistantAction(itemGuid: _currentItemGuid),
-                                if (DesktopEnvironment.isWindows)
-                                  ExternalPlaybackControls(
-                                    itemGuid: _currentItemGuid,
-                                    onApplySelection: _openPlayer,
-                                  ),
                                 AnimatedBuilder(
                                   animation: _actionsPopController,
                                   builder: (context, child) {
@@ -3774,10 +3886,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         child: _sectionReveal(
                           child: Container(
                             color: Colors.transparent,
-                            padding: const EdgeInsets.fromLTRB(
-                              DetailTokens.screenHorizontalPadding,
+                            padding: EdgeInsets.fromLTRB(
+                              horizontalPadding,
                               8,
-                              DetailTokens.screenHorizontalPadding,
+                              horizontalPadding,
                               20,
                             ),
                             child: FileInfoSection(
@@ -3811,10 +3923,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         child: _sectionReveal(
                           child: Container(
                             color: Colors.transparent,
-                            padding: const EdgeInsets.fromLTRB(
-                              DetailTokens.screenHorizontalPadding,
+                            padding: EdgeInsets.fromLTRB(
+                              horizontalPadding,
                               8,
-                              DetailTokens.screenHorizontalPadding,
+                              horizontalPadding,
                               20,
                             ),
                             child: VideoInfoSection(

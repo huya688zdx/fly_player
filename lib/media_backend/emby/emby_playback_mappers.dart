@@ -16,14 +16,16 @@ import '../playback/media_playback.dart';
 /// cookie（或空）。
 MediaPlaybackSource mapEmbyPlaybackSource(
   Map<String, Object?> source, {
+  String id = '',
   required String url,
   Map<String, String> headers = const <String, String>{},
   MediaPlaybackDeliveryKind delivery = MediaPlaybackDeliveryKind.directLink,
+  bool reliableSeek = true,
 }) {
   final video = _firstStreamOfType(source, 'video');
   final videoIndex = video == null ? -1 : _asInt(video['Index']);
   return MediaPlaybackSource(
-    id: (source['Id'] ?? '').toString(),
+    id: id.trim().isNotEmpty ? id.trim() : (source['Id'] ?? '').toString(),
     // Emby 无独立视频轨 guid 概念；用视频流容器 index 作中立视频轨标识（缺则空）。
     videoTrackId: videoIndex >= 0 ? '$videoIndex' : '',
     delivery: delivery,
@@ -37,8 +39,7 @@ MediaPlaybackSource mapEmbyPlaybackSource(
     colorTransfer: (video?['ColorTransfer'] ?? '').toString(),
     colorPrimaries: (video?['ColorPrimaries'] ?? '').toString(),
     bitDepth: _asInt(video?['BitDepth']),
-    // 直链原文件可靠 seek；不强制本地代理。
-    reliableSeek: true,
+    reliableSeek: reliableSeek,
     forceNativeProxy: false,
   );
 }

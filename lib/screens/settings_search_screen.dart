@@ -198,28 +198,45 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
     final body = SafeArea(
       top: false,
       child: visibleEntries.isEmpty
-          ? Center(
-              child: Text(
-                hasQuery
-                    ? l10n.settingsSearchEmptyResults
-                    : l10n.settingsSearchEmptyPrompt,
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: AdaptiveText.roleSize(14),
+          ? SizedBox(
+              height: widget.asPanel ? 112 : null,
+              child: Center(
+                child: Text(
+                  hasQuery
+                      ? l10n.settingsSearchEmptyResults
+                      : l10n.settingsSearchEmptyPrompt,
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(14),
+                  ),
                 ),
               ),
             )
           : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              shrinkWrap: widget.asPanel,
+              padding: widget.asPanel
+                  ? const EdgeInsets.fromLTRB(12, 12, 12, 10)
+                  : const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: <Widget>[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                  padding: EdgeInsets.fromLTRB(
+                    widget.asPanel ? 12 : 4,
+                    0,
+                    4,
+                    widget.asPanel ? 6 : 10,
+                  ),
                   child: Text(
                     sectionTitle,
                     style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: AdaptiveText.roleSize(15.5),
-                      fontWeight: FontWeight.w700,
+                      color: widget.asPanel
+                          ? colors.textSecondary
+                          : colors.textPrimary,
+                      fontSize: AdaptiveText.roleSize(
+                        widget.asPanel ? 12 : 15.5,
+                      ),
+                      fontWeight: widget.asPanel
+                          ? FontWeight.w500
+                          : FontWeight.w700,
                     ),
                   ),
                 ),
@@ -230,7 +247,7 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
                     onTap: () => _handleSelect(visibleEntries[index]),
                   ),
                   if (index != visibleEntries.length - 1)
-                    SizedBox(height: widget.asPanel ? 4 : 12),
+                    SizedBox(height: widget.asPanel ? 2 : 12),
                 ],
               ],
             ),
@@ -262,13 +279,22 @@ class _SearchResultTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    // 桌面只显示最近一级位置，完整路径仍可悬停查看。
+    final locationLabel =
+        entry.location == AppLocalizations.of(context).settingsLocationRoot
+        ? ''
+        : entry.location.split(' > ').last;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(inPanel ? 10 : 20),
         onTap: onTap,
+        hoverColor: inPanel ? colors.accent.withValues(alpha: 0.09) : null,
+        focusColor: inPanel ? colors.accent.withValues(alpha: 0.13) : null,
         child: Ink(
-          padding: EdgeInsets.all(inPanel ? 12 : 16),
+          padding: inPanel
+              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 10)
+              : const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: inPanel ? Colors.transparent : colors.surface,
             borderRadius: BorderRadius.circular(inPanel ? 10 : 20),
@@ -276,60 +302,96 @@ class _SearchResultTile extends StatelessWidget {
           ),
           child: Row(
             children: <Widget>[
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: colors.backgroundElevated,
-                  borderRadius: BorderRadius.circular(14),
+              if (!inPanel)
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: colors.backgroundElevated,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.manage_search_rounded,
+                    color: colors.accentStrong,
+                    size: 20,
+                  ),
                 ),
-                alignment: Alignment.center,
-                child: Icon(
-                  Icons.manage_search_rounded,
-                  color: colors.accentStrong,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 14),
+              if (!inPanel) const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      entry.title,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: AdaptiveText.roleSize(15.5),
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            entry.title,
+                            maxLines: inPanel ? 1 : null,
+                            overflow: inPanel ? TextOverflow.ellipsis : null,
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: AdaptiveText.roleSize(
+                                inPanel ? 13.5 : 15.5,
+                              ),
+                              fontWeight: inPanel
+                                  ? FontWeight.w500
+                                  : FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (inPanel && locationLabel.isNotEmpty) ...[
+                          const SizedBox(width: 12),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 150),
+                            child: Tooltip(
+                              message: entry.location,
+                              child: Text(
+                                '· $locationLabel',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: colors.textMuted,
+                                  fontSize: AdaptiveText.roleSize(11),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
                       entry.subtitle,
-                      maxLines: 2,
+                      maxLines: inPanel ? 1 : 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: colors.textSecondary,
-                        fontSize: AdaptiveText.roleSize(13),
+                        fontSize: AdaptiveText.roleSize(inPanel ? 12 : 13),
                         height: 1.35,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      entry.location,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.accentStrong,
-                        fontSize: AdaptiveText.roleSize(12.5),
-                        fontWeight: FontWeight.w600,
+                    if (!inPanel) const SizedBox(height: 6),
+                    if (!inPanel)
+                      Text(
+                        entry.location,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.accentStrong,
+                          fontSize: AdaptiveText.roleSize(12.5),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Icon(Icons.chevron_right_rounded, color: colors.textSecondary),
+              SizedBox(width: inPanel ? 8 : 12),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: colors.textSecondary,
+                size: inPanel ? 16 : 24,
+              ),
             ],
           ),
         ),
