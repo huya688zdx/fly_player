@@ -254,6 +254,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   List<DanmakuComment> _danmakuComments = const <DanmakuComment>[];
   String _danmakuSourceLabel = '';
   String _danmakuSourceKey = '';
+  String _serviceDanmakuStatus = '';
   bool _danmakuLoading = false;
   int _danmakuLoadGeneration = 0;
   int _danmakuSeekRevision = 0;
@@ -772,6 +773,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     String sourceLabel = '',
     bool enableOnSuccess = false,
     bool preserveOnFailure = false,
+    bool preserveServiceStatus = false,
     bool Function()? isCurrent,
   }) async {
     if (_source.isLive || isCurrent?.call() == false) return false;
@@ -824,6 +826,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _updateView(() {
         _danmakuComments = payload.comments;
         _danmakuSourceKey = payload.sourceKey;
+        if (payload.sourceKey.startsWith('nas:')) {
+          _serviceDanmakuStatus = '已加载飞翔后端弹幕';
+        } else if (!preserveServiceStatus) {
+          _serviceDanmakuStatus = '';
+        }
         _danmakuSourceLabel = sourceLabel.trim().isNotEmpty
             ? sourceLabel.trim()
             : payload.sourceLabel;
@@ -879,6 +886,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         generation == _danmakuLoadGeneration &&
         _danmakuSettings.enabled &&
         _danmakuComments.isEmpty;
+    _updateView(() => _serviceDanmakuStatus = '正在后台查找这集弹幕，完成后自动加载');
     unawaited(() async {
       final path = await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
         statsScope: source.statsScope,
@@ -892,12 +900,18 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         tmdbId: source.tmdbId,
         settings: _danmakuSettings,
         isCurrent: current,
+        onStatus: (message) {
+          if (current() && _serviceDanmakuStatus != message) {
+            _updateView(() => _serviceDanmakuStatus = message);
+          }
+        },
       );
       if (path == null || !current()) return;
       // 后台成果不能覆盖这段时间内用户手动选择的来源。
       await _loadDanmakuForSource(
         path,
         preserveOnFailure: true,
+        preserveServiceStatus: true,
         isCurrent: access.isCurrent,
       );
     }());
@@ -932,7 +946,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           sourceStrategy: DanmakuSourceStrategy.nasOnly,
         ),
         allowDisabled: true,
-        onStatus: onStatus,
+        onStatus: (message) {
+          if (current()) {
+            _updateView(() => _serviceDanmakuStatus = message);
+            onStatus?.call(message);
+          }
+        },
         itemGuid: source.itemGuid,
         mediaGuid: source.mediaGuid,
         seasonGuid: source.seasonGuid,
@@ -1374,6 +1393,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _updateView(() {
       _danmakuLoadGeneration++;
       _danmakuLoading = false;
+      _serviceDanmakuStatus = '';
       if (_danmakuSourceKey.startsWith('nas:')) {
         _danmakuComments = const <DanmakuComment>[];
         _danmakuSourceLabel = '';
@@ -1970,6 +1990,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _danmakuComments = const [];
       _danmakuSourceLabel = '';
       _danmakuLoading = false;
+      _serviceDanmakuStatus = '';
       _toastMessage = null;
     });
   }
@@ -3607,6 +3628,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             : _source.title,
         currentTmdbId: _source.tmdbId,
         flyAccountSignedIn: _flyAccountSignedIn,
+        serviceStatus: _serviceDanmakuStatus,
         serviceSourceIdentity: (
           _source,
           _sourceChangeGeneration,

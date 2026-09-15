@@ -684,6 +684,7 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
     this.currentTmdbId = '',
     this.flyAccountSignedIn = false,
     this.serviceSourceIdentity,
+    this.serviceStatus = '',
     this.onRefreshServiceSource,
     required this.onLoadSavedSources,
     required this.onSearch,
@@ -704,6 +705,7 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final String currentTmdbId;
   final bool flyAccountSignedIn;
   final Object? serviceSourceIdentity;
+  final String serviceStatus;
   final Future<bool> Function({void Function(String)? onStatus})?
       onRefreshServiceSource;
   final Future<List<Map<String, dynamic>>> Function() onLoadSavedSources;
@@ -940,7 +942,8 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                     const SizedBox(height: 10),
                     _SettingsStatusCard(
                       title: '飞翔后端弹幕',
-                      value: _serviceStatus.isNotEmpty ? _serviceStatus
+                      value: widget.serviceStatus.isNotEmpty ? widget.serviceStatus
+                          : _serviceStatus.isNotEmpty ? _serviceStatus
                           : _refreshingService ? '正在获取'
                           : '通过飞翔后端查找并获取弹幕',
                       description: '',
