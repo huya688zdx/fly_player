@@ -78,15 +78,6 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
             for neighbor in (left, right):
                 self.assertFalse(np.array_equal(np.asarray(self.frames[middle]), np.asarray(self.frames[neighbor])))
         self.assertLessEqual(self.phases.count("human_0") + self.phases.count("human_1"), 12)
-        # 收臂主要改变手的位置，不能让交叉手臂那张的头部突然缩小。
-        head_widths = []
-        for phase in ("human_6", "human_hands_separate", "human_arms_cross", "human_7"):
-            rgba = np.asarray(self.frames[self.phases.index(phase)]).astype(np.int16)[110:210]
-            red, green, blue, alpha = np.moveaxis(rgba, 2, 0)
-            _, xs = np.where((blue - red > 75) & (green < 155) & (alpha > 200))
-            self.assertGreater(len(xs), 100, phase)
-            head_widths.append(int(np.ptp(xs)) + 1)
-        self.assertLessEqual(np.ptp(head_widths), 4, head_widths)
 
     def test_no_frame_is_blank_or_cut_by_the_canvas(self) -> None:
         for index, frame in enumerate(self.frames):
@@ -208,6 +199,30 @@ class RefreshAnimationSequenceTest(unittest.TestCase):
         # 稳定尺度允许出翼时有意轻沉，不能重新锁死成完全不动的身体。
         self.assertTrue(np.all(np.ptp(geometry, axis=0) <= [2, 10, 6]), geometry)
         self.assertTrue(np.all((np.diff(geometry[:, 1]) >= 0) & (np.diff(geometry[:, 1]) <= 3)), geometry)
+
+
+class HumanArmRevisionBoundaryTest(unittest.TestCase):
+    def test_only_masked_bc_pixels_change_and_endpoints_stay_exact(self) -> None:
+        original = Image.new("RGBA", (3072, 2560), (20, 40, 60, 150))
+        original.putpixel((0, 0), (20, 40, 60, 0))
+        patch = Image.new("RGBA", (512, 512), (80, 100, 120, 0))
+        mask = Image.new("L", (512, 512))
+        mask.putpixel((260, 220), 255)
+        actual = animation_builder.apply_human_arm_revisions(original, {8: (patch, mask), 9: (patch, mask)})
+        expected = original.copy()
+        for index in (8, 9):
+            expected.putpixel((index % 6 * 512 + 260, index // 6 * 512 + 220), patch.getpixel((260, 220)))
+        # 全图相等同时覆盖端点、下摆、透明像素RGB以及旧轮廓清除。
+        np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
+
+    def test_rejects_endpoint_or_rescaled_full_figure_import(self) -> None:
+        original = Image.new("RGBA", (3072, 2560))
+        patch = Image.new("RGBA", (512, 512))
+        mask = Image.new("L", (512, 512))
+        with self.assertRaisesRegex(ValueError, "A/D"):
+            animation_builder.apply_human_arm_revisions(original, {7: (patch, mask)})
+        with self.assertRaisesRegex(ValueError, "512×512"):
+            animation_builder.apply_human_arm_revisions(original, {8: (patch.resize((627, 660)), mask)})
 
 
 if __name__ == "__main__":

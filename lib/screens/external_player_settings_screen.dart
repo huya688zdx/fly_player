@@ -2,7 +2,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../desktop/desktop_environment.dart';
 import '../desktop/playback/external_player_settings.dart';
+import '../desktop/playback/external_playback_host.dart';
+import '../desktop/playback/external_playback_mini_controller.dart';
+import '../theme/app_theme.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../widgets/common/app_ambient_page.dart';
 import 'settings_destination_routes.dart';
@@ -149,115 +153,391 @@ class _ExternalPlayerSettingsScreenState
   @override
   Widget build(BuildContext context) {
     final colors = AppAmbientPage.controlColorsOf(context);
-    return AppAmbientPage(
+    final desktop = DesktopEnvironment.isDesktopPlatform;
+    final buttonForeground =
+        ThemeData.estimateBrightnessForColor(colors.accent) == Brightness.light
+        ? const Color(0xFF172030)
+        : Colors.white;
+    final page = AppAmbientPage(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: buildSecondaryHostAppBar(context, title: const Text('外部播放器接入')),
         body: SafeArea(
           top: false,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-            children: <Widget>[
-              Card(
-                color: AppAmbientPage.cardColorOf(context, colors.surface),
-                child: SwitchListTile(
-                  title: Text(
-                    '使用 PotPlayer 播放',
-                    style: TextStyle(color: colors.textPrimary),
-                  ),
-                  subtitle: Text(
-                    '启用后，在此电脑上通过 PotPlayer 打开视频。',
-                    style: TextStyle(color: colors.textSecondary),
-                  ),
-                  value: _enabled,
-                  activeThumbColor: colors.accent,
-                  onChanged: _busy ? null : (value) => _save(enabled: value),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: desktop ? 720 : 820),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  desktop ? 18 : 20,
+                  desktop ? 12 : 16,
+                  desktop ? 18 : 20,
+                  desktop ? 24 : 32,
                 ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                color: AppAmbientPage.cardColorOf(context, colors.surface),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      TextField(
-                        controller: _pathController,
-                        enabled: !_busy,
-                        style: TextStyle(color: colors.textPrimary),
-                        decoration: const InputDecoration(
-                          labelText: 'PotPlayer 程序路径',
-                          hintText:
-                              r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
-                          border: OutlineInputBorder(),
+                children: <Widget>[
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: colors.accentSoft,
+                          borderRadius: BorderRadius.circular(11),
                         ),
-                        onSubmitted: (_) => _save(),
+                        child: Icon(
+                          Icons.open_in_new_rounded,
+                          color: colors.accent,
+                          size: 21,
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: <Widget>[
-                          OutlinedButton.icon(
-                            onPressed: _busy ? null : _selectExecutable,
-                            icon: const Icon(Icons.folder_open_rounded),
-                            label: const Text('选择程序'),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: _busy ? null : _detectExecutable,
-                            icon: const Icon(Icons.search_rounded),
-                            label: const Text('自动查找'),
-                          ),
-                          FilledButton(
-                            onPressed: _busy ? null : () => _save(),
-                            child: const Text('保存路径'),
-                          ),
-                        ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'PotPlayer 接入',
+                              style: TextStyle(
+                                color: colors.textPrimary,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              '由 Fly Player 管理片源、弹幕与播放进度',
+                              style: TextStyle(
+                                color: colors.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      if (_message != null) ...<Widget>[
-                        const SizedBox(height: 12),
-                        Text(
-                          _message!,
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (_enabled ? colors.success : colors.textMuted)
+                              .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _enabled ? '已启用' : '未启用',
                           style: TextStyle(
-                            color: _isError ? colors.danger : colors.accent,
+                            color: _enabled ? colors.success : colors.textMuted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppAmbientPage.cardColorOf(
+                        context,
+                        colors.surface,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SwitchListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 2,
+                          ),
+                          title: Text(
+                            '使用 PotPlayer 播放',
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '启用后，此电脑上的视频将交给 PotPlayer。',
+                            style: TextStyle(color: colors.textSecondary),
+                          ),
+                          value: _enabled,
+                          activeThumbColor: colors.accent,
+                          activeTrackColor: colors.accentSoft,
+                          onChanged: _busy
+                              ? null
+                              : (value) => _save(enabled: value),
+                        ),
+                        Divider(height: 1, color: colors.borderSubtle),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '程序路径',
+                                style: TextStyle(
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: _pathController,
+                                enabled: !_busy,
+                                style: TextStyle(color: colors.textPrimary),
+                                decoration: InputDecoration(
+                                  hintText:
+                                      r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
+                                  prefixIcon: Icon(
+                                    Icons.route_rounded,
+                                    color: colors.accent,
+                                  ),
+                                  isDense: true,
+                                  border: const OutlineInputBorder(),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: colors.accent,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                ),
+                                onSubmitted: (_) => _save(),
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: _busy ? null : _selectExecutable,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: colors.accent,
+                                      side: BorderSide(
+                                        color: colors.borderStrong,
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.folder_open_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('选择'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: _busy ? null : _detectExecutable,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: colors.accent,
+                                      side: BorderSide(
+                                        color: colors.borderStrong,
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.search_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('自动查找'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: _busy ? null : () => _save(),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: colors.accent,
+                                      foregroundColor: buttonForeground,
+                                    ),
+                                    child: const Text('保存'),
+                                  ),
+                                ],
+                              ),
+                              if (_message != null) ...[
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      _isError
+                                          ? Icons.error_outline_rounded
+                                          : Icons.check_circle_outline_rounded,
+                                      size: 17,
+                                      color: _isError
+                                          ? colors.danger
+                                          : colors.success,
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Expanded(
+                                      child: Text(
+                                        _message!,
+                                        style: TextStyle(
+                                          color: _isError
+                                              ? colors.danger
+                                              : colors.textSecondary,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ],
-                    ],
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                color: AppAmbientPage.cardColorOf(context, colors.surface),
-                child: ListTile(
-                  title: Text(
-                    '弹幕设置',
-                    style: TextStyle(color: colors.textPrimary),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 2, bottom: 7),
+                    child: Text(
+                      '常用操作',
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                  subtitle: Text(switch (_danmakuEnabled) {
-                    true => '当前已开启，匹配到弹幕源后会带入 PotPlayer。',
-                    false => '当前已关闭，开启后才能在 PotPlayer 显示弹幕。',
-                    null => '暂未读取到弹幕状态。',
-                  }, style: TextStyle(color: colors.textSecondary)),
-                  trailing: Icon(
-                    Icons.chevron_right_rounded,
-                    color: colors.textSecondary,
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppAmbientPage.cardColorOf(
+                        context,
+                        colors.surface,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          dense: true,
+                          leading: Icon(
+                            Icons.subtitles_rounded,
+                            color: colors.accent,
+                          ),
+                          title: Text(
+                            '弹幕设置',
+                            style: TextStyle(color: colors.textPrimary),
+                          ),
+                          subtitle: Text(switch (_danmakuEnabled) {
+                            true => '已开启，匹配后会带入 PotPlayer',
+                            false => '已关闭，开启后才会显示弹幕',
+                            null => '暂未读取到弹幕状态',
+                          }, style: TextStyle(color: colors.textSecondary)),
+                          trailing: Icon(
+                            Icons.chevron_right_rounded,
+                            color: colors.textSecondary,
+                          ),
+                          onTap: _busy ? null : _openDanmakuSettings,
+                        ),
+                        Divider(height: 1, color: colors.borderSubtle),
+                        _buildMiniModeTile(colors),
+                      ],
+                    ),
                   ),
-                  onTap: _busy ? null : _openDanmakuSettings,
-                ),
+                  const SizedBox(height: 12),
+                  Theme(
+                    data: Theme.of(
+                      context,
+                    ).copyWith(dividerColor: Colors.transparent),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppAmbientPage.cardColorOf(
+                          context,
+                          colors.surface,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: ExpansionTile(
+                        iconColor: colors.accent,
+                        collapsedIconColor: colors.textSecondary,
+                        leading: Icon(
+                          Icons.help_outline_rounded,
+                          color: colors.textSecondary,
+                        ),
+                        title: Text(
+                          '使用说明',
+                          style: TextStyle(color: colors.textPrimary),
+                        ),
+                        subtitle: Text(
+                          '进度同步、播放列表与字幕限制',
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          16,
+                          0,
+                          16,
+                          16,
+                        ),
+                        children: [
+                          Text(
+                            '播放时请保持 Fly Player 运行，用于向 NAS 回报进度。影片详情页和外部播放控制页可暂停、跳转、更换片源、搜索弹幕和选择外挂字幕。\n\n'
+                            '飞牛原画剧集会带入各季播放列表；切集时会同步对应字幕、弹幕和进度。连续播放由 PotPlayer 的播放列表设置控制。\n\n'
+                            '弹幕与外挂 ASS、SRT、VTT 会合成为临时 ASS。音轨、内封字幕和位图字幕请在 PotPlayer 菜单中切换；AI 人物遮挡暂不支持。',
+                            style: TextStyle(
+                              color: colors.textSecondary,
+                              height: 1.55,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              Text(
-                '播放时请保持 Fly Player 运行，用于向 NAS 回报播放进度。\n\n'
-                '当前支持 PotPlayer。播放时可在影片详情页暂停、跳转、搜索或更换弹幕源，并应用所选片源与外挂字幕。弹幕随视频同步暂停和跳转。\n\n'
-                '飞牛原画剧集会带入各季播放列表；在列表内切集会同步对应字幕、弹幕和播放进度，切换到列表外视频会结束跟踪。\n\n'
-                '外挂 ASS 字幕保留样式；SRT、VTT 保留文字和时间。与弹幕合并时，字幕需为 UTF-8 或 UTF-16 编码。\n\n'
-                '音轨和内封字幕请在 PotPlayer 的声音、字幕菜单中选择。内封字幕、位图字幕不能与弹幕合并，AI 人物遮挡不支持。',
-                style: TextStyle(color: colors.textSecondary, height: 1.6),
-              ),
-            ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: page,
+    );
+  }
+
+  Widget _buildMiniModeTile(AppThemeColors colors) {
+    return ValueListenableBuilder<ExternalPlaybackStatus?>(
+      valueListenable: ExternalPlaybackHost.status,
+      builder: (context, status, _) => ValueListenableBuilder<bool>(
+        valueListenable: ExternalPlaybackMiniController.available,
+        builder: (context, available, _) => ValueListenableBuilder<bool>(
+          valueListenable: ExternalPlaybackMiniController.active,
+          builder: (context, active, _) => ListTile(
+            dense: true,
+            enabled: available && status != null,
+            leading: Icon(
+              active ? Icons.picture_in_picture_alt : Icons.push_pin_outlined,
+              color: available && status != null
+                  ? colors.accent
+                  : colors.textMuted,
+            ),
+            title: Text(
+              active ? '极简模式已开启' : '打开极简模式',
+              style: TextStyle(color: colors.textPrimary),
+            ),
+            subtitle: Text(
+              status == null
+                  ? '开始外部播放后可用'
+                  : available
+                  ? '顶部居中显示，可拖动并保持置顶'
+                  : '当前窗口暂不可用',
+              style: TextStyle(color: colors.textSecondary),
+            ),
+            trailing: Icon(
+              Icons.north_east_rounded,
+              size: 18,
+              color: colors.textSecondary,
+            ),
+            onTap: available && status != null
+                ? () async {
+                    try {
+                      await ExternalPlaybackMiniController.enter();
+                    } catch (_) {
+                      _showMessage('无法打开极简模式，请重试', error: true);
+                    }
+                  }
+                : null,
           ),
         ),
       ),

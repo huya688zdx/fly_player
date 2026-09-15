@@ -533,8 +533,10 @@ class _FakeMediaBackend extends MediaBackend {
       throw UnimplementedError();
 
   @override
-  Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) =>
-      throw UnimplementedError();
+  Future<List<MediaSourceVersion>> getItemSourceVersions(
+    String itemId, {
+    bool isLive = false,
+  }) => throw UnimplementedError();
 
   @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {

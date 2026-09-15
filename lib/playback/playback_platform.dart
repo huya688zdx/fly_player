@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 abstract final class PlaybackPlatform {
   static bool supportsMediaKit(TargetPlatform platform) => switch (platform) {
     TargetPlatform.windows ||
+    TargetPlatform.linux ||
     TargetPlatform.macOS ||
     TargetPlatform.iOS => true,
     _ => false,

@@ -32,7 +32,6 @@ import '../services/embedded_detail_launcher.dart';
 import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
 import '../theme/app_theme.dart';
-import '../theme/detail_tokens.dart';
 import '../theme/dynamic_theme_runtime_controller.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
@@ -43,6 +42,7 @@ import '../ui/player_pane_host_scope.dart';
 import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
+import '../utils/detail_layout_solver.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/swallowed_error_logger.dart';
@@ -947,6 +947,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   }
 
   Widget _seasonNumberWidget(AppThemeColors colors, MediaLibraryItem season) {
+    final desktop = DetailLayoutSolver.usesDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    );
     final metaPrimary = colors.backgroundBase.computeLuminance() >= 0.58
         ? const Color(0xFF182132)
         : colors.textPrimary;
@@ -956,7 +959,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _seasonLabel(season),
         style: TextStyle(
           color: metaPrimary,
-          fontSize: 20,
+          fontSize: desktop ? 14 : 20,
           fontWeight: FontWeight.w500,
         ),
       );
@@ -969,7 +972,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         key: ValueKey<int>(seasonNo),
         style: TextStyle(
           color: metaPrimary,
-          fontSize: 20,
+          fontSize: desktop ? 14 : 20,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1600,6 +1603,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     );
     final media = MediaQuery.of(context);
     final screenSize = media.size;
+    final desktop = DetailLayoutSolver.usesDesktopLayout(screenSize.width);
     final textScale = media.textScaler.scale(1).clamp(1.0, 1.35);
     final aspect = screenSize.height / screenSize.width;
     final shortestSide = screenSize.shortestSide;
@@ -1615,10 +1619,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         : Alignment(heroAdaptive.imageAlignX, -1.0);
     final posterHeightMax = screenSize.height * 0.42;
     final posterHeightMin = math.min(260.0, posterHeightMax);
-    final posterHeight = math
-        .min(screenSize.height * posterHeightRatio, screenSize.width / 1.55)
-        .clamp(posterHeightMin, posterHeightMax)
-        .toDouble();
+    final posterHeight = desktop
+        ? DetailLayoutSolver.desktopHeroHeight(screenSize)
+        : math
+              .min(
+                screenSize.height * posterHeightRatio,
+                screenSize.width / 1.55,
+              )
+              .clamp(posterHeightMin, posterHeightMax)
+              .toDouble();
     final collapseRange = (posterHeight - media.padding.top - kToolbarHeight)
         .clamp(120.0, 360.0);
 
@@ -1688,10 +1697,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         ? _neutralEpisodes.isNotEmpty
         : expectedCount > 0;
 
-    final posterWidth = (screenSize.width * (isLandscape ? 0.30 : 0.36)).clamp(
-      136.0,
-      isLandscape ? 182.0 : 188.0,
-    );
+    final posterWidth = desktop
+        ? DetailLayoutSolver.desktopPosterWidthFor(screenSize.width)
+        : (screenSize.width * (isLandscape ? 0.30 : 0.36)).clamp(
+            136.0,
+            isLandscape ? 182.0 : 188.0,
+          );
     final posterCardHeight = posterWidth * 1.45;
     final posterBridgeOverlap = (posterCardHeight * 0.45).clamp(52.0, 92.0);
     final panelDropOffset = isLandscape
@@ -1709,17 +1720,23 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           60.0,
           360.0,
         );
-    final topContentInset =
-        media.padding.top +
-        kToolbarHeight +
-        (posterCardHeight * _topInsetPosterRatio) +
-        panelDropOffset +
-        tallComp +
-        tabletInsetComp;
+    final topContentInset = desktop
+        ? DetailLayoutSolver.desktopSeasonHeaderTop(
+            screenSize,
+            media.padding.top,
+          )
+        : media.padding.top +
+              kToolbarHeight +
+              (posterCardHeight * _topInsetPosterRatio) +
+              panelDropOffset +
+              tallComp +
+              tabletInsetComp;
     final titleFontSize = isLandscape
         ? (screenSize.width * 0.028).clamp(30.0, 38.0)
         : 24.0;
-    final playLabelFontSize = (20.0 * textScale).clamp(18.0, 24.0);
+    final playLabelFontSize = desktop
+        ? 16.0
+        : (20.0 * textScale).clamp(18.0, 24.0);
 
     final metaPrimary = colors.backgroundBase.computeLuminance() >= 0.58
         ? const Color(0xFF182132)
@@ -1735,7 +1752,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             seasonLabel,
             style: TextStyle(
               color: metaPrimary,
-              fontSize: 20,
+              fontSize: desktop ? 14 : 20,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1747,21 +1764,27 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                   AppLocalizations.of(
                     context,
                   ).detailRatingScore(rating.toStringAsFixed(1)),
-                  style: const TextStyle(
-                    color: Color(0xFFF2D34B),
-                    fontSize: 17,
+                  style: TextStyle(
+                    color: const Color(0xFFF2D34B),
+                    fontSize: desktop ? 14 : 17,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               if (rating > 0 && year.isNotEmpty)
                 Text(
                   '  /  ',
-                  style: TextStyle(color: colors.textSecondary, fontSize: 17),
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: desktop ? 13 : 17,
+                  ),
                 ),
               if (year.isNotEmpty)
                 Text(
                   year,
-                  style: TextStyle(color: colors.textSecondary, fontSize: 17),
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: desktop ? 13 : 17,
+                  ),
                 ),
             ],
           ),
@@ -1788,6 +1811,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
               transitionTintColor: heroFogBase,
               transitionBodyColor: colors.backgroundBase,
               overlayOpacity: 0.0,
+              useDesktopReadingScrim: desktop,
             );
           },
         ),
@@ -1802,13 +1826,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 4),
+                  SizedBox(height: desktop ? 0 : 4),
                   Container(
                     color: Colors.transparent,
-                    padding: const EdgeInsets.fromLTRB(
-                      DetailTokens.screenHorizontalPadding,
+                    padding: EdgeInsets.fromLTRB(
+                      DetailLayoutSolver.horizontalPadding(screenSize.width),
                       0,
-                      DetailTokens.screenHorizontalPadding,
+                      DetailLayoutSolver.horizontalPadding(screenSize.width),
                       20,
                     ),
                     child: TvSeasonDetailPanel.legacy(
@@ -3021,6 +3045,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         final provider = context.read<NasProvider>();
         final media = MediaQuery.of(context);
         final screenSize = media.size;
+        final desktop = DetailLayoutSolver.usesDesktopLayout(screenSize.width);
         final textScale = media.textScaler.scale(1).clamp(1.0, 1.35);
         final aspect = screenSize.height / screenSize.width;
         final shortestSide = screenSize.shortestSide;
@@ -3037,10 +3062,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             : Alignment(heroAdaptive.imageAlignX, -1.0);
         final posterHeightMax = screenSize.height * 0.42;
         final posterHeightMin = math.min(260.0, posterHeightMax);
-        final posterHeight = math
-            .min(screenSize.height * posterHeightRatio, screenSize.width / 1.55)
-            .clamp(posterHeightMin, posterHeightMax)
-            .toDouble();
+        final posterHeight = desktop
+            ? DetailLayoutSolver.desktopHeroHeight(screenSize)
+            : math
+                  .min(
+                    screenSize.height * posterHeightRatio,
+                    screenSize.width / 1.55,
+                  )
+                  .clamp(posterHeightMin, posterHeightMax)
+                  .toDouble();
         final collapseRange =
             (posterHeight - media.padding.top - kToolbarHeight).clamp(
               120.0,
@@ -3099,8 +3129,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             )
             .toList();
 
-        final posterWidth = (screenSize.width * (isLandscape ? 0.30 : 0.36))
-            .clamp(136.0, isLandscape ? 182.0 : 188.0);
+        final posterWidth = desktop
+            ? DetailLayoutSolver.desktopPosterWidthFor(screenSize.width)
+            : (screenSize.width * (isLandscape ? 0.30 : 0.36)).clamp(
+                136.0,
+                isLandscape ? 182.0 : 188.0,
+              );
         final posterCardHeight = posterWidth * 1.45;
         final posterBridgeOverlap = (posterCardHeight * 0.45).clamp(52.0, 92.0);
         final panelDropOffset = isLandscape
@@ -3123,12 +3157,19 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             panelDropOffset +
             tallComp +
             tabletInsetComp;
-        final topContentInset = baseTopContentInset;
+        final topContentInset = desktop
+            ? DetailLayoutSolver.desktopSeasonHeaderTop(
+                screenSize,
+                media.padding.top,
+              )
+            : baseTopContentInset;
         const heroImageScale = 1.0;
         final titleFontSize = isLandscape
             ? (screenSize.width * 0.028).clamp(30.0, 38.0)
             : 24.0;
-        final playLabelFontSize = (20.0 * textScale).clamp(18.0, 24.0);
+        final playLabelFontSize = desktop
+            ? 16.0
+            : (20.0 * textScale).clamp(18.0, 24.0);
 
         final pageBody = _loading
             ? DetailLoadingSkeleton(presentation: widget.presentation)
@@ -3157,6 +3198,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         transitionTintColor: heroFogBase,
                         transitionBodyColor: colors.backgroundBase,
                         overlayOpacity: 0.0,
+                        useDesktopReadingScrim: desktop,
                       );
                     },
                   ),
@@ -3173,13 +3215,17 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const SizedBox(height: 4),
+                            SizedBox(height: desktop ? 0 : 4),
                             Container(
                               color: Colors.transparent,
-                              padding: const EdgeInsets.fromLTRB(
-                                DetailTokens.screenHorizontalPadding,
+                              padding: EdgeInsets.fromLTRB(
+                                DetailLayoutSolver.horizontalPadding(
+                                  screenSize.width,
+                                ),
                                 0,
-                                DetailTokens.screenHorizontalPadding,
+                                DetailLayoutSolver.horizontalPadding(
+                                  screenSize.width,
+                                ),
                                 20,
                               ),
                               child: TvSeasonDetailPanel.legacy(
@@ -3217,9 +3263,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                               ).detailRatingScore(
                                                 rating.toStringAsFixed(1),
                                               ),
-                                              style: const TextStyle(
-                                                color: Color(0xFFF2D34B),
-                                                fontSize: 17,
+                                              style: TextStyle(
+                                                color: const Color(0xFFF2D34B),
+                                                fontSize: desktop ? 14 : 17,
                                                 fontWeight: FontWeight.w500,
                                               ),
                                             ),
@@ -3228,7 +3274,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                               '  /  ',
                                               style: TextStyle(
                                                 color: colors.textSecondary,
-                                                fontSize: 17,
+                                                fontSize: desktop ? 13 : 17,
                                               ),
                                             ),
                                           if (year.isNotEmpty)
@@ -3236,7 +3282,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                               year,
                                               style: TextStyle(
                                                 color: colors.textSecondary,
-                                                fontSize: 17,
+                                                fontSize: desktop ? 13 : 17,
                                               ),
                                             ),
                                         ],

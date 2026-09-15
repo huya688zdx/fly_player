@@ -1476,17 +1476,21 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
               left: left,
               top: top,
               width: width,
-              height: math.max(
-                0.0,
-                math.min(620.0, info.overlaySize.height - top - 16),
-              ),
-              child: TapRegion(
-                groupId: _searchController,
-                child: SettingsSearchScreen(
-                  entries: _searchEntries,
-                  asPanel: true,
-                  controller: _searchController,
-                  onClose: _closeSearch,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: math.max(
+                    0.0,
+                    math.min(480.0, info.overlaySize.height - top - 16),
+                  ),
+                ),
+                child: TapRegion(
+                  groupId: _searchController,
+                  child: SettingsSearchScreen(
+                    entries: _searchEntries,
+                    asPanel: true,
+                    controller: _searchController,
+                    onClose: _closeSearch,
+                  ),
                 ),
               ),
             ),

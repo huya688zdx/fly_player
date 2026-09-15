@@ -1027,6 +1027,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         fun resumeRetained(scope: String, itemGuid: String, mediaGuid: String?, audioGuid: String?, subtitleGuid: String?, positionMs: Long?): Boolean {
             val player = retainedPlayer.get() ?: return false
             if (!player.playbackParked || player.isFinishing || player.isDestroyed ||
+                player.isLiveChannel() ||
                 scope.isEmpty() || scope != player.playbackSessionScope ||
                 itemGuid.isEmpty() || itemGuid != player.loadArgsMap["itemGuid"]?.toString() ||
                 (!mediaGuid.isNullOrEmpty() && mediaGuid != player.loadArgsMap["mediaGuid"]?.toString()) ||
@@ -1270,7 +1271,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 refreshSegmentedSubtitle()
             }
             if (this@NativePlayerActivity::bottomBar.isInitialized) {
-                bottomBar.postDelayed(this, 3000L)
+                bottomBar.postDelayed(this, if (isLiveChannel()) 15_000L else 3000L)
             }
         }
     }
@@ -3006,7 +3007,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             warmResumePending = false
             playbackParked = false
             NativeMediaCommandCoordinator.attach(this)
-            warmResumePositionMs?.let { playerSurface.seek(it) }
+            warmResumePositionMs?.let { seekPlayer(it) }
             warmResumePositionMs = null
             playWithFocus()
             setControlsVisible(true)
@@ -3017,16 +3018,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 让「只在启动注入」之外的外部改动也即时生效。带 diff 守卫，无变化不重下发内核。
         pullGlobalMpvSettingsOnResume()
         refreshFlyAccountState(force = true)
-        // 前台期间每 3s 周期回写一次播放进度（飞牛/Emby 共用），退出时再补一次。
+        // 前台期间周期回写播放进度（点播 3 秒、直播 15 秒），退出时再补一次。
         startPeriodicReport()
     }
 
-    /** 启动 3s 周期进度上报循环；幂等，重复调用不会叠加 runnable。 */
+    /** 启动周期进度上报循环；幂等，重复调用不会叠加 runnable。 */
     private fun startPeriodicReport() {
         if (isPeriodicReportRunning) return
         if (!this::bottomBar.isInitialized) return
         isPeriodicReportRunning = true
-        bottomBar.postDelayed(progressReportRunnable, 3000L)
+        bottomBar.postDelayed(progressReportRunnable, if (isLiveChannel()) 15_000L else 3000L)
     }
 
     /** 停止周期进度上报循环（切后台/退出）。 */
@@ -3098,7 +3099,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** onCreate 与 onNewIntent 共用：装载（或换）一路 source + 弹幕，并刷新标题/上下文。 */
     private fun applyLoadArgs(loadArgs: Map<String, Any?>, danmakuPayload: Map<String, Any?>?) {
         mediaLoadPending = false
-        val effectiveLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
+        val restoredLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
+        val effectiveLoadArgs = if (isLiveChannel(restoredLoadArgs)) {
+            HashMap(restoredLoadArgs).apply {
+                put("startPositionMs", 0L)
+                put("reliableSeek", false)
+            }
+        } else {
+            restoredLoadArgs
+        }
         // 捕获换源前的集身份：用于判断是否「真的切了集」（vs 同集切画质/版本/音轨字幕重载）。
         // 必须在 loadArgsMap 被覆盖前取。
         val previousItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
@@ -3111,7 +3120,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "hasPayload=${danmakuPayload != null} compact=${compactCount ?: -1} comments=${verboseCount ?: -1} " +
                 "sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
         )
-        reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
+        reportProgress() // 切集前先把上一集进度写回；首次 onCreate 尚无有效来源时会跳过。
         val previousPlayLink = loadArgsMap["playLink"]?.toString().orEmpty()
         if (previousPlayLink.isNotEmpty() && previousPlayLink != effectiveLoadArgs["playLink"]?.toString()) {
             NativePlayerReverseBridge.dispatch("releaseServerSession", mapOf(
@@ -3126,6 +3135,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         serviceDanmakuContextId = UUID.randomUUID().toString()
         resetFlyOped()
         applyFlyOpedAccess(FlyOpedAccess.fromLoadArgs(effectiveLoadArgs, flyOpedAccess.enabled))
+        userSeeking = false
         refreshSeekThumbnails()
         releaseDiscardedPlaybackLinks()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
@@ -3818,17 +3828,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     }
                 }
                 override fun onStartTrackingTouch(sb: SeekBar) {
+                    if (isLiveChannel()) return
                     userSeeking = true
                     lastHapticProgress = sb.progress
                     hapticTick()
                     cancelControlsAutoHide()
                 }
                 override fun onStopTrackingTouch(sb: SeekBar) {
+                    if (isLiveChannel()) return
                     userSeeking = false
                     hapticTick()
                     if (lastDurationMs > 0) {
                         val targetMs = lastDurationMs * sb.progress / 1000
-                        playerSurface.seek(targetMs)
+                        seekPlayer(targetMs)
                     }
                     hideSeekPreview()
                     scheduleControlsAutoHide()
@@ -4183,7 +4195,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun parkPlayback(): Boolean {
-        if (!isTaskRoot || playbackSessionScope.isEmpty() ||
+        if (isLiveChannel() || !isTaskRoot || playbackSessionScope.isEmpty() ||
             !this::playerSurface.isInitialized || playerSurface.state.durationMs <= 0 ||
             playerSurface.state.error != null || completionActive || inPipMode) return false
         playbackParked = true
@@ -4344,6 +4356,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun toggleAbRepeat() {
+        if (isLiveChannel()) return
         abRepeatMode = (abRepeatMode + 1) % 3
         when (abRepeatMode) {
             1 -> {
@@ -4879,6 +4892,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             .getOrDefault(false)
 
     private fun episodeEntryMode(): Int {
+        if (isLiveChannel()) return 2
         if (episodeList().size > 1) return 0
         return if (nativePanelEpisodeVersionEntries(qualityList()).size > 1) 1 else 2
     }
@@ -6280,6 +6294,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             addPanelRow(panelEmptyState(localizedString(R.string.player_text_0053)))
             return
         }
+        if (isLiveChannel()) {
+            val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
+            addPanelRow(
+                buildQualityGrid(
+                    visible,
+                    selectedOf = {
+                        currentMediaGuid.isNotEmpty() &&
+                            it.quality["mediaGuid"]?.toString()?.trim() == currentMediaGuid
+                    },
+                    titleOf = { liveQualityTitle(it.quality) },
+                ),
+            )
+            return
+        }
         val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
         // 主面板按档位合并：4k 与 4K HDR 同档收成一张卡（对齐官方，4K HDR 仅在自定义里）。
         val entries = qualityMainTierEntries(visible)
@@ -6302,6 +6330,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      */
     private fun visibleQualityEntries(): List<QualityPanelEntry> {
         val all = qualityList().mapIndexed { index, quality -> QualityPanelEntry(index, quality) }
+        if (isLiveChannel()) return all
         // 只保留当前版本（同 mediaGuid）这个文件的画质：其它版本（不同 mediaGuid，来自 trackData 合并）
         // 交给「多版本」选择器，别把别的版本的码率混进画质面板。空 mediaGuid 是当前流的转码档，保留。
         val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
@@ -6689,6 +6718,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun qualityDisplaySubtitle(quality: Map<String, Any?>): String {
+        if (isLiveChannel()) {
+            return quality["resolution"]?.toString()?.trim().orEmpty()
+                .ifEmpty { localizedString(R.string.player_quality_generic) }
+        }
         // 「原画」已移到浮标徽章，副标题只保留码率。
         val bitrate = qualityBitrateValue(quality)
         if (bitrate > 0) {
@@ -6881,7 +6914,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /**
      * 切版本：按版本 mediaGuid 走 resolvePlayback 重新解析该版本媒体（原画 + 该版本字幕/音轨），
-     * 保留当前播放位置。不能走 reloadServerSession——那条只在当前流的 qualities 里按转码档切，
+     * 点播保留当前播放位置，直播从 0 换线。不能走 reloadServerSession——那条只在当前流的 qualities 里按转码档切，
      * 切到别版本会播转码且沿用旧版本字幕。
      */
     private fun requestVersion(mediaGuid: String, hint: String? = null) {
@@ -6903,7 +6936,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "qualityMediaGuid" to mediaGuid,
                 "statsScope" to loadArgsMap["statsScope"],
                 "currentPlayLink" to loadArgsMap["playLink"],
-                "startPositionMs" to playerSurface.state.positionMs,
+                "startPositionMs" to if (isLiveChannel()) 0L else playerSurface.state.positionMs,
             ),
             onResult = { result -> runOnUiThread {
                 completePlaybackResolveRequest(request, result)
@@ -6979,10 +7012,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        val labels = qualities.map { qualityLabel(it) }.toTypedArray()
+        val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
+        val labels = qualities.map {
+            if (isLiveChannel()) liveQualityLabel(it) else qualityLabel(it)
+        }.toTypedArray()
         val checked = qualities.indexOfFirst {
-            currentRes.isNotEmpty() &&
-                (it["resolution"]?.toString()?.trim().orEmpty()) == currentRes
+            if (isLiveChannel()) {
+                currentMediaGuid.isNotEmpty() &&
+                    it["mediaGuid"]?.toString()?.trim() == currentMediaGuid
+            } else {
+                currentRes.isNotEmpty() &&
+                    it["resolution"]?.toString()?.trim().orEmpty() == currentRes
+            }
         }
         cancelControlsAutoHide()
         AlertDialog.Builder(this)
@@ -7014,12 +7055,30 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return if (isDefault) localizedString(R.string.player_quality_default_suffix, base) else base
     }
 
-    /** 切画质：重解析当前集的指定档，带当前播放位置保持进度，原地换源。 */
+    private fun liveQualityTitle(quality: Map<String, Any?>): String {
+        return quality["fileName"]?.toString()?.trim().orEmpty()
+            .ifEmpty { quality["resolution"]?.toString()?.trim().orEmpty() }
+            .ifEmpty { localizedString(R.string.player_quality_generic) }
+    }
+
+    private fun liveQualityLabel(quality: Map<String, Any?>): String {
+        val title = liveQualityTitle(quality)
+        val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+        return if (resolution.isEmpty() || resolution == title) title else "$title · $resolution"
+    }
+
+    /** 切画质：点播重载服务端档位；直播按 mediaGuid 重解析线路并从 0 原地换源。 */
     private fun requestQuality(qualityIndex: Int, hint: String? = null) {
         val itemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         if (itemGuid.isEmpty()) {
             showTransientHint(localizedString(R.string.player_switch_quality_unavailable))
             scheduleControlsAutoHide()
+            return
+        }
+        if (isLiveChannel()) {
+            val mediaGuid = qualityList().getOrNull(qualityIndex)
+                ?.get("mediaGuid")?.toString()?.trim().orEmpty()
+            requestVersion(mediaGuid, hint ?: localizedString(R.string.player_switch_quality_loading))
             return
         }
         Log.d(
@@ -7140,7 +7199,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             visibility = View.GONE
             addView(resumeText)
             addView(promptButton(localizedString(R.string.player_text_0058), ACCENT, false) {
-                playerSurface.seek(0); hideResumePrompt()
+                seekPlayer(0); hideResumePrompt()
             })
             addView(promptButton("✕", TEXT_DIM, false) { hideResumePrompt() })
         }
@@ -7256,7 +7315,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(18), 0, 0)
                 addView(promptButton(localizedString(R.string.player_text_0063), ACCENT, true) {
-                    clearCompletion(); playerSurface.seek(0); playWithFocus()
+                    clearCompletion(); seekPlayer(0); playWithFocus()
                 })
                 addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
                 addView(completedNextButton)
@@ -7309,6 +7368,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 片头片尾跳过：按设置时长窗口在 [updateOverlays] 里驱动显隐。 */
     private fun updateIntroOutroSkip(state: MpvPlayerState) {
         if (!this::skipCard.isInitialized) return
+        if (isLiveChannel()) {
+            skipCard.visibility = View.GONE
+            skipAction = null
+            return
+        }
         val dur = state.durationMs
         if (dur <= 0 || completionActive) {
             if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
@@ -7344,7 +7408,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 skipAction = {
                     introSkipDismissed = true
                     skipCard.visibility = View.GONE
-                    playerSurface.seek(introEndMs)
+                    seekPlayer(introEndMs)
                 }
                 if (skipCard.visibility != View.VISIBLE) skipCard.visibility = View.VISIBLE
             }
@@ -7355,7 +7419,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 skipAction = {
                     outroSkipDismissed = true
                     skipCard.visibility = View.GONE
-                    if (hasNext) playNextEpisode() else playerSurface.seek(dur)
+                    if (hasNext) playNextEpisode() else seekPlayer(dur)
                 }
                 if (skipCard.visibility != View.VISIBLE) skipCard.visibility = View.VISIBLE
             }
@@ -7548,6 +7612,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 续播提示：换源后若起播位置 > 3s 弹出，6 秒后自动消失。 */
     private fun maybeShowResumePrompt(loadArgs: Map<String, Any?>) {
         if (!this::resumeCard.isInitialized) return
+        if (isLiveChannel(loadArgs)) {
+            hideResumePrompt()
+            return
+        }
         val startMs = (loadArgs["startPositionMs"] as? Number)?.toLong() ?: 0L
         if (startMs <= 3000) {
             hideResumePrompt()
@@ -7566,6 +7634,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun hasNextEpisode(): Boolean {
+        if (isLiveChannel()) return false
         return nextEpisodeGuidOrNull() != null
     }
 
@@ -7681,7 +7750,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             (!effectivelyReady && state.error == null) ||
             state.error != null
         loadingSpinner.visibility = if (showLoading && !completionActive) View.VISIBLE else View.GONE
-        val playbackEnded = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
+        val playbackEnded = !isLiveChannel() &&
+            state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
 
         if (episodeSwitchInFlight) {
             if (completionActive || autoNextActive) clearCompletion()
@@ -8145,7 +8215,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
                 isClickable = true
                 setOnClickListener {
-                    playerSurface.seek(startMs)
+                    seekPlayer(startMs)
                     hidePanel()
                 }
                 addView(TextView(context).apply {
@@ -8486,6 +8556,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun preloadNextEpisodeIfNeeded() {
+        if (isLiveChannel()) return
         if (mediaLoadPending) return
         val requestGeneration = mediaLoadGeneration
         if (!nativePanelCanPreloadNextEpisode(autoPlayEnabled, nextEpisodePreloadEnabled)) return
@@ -10039,7 +10110,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     setTextColor(Color.WHITE)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                     isClickable = true
-                    setOnClickListener { playerSurface.seek(bm.ts); hidePanel() }
+                    setOnClickListener { seekPlayer(bm.ts); hidePanel() }
                 }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
                 addView(promptButton(localizedString(R.string.player_text_0283), TEXT_DIM, false) {
                     bookmarks.remove(bm); renderTopPanel()
@@ -10206,6 +10277,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             lastProgressEnded = ended
         }
         lastDurationMs = state.durationMs
+        seekBar.isEnabled = !isLiveChannel()
         speedButton.text = nativePanelPlaybackSpeedLabel(state.speed)
 
         // 自适应性能阶梯反馈（级别由内核根据真实掉帧升降，强设备不掉帧则恒为 0）。
@@ -10214,7 +10286,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (abRepeatMode == 2 && abLoopEndMs > abLoopStartMs &&
             state.positionMs >= abLoopEndMs
         ) {
-            playerSurface.seek(abLoopStartMs)
+            seekPlayer(abLoopStartMs)
         }
         playPauseButton.setImageResource(
             if (state.paused) R.drawable.ic_player_play else R.drawable.ic_player_pause,
@@ -10369,6 +10441,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 statusBarInsetPx = statusBarTopInsetPx,
                 density = resources.displayMetrics.density,
             )
+            if (gestureMode == NATIVE_GESTURE_MODE_SEEK && isLiveChannel()) {
+                gestureMode = NATIVE_GESTURE_MODE_SYSTEM
+                return
+            }
             when (gestureMode) {
                 NATIVE_GESTURE_MODE_PENDING,
                 NATIVE_GESTURE_MODE_SYSTEM,
@@ -10448,7 +10524,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
         } else if (nativePanelShouldCommitSeekGesture(gestureMode, cancelled)) {
             hapticTick()
-            playerSurface.seek(gestureSeekTargetMs)
+            seekPlayer(gestureSeekTargetMs)
             scheduleControlsAutoHide()
         }
         gestureMode = NATIVE_GESTURE_MODE_PENDING
@@ -10706,6 +10782,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     // ---- 控制交互 ----
 
+    private fun isLiveChannel(loadArgs: Map<String, Any?> = loadArgsMap): Boolean {
+        val mediaType = loadArgs["mediaType"]?.toString()?.trim().orEmpty()
+        return mediaType.equals("LiveChannel", ignoreCase = true) ||
+            mediaType.equals("TvChannel", ignoreCase = true)
+    }
+
+    private fun seekPlayer(positionMs: Long) {
+        if (!isLiveChannel()) playerSurface.seek(positionMs)
+    }
+
     private fun togglePlayPause() {
         if (playerSurface.state.paused) playWithFocus() else playerSurface.pause()
         scheduleControlsAutoHide()
@@ -10728,13 +10814,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onMediaSeekTo(positionMs: Long) {
-        playerSurface.seek(positionMs)
+        seekPlayer(positionMs)
     }
 
     override fun onMediaSeekBy(deltaMs: Long) {
         val s = playerSurface.state
         val target = (s.positionMs + deltaMs).coerceIn(0L, s.durationMs.coerceAtLeast(0L))
-        playerSurface.seek(target)
+        seekPlayer(target)
     }
 
     override fun onMediaNext() {
@@ -10822,6 +10908,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PAUSE, 43),
             )
         }
+        if (isLiveChannel()) return listOf(playPause)
         val forward = RemoteAction(
             Icon.createWithResource(this, android.R.drawable.ic_media_ff),
             localizedString(R.string.player_media_action_forward),
@@ -11019,8 +11106,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /**
      * 把当前播放进度投递回 Flutter，由详情页 State 调 recordPlayback 写回 NAS。
-     * 续播所需的静态字段（item/media/video/audio/subtitle guid、分辨率、码率、playLink）
-     * 全在 loadArgsMap（source.toMap）里，连同 ts/duration 一起回传。本地源缺 mediaGuid，
+     * 续播/直播心跳所需的静态字段（item/media/video/audio/subtitle guid、分辨率、码率、playLink）
+     * 全在 loadArgsMap（source.toMap）里，连同 mediaType/ts/duration 一起回传。本地源缺 mediaGuid，
      * Flutter 端会自动跳过。节流：ts 秒级未变则不重复上报。
      */
     private fun reportProgress(
@@ -11030,9 +11117,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     ) {
         if (!this::playerSurface.isInitialized) return
         val state = snapshot ?: playerSurface.state
-        val durationSec = state.durationMs / 1000
-        if (durationSec <= 0L) return
-        val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
+        val liveChannel = isLiveChannel()
+        val durationSec = if (liveChannel) 0L else state.durationMs / 1000
+        if (durationSec <= 0L && !liveChannel) return
+        val ts = if (liveChannel) 0L else (state.positionMs / 1000).coerceIn(0L, durationSec)
         val paused = playbackParked || state.paused
         if (!paused) prepareAutomaticServiceDanmaku()
         val bifContext = flyBifContext
@@ -11044,7 +11132,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 同秒去重只对播放态生效；暂停时放行为心跳，供 Flutter 统计端区分「暂停」与
         // 「已退出」。pausedHeartbeat 标记重复帧，服务端回写（飞牛/Emby）按它跳过。
         val pausedHeartbeat = !force && paused && ts == lastRecordedTs
-        if (!force && ts == lastRecordedTs && !paused) return
+        if (!force && ts == lastRecordedTs && !paused && !(liveChannel && periodic)) return
         lastRecordedTs = ts
         val args = HashMap<String, Any?>()
         args["isPaused"] = paused
@@ -11052,6 +11140,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         args["itemGuid"] = loadArgsMap["itemGuid"]
         args["statsScope"] = loadArgsMap["statsScope"]
         args["mediaGuid"] = loadArgsMap["mediaGuid"]
+        args["mediaType"] = loadArgsMap["mediaType"]
         args["videoGuid"] = loadArgsMap["videoGuid"]
         // 回写「当前实际选中」的轨道（用户切过则为新值），供续播恢复到正确的音轨/字幕。
         args["audioGuid"] = selectedAudioGuid.ifEmpty { loadArgsMap["audioTrackGuid"] }

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../desktop/desktop.dart';
+import '../desktop/desktop_search_overlay.dart';
 import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
 import '../media_backend/media_backend_kind.dart';
@@ -32,6 +33,7 @@ import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/track_option_sheet.dart';
 import '../widgets/common/app_catalog_query_sheets.dart';
+import '../widgets/common/app_ambient_page.dart';
 import '../widgets/app_atmospheric_background.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
@@ -81,6 +83,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       GlobalKey<DesktopHoverDropdownState>();
   final GlobalKey<DesktopHoverDropdownState> _layoutDropdownKey =
       GlobalKey<DesktopHoverDropdownState>();
+  final LayerLink _searchAnchorLink = LayerLink();
 
   late final TabController _tabController;
   late final Map<_FavoriteTab, ScrollController> _tabScrollControllers;

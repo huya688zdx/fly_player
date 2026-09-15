@@ -23,7 +23,8 @@ internal class NativeServiceDanmakuRequests {
         !activityDestroying && current.signedIn && current.accountIdentity.isNotBlank() &&
             current.statsScope.isNotBlank() && current.playbackContextId.isNotBlank() &&
             !current.mediaArgs["itemGuid"]?.toString().isNullOrBlank() &&
-            ticket.revision == revision && ticket.context == current
+            // 全集弹幕不绑定播放位置，快进仍可应用；媒体、账号和选源代数必须一致。
+            ticket.revision == revision && ticket.context.copy(seekEpoch = current.seekEpoch) == current
 }
 
 internal data class NativeServiceDanmakuPayload(val path: String, val sourceKey: String) {

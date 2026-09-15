@@ -74,6 +74,28 @@ class _DesktopSearchRoute extends PopupRoute<void> {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
   ) {
+    final sizeCurve = CurvedAnimation(
+      parent: animation,
+      curve: AppMotion.sheetEnterCurve,
+      reverseCurve: AppMotion.sheetExitCurve,
+    );
+    final fadeCurve = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOut,
+      reverseCurve: Curves.easeIn,
+    );
+    final animatedPanel = SizeTransition(
+      axis: Axis.horizontal,
+      axisAlignment: 1,
+      sizeFactor: sizeCurve,
+      child: FadeTransition(
+        opacity: fadeCurve,
+        child: TapRegion(
+          onTapOutside: (_) => Navigator.of(context).pop(),
+          child: _DesktopSearchPanel(navigationContext: navigationContext),
+        ),
+      ),
+    );
     return Focus(
       onKeyEvent: (_, event) {
         if (event is KeyDownEvent &&
@@ -91,23 +113,16 @@ class _DesktopSearchRoute extends PopupRoute<void> {
                 followerAnchor: Alignment.topRight,
                 offset: const Offset(0, -24),
                 showWhenUnlinked: false,
-                child: TapRegion(
-                  onTapOutside: (_) => Navigator.of(context).pop(),
-                  child: _DesktopSearchPanel(
-                    navigationContext: navigationContext,
-                  ),
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: animatedPanel,
                 ),
               )
             : Align(
                 alignment: Alignment.topRight,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(48, 8, 66, 24),
-                  child: TapRegion(
-                    onTapOutside: (_) => Navigator.of(context).pop(),
-                    child: _DesktopSearchPanel(
-                      navigationContext: navigationContext,
-                    ),
-                  ),
+                  child: animatedPanel,
                 ),
               ),
       ),
@@ -121,24 +136,7 @@ class _DesktopSearchRoute extends PopupRoute<void> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    final sizeCurve = CurvedAnimation(
-      parent: animation,
-      curve: AppMotion.sheetEnterCurve,
-      reverseCurve: AppMotion.sheetExitCurve,
-    );
-    final fadeCurve = CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeOut,
-      reverseCurve: Curves.easeIn,
-    );
-    // 右缘锚定的宽度展开：右边缘钉在搜索图标处、左缘向左衍生；
-    // 退出按原路向右收缩回图标，内容随展开/收缩快速淡入淡出。
-    return SizeTransition(
-      axis: Axis.horizontal,
-      axisAlignment: 1,
-      sizeFactor: sizeCurve,
-      child: FadeTransition(opacity: fadeCurve, child: child),
-    );
+    return child;
   }
 }
 

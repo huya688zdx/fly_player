@@ -325,6 +325,7 @@ class _Cache extends FlyNasDanmakuCache {
     required String statsScope,
     required String itemGuid,
     String mediaGuid = '',
+    bool refreshExisting = false,
     required bool Function() isCurrent,
   }) async {
     prepares++;

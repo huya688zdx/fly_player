@@ -42,6 +42,8 @@ class FlyNasDanmakuResult {
 /// A safe, actionable status; never contains addresses, credentials or raw errors.
 enum FlyNasDanmakuStatus {
   notRequested,
+  searching,
+  downloading,
   ready,
   notSignedIn,
   notBound,
@@ -55,6 +57,8 @@ enum FlyNasDanmakuStatus {
 
   String get message => switch (this) {
     notRequested => '可从飞翔数据服务读取已保存并关联的弹幕。',
+    searching => '已提交查找任务，飞翔后台正在查找弹幕。',
+    downloading => '已提交获取任务，飞翔后台正在更新这集弹幕。',
     ready => '已成功读取 NAS 保存的弹幕。',
     notSignedIn => '请先登录飞翔账号，再选择已绑定的媒体连接。',
     notBound => '当前播放未关联飞翔媒体绑定，请从飞翔账号选择连接后重新播放。',
@@ -113,6 +117,7 @@ class FlyNasDanmakuCache {
     required String statsScope,
     required String itemGuid,
     String mediaGuid = '',
+    bool refreshExisting = false,
     required bool Function() isCurrent,
   }) async {
     final session = _sessionReader();
@@ -133,6 +138,7 @@ class FlyNasDanmakuCache {
     try {
       final prepared = await api
           .post('/danmaku/ensure', {
+            if (refreshExisting) 'refresh_existing': true,
             'source_ref': {
               'binding_id': binding,
               'remote_item_id': itemGuid,
@@ -143,26 +149,51 @@ class FlyNasDanmakuCache {
       if (!current()) return false;
       if (prepared['status'] == 'ready') return true;
       final requestId = prepared['request_id'];
+      final jobId = prepared['job_id'], matchId = prepared['match_id'];
+      final downloading = jobId is String && jobId.isNotEmpty &&
+          matchId is String && matchId.isNotEmpty;
       if (!['queued', 'running'].contains(prepared['status']) ||
-          requestId is! String ||
-          requestId.isEmpty) {
+          (!downloading && (requestId is! String || requestId.isEmpty))) {
+        onStatus?.call(prepared['status'] == 'disabled'
+            ? FlyNasDanmakuStatus.disabled : FlyNasDanmakuStatus.stale);
         return false;
       }
-      // 每五秒查询一次，最多九十次，覆盖搜索、AI 和下载；退出不取消服务端成果。
-      for (var attempt = 0; attempt < 90; attempt++) {
+      onStatus?.call(downloading ? FlyNasDanmakuStatus.downloading : FlyNasDanmakuStatus.searching);
+      // 当前视频持续观察到任务终态，避免排队较久后漏掉完成结果；退出不取消服务端成果。
+      while (current()) {
         await Future<void>.delayed(const Duration(seconds: 5));
         if (!current()) return false;
         final request = await api
-            .get('/service-requests/${Uri.encodeComponent(requestId)}')
+            .get(downloading ? '/danmaku/jobs' : '/service-requests/${Uri.encodeComponent(requestId as String)}')
             .timeout(const Duration(seconds: 4));
         if (!current()) return false;
+        if (downloading) {
+          final jobs = (request['items'] as List? ?? []).whereType<Map>().where(
+            (job) => job['id'] == jobId && job['match_id'] == matchId);
+          if (jobs.length != 1) {
+            onStatus?.call(FlyNasDanmakuStatus.failed);
+            return false;
+          }
+          final status = jobs.single['status'];
+          if (status == 'succeeded') return true;
+          if (!['queued', 'running'].contains(status)) {
+            onStatus?.call(FlyNasDanmakuStatus.failed);
+            return false;
+          }
+          continue;
+        }
         if (request['goal_status'] == 'ready') return true;
         if (!['working', 'waiting'].contains(request['goal_status'])) {
+          onStatus?.call(FlyNasDanmakuStatus.stale);
           return false;
         }
       }
-    } catch (_) {
+    } catch (error) {
       // 网络、版本差异与服务故障不能打断正在播放的视频。
+      if (current()) {
+        onStatus?.call(error is TimeoutException
+            ? FlyNasDanmakuStatus.timeout : FlyNasDanmakuStatus.failed);
+      }
     } finally {
       api.close();
     }

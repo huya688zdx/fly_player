@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../desktop/desktop_environment.dart';
+import '../../desktop/desktop_floating_panel.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 
@@ -26,22 +28,41 @@ Future<NamedPresetDialogResult?> showNamedPresetSaveDialog(
   int maxNameLength = 32,
   String? Function(String name)? validateName,
 }) {
+  final colors = context.appColors;
+  final desktop =
+      DesktopEnvironment.isDesktopPlatform &&
+      MediaQuery.sizeOf(context).width >= 800;
+  final dialogTheme = AppThemeBuilder.buildFromColors(
+    colors,
+    baseTheme: Theme.of(context),
+  );
   return showDialog<NamedPresetDialogResult>(
     context: context,
-    builder: (_) => _NamedPresetSaveDialog(
-      title: title,
-      initialName: initialName,
-      suggestedName: suggestedName,
-      initialDescription: initialDescription,
-      nameLabel: nameLabel ?? AppLocalizations.of(context).presetNameLabel,
-      descriptionLabel:
-          descriptionLabel ??
-          AppLocalizations.of(context).presetDescriptionLabel,
-      emptyNameErrorText:
-          emptyNameErrorText ?? AppLocalizations.of(context).presetNameRequired,
-      confirmLabel: confirmLabel ?? AppLocalizations.of(context).commonSave,
-      maxNameLength: maxNameLength,
-      validateName: validateName,
+    barrierColor: desktop
+        ? colors.overlayScrim.withValues(alpha: 0.20)
+        : Colors.black54,
+    builder: (_) => AppRuntimeColorScope(
+      colors: colors,
+      hasRuntimeColors: context.hasRuntimeAppColors,
+      child: Theme(
+        data: dialogTheme,
+        child: _NamedPresetSaveDialog(
+          title: title,
+          initialName: initialName,
+          suggestedName: suggestedName,
+          initialDescription: initialDescription,
+          nameLabel: nameLabel ?? AppLocalizations.of(context).presetNameLabel,
+          descriptionLabel:
+              descriptionLabel ??
+              AppLocalizations.of(context).presetDescriptionLabel,
+          emptyNameErrorText:
+              emptyNameErrorText ??
+              AppLocalizations.of(context).presetNameRequired,
+          confirmLabel: confirmLabel ?? AppLocalizations.of(context).commonSave,
+          maxNameLength: maxNameLength,
+          validateName: validateName,
+        ),
+      ),
     ),
   );
 }
@@ -125,99 +146,146 @@ class _NamedPresetSaveDialogState extends State<_NamedPresetSaveDialog> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
+    final desktop =
+        DesktopEnvironment.isDesktopPlatform &&
+        MediaQuery.sizeOf(context).width >= 800;
     final suggestedName = widget.suggestedName?.trim() ?? '';
+    final title = Text(
+      widget.title,
+      style: TextStyle(
+        color: colors.textPrimary,
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+    final content = SizedBox(
+      width: 360,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          TextField(
+            controller: _nameController,
+            autofocus: true,
+            maxLength: widget.maxNameLength,
+            onChanged: (_) {
+              if (_errorText != null) {
+                setState(() => _errorText = null);
+              }
+            },
+            style: TextStyle(color: colors.textPrimary),
+            decoration: InputDecoration(
+              labelText: widget.nameLabel,
+              errorText: _errorText,
+              suffixIcon: suggestedName.isNotEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: TextButton(
+                        onPressed: _applySuggestedName,
+                        child: Text(l10n.presetAutoFill),
+                      ),
+                    )
+                  : null,
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 88,
+                minHeight: 40,
+              ),
+              filled: true,
+              fillColor: colors.backgroundElevated,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colors.borderSubtle),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colors.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colors.accent),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descriptionController,
+            maxLines: 3,
+            minLines: 2,
+            style: TextStyle(color: colors.textPrimary),
+            decoration: InputDecoration(
+              labelText: widget.descriptionLabel,
+              hintText: l10n.presetDescriptionHint,
+              filled: true,
+              fillColor: colors.backgroundElevated,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colors.borderSubtle),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colors.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: colors.accent),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    final actions = <Widget>[
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: Text(l10n.commonCancel),
+      ),
+      FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
+    ];
+    if (desktop) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.all(24),
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: DesktopFloatingPanel(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: title),
+                    IconButton(
+                      tooltip: MaterialLocalizations.of(
+                        context,
+                      ).closeButtonTooltip,
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      color: colors.textSecondary,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Flexible(child: SingleChildScrollView(child: content)),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  spacing: 8,
+                  children: actions,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return AlertDialog(
       backgroundColor: context.appModalBackgroundColor,
-      title: Text(
-        widget.title,
-        style: TextStyle(
-          color: colors.textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            TextField(
-              controller: _nameController,
-              autofocus: true,
-              maxLength: widget.maxNameLength,
-              onChanged: (_) {
-                if (_errorText != null) {
-                  setState(() => _errorText = null);
-                }
-              },
-              style: TextStyle(color: colors.textPrimary),
-              decoration: InputDecoration(
-                labelText: widget.nameLabel,
-                errorText: _errorText,
-                suffixIcon: suggestedName.isNotEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: TextButton(
-                          onPressed: _applySuggestedName,
-                          child: Text(l10n.presetAutoFill),
-                        ),
-                      )
-                    : null,
-                suffixIconConstraints: const BoxConstraints(
-                  minWidth: 88,
-                  minHeight: 40,
-                ),
-                filled: true,
-                fillColor: colors.backgroundElevated,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: colors.borderSubtle),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: colors.borderSubtle),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: colors.accent),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _descriptionController,
-              maxLines: 3,
-              minLines: 2,
-              style: TextStyle(color: colors.textPrimary),
-              decoration: InputDecoration(
-                labelText: widget.descriptionLabel,
-                hintText: l10n.presetDescriptionHint,
-                filled: true,
-                fillColor: colors.backgroundElevated,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: colors.borderSubtle),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: colors.borderSubtle),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: colors.accent),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.commonCancel),
-        ),
-        FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
-      ],
+      title: title,
+      content: content,
+      actions: actions,
     );
   }
 }

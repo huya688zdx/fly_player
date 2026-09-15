@@ -134,6 +134,28 @@ void main() {
     expect(finishedCount, 1);
   });
 
+  test('起播确认前切到列表内另一集，按新集身份和续播位置就绪', () async {
+    const second = 'https://example.test/b.mp4';
+    state['file'] = second;
+    state['positionMs'] = 0;
+    resolveMedia = (file) async {
+      expect(file, second);
+      reportingFile = file;
+      return const Duration(seconds: 20);
+    };
+    await session
+        .start(
+          paused: false,
+          speed: 1,
+          initialPosition: const Duration(seconds: 3),
+        )
+        .timeout(const Duration(seconds: 2));
+    expect(session.mediaUrl, second);
+    expect(seeks, [20000]);
+    expect(samples.single, (file: second, seconds: 20, paused: false));
+    expect(errors, isEmpty);
+  });
+
   test('换到列表外媒体时保留旧片最后采样并结束跟踪', () async {
     await session.start(
       paused: false,

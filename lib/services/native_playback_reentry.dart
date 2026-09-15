@@ -90,11 +90,20 @@ class NativePlaybackReentry {
         onResolveSubtitleFile: (guid, {format}) =>
             NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
         onReloadServerSession: (currentLoadArgs, intent) =>
-            NativeReentrySupport.reloadServerSession(
-              nas,
-              currentLoadArgs: currentLoadArgs,
-              intent: intent,
-            ),
+            MpvMediaSource.fromMap(
+              jsonDecode(currentLoadArgs) as Map<String, dynamic>,
+            ).isLive
+            ? ServerReentrySupport.reloadServerSession(
+                backend,
+                currentLoadArgs: currentLoadArgs,
+                intent: intent,
+                l10n: l10n,
+              )
+            : NativeReentrySupport.reloadServerSession(
+                nas,
+                currentLoadArgs: currentLoadArgs,
+                intent: intent,
+              ),
         onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
             NativeReentrySupport.loadEpisodePickerData(
               nas,
@@ -119,6 +128,8 @@ class NativePlaybackReentry {
     // 故首帧进度先开会话；切集时停旧会话 + 开新会话。状态随 bind 闭包（每次起播独立）。
     final reporter = ServerPlaybackReporter(backend);
     return NativePlayerBridge.bindReentry(
+      onReleaseServerSession: (link, {scope}) =>
+          backend.releasePlaybackSession(link),
       onResolvePlayback: onResolvePlayback,
       onRecordProgress: reporter.report,
       onResolveSubtitleFile: (guid, {format}) =>
@@ -190,7 +201,8 @@ class ServerPlaybackReporter {
     final ts = (progress['ts'] as num?)?.toInt() ?? 0;
     final isPaused = progress['isPaused'] == true;
     try {
-      if (itemGuid != _itemId) {
+      if (itemGuid != _itemId ||
+          (MpvMediaSource.fromMap(progress).isLive && mediaGuid != _mediaId)) {
         // 切到新条目：先停旧会话（落定旧条目最终位），再为新条目开会话。
         if (_itemId.isNotEmpty) {
           await backend.reportPlaybackStopped(

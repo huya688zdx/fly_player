@@ -14,6 +14,10 @@ import 'package:fly_player/widgets/detail/link_section.dart';
 import 'package:fly_player/widgets/detail/video_info_section.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fly_player/providers/app_theme_provider.dart';
+import 'package:fly_player/widgets/detail/detail_more_actions_sheet.dart';
 
 Widget _app({
   required WidgetBuilder builder,
@@ -40,6 +44,69 @@ Widget _runtimeApp({required AppThemeColors colors, required Widget child}) =>
     );
 
 void main() {
+  testWidgets('桌面更多操作居中显示，保存弹窗沿用当前页面颜色并保存快照', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    DesktopEnvironment.debugOverridePlatform = true;
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      DesktopEnvironment.debugOverridePlatform = null;
+      tester.view.reset();
+    });
+    final provider = AppThemeProvider();
+    final colors = provider.previewColorsForPreset(AppThemePreset.latte);
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          theme: AppThemeBuilder.build(AppThemePreset.midnight),
+          home: DynamicPageThemeSnapshot(
+            hasDynamicTheme: true,
+            effectiveColors: colors,
+            child: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showDetailMoreActionsSheet(
+                    context,
+                    pageKey: 'test:detail',
+                    pageTitle: '当前剧集',
+                  ),
+                  child: const Text('更多'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('更多'));
+    await tester.pumpAndSettle();
+    final panel = find.byKey(
+      const ValueKey<String>('desktop-detail-more-panel'),
+    );
+    expect(tester.getSize(panel).width, lessThanOrEqualTo(440));
+    expect(tester.getCenter(panel).dx, closeTo(640, 1));
+    expect(tester.getCenter(panel).dy, closeTo(400, 1));
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.tap(find.text('保存当前主题'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DesktopFloatingPanel), findsOneWidget);
+    expect(
+      tester.element(find.byType(TextField).first).appColors.accent,
+      colors.accent,
+    );
+    await tester.enterText(find.byType(TextField).first, '暖纸测试');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(provider.savedThemes.single.name, '暖纸测试');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    provider.dispose();
+  });
+
   testWidgets('轨道选择使用统一面板背景和独立圆角选中态', (tester) async {
     await tester.pumpWidget(
       _app(

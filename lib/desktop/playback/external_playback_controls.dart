@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../../playback/playback_source.dart';
 import '../../services/native_danmaku_prefetch.dart';
-import '../../theme/app_theme.dart';
 import 'desktop_player_dialogs.dart';
 import 'desktop_player_panels.dart';
 import 'external_playback_host.dart';
@@ -19,7 +18,7 @@ bool _isCurrentExternalSource(MpvMediaSource source) {
       active?.mediaGuid == source.mediaGuid;
 }
 
-/// 详情卡和独立控制页共用同一套弹幕搜索、导入与应用流程。
+/// 外部播放控制页的弹幕搜索、导入与应用流程。
 Future<void> showExternalDanmakuSources(
   BuildContext context,
   ExternalPlaybackStatus status,
@@ -172,132 +171,5 @@ Future<void> showExternalDanmakuSources(
       },
       onImportFile: importFile,
     ),
-  );
-}
-
-/// 详情页只控制当前影片的外部会话，进度始终来自播放器实测。
-class ExternalPlaybackControls extends StatefulWidget {
-  const ExternalPlaybackControls({
-    super.key,
-    required this.itemGuid,
-    required this.onApplySelection,
-  });
-
-  final String itemGuid;
-  final Future<void> Function() onApplySelection;
-
-  @override
-  State<ExternalPlaybackControls> createState() =>
-      _ExternalPlaybackControlsState();
-}
-
-class _ExternalPlaybackControlsState extends State<ExternalPlaybackControls> {
-  bool _busy = false;
-
-  void _message(String message) {
-    if (!mounted) return;
-    showExternalPlaybackNotice(context, message);
-  }
-
-  Future<void> _control(Future<bool> Function() action) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      if (!await action()) _message('操作未能完成，请确认这部影片仍在 PotPlayer 中播放');
-    } catch (_) {
-      _message('外部播放器操作失败，请重试');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  static String _time(Duration value) {
-    final seconds = value.inSeconds.clamp(0, 359999);
-    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
-    final remainder = (seconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$remainder';
-  }
-
-  @override
-  Widget build(
-    BuildContext context,
-  ) => ValueListenableBuilder<ExternalPlaybackStatus?>(
-    valueListenable: ExternalPlaybackHost.status,
-    builder: (context, status, _) {
-      if (status == null || status.source.itemGuid != widget.itemGuid) {
-        return const SizedBox.shrink();
-      }
-      final colors = context.appColors;
-      final itemGuid = status.source.itemGuid;
-      return Container(
-        margin: const EdgeInsets.only(top: 14),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: colors.surfaceSubtle,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: colors.borderSubtle),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.open_in_new_rounded, size: 18, color: colors.accent),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'PotPlayer · ${switch (status.phase) {
-                      ExternalPlaybackPhase.preparing => '正在连接',
-                      ExternalPlaybackPhase.ready => status.paused ? '已暂停' : '播放中',
-                      ExternalPlaybackPhase.disconnected => '连接已断开',
-                      ExternalPlaybackPhase.ended => '播放已结束',
-                    }}',
-                    style: TextStyle(color: colors.textPrimary),
-                  ),
-                ),
-                Text(
-                  '${_time(status.position)} / ${_time(status.duration)}',
-                  style: TextStyle(color: colors.textSecondary, fontSize: 12),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: _busy || !status.canControl
-                      ? null
-                      : () => _control(
-                          () => ExternalPlaybackHost.setPaused(
-                            !status.paused,
-                            itemGuid: itemGuid,
-                          ),
-                        ),
-                  icon: Icon(
-                    status.paused
-                        ? Icons.play_arrow_rounded
-                        : Icons.pause_rounded,
-                  ),
-                  label: Text(status.paused ? '继续' : '暂停'),
-                ),
-                TextButton.icon(
-                  onPressed: () => Navigator.of(
-                    context,
-                  ).pushNamed('/screen/external-playback'),
-                  icon: const Icon(
-                    Icons.dashboard_customize_outlined,
-                    size: 18,
-                  ),
-                  label: const Text('打开控制页'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    },
   );
 }

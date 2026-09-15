@@ -51,7 +51,7 @@ void main() {
 
   test('飞翔正式来源检索选集后只读取本次任务发布的新版本', () {
     fakeAsync((clock) {
-      final transport = _InteractiveApi();
+      final transport = _InteractiveApi()..workingPolls = 166;
       final fly = _interactiveClient(transport);
       FlyNasDanmakuResult? result;
       unawaited(() async {
@@ -63,7 +63,7 @@ void main() {
       clock.flushMicrotasks();
       expect(transport.selection?['expected_revision'], 4);
       expect(transport.payloadQueries, isEmpty);
-      clock.elapse(const Duration(seconds: 2));
+      clock.elapse(const Duration(seconds: 332));
       expect(transport.payloadQueries, isEmpty);
       clock.elapse(const Duration(seconds: 2));
       expect(result?.sourceKey, 'nas:match:6:$_version');
@@ -99,7 +99,7 @@ void main() {
     fakeAsync((clock) {
       api.responses = [
         {'status': 'queued', 'request_id': 'request'},
-        {'goal_status': 'working'},
+        ...List.generate(91, (_) => {'goal_status': 'working'}),
         {'goal_status': 'ready'},
         _ready,
         _payload,
@@ -125,13 +125,45 @@ void main() {
         },
       });
       expect(result, isNull);
-      clock.elapse(const Duration(seconds: 10));
+      clock.elapse(const Duration(seconds: 455));
+      expect(result, isNull);
+      clock.elapse(const Duration(seconds: 5));
       clock.flushMicrotasks();
       expect(result?.comments, hasLength(3));
       expect(
         api.calls.where((call) => call.$1 == '/danmaku/ensure'),
         hasLength(1),
       );
+    });
+  });
+
+  test('人工重新获取过期来源会等待确切下载任务再读取弹幕', () {
+    fakeAsync((clock) {
+      api.responses = [
+        {'status': 'queued', 'job_id': 'download', 'match_id': 'match'},
+        {'items': [{'id': 'download', 'match_id': 'match', 'status': 'running'}]},
+        {'items': [{'id': 'download', 'match_id': 'match', 'status': 'succeeded'}]},
+        _ready,
+        _payload,
+      ];
+      FlyNasDanmakuResult? result;
+      cache.prepareOnPlayback(
+        statsScope: scope,
+        itemGuid: 'same/id',
+        mediaGuid: 'file-2',
+        refreshExisting: true,
+        isCurrent: () => current,
+      ).then((ready) async { if (ready) result = await resolve(); });
+      clock.flushMicrotasks();
+      expect(api.calls.single.$2?['refresh_existing'], true);
+      clock.elapse(const Duration(seconds: 5));
+      expect(result, isNull);
+      clock.elapse(const Duration(seconds: 5));
+      expect(result?.comments, hasLength(3));
+      expect(api.calls.map((call) => call.$1), [
+        '/danmaku/ensure', '/danmaku/jobs', '/danmaku/jobs',
+        '/danmaku/resolve', '/danmaku/matches/match/payload',
+      ]);
     });
   });
 
@@ -437,6 +469,7 @@ class _InteractiveApi extends FlyDataApi {
   Map<String, dynamic>? selection;
   final payloadQueries = <Map<String, dynamic>?>[];
   bool stalePublication = false;
+  int workingPolls = 1;
   int polls = 0;
   Map<String, dynamic> get selected => {
     'provider_id': 'bilibili',
@@ -493,7 +526,7 @@ class _InteractiveApi extends FlyDataApi {
           {
             'id': 'selected-job',
             'match_id': 'match',
-            'status': ++polls == 1 ? 'running' : 'succeeded',
+            'status': ++polls <= workingPolls ? 'running' : 'succeeded',
           },
         ],
       };

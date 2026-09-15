@@ -3,6 +3,7 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
 
@@ -34,6 +35,7 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<DesktopDanmakuSegmenter> desktop_danmaku_segmenter_;
   std::unique_ptr<PotPlayerBridge> potplayer_bridge_;
   std::unique_ptr<SystemMediaControls> system_media_controls_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> display_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

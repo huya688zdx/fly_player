@@ -11,7 +11,7 @@ import 'package:fly_player/services/play_stats/play_stats_service.dart';
 Widget _panel({
   bool signedIn = false,
   Object identity = 'episode-a',
-  Future<bool> Function()? refresh,
+  Future<bool> Function({void Function(String)? onStatus})? refresh,
 }) => DesktopDanmakuSourcePanel(
   currentSourceLabel: '已导入的本地文件',
   commentCount: 23,
@@ -67,7 +67,7 @@ void main() {
               statsScope: playbackScope,
             ),
             identity: (playbackScope, service.session),
-            refresh: () async => false,
+            refresh: ({onStatus}) async => false,
           );
         },
       ),
@@ -104,7 +104,7 @@ void main() {
       tester,
       _panel(
         signedIn: true,
-        refresh: () async {
+        refresh: ({onStatus}) async {
           calls++;
           return false;
         },
@@ -137,7 +137,7 @@ void main() {
             return _panel(
               signedIn: signedIn,
               identity: identity,
-              refresh: () => ++calls == 1 ? first.future : second.future,
+              refresh: ({onStatus}) => ++calls == 1 ? first.future : second.future,
             );
           },
         ),
