@@ -148,8 +148,8 @@ class FlyNasDanmakuCache {
           requestId.isEmpty) {
         return false;
       }
-      // 每五秒查询一次，最多六十次；播放器退出也不会取消服务端准备成果。
-      for (var attempt = 0; attempt < 60; attempt++) {
+      // 每五秒查询一次，最多九十次，覆盖搜索、AI 和下载；退出不取消服务端成果。
+      for (var attempt = 0; attempt < 90; attempt++) {
         await Future<void>.delayed(const Duration(seconds: 5));
         if (!current()) return false;
         final request = await api
@@ -249,51 +249,21 @@ class FlyNasDanmakuCache {
           payload['version_key'] != version) {
         return null;
       }
-      final items = payload['items'];
-      if (items is! List || items.isEmpty || items.length > 100000) return null;
-      final comments = <DanmakuComment>[];
-      for (final item in items) {
-        if (elapsed.elapsed > budget) {
-          status = FlyNasDanmakuStatus.timeout;
-          return null;
-        }
-        if (item is! Map) return null;
-        final time = item['time_ms'],
-            color = item['color'],
-            text = item['text'];
-        final mode = item['mode'];
-        if (time is! int ||
-            time < 0 ||
-            color is! int ||
-            color < 0 ||
-            color > 0xffffff ||
-            text is! String ||
-            text.length > 1000 ||
-            ![1, 4, 5].contains(mode)) {
-          return null;
-        }
-        comments.add(
-          DanmakuComment(
-            id: 'nas:$id:${comments.length}',
-            timeMs: time,
-            text: text,
-            type: mode == 4
-                ? DanmakuCommentType.bottom
-                : mode == 5
-                ? DanmakuCommentType.top
-                : DanmakuCommentType.scroll,
-            color: Color(0xff000000 | color),
-          ),
-        );
-      }
-      if (expired || !valid()) return null;
-      status = FlyNasDanmakuStatus.ready;
-      return FlyNasDanmakuResult(
-        comments: comments,
-        sourceKey: 'nas:$id:$revision:$version',
-        sourceLabel: _sourceLabel(payload['source_label']),
+      final result = decodePayload(
+        payload,
+        matchId: id,
+        revision: revision,
+        versionKey: version,
         isCurrent: valid,
+        withinBudget: () => elapsed.elapsed <= budget,
       );
+      if (elapsed.elapsed > budget) {
+        status = FlyNasDanmakuStatus.timeout;
+        return null;
+      }
+      if (expired || !valid() || result == null) return null;
+      status = FlyNasDanmakuStatus.ready;
+      return result;
     }
 
     try {
@@ -315,6 +285,62 @@ class FlyNasDanmakuCache {
       api.close();
       if (valid()) onStatus?.call(status);
     }
+  }
+
+  /// 缓存直读和正式选源共用同一套身份、时间与评论格式校验。
+  static FlyNasDanmakuResult? decodePayload(
+    Map<String, dynamic> payload, {
+    required String matchId,
+    required int revision,
+    required String versionKey,
+    required bool Function() isCurrent,
+    bool Function()? withinBudget,
+  }) {
+    if (!isCurrent() ||
+        payload['match_id'] != matchId ||
+        payload['revision'] != revision ||
+        payload['version_key'] != versionKey) {
+      return null;
+    }
+    final items = payload['items'];
+    if (items is! List || items.isEmpty || items.length > 100000) return null;
+    final comments = <DanmakuComment>[];
+    for (final item in items) {
+      if (withinBudget?.call() == false) return null;
+      if (item is! Map) return null;
+      final time = item['time_ms'], color = item['color'], text = item['text'];
+      final mode = item['mode'];
+      if (time is! int ||
+          time < 0 ||
+          color is! int ||
+          color < 0 ||
+          color > 0xffffff ||
+          text is! String ||
+          text.length > 1000 ||
+          ![1, 4, 5].contains(mode)) {
+        return null;
+      }
+      comments.add(
+        DanmakuComment(
+          id: 'nas:$matchId:${comments.length}',
+          timeMs: time,
+          text: text,
+          type: mode == 4
+              ? DanmakuCommentType.bottom
+              : mode == 5
+              ? DanmakuCommentType.top
+              : DanmakuCommentType.scroll,
+          color: Color(0xff000000 | color),
+        ),
+      );
+    }
+    if (!isCurrent()) return null;
+    return FlyNasDanmakuResult(
+      comments: comments,
+      sourceKey: 'nas:$matchId:$revision:$versionKey',
+      sourceLabel: _sourceLabel(payload['source_label']),
+      isCurrent: isCurrent,
+    );
   }
 
   static String _sourceLabel(dynamic value) {
