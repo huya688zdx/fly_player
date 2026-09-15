@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show Color;
 
 import '../../danmaku/models/danmaku_comment.dart';
+import '../app_log_service.dart';
 import '../play_stats/play_stats_database.dart';
 import '../play_stats/play_stats_service.dart';
 import 'fly_data_api.dart';
@@ -113,6 +114,16 @@ class FlyNasDanmakuCache {
           .bindingReference['binding_id'] ??
       '';
 
+  static void _logFailure(String phase, Object error) {
+    final message = error is StateError ? error.message : '';
+    final safe = const ['弹幕缓存格式不可用。', '弹幕缓存超过本机读取上限。',
+      'Invalid data response.', 'Data response exceeds limit.',
+      '数据服务连接失败，请检查地址和网络后手动重试。'].contains(message) ||
+        RegExp(r'^数据服务拒绝请求：[A-Z0-9_]{1,80}$').hasMatch(message);
+    AppLogService.instance.recordErrorSync(source: 'fly_nas_danmaku',
+      error: '飞翔弹幕读取异常', details: 'phase=$phase type=${error.runtimeType}${safe ? ' message=$message' : ''}');
+  }
+
   /// 由实际播放触发；服务端负责去重和判断是否首次查找。
   /// 等待期间不占用起播预算，切账号、切文件或手选来源即停止取用结果。
   Future<bool> prepareOnPlayback({
@@ -137,6 +148,7 @@ class FlyNasDanmakuCache {
             PlayStatsService.scopeForBinding(session.accountKey, binding);
     if (!current()) return false;
     final api = _apiFactory(session.serverUrl, session.token);
+    var phase = 'ensure';
     try {
       final prepared = await api
           .post('/danmaku/ensure', {
@@ -171,6 +183,7 @@ class FlyNasDanmakuCache {
       while (current()) {
         await Future<void>.delayed(const Duration(seconds: 5));
         if (!current()) return false;
+        phase = 'poll';
         final request = await api
             .get(downloading ? '/danmaku/jobs' : '/service-requests/${Uri.encodeComponent(requestId as String)}')
             .timeout(const Duration(seconds: 4));
@@ -213,6 +226,7 @@ class FlyNasDanmakuCache {
     } catch (error) {
       // 网络、版本差异与服务故障不能打断正在播放的视频。
       if (current()) {
+        _logFailure(phase, error);
         onStatus?.call(error is TimeoutException
             ? FlyNasDanmakuStatus.timeout : FlyNasDanmakuStatus.failed);
       }
@@ -259,6 +273,7 @@ class FlyNasDanmakuCache {
     final elapsed = Stopwatch()..start();
     var expired = false;
     var status = FlyNasDanmakuStatus.invalidPayload;
+    var phase = 'resolve';
     Future<FlyNasDanmakuResult?> load() async {
       final resolved = await api.get(
         '/danmaku/resolve',
@@ -294,6 +309,7 @@ class FlyNasDanmakuCache {
       if (resolved['payload_url'] != '/api/v1$path?revision=$revision') {
         return null;
       }
+      phase = 'payload';
       final payload = await api.get(path, query: {'revision': revision});
       if (expired ||
           !valid() ||
@@ -302,6 +318,7 @@ class FlyNasDanmakuCache {
           payload['version_key'] != version) {
         return null;
       }
+      phase = 'decode';
       final result = decodePayload(
         payload,
         matchId: id,
@@ -329,6 +346,7 @@ class FlyNasDanmakuCache {
         },
       );
     } catch (error) {
+      if (valid()) _logFailure(phase, error);
       status = error is StateError && error.message == '数据服务拒绝请求：NOT_FOUND'
           ? FlyNasDanmakuStatus.notFound
           : FlyNasDanmakuStatus.failed;
