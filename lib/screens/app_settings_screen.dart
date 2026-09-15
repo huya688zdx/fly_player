@@ -81,7 +81,6 @@ class AppSettingsScreen extends StatelessWidget {
     // the same live FlyAccountController after a binding switch.
     if (!DesktopEnvironment.isDesktopPlatform &&
         (routeName == SettingsDestinationRoutes.flyAccount ||
-            routeName == SettingsDestinationRoutes.flyCatalog ||
             routeName == SettingsDestinationRoutes.flyData)) {
       unawaited(Navigator.of(context).pushNamed(routeName));
       return;
@@ -313,17 +312,6 @@ class AppSettingsScreen extends StatelessWidget {
         onSelect: () => _openSettingsDestination(
           context,
           SettingsDestinationRoutes.flyAccount,
-        ),
-      ),
-      SettingsSearchEntry(
-        id: 'fly_catalog',
-        title: '已同步节目',
-        subtitle: '节目海报与来源信息',
-        location: l10n.settingsLocationRoot,
-        keywords: const ['NAS', '节目', '番剧', '目录', '海报'],
-        onSelect: () => _openSettingsDestination(
-          context,
-          SettingsDestinationRoutes.flyCatalog,
         ),
       ),
       SettingsSearchEntry(
@@ -709,15 +697,6 @@ class AppSettingsScreen extends StatelessWidget {
             onTap: () => _openSettingsDestination(
               context,
               SettingsDestinationRoutes.flyAccount,
-            ),
-          ),
-          _DesktopRowData(
-            icon: Icons.video_library_outlined,
-            title: '已同步节目',
-            subtitle: '节目海报与来源信息',
-            onTap: () => _openSettingsDestination(
-              context,
-              SettingsDestinationRoutes.flyCatalog,
             ),
           ),
         ],

@@ -142,8 +142,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Media sources'), findsOneWidget);
       expect(find.text('Account and media sources'), findsOneWidget);
-      expect(find.text('Synced titles'), findsOneWidget);
-      expect(find.text('Watch statistics'), findsOneWidget);
+      expect(find.text('Synced titles'), findsNothing);
+      expect(find.text('Watch statistics'), findsNothing);
       await tester.tap(find.text('我的 Emby'));
       await tester.pumpAndSettle();
       expect(account.activations, ['emby']);
@@ -154,8 +154,8 @@ void main() {
       await tester.tap(find.byTooltip('メディアソースを切り替え'));
       await tester.pumpAndSettle();
       expect(find.text('メディアソース'), findsOneWidget);
-      expect(find.text('同期済みの作品'), findsOneWidget);
-      expect(find.text('視聴統計'), findsOneWidget);
+      expect(find.text('同期済みの作品'), findsNothing);
+      expect(find.text('視聴統計'), findsNothing);
       expect(find.text('切换媒体来源'), findsNothing);
       expect(tester.takeException(), isNull);
     },
@@ -238,8 +238,8 @@ void main() {
     expect(tester.element(find.byType(DesktopFloatingPanel)).appColors, colors);
     final title = tester.widget<Text>(find.text('我的 Emby'));
     expect(title.style?.fontSize, 13);
-    expect(find.text('已同步节目'), findsOneWidget);
-    expect(find.text('观看统计'), findsOneWidget);
+    expect(find.text('已同步节目'), findsNothing);
+    expect(find.text('观看统计'), findsNothing);
   });
 
   testWidgets('PC menu disables reauthorization and busy actions live', (
@@ -435,7 +435,7 @@ void main() {
     await tester.tap(find.byTooltip('切换媒体来源'));
     await tester.pumpAndSettle();
     expect(find.text('账号与媒体来源'), findsOneWidget);
-    expect(find.text('已同步节目'), findsOneWidget);
+    expect(find.text('已同步节目'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -466,8 +466,8 @@ void main() {
       containsAll(['lib/img/feiniu_Logo.png', 'lib/img/Emby_logo.png']),
     );
     expect(find.text('账号与媒体来源'), findsOneWidget);
-    expect(find.text('已同步节目'), findsOneWidget);
-    expect(find.text('观看统计'), findsOneWidget);
+    expect(find.text('已同步节目'), findsNothing);
+    expect(find.text('观看统计'), findsNothing);
   });
 
   testWidgets('busy and reauthorization entries remain disabled', (
@@ -531,11 +531,11 @@ void main() {
         matching: find.byType(Scrollable),
       );
       await tester.scrollUntilVisible(
-        find.text('观看统计'),
+        find.text('账号与媒体来源'),
         300,
         scrollable: scrollable,
       );
-      expect(find.text('观看统计').hitTestable(), findsOneWidget);
+      expect(find.text('账号与媒体来源').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

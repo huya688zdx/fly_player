@@ -10,10 +10,11 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/desktop/desktop_environment.dart';
+import 'package:fly_player/desktop/desktop_scroll_behavior.dart';
 import 'package:fly_player/desktop/desktop_floating_panel.dart';
-import 'package:fly_player/desktop/desktop_hover_dropdown.dart';
+
 import 'package:fly_player/l10n/generated/app_localizations.dart';
-import 'package:fly_player/media_backend/media_backend_kind.dart';
+
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
 import 'package:fly_player/providers/backend_session_provider.dart';
 import 'package:fly_player/providers/nas_provider.dart';
@@ -23,9 +24,9 @@ import 'package:fly_player/services/fly_data/fly_data_service.dart';
 import 'package:fly_player/services/fly_data/fly_login_history_store.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/widgets/common/login_components.dart';
 import 'package:fly_player/ui/app_info_popover.dart';
 import 'package:fly_player/utils/app_top_tip.dart';
-import 'package:fly_player/widgets/common/app_modal_surface.dart';
 import 'package:fly_player/widgets/common/app_option_list.dart';
 import 'package:fly_player/widgets/common/track_option_sheet.dart';
 
@@ -133,321 +134,62 @@ void main() {
     await tester.pumpWidget(_app(account, locale: const Locale('en')));
     await tester.pumpAndSettle();
     expect(find.text('Account and media sources'), findsOneWidget);
-    expect(find.text('Available to connect'), findsOneWidget);
+    expect(find.textContaining('Available to connect'), findsOneWidget);
     expect(find.text('家中媒体'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  Finder activateButton() => find.textContaining(RegExp('切换到此来源|选用 / 切换媒体地址'));
-
-  for (final desktop in [true, false]) {
-    testWidgets('本机媒体服务直接预选服务器并只填写媒体账号 $desktop', (tester) async {
-      DesktopEnvironment.debugOverridePlatform = desktop;
-      account.localResponse = {
-        'enabled': true,
-        'items': [
-          {
-            'key': 'feiniu',
-            'kind': 'feiniu',
-            'name': '本机飞牛影视',
-            'status': 'available',
-            'server_id': 'local-feiniu',
-          },
-        ],
-      };
-      await tester.pumpWidget(_app(account));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
-      await tester.tap(find.text('绑定 NAS 媒体服务'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('本机飞牛影视'));
-      await tester.pumpAndSettle();
-      expect(find.text('选择已登记服务器'), findsNothing);
-      expect(find.text('NAS 访问地址（必填）'), findsNothing);
-      expect(find.byType(TextField), findsNWidgets(3));
-      await tester.enterText(find.byType(TextField).at(0), '家中电影');
-      await tester.enterText(find.byType(TextField).at(1), 'viewer');
-      await tester.enterText(find.byType(TextField).at(2), 'fixture-password');
-      await tester.tap(find.text('确定'));
-      await tester.pumpAndSettle();
-      expect(account.createdBindings.single['server_id'], 'local-feiniu');
-      expect(account.createdBindings.single['username'], 'viewer');
-      expect(account.registeredKeys, isEmpty);
-    });
-  }
-
-  testWidgets('本机服务未登记时管理员先启用再绑定', (tester) async {
-    account.admin = true;
-    account.localResponse = {
-      'enabled': true,
-      'items': [
-        {
-          'key': 'emby',
-          'kind': 'emby',
-          'name': '本机 Emby',
-          'status': 'available',
-          'server_id': null,
+  testWidgets(
+    '来源页复用选项行和贴边滚动条，无绑定时指引后端处理',
+    (tester) async {
+      DesktopEnvironment.debugOverridePlatform = true;
+      await tester.binding.setSurfaceSize(const Size(1280, 720));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      account.bindings = List.generate(
+        8,
+        (index) => {
+          ..._binding(),
+          'id': 'source-$index',
+          'label': '媒体来源 ${index + 1}',
         },
-      ],
-    };
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
-    await tester.tap(find.text('绑定 NAS 媒体服务'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('本机 Emby'));
-    await tester.pumpAndSettle();
-    expect(account.registeredKeys, ['emby']);
-    expect(find.text('绑定媒体账号'), findsOneWidget);
-    expect(find.text('NAS 访问地址（必填）'), findsNothing);
-  });
-
-  testWidgets('普通成员未登记本机服务提示管理员且不注册', (tester) async {
-    account.localResponse = {
-      'enabled': true,
-      'items': [
-        {
-          'key': 'emby',
-          'kind': 'emby',
-          'name': '本机 Emby',
-          'status': 'available',
-          'server_id': null,
-        },
-      ],
-    };
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
-    await tester.tap(find.text('绑定 NAS 媒体服务'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('本机 Emby'));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('请管理员先启用'), findsOneWidget);
-    expect(account.registeredKeys, isEmpty);
-    expect(find.text('绑定媒体账号'), findsNothing);
-    await tester.pump(const Duration(seconds: 3));
-  });
-
-  testWidgets('迟到本机注册结果在退出账号后不打开绑定表单', (tester) async {
-    account.admin = true;
-    account.pendingRegistration = Completer<Map<String, dynamic>>();
-    account.localResponse = {
-      'enabled': true,
-      'items': [
-        {
-          'key': 'emby',
-          'kind': 'emby',
-          'name': '本机 Emby',
-          'status': 'available',
-          'server_id': null,
-        },
-      ],
-    };
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
-    await tester.tap(find.text('绑定 NAS 媒体服务'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('本机 Emby'));
-    await tester.pump();
-    account.signedIn = false;
-    account.notifyListeners();
-    account.pendingRegistration!.complete({'id': 'late-server'});
-    await tester.pumpAndSettle();
-    expect(find.text('绑定媒体账号'), findsNothing);
-    expect(account.createdBindings, isEmpty);
-    await tester.pump(const Duration(seconds: 3));
-  });
-
-  testWidgets('媒体登录模式不显示本机绑定入口', (tester) async {
-    account.legacyMode = true;
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    expect(find.text('绑定 NAS 媒体服务'), findsNothing);
-  });
-
-  testWidgets('本机发现禁用时解释原因并保留已绑定媒体', (tester) async {
-    account.localResponse = {
-      'enabled': false,
-      'items': [],
-      'message': '管理员尚未启用本机发现',
-    };
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
-    await tester.tap(find.text('绑定 NAS 媒体服务'));
-    await tester.pumpAndSettle();
-    expect(find.text('管理员尚未启用本机发现'), findsOneWidget);
-    expect(find.text('家中媒体'), findsOneWidget);
-    expect(account.createdBindings, isEmpty);
-    await tester.pump(const Duration(seconds: 3));
-  });
-
-  testWidgets('不可用的本机服务不能进入登记或账号表单', (tester) async {
-    account.admin = true;
-    account.localResponse = {
-      'enabled': true,
-      'items': [
-        {
-          'key': 'emby',
-          'name': '本机 Emby',
-          'kind': 'emby',
-          'status': 'unavailable',
-          'server_id': 'local-emby',
-        },
-      ],
-    };
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('绑定 NAS 媒体服务'));
-    await tester.tap(find.text('绑定 NAS 媒体服务'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('本机 Emby'));
-    await tester.pumpAndSettle();
-    expect(find.text('绑定媒体账号'), findsNothing);
-    expect(account.registeredKeys, isEmpty);
-    await tester.pump(const Duration(seconds: 3));
-  });
-
-  for (final desktop in [true, false]) {
-    testWidgets('简洁设置保留地址切换并阻止过期选择 $desktop', (tester) async {
-      DesktopEnvironment.debugOverridePlatform = desktop;
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = desktop
-          ? const Size(1280, 800)
-          : const Size(390, 844);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.view.resetPhysicalSize);
-      account.admin = true;
+      );
       await tester.pumpWidget(
         RepaintBoundary(key: _captureKey, child: _app(account)),
       );
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('设置'));
-      await tester.tap(find.text('设置'));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('媒体账号登录'));
-      expect(find.text('https://fly.example'), findsOneWidget);
-      expect(find.text('添加服务器'), findsOneWidget);
-      expect(find.text('同步记录'), findsOneWidget);
-      await _capture(
-        tester,
-        desktop ? 'settings-desktop' : 'settings-mobile',
-        region: find.byType(ExpansionTile),
-      );
-      await tester.tap(find.text('服务地址'));
-      await tester.pumpAndSettle();
-      expect(
-        find.byType(DesktopFloatingPanel),
-        desktop ? findsOneWidget : findsNothing,
-      );
-      await tester.tap(find.text('https://fly-vpn.example'));
-      await tester.pumpAndSettle();
-      expect(account.addressSwitches, ['https://fly-vpn.example']);
-      await tester.tap(find.text('服务地址'));
-      await tester.pumpAndSettle();
-      account.signedIn = false;
+      expect(tester.getRect(find.byType(DesktopScrollbar).first).right, 1280);
+      expect(find.byType(AppOptionListTile), findsWidgets);
+      await _capture(tester, 'account-desktop-sources');
+      account.bindings = account.bindings.take(2).toList();
+      account.activeBindingId = 'source-0';
       account.notifyListeners();
-      await tester.pump();
-      await tester.tap(find.text('https://fly.example'));
       await tester.pumpAndSettle();
-      expect(account.addressSwitches, hasLength(1));
-      await tester.pump(const Duration(seconds: 2));
+      await _capture(tester, 'account-desktop-compact');
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-    });
-  }
+      await _capture(tester, 'account-mobile-sources');
+      account.bindings = [];
+      account.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.text('暂无已绑定的媒体来源'), findsOneWidget);
+      expect(find.textContaining('后端网页的“连接”'), findsOneWidget);
+      expect(find.text('切换账号'), findsOneWidget);
+      expect(find.text('添加服务器'), findsNothing);
+      expect(find.text('添加媒体来源'), findsNothing);
+      expect(find.byType(TextFormField), findsNothing);
+      expect(tester.takeException(), isNull);
+      await _capture(tester, 'account-empty');
+      account.message = '读取媒体来源失败，请重试。';
+      account.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.text('暂无已绑定的媒体来源'), findsNothing);
+      expect(find.text('读取媒体来源失败，请重试。'), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
 
-  for (final size in [const Size(1280, 800), const Size(640, 900)]) {
-    testWidgets('PC 来源操作和连接设置复用桌面浮窗 $size', (tester) async {
-      DesktopEnvironment.debugOverridePlatform = true;
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = size;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      account.bindings = [_binding(multiple: true)];
-      await tester.pumpWidget(
-        RepaintBoundary(key: _captureKey, child: _app(account)),
-      );
-      await tester.pumpAndSettle();
-      if (_captureDirectory.isNotEmpty) {
-        await tester.runAsync(
-          () => precacheImage(
-            const AssetImage('lib/img/feiniu_Logo.png'),
-            tester.element(find.byType(FlyBindingsScreen)),
-          ),
-        );
-        await tester.pumpAndSettle();
-      }
-      final anchor = tester.getRect(find.byTooltip('来源设置'));
-      await tester.tap(find.byTooltip('来源设置'));
-      await tester.pumpAndSettle();
-      expect(find.byType(DesktopFloatingPanel), findsOneWidget);
-      expect(find.byType(AppOptionSheetPanel), findsNothing);
-      final menu = tester.getRect(find.byType(DesktopFloatingPanel));
-      expect(menu.width, lessThanOrEqualTo(292));
-      // IconButton has a 4 px outer hit-target inset around its Tooltip.
-      expect(menu.top, inInclusiveRange(anchor.bottom, anchor.bottom + 8));
-      expect(menu.right, lessThanOrEqualTo(size.width));
-      await _capture(tester, 'pc-source-menu-${size.width.toInt()}');
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
-      expect(find.byType(DesktopFloatingPanel), findsNothing);
-      await tester.tap(find.byTooltip('来源设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('连接设置'));
-      await tester.pumpAndSettle();
-      expect(find.byType(DesktopFloatingPanel), findsOneWidget);
-      expect(find.byType(AppOptionSheetPanel), findsNothing);
-      expect(
-        tester.getSize(find.byType(DesktopFloatingPanel)).width,
-        lessThanOrEqualTo(470),
-      );
-      await _capture(tester, 'pc-connections-${size.width.toInt()}');
-      await tester.tap(find.textContaining('https://vpn.example'));
-      await tester.pumpAndSettle();
-      expect(account.activations, [('source', 'https://vpn.example')]);
-      expect(find.byType(DesktopFloatingPanel), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('PC 重新授权表单单层桌面外壳并可关闭 $size', (tester) async {
-      DesktopEnvironment.debugOverridePlatform = true;
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = size;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        RepaintBoundary(key: _captureKey, child: _app(account)),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('来源设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('重新授权'));
-      await tester.pumpAndSettle();
-      expect(find.byType(DesktopFloatingPanel), findsOneWidget);
-      expect(find.byType(AppOptionSheetPanel), findsNothing);
-      final panel = tester.getRect(find.byType(DesktopFloatingPanel));
-      expect(panel.width, lessThanOrEqualTo(470));
-      expect(panel.center.dx, closeTo(size.width / 2, 1));
-      await _capture(tester, 'pc-authorization-${size.width.toInt()}');
-      await tester.tap(find.text('确定'));
-      await tester.pumpAndSettle();
-      expect(find.text('请填写媒体账号'), findsOneWidget);
-      await tester.enterText(
-        find.widgetWithText(TextFormField, '媒体账号'),
-        'viewer',
-      );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, '媒体密码'),
-        'test-password',
-      );
-      await tester.tap(find.text('确定'));
-      await tester.pumpAndSettle();
-      expect(account.reauthorizations, 1);
-      expect(find.byType(DesktopFloatingPanel), findsNothing);
-      expect(tester.takeException(), isNull);
-    });
-  }
+  Finder activateButton() => find.byKey(const ValueKey('fly-source-source'));
 
   testWidgets('单客户端地址直接选用，成功后返回原媒体首页', (tester) async {
     await tester.pumpWidget(_app(account, pushed: true));
@@ -474,7 +216,7 @@ void main() {
     expect(account.activations, hasLength(1));
     expect(observer.count, 0);
     expect(find.byType(FlyBindingsScreen), findsOneWidget);
-    expect(find.text('进入媒体库'), findsOneWidget);
+    expect(find.textContaining('当前来源'), findsOneWidget);
   });
 
   testWidgets('多地址默认自动连接，不要求再次选择地址或登录', (tester) async {
@@ -491,192 +233,6 @@ void main() {
     expect(find.byType(TextFormField), findsNothing);
   });
 
-  testWidgets('连接设置复用选项面板，取消不连接且手动选址保持精准', (tester) async {
-    account.bindings = [_binding(multiple: true)];
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('app-modal-surface-action-sheet')),
-      findsOneWidget,
-    );
-    await tester.tap(find.text('连接设置'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(AppOptionSheetPanel), findsOneWidget);
-    expect(find.byType(SimpleDialog), findsNothing);
-    expect(account.activations, isEmpty);
-    expect(find.textContaining('局域网'), findsWidgets);
-    expect(find.textContaining('VPN'), findsWidgets);
-    expect(find.textContaining('client_lan'), findsNothing);
-    expect(find.textContaining('nas_api'), findsNothing);
-    Navigator.of(tester.element(find.byType(AppOptionSheetPanel))).pop();
-    await tester.pumpAndSettle();
-    expect(account.activations, isEmpty);
-
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('连接设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('https://vpn.example'));
-    await tester.pumpAndSettle();
-    expect(account.activations, [('source', 'https://vpn.example')]);
-  });
-
-  testWidgets('没有客户端地址时手动设置不退回 NAS 管理地址', (tester) async {
-    account.bindings = [_binding()];
-    (account.bindings.single['server'] as Map)['addresses'] = [
-      {'purpose': 'nas_api', 'base_url': 'https://nas-only.example'},
-    ];
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('连接设置'));
-    await tester.pumpAndSettle();
-    expect(account.activations, isEmpty);
-    expect(find.textContaining('暂无可手动选择的播放地址'), findsOneWidget);
-    expect(find.byType(TextFormField), findsNothing);
-    await tester.pump(const Duration(seconds: 2));
-  });
-
-  for (final scope in ['current', 'other-account', 'other-binding']) {
-    testWidgets('PC 连接设置只勾选本账号本来源 $scope', (tester) async {
-      DesktopEnvironment.debugOverridePlatform = true;
-      account.bindings = [_binding(multiple: true)];
-      (account.backendSession as _Backend).connection = MediaBackendConnection(
-        kind: MediaBackendKind.feiniu,
-        serverUrl: 'https://vpn.example/',
-        accountKey: scope == 'other-account' ? 'other' : account.accountKey,
-        bindingId: scope == 'other-binding' ? 'other' : 'source',
-        bindingRevision: 1,
-      );
-      await tester.pumpWidget(_app(account));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('来源设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('连接设置'));
-      await tester.pumpAndSettle();
-      final selected = tester
-          .widgetList<DesktopDropdownOptionRow>(
-            find.byType(DesktopDropdownOptionRow),
-          )
-          .where((row) => row.selected)
-          .toList();
-      expect(selected, hasLength(scope == 'current' ? 1 : 0));
-      if (selected.isNotEmpty) {
-        expect(selected.single.item.id, 'https://vpn.example');
-      }
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
-      expect(account.activations, isEmpty);
-      expect(find.byType(DesktopFloatingPanel), findsNothing);
-    });
-
-    testWidgets('连接设置仅标记当前账号与来源的地址 $scope', (tester) async {
-      account.bindings = [_binding(multiple: true)];
-      (account.backendSession as _Backend).connection = MediaBackendConnection(
-        kind: MediaBackendKind.feiniu,
-        serverUrl: 'https://vpn.example/',
-        accountKey: scope == 'other-account' ? 'other' : account.accountKey,
-        bindingId: scope == 'other-binding' ? 'other' : 'source',
-        bindingRevision: 1,
-      );
-      await tester.pumpWidget(_app(account));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('来源设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('连接设置'));
-      await tester.pumpAndSettle();
-      final selected = tester
-          .widgetList<AppOptionListTile>(find.byType(AppOptionListTile))
-          .where((tile) => tile.selected)
-          .toList();
-      expect(selected, hasLength(scope == 'current' ? 1 : 0));
-      if (selected.isNotEmpty) {
-        expect(selected.single.subtitle, 'https://vpn.example');
-      }
-    });
-  }
-
-  testWidgets('连接设置打开后绑定版本改变，旧选择不能激活', (tester) async {
-    account.bindings = [_binding(multiple: true)];
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('连接设置'));
-    await tester.pumpAndSettle();
-    account.bindings = [
-      {..._binding(multiple: true), 'revision': 2},
-    ];
-    account.notifyListeners();
-    await tester.pump();
-    await tester.tap(find.text('https://vpn.example'));
-    await tester.pumpAndSettle();
-    expect(account.activations, isEmpty);
-    expect(find.textContaining('账号或媒体来源已改变'), findsOneWidget);
-    await tester.pump(const Duration(seconds: 2));
-  });
-
-  testWidgets('来源菜单打开后账号退出，旧回调不能打开授权表单', (tester) async {
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    account.signedIn = false;
-    account.notifyListeners();
-    await tester.pump();
-    await tester.tap(find.text('重新授权'));
-    await tester.pumpAndSettle();
-    expect(find.text('绑定媒体账号'), findsNothing);
-    expect(find.text('媒体密码'), findsNothing);
-    expect(account.activations, isEmpty);
-  });
-
-  testWidgets('授权表单打开后绑定更新，提交不作用于新版本', (tester) async {
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('重新授权'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '媒体账号'),
-      'viewer',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '媒体密码'),
-      'example-password',
-    );
-    account.bindings = [
-      {..._binding(), 'revision': 2},
-    ];
-    account.notifyListeners();
-    await tester.pump();
-    await tester.tap(find.text('确定'));
-    await tester.pumpAndSettle();
-    expect(account.reauthorizations, 0);
-    expect(find.textContaining('账号或媒体来源已改变'), findsOneWidget);
-    await tester.pump(const Duration(seconds: 2));
-  });
-
-  testWidgets('移除来源使用原项目确认弹窗，取消保留来源', (tester) async {
-    await tester.pumpWidget(_app(account));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('移除媒体来源'));
-    await tester.pumpAndSettle();
-    expect(find.byType(Dialog), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(find.textContaining('已有播放历史保留'), findsOneWidget);
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-    expect(account.bindings, hasLength(1));
-  });
-
   testWidgets('已绑定来源说明复用原说明浮层', (tester) async {
     await tester.pumpWidget(_app(account));
     await tester.pumpAndSettle();
@@ -684,7 +240,7 @@ void main() {
     expect(find.text('1 个来源'), findsOneWidget);
     await tester.tap(find.byTooltip('媒体来源说明'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('连接设置'), findsWidgets);
+    expect(find.textContaining('后端网页的“连接”'), findsWidgets);
     expect(find.byType(TextFormField), findsNothing);
   });
 
@@ -710,8 +266,8 @@ void main() {
     await tester.pumpWidget(_app(account, pushed: true));
     await tester.tap(find.text('管理来源'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('进入媒体库'));
-    await tester.tap(find.text('进入媒体库'));
+    await tester.ensureVisible(activateButton());
+    await tester.tap(activateButton());
     await tester.pumpAndSettle();
 
     expect(account.activations, isEmpty);
@@ -911,9 +467,12 @@ void main() {
     });
   }
 
-  testWidgets('登录表单只在提交时登录并清除密码', (tester) async {
+  testWidgets('登录表单提交时锁定，失败后显示反馈并恢复输入', (tester) async {
     account.signedIn = false;
-    await tester.pumpWidget(_app(account));
+    account.pendingLogin = Completer<void>();
+    await tester.pumpWidget(
+      RepaintBoundary(key: _captureKey, child: _app(account)),
+    );
     await tester.pumpAndSettle();
     expect(account.logins, isEmpty);
     await tester.enterText(
@@ -928,9 +487,37 @@ void main() {
       find.widgetWithText(TextFormField, '密码'),
       'example-password',
     );
+    await tester.tap(find.byTooltip('显示密码'));
+    await tester.pump();
+    expect(find.byTooltip('隐藏密码'), findsOneWidget);
+    await tester.tap(find.byTooltip('隐藏密码'));
+    await tester.pump();
     await tester.ensureVisible(find.text('登录飞翔'));
     await tester.tap(find.text('登录飞翔'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<LoginSubmitButton>(find.byType(LoginSubmitButton))
+          .isSubmitting,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<LoginSubmitButton>(find.byType(LoginSubmitButton))
+          .onPressed,
+      isNull,
+    );
+    await _capture(tester, 'login-loading');
+    account.pendingLogin!.completeError(StateError('连接失败'));
     await tester.pumpAndSettle();
+    expect(find.text('测试连接失败，请重试。'), findsOneWidget);
+    expect(
+      tester
+          .widget<LoginSubmitButton>(find.byType(LoginSubmitButton))
+          .onPressed,
+      isNotNull,
+    );
+    await _capture(tester, 'login-failure');
 
     expect(account.logins, [
       ('https://fly.example', 'viewer', 'example-password', 'Fly Player'),
@@ -943,93 +530,6 @@ void main() {
       isEmpty,
     );
   });
-
-  testWidgets('绑定表单复用原浮层并显示必填提示，选填字段可留空', (tester) async {
-    Map<String, String>? submitted;
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh', 'CN'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () async {
-                submitted = await flyForm(
-                  context,
-                  '绑定媒体账号',
-                  {'username': '媒体账号', 'password': '媒体密码', 'label': '备注'},
-                  secretKeys: {'password'},
-                  optionalKeys: {'label'},
-                );
-              },
-              child: const Text('打开表单'),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('打开表单'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AppModalSurface), findsOneWidget);
-    await tester.tap(find.text('确定'));
-    await tester.pumpAndSettle();
-    expect(find.text('请填写媒体账号'), findsOneWidget);
-    expect(find.text('请填写媒体密码'), findsOneWidget);
-    expect(find.text('请填写备注'), findsNothing);
-    expect(submitted, isNull);
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '媒体账号'),
-      'viewer',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '媒体密码'),
-      'example-password',
-    );
-    await tester.tap(find.text('确定'));
-    await tester.pumpAndSettle();
-    expect(submitted, {
-      'username': 'viewer',
-      'password': 'example-password',
-      'label': '',
-    });
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final preset in [AppThemePreset.midnight, AppThemePreset.latte]) {
-    testWidgets('手机窄屏原组件布局与连接设置 ${preset.name}', (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(390, 844);
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      account.bindings = [_binding(multiple: true)];
-      await tester.pumpWidget(
-        RepaintBoundary(
-          key: _captureKey,
-          child: _app(account, preset: preset),
-        ),
-      );
-      await tester.pumpAndSettle();
-      if (_captureDirectory.isNotEmpty) {
-        await tester.runAsync(
-          () => precacheImage(
-            const AssetImage('lib/img/feiniu_Logo.png'),
-            tester.element(find.byType(FlyBindingsScreen)),
-          ),
-        );
-        await tester.pumpAndSettle();
-      }
-      expect(tester.takeException(), isNull);
-      await _capture(tester, 'account-${preset.name}');
-      await tester.tap(find.byTooltip('来源设置'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('连接设置'));
-      await tester.pumpAndSettle();
-      expect(find.byType(AppOptionSheetPanel), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await _capture(tester, 'connection-${preset.name}');
-    });
-  }
 
   for (final preset in [AppThemePreset.midnight, AppThemePreset.forest]) {
     testWidgets('安卓字幕参考同内容正常字号 ${preset.name}', (tester) async {
@@ -1090,32 +590,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
-
-  testWidgets('窄屏大字与键盘下表单可滚动且确认可见', (tester) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(360, 740);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetViewInsets);
-    await tester.pumpWidget(
-      RepaintBoundary(key: _captureKey, child: _app(account, textScale: 1.6)),
-    );
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    await tester.ensureVisible(find.byTooltip('来源设置'));
-    await tester.tap(find.byTooltip('来源设置'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('重新授权'));
-    await tester.pumpAndSettle();
-    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    expect(find.text('确定').hitTestable(), findsOneWidget);
-    await _capture(tester, 'form-large-text-keyboard');
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
 }
 
 Widget _app(
@@ -1130,6 +604,7 @@ Widget _app(
   value: account,
   child: MaterialApp(
     debugShowCheckedModeBanner: false,
+    scrollBehavior: const DesktopScrollBehavior(),
     theme: _captureDirectory.isEmpty
         ? AppThemeBuilder.build(preset)
         : AppThemeBuilder.build(preset).copyWith(
@@ -1208,40 +683,10 @@ class _Account extends FlyAccountController {
   String serverUrl = 'https://fly.example';
   final addressSwitches = <String>[];
   final activations = <(String, String?)>[];
+  Completer<void>? pendingLogin;
   final logins = <(String, String, String, String)>[];
   final loginInstanceIds = <String?>[];
   final loginRememberFlags = <bool>[];
-  int reauthorizations = 0;
-  Map<String, dynamic> localResponse = {'enabled': false, 'items': []};
-  final registeredKeys = <String>[];
-  final createdBindings = <Map<String, dynamic>>[];
-  Completer<Map<String, dynamic>>? pendingRegistration;
-  @override
-  Future<Map<String, dynamic>> loadLocalServices() async => localResponse;
-  @override
-  Future<Map<String, dynamic>> registerLocalService(
-    String key, {
-    required String expectedAccountKey,
-    required int expectedEpoch,
-  }) async {
-    registeredKeys.add(key);
-    return pendingRegistration?.future ?? {'id': 'registered-local'};
-  }
-
-  @override
-  Future<void> createBinding(Map<String, dynamic> data) async {
-    createdBindings.add(data);
-  }
-
-  @override
-  Future<void> reauthorize(
-    Map<String, dynamic> binding, {
-    required String username,
-    required String password,
-  }) async {
-    reauthorizations++;
-  }
-
   @override
   FlyDataSession? get session => signedIn
       ? FlyDataSession(
@@ -1288,6 +733,13 @@ class _Account extends FlyAccountController {
     logins.add((url, username, password, deviceName));
     loginInstanceIds.add(expectedInstanceId);
     loginRememberFlags.add(rememberPassword);
+    try {
+      await pendingLogin?.future;
+    } catch (_) {
+      message = '测试连接失败，请重试。';
+      notifyListeners();
+      rethrow;
+    }
   }
 }
 
