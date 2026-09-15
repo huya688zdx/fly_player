@@ -50,6 +50,7 @@ enum FlyNasDanmakuStatus {
   notFound,
   miss,
   stale,
+  needsReview,
   disabled,
   timeout,
   failed,
@@ -65,6 +66,7 @@ enum FlyNasDanmakuStatus {
     notFound => '当前单集不在此连接的 NAS 目录中，请核对连接并在后台同步目录。',
     miss => '当前连接的这一集尚未关联可用弹幕。请到后台对应单集资料页获取或复用已保存弹幕。',
     stale => '当前文件的弹幕需要更新或重新确认，请在后台该单集资料页处理后重试。',
+    needsReview => '飞翔后台未能自动确认这集的弹幕来源，需要核对匹配结果。',
     disabled => 'NAS 弹幕服务尚未启用，请在飞翔后台检查弹幕设置。',
     timeout => 'NAS 读取超时，可重新获取；也请检查飞翔服务的外网或 VPN 地址。',
     failed => '暂时无法读取 NAS 弹幕，请检查飞翔账号和服务连接后重试。',
@@ -156,8 +158,12 @@ class FlyNasDanmakuCache {
       if (!['queued', 'running'].contains(prepared['status']) ||
           (!downloading && (requestId is! String || requestId.isEmpty ||
               itemId is! String || itemId.isEmpty))) {
-        onStatus?.call(prepared['status'] == 'disabled'
-            ? FlyNasDanmakuStatus.disabled : FlyNasDanmakuStatus.stale);
+        onStatus?.call(switch (prepared['status']) {
+          'disabled' => FlyNasDanmakuStatus.disabled,
+          'needs_review' => FlyNasDanmakuStatus.needsReview,
+          'failed' => FlyNasDanmakuStatus.failed,
+          _ => FlyNasDanmakuStatus.stale,
+        });
         return false;
       }
       onStatus?.call(downloading ? FlyNasDanmakuStatus.downloading : FlyNasDanmakuStatus.searching);
@@ -194,8 +200,14 @@ class FlyNasDanmakuCache {
         final state = items.single['state'];
         if (state == 'ready') return true;
         if (!['pending', 'working', 'waiting'].contains(state)) {
-          onStatus?.call(FlyNasDanmakuStatus.stale);
+          onStatus?.call(state == 'needs_decision'
+              ? FlyNasDanmakuStatus.needsReview
+              : state == 'failed' ? FlyNasDanmakuStatus.failed
+              : FlyNasDanmakuStatus.stale);
           return false;
+        }
+        if (items.single['existing_job_kind'] == 'danmaku') {
+          onStatus?.call(FlyNasDanmakuStatus.downloading);
         }
       }
     } catch (error) {
