@@ -35,7 +35,7 @@ import 'fn_connect_web_login_page.dart';
 import 'login_history_screen.dart';
 import '../widgets/common/desktop_login_dialog.dart';
 import '../utils/app_confirm_dialog.dart';
-import 'package:fly_player/widgets/common/bird_loader.dart';
+import '../widgets/common/login_components.dart';
 
 /// 服务器族后端（Emby / Jellyfin…）共用的一套登录表单状态。
 ///
@@ -76,15 +76,6 @@ typedef FeiniuLoginCallback =
       required String password,
       required String accessCode,
     });
-
-const Color _connectionMistBlueDark = Color(0xFF567A98);
-const Color _connectionMistBlueLight = Color(0xFF456B86);
-
-Color _connectionMistBlue(BuildContext context) {
-  return Theme.of(context).brightness == Brightness.light
-      ? _connectionMistBlueLight
-      : _connectionMistBlueDark;
-}
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key, this.embyApi, this.feiniuLogin});
@@ -941,7 +932,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   SizedBox(
                     key: const Key('connectionWideBrandPane'),
                     width: 280,
-                    child: _LogoHeader(title: l10n.connectionAppName),
+                    child: LoginLogoHeader(title: l10n.connectionAppName),
                   ),
                   const SizedBox(width: 32),
                   SizedBox(
@@ -959,7 +950,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _LogoHeader(title: l10n.connectionAppName),
+                      LoginLogoHeader(title: l10n.connectionAppName),
                       const SizedBox(height: 18),
                       formColumn,
                     ],
@@ -1014,7 +1005,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _LoginFormPanel(
+        LoginFormPanel(
           key: const Key('connectionLoginFormPanel'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1120,7 +1111,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       ),
               ),
               const SizedBox(height: 9),
-              _SubmitButton(
+              LoginSubmitButton(
                 key: const Key('connectionSubmitButton'),
                 isSubmitting: _isSubmitting,
                 label: l10n.connectionLogin,
@@ -1195,7 +1186,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ? const Key('connectionPasswordField')
         : Key('password_${backend.name}');
     final fields = <Widget>[
-      _GlassField(
+      LoginField(
         controller: baseController,
         textFieldKey: serverKey,
         labelText: descriptor != null
@@ -1220,7 +1211,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ),
       ),
       const SizedBox(height: 12),
-      _GlassField(
+      LoginField(
         controller: userController,
         textFieldKey: userKey,
         labelText: l10n.connectionAccountLabel,
@@ -1230,7 +1221,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         autofillHints: const <String>[AutofillHints.username],
       ),
       const SizedBox(height: 12),
-      _GlassField(
+      LoginField(
         controller: passwordController,
         textFieldKey: passwordKey,
         labelText: l10n.connectionPasswordHint,
@@ -1263,7 +1254,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       fields
         ..add(const SizedBox(height: 12))
         ..add(
-          _GlassField(
+          LoginField(
             key: const Key('feiniuAccessCodeFieldContainer'),
             textFieldKey: const Key('feiniuAccessCodeField'),
             controller: _accessCodeController,
@@ -1414,7 +1405,7 @@ class _BackendSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final selectionColor = _connectionMistBlue(context);
+    final selectionColor = loginAccentColor(context);
     final animationDuration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
         : const Duration(milliseconds: 180);
@@ -1542,220 +1533,6 @@ class _BackendSelectorButton extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SubmitButton extends StatelessWidget {
-  const _SubmitButton({
-    super.key,
-    required this.isSubmitting,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final bool isSubmitting;
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final buttonColor = _connectionMistBlue(context);
-    final buttonForeground =
-        ThemeData.estimateBrightnessForColor(buttonColor) == Brightness.dark
-        ? Colors.white
-        : Colors.black;
-    return SizedBox(
-      height: 52,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: buttonColor,
-          foregroundColor: buttonForeground,
-          disabledBackgroundColor: buttonColor.withValues(alpha: 0.45),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          elevation: 0,
-          textStyle: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        child: isSubmitting
-            ? SizedBox(
-                width: 22,
-                height: 22,
-                child: BirdGlyph(size: 22, color: buttonForeground),
-              )
-            : Text(label),
-      ),
-    );
-  }
-}
-
-class _LogoHeader extends StatelessWidget {
-  final String title;
-
-  const _LogoHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Image.asset(
-          'lib/img/app_logo.png',
-          width: 44,
-          height: 44,
-          fit: BoxFit.contain,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                key: const Key('connectionBrandTitle'),
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                AppLocalizations.of(context).connectionTagline,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: colors.textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _LoginFormPanel extends StatelessWidget {
-  const _LoginFormPanel({super.key, required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.borderSubtle),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _GlassField extends StatelessWidget {
-  const _GlassField({
-    super.key,
-    required this.controller,
-    required this.hintText,
-    this.labelText,
-    this.leadingIcon,
-    this.keyboardType,
-    this.textInputAction,
-    this.autofillHints,
-    this.obscureText = false,
-    this.suffix,
-    this.onSubmitted,
-    this.textFieldKey,
-  });
-
-  final TextEditingController controller;
-  final String hintText;
-  final String? labelText;
-  final IconData? leadingIcon;
-  final TextInputType? keyboardType;
-  final TextInputAction? textInputAction;
-  final Iterable<String>? autofillHints;
-  final bool obscureText;
-  final Widget? suffix;
-  final ValueChanged<String>? onSubmitted;
-  final Key? textFieldKey;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final label = labelText?.trim() ?? '';
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: colors.surfaceSubtle,
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          if (leadingIcon != null) ...[
-            const SizedBox(width: 18),
-            Icon(leadingIcon, color: colors.textMuted, size: 21),
-            const SizedBox(width: 14),
-          ],
-          Expanded(
-            child: TextField(
-              key: textFieldKey,
-              controller: controller,
-              obscureText: obscureText,
-              keyboardType: keyboardType,
-              textInputAction: textInputAction,
-              autofillHints: autofillHints,
-              onSubmitted: onSubmitted,
-              style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-              decoration: InputDecoration(
-                labelText: label.isEmpty ? null : label,
-                hintText: hintText,
-                floatingLabelBehavior: FloatingLabelBehavior.always,
-                labelStyle: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-                hintStyle: TextStyle(
-                  color: colors.textMuted,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                suffixIcon: suffix,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
