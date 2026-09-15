@@ -24,7 +24,9 @@ void main() {
     await PlayStatsService.instance.database.bindOwnerScope('');
   });
 
-  testWidgets('来源策略融入原设置且选择仅 NAS 后立即保存', (tester) async {
+  testWidgets('外部设置切换弹幕来源优先顺序后立即保存', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await _flyBinding();
     DanmakuSettings? saved;
     await tester.pumpWidget(
@@ -42,9 +44,23 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final entry = find.text('仅 NAS');
+    expect(find.text('弹幕来源优先顺序'), findsOneWidget);
+    final dandan = find.text(DanmakuSourceStrategy.original.label);
+    await tester.ensureVisible(dandan);
+    await tester.pumpAndSettle();
+    await tester.tap(dandan);
+    await tester.pumpAndSettle();
+    expect(saved?.sourceStrategy, DanmakuSourceStrategy.original);
+    final fly = find.text('飞翔后端优先');
+    await tester.ensureVisible(fly);
+    await tester.pumpAndSettle();
+    await tester.tap(fly);
+    await tester.pumpAndSettle();
+    expect(saved?.sourceStrategy, DanmakuSourceStrategy.nasPreferred);
+    final entry = find.text('仅飞翔后端');
     expect(entry, findsOneWidget);
     await tester.ensureVisible(entry);
+    await tester.pumpAndSettle();
     await tester.tap(entry);
     await tester.pumpAndSettle();
     expect(saved?.sourceStrategy, DanmakuSourceStrategy.nasOnly);
@@ -54,8 +70,9 @@ void main() {
     );
     FlyDataService.instance.session = null;
     await tester.pumpAndSettle();
-    expect(find.text('仅 NAS'), findsNothing);
+    expect(find.text('仅飞翔后端'), findsNothing);
     expect(find.text(DanmakuSourceStrategy.nasOnly.description), findsNothing);
+    await tester.scrollUntilVisible(find.text('本地优先'), -160);
     expect(find.text('本地优先'), findsOneWidget);
   });
 
@@ -78,7 +95,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(FlyDataService.instance.session, isNotNull);
-      expect(find.text('仅 NAS'), findsNothing);
+      expect(find.text('仅飞翔后端'), findsNothing);
       expect(
         find.text(DanmakuSourceStrategy.nasOnly.description),
         findsNothing,
