@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../danmaku/api/dandanplay_api.dart';
 import '../danmaku/api/dandanplay_config.dart';
 import '../danmaku/api/dandanplay_resolver.dart';
+import '../danmaku/api/fly_danmaku_api.dart';
 import '../danmaku/cache/dandanplay_comment_cache_store.dart';
 import '../danmaku/parser/danmaku_import_parser.dart';
 import '../danmaku/models/dandanplay_episode_search_item.dart';
@@ -52,6 +53,12 @@ class NativeDanmakuPrefetch {
 
   @visibleForTesting
   static Future<bool> Function()? originalConfiguredOverrideForTest;
+
+  @visibleForTesting
+  static FlyDanmakuApi Function()? flyApiFactoryForTest;
+
+  @visibleForTesting
+  static DanDanPlayApi Function()? originalApiFactoryForTest;
 
   static bool _hasActiveFlyBinding({String? statsScope}) =>
       FlyPlaybackServiceClient.instance.hasActiveAccountBinding(
@@ -136,8 +143,7 @@ class NativeDanmakuPrefetch {
     }
   }
 
-  /// 按持久策略解析弹幕：手动导入文件优先；NAS 优先仅在缓存预算结束后
-  /// 回退原有来源，仅 NAS 不触碰弹弹play（包括旧 active 缓存），原有来源不查询 NAS。
+  /// 起播先读取已有本地/优先来源；飞翔后端未就绪时交给播放后阶段继续查找。
   /// 每次绑定播放捕获账号、会话及统计范围，失效后不交付迟到结果。
   /// [store] 仅供测试注入独立存储目录。
   static Future<String?> resolveToFile({
@@ -220,9 +226,7 @@ class NativeDanmakuPrefetch {
             );
           }
         }
-        if (sourceStrategy == DanmakuSourceStrategy.nasOnly) {
-          return null;
-        }
+        return null;
       }
       if (!current()) return null;
       final path = await _resolveOriginalToFile(
@@ -244,6 +248,88 @@ class NativeDanmakuPrefetch {
       return current() ? path : null;
     } catch (_) {
       // Danmaku is optional: settings, storage or network failure cannot stop playback.
+      return null;
+    }
+  }
+
+  /// 播放后继续飞翔查找；只有后端没有结果时，才按外部设置回退弹弹play。
+  /// 手动取源可允许关闭显示，获取本身不修改持久化开关。
+  static Future<String?> resolveOnPlaybackToFile({
+    required String seriesTitle,
+    String itemTitle = '',
+    required int seasonNumber,
+    required int episodeNumber,
+    required String tmdbId,
+    required DanmakuSettings settings,
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    String statsScope = '',
+    bool Function()? isCurrent,
+    bool allowDisabled = false,
+    FlyNasDanmakuCache? nasCache,
+    DanmakuSavedSourceStore? store,
+  }) async {
+    if ((!allowDisabled && !settings.enabled) ||
+        !_hasActiveFlyBinding(statsScope: statsScope)) {
+      return null;
+    }
+    final generation = ++_nasGeneration;
+    final service = FlyDataService.instance;
+    final session = service.session;
+    final epoch = service.scopeIdentity;
+    bool current() =>
+        generation == _nasGeneration &&
+        (isCurrent?.call() ?? true) &&
+        identical(session, service.session) &&
+        epoch == service.scopeIdentity &&
+        _hasActiveFlyBinding(statsScope: statsScope);
+    final cache =
+        nasCache ?? FlyNasDanmakuCache(budget: const Duration(seconds: 12));
+    try {
+      if (!current()) return null;
+      final ready = await cache.prepareOnPlayback(
+        statsScope: statsScope,
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        isCurrent: current,
+      );
+      if (!current()) return null;
+      if (ready) {
+        final result = await cache.resolve(
+          statsScope: statsScope,
+          itemGuid: itemGuid,
+          mediaGuid: mediaGuid,
+          isCurrent: current,
+        );
+        if (!current()) return null;
+        if (result != null) {
+          return writeNasPayloadToFile(
+            result: result,
+            settings: settings,
+            isCurrent: current,
+          );
+        }
+      }
+      if (settings.sourceStrategy != DanmakuSourceStrategy.nasPreferred ||
+          !current()) {
+        return null;
+      }
+      return await _resolveOriginalToFile(
+        seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        tmdbId: tmdbId,
+        settings: settings,
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        isCurrent: current,
+        store: store,
+        allowSavedOnlineSources: false,
+      );
+    } catch (_) {
       return null;
     }
   }
@@ -593,6 +679,137 @@ class NativeDanmakuPrefetch {
     required String keyword,
     int currentEpisodeNumber = 0,
     int seasonNumber = 0,
+    String statsScope = '',
+    String itemGuid = '',
+    String mediaGuid = '',
+    bool Function()? isCurrent,
+    bool forceFly = false,
+  }) async {
+    final service = FlyDataService.instance;
+    final session = service.session;
+    final epoch = service.scopeIdentity;
+    bool current() =>
+        (isCurrent?.call() ?? true) &&
+        identical(session, service.session) &&
+        epoch == service.scopeIdentity &&
+        (statsScope.isEmpty ||
+            statsScope == PlayStatsService.instance.currentScope);
+    try {
+      if (keyword.trim().isEmpty || !current()) return [];
+      final strategy = _effectiveSourceStrategy(
+        await const DanmakuSettingsStore().load(),
+      );
+      Future<List<Map<String, dynamic>>> fly() async {
+        final api =
+            flyApiFactoryForTest?.call() ??
+            FlyDanmakuApi.capture(
+              statsScope: statsScope,
+              itemGuid: itemGuid,
+              mediaGuid: mediaGuid,
+              isCurrent: current,
+            );
+        if (api == null) return [];
+        try {
+          return await api.search(keyword);
+        } catch (_) {
+          return [];
+        } finally {
+          api.close();
+        }
+      }
+
+      Future<List<Map<String, dynamic>>> original() =>
+          _searchOriginalCandidates(
+            keyword: keyword,
+            currentEpisodeNumber: currentEpisodeNumber,
+            seasonNumber: seasonNumber,
+          );
+      final first =
+          await (forceFly || strategy != DanmakuSourceStrategy.original
+              ? fly()
+              : original());
+      if (!current()) return [];
+      if (first.isNotEmpty ||
+          forceFly ||
+          strategy == DanmakuSourceStrategy.nasOnly) {
+        return first;
+      }
+      final second = await (strategy == DanmakuSourceStrategy.original
+          ? fly()
+          : original());
+      return current() ? second : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> expandFlyCandidate({
+    required Map<String, dynamic> candidate,
+    required String statsScope,
+    required String itemGuid,
+    required String mediaGuid,
+    bool Function()? isCurrent,
+  }) async {
+    final api = FlyDanmakuApi.capture(
+      statsScope: statsScope,
+      itemGuid: itemGuid,
+      mediaGuid: mediaGuid,
+      isCurrent: isCurrent ?? () => true,
+    );
+    if (api == null) return [];
+    try {
+      return await api.expand(candidate);
+    } catch (_) {
+      return [];
+    } finally {
+      api.close();
+    }
+  }
+
+  static Future<Map<String, dynamic>?> importFlyCandidateToFile({
+    required Map<String, dynamic> candidate,
+    required DanmakuSettings settings,
+    required String statsScope,
+    required String itemGuid,
+    required String mediaGuid,
+    bool Function()? isCurrent,
+  }) async {
+    final generation = ++_nasGeneration;
+    bool current() =>
+        generation == _nasGeneration && (isCurrent?.call() ?? true);
+    final api = FlyDanmakuApi.capture(
+      statsScope: statsScope,
+      itemGuid: itemGuid,
+      mediaGuid: mediaGuid,
+      isCurrent: current,
+    );
+    if (api == null) return null;
+    try {
+      final result = await api.importCandidate(candidate);
+      if (result == null || !result.isCurrent()) return null;
+      final path = await writeNasPayloadToFile(
+        result: result,
+        settings: settings,
+        isCurrent: current,
+      );
+      return path == null
+          ? null
+          : {
+              'danmakuFile': path,
+              'sourceKey': result.sourceKey,
+              'sourceLabel': result.sourceLabel,
+            };
+    } catch (_) {
+      return null;
+    } finally {
+      api.close();
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> _searchOriginalCandidates({
+    required String keyword,
+    int currentEpisodeNumber = 0,
+    int seasonNumber = 0,
   }) async {
     try {
       if (keyword.trim().isEmpty) return const <Map<String, dynamic>>[];
@@ -609,6 +826,8 @@ class NativeDanmakuPrefetch {
       return <Map<String, dynamic>>[
         for (final item in sortedItems)
           <String, dynamic>{
+            'source': 'dandanplay',
+            'kind': 'episode',
             'episodeId': item.episodeId,
             'animeTitle': item.animeTitle,
             'episodeTitle': item.episodeTitle,
@@ -890,10 +1109,11 @@ class NativeDanmakuPrefetch {
   }
 
   static DanDanPlayResolver _buildResolver() => DanDanPlayResolver(
-    DanDanPlayApi(
-      appId: DanDanPlayConfig.appId,
-      appSecrets: DanDanPlayConfig.appSecrets,
-    ),
+    originalApiFactoryForTest?.call() ??
+        DanDanPlayApi(
+          appId: DanDanPlayConfig.appId,
+          appSecrets: DanDanPlayConfig.appSecrets,
+        ),
   );
 
   /// 已存弹幕源的持久评论缓存：首次取到评论后按 sourceKey 把**评论**(compact)落盘，

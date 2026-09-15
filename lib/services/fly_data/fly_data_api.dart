@@ -20,12 +20,17 @@ Dio createStrictFlyDio() => Dio()
   );
 
 class FlyDataApi {
-  FlyDataApi(String serverUrl, {String? token, Dio? dio, this.maxResponseBytes})
-    : _dio = dio ?? createStrictFlyDio() {
+  FlyDataApi(
+    String serverUrl, {
+    String? token,
+    Dio? dio,
+    this.maxResponseBytes,
+    Duration receiveTimeout = const Duration(seconds: 60),
+  }) : _dio = dio ?? createStrictFlyDio() {
     _dio.options = BaseOptions(
       baseUrl: '${normalizeServerUrl(serverUrl)}/api/v1',
       connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 60),
+      receiveTimeout: receiveTimeout,
       sendTimeout: const Duration(seconds: 60),
       followRedirects: false,
       headers: {if (token != null) 'Authorization': 'Bearer $token'},
