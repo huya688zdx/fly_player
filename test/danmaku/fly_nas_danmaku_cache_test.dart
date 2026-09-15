@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/danmaku/models/danmaku_comment.dart';
 import 'package:fly_player/services/fly_data/fly_data_api.dart';
@@ -46,6 +47,61 @@ void main() {
     enabled: enabled,
     isCurrent: () => current,
   );
+
+  test('播放后台只提交一次精确版本任务，就绪后复用弹幕读取', () {
+    fakeAsync((clock) {
+      api.responses = [
+        {'status': 'queued', 'request_id': 'request'},
+        {'goal_status': 'working'},
+        {'goal_status': 'ready'},
+        _ready,
+        _payload,
+      ];
+      FlyNasDanmakuResult? result;
+      cache
+          .prepareOnPlayback(
+            statsScope: scope,
+            itemGuid: 'same/id',
+            mediaGuid: 'file-2',
+            isCurrent: () => current,
+          )
+          .then((ready) async {
+            if (ready) result = await resolve();
+          });
+      clock.flushMicrotasks();
+      expect(api.calls.single.$1, '/danmaku/ensure');
+      expect(api.calls.single.$2, {
+        'source_ref': {
+          'binding_id': 'binding',
+          'remote_item_id': 'same/id',
+          'remote_media_source_id': 'file-2',
+        },
+      });
+      expect(result, isNull);
+      clock.elapse(const Duration(seconds: 10));
+      clock.flushMicrotasks();
+      expect(result?.comments, hasLength(3));
+      expect(
+        api.calls.where((call) => call.$1 == '/danmaku/ensure'),
+        hasLength(1),
+      );
+    });
+  });
+
+  test('后台准备期间切账号不轮询或读取迟到成果', () async {
+    api.pending = Completer<Map<String, dynamic>>();
+    final preparing = cache.prepareOnPlayback(
+      statsScope: scope,
+      itemGuid: 'same/id',
+      mediaGuid: 'file-2',
+      isCurrent: () => current,
+    );
+    session = null;
+    api.pending!.complete({'status': 'queued', 'request_id': 'old-request'});
+    expect(await preparing, isFalse);
+    expect(api.calls, hasLength(1));
+    expect(api.closed, isTrue);
+  });
 
   test('关闭、无会话和错误范围不发请求', () async {
     expect(await resolve(enabled: false), isNull);
@@ -289,6 +345,12 @@ class _Api extends FlyDataApi {
   List<Map<String, dynamic>> responses = [_ready, _payload];
   Completer<Map<String, dynamic>>? pending, payloadPending;
   bool closed = false;
+  @override
+  Future<Map<String, dynamic>> post(String path, Object data) async {
+    calls.add((path, Map<String, dynamic>.from(data as Map)));
+    return pending?.future ?? Future.value(responses.removeAt(0));
+  }
+
   @override
   Future<Map<String, dynamic>> get(
     String path, {

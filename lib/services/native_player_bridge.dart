@@ -24,6 +24,7 @@ import 'fly_data/fly_data_service.dart';
 import 'fly_data/fly_oped_settings.dart';
 import 'fly_data/fly_bif_service.dart';
 import 'fly_data/fly_playback_activity.dart';
+import 'fly_data/fly_nas_danmaku_cache.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -266,7 +267,9 @@ class NativePlayerBridge {
             'flyVerifiedEnabled': enabled,
           };
         case 'loadNasDanmakuSource':
+        case 'prepareNasDanmakuSource':
           final args = (call.arguments as Map?) ?? const {};
+          final automatic = call.method == 'prepareNasDanmakuSource';
           final service = FlyDataService.instance;
           final session = service.session;
           final epoch = service.scopeIdentity;
@@ -275,10 +278,24 @@ class NativePlayerBridge {
               acceptsScope(args['statsScope']) &&
               flyAccountActive() &&
               identical(session, service.session) &&
-              epoch == service.scopeIdentity;
+              epoch == service.scopeIdentity &&
+              (!automatic ||
+                  (bifContext.isNotEmpty &&
+                      args['context_id'] == bifContext &&
+                      bifAccess?.isCurrent() == true));
           if (!current()) return {'status': 'unavailable'};
           final settings = await const DanmakuSettingsStore().load();
           if (!current()) return {'status': 'unavailable'};
+          if (automatic) {
+            if (!settings.enabled) return {'status': 'unavailable'};
+            final ready = await FlyNasDanmakuCache.instance.prepareOnPlayback(
+              statsScope: statsScope,
+              itemGuid: (args['itemGuid'] ?? '').toString(),
+              mediaGuid: (args['mediaGuid'] ?? '').toString(),
+              isCurrent: current,
+            );
+            if (!ready || !current()) return {'status': 'missing'};
+          }
           final path = await NativeDanmakuPrefetch.resolveNasToFile(
             seriesTitle: (args['seriesTitle'] ?? '').toString(),
             itemTitle: (args['itemTitle'] ?? '').toString(),
