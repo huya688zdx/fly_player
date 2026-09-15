@@ -79,47 +79,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('已登录账号从绑定页进入本地连接后返回来源且不叠加登录路由', (tester) async {
-    final account = _account();
-    addTearDown(() => _disposeAccount(account));
-    account.service.session = FlyDataSession(
-      serverUrl: 'https://fly.example.test',
-      userId: 'viewer',
-      username: 'viewer',
-      deviceId: 'device',
-      deviceName: 'test',
-      token: 'fly-fixture',
-      installationId: 'installation',
-      serviceInstanceId: 'instance',
-    );
-    final session = account.session;
-    await tester.pumpWidget(_host(account, home: const FlyBindingsScreen()));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('设置'));
-    await tester.tap(find.text('设置'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('媒体账号登录'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('媒体账号登录'));
-    await tester.pumpAndSettle();
-    expect(find.byType(ConnectionScreen), findsOneWidget);
-    final switcher = find.byKey(const Key('connectionSwitchToFlyAccount'));
-    await tester.ensureVisible(switcher);
-    await tester.tap(switcher);
-    await tester.pumpAndSettle();
-    expect(find.byType(ConnectionScreen), findsNothing);
-    expect(find.byType(FlyBindingsScreen), findsOneWidget);
-    expect(find.byType(FlyLoginScreen), findsNothing);
-    expect(account.session, same(session));
-    expect(account.legacyMode, isFalse);
-    expect(account.activeBindingId, isEmpty);
-    expect(
-      Navigator.of(tester.element(find.byType(FlyBindingsScreen))).canPop(),
-      isFalse,
-    );
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets('返回飞翔进行中禁用两类提交，失败保留本地页并显示说明', (tester) async {
     final account = _DelayedReturnAccount();
     addTearDown(() => _disposeAccount(account));

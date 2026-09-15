@@ -40,7 +40,6 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
   String? message;
   String activeBindingId = '';
   List<Map<String, dynamic>> bindings = [];
-  List<Map<String, dynamic>> servers = [];
   bool _disposed = false;
   Future<void>? _tail;
   Timer? _retry;
@@ -163,7 +162,6 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
       legacyMode = false;
       activeBindingId = '';
       bindings = [];
-      servers = [];
       await _clearActiveAccess();
       await _refresh();
       message = service.loginHistoryWarning;
@@ -179,7 +177,6 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         await service.logout();
       } finally {
         bindings = [];
-        servers = [];
         activeBindingId = '';
         legacyMode = false;
         try {
@@ -261,9 +258,6 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     bindings = next;
-    servers = ((await service.request('/servers'))['items'] as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('fly.bindings.$accountKey', jsonEncode(bindings));
     await prefs.setString('fly.active.$accountKey', activeBindingId);
@@ -274,93 +268,6 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     await _refresh();
     message = service.loginHistoryWarning;
   });
-  Future<void> createServer(Map<String, dynamic> data) => _run(() async {
-    await service.request('/servers', body: data);
-    await _refresh();
-  });
-  Future<void> createBinding(Map<String, dynamic> data) {
-    final key = accountKey, epoch = accountEpoch;
-    return _run(() async {
-      _requireCurrentFlyAccount(key, epoch);
-      await service.request('/bindings', body: data);
-      _requireCurrentFlyAccount(key, epoch);
-      await _refresh();
-    });
-  }
-
-  void _requireCurrentFlyAccount(String key, int epoch) {
-    if (!isCurrentFlyAccount(key, epoch)) {
-      throw StateError('账号或登录方式已改变，请重新操作。');
-    }
-  }
-
-  Future<Map<String, dynamic>> loadLocalServices() {
-    final key = accountKey, epoch = accountEpoch;
-    return _run(() async {
-      _requireCurrentFlyAccount(key, epoch);
-      Map<String, dynamic> result;
-      try {
-        result = await service.request('/local-services');
-      } catch (_) {
-        _requireCurrentFlyAccount(key, epoch);
-        // Older services may not expose this optional endpoint. Existing
-        // bindings and their cached access must remain usable.
-        throw StateError('暂时无法获取本机服务，请检查连接或升级服务端。');
-      }
-      _requireCurrentFlyAccount(key, epoch);
-      return result;
-    });
-  }
-
-  Future<Map<String, dynamic>> registerLocalService(
-    String key, {
-    required String expectedAccountKey,
-    required int expectedEpoch,
-  }) => _run(() async {
-    _requireCurrentFlyAccount(expectedAccountKey, expectedEpoch);
-    if (session?.role != 'admin') {
-      throw StateError('请管理员先启用此本机媒体服务。');
-    }
-    final result = await service.request(
-      '/local-services/register',
-      body: {'key': key},
-    );
-    _requireCurrentFlyAccount(expectedAccountKey, expectedEpoch);
-    if ((result['id'] as String? ?? '').isEmpty) {
-      throw StateError('本机服务登记结果不完整，请刷新后重试。');
-    }
-    return result;
-  });
-  Future<void> reauthorize(
-    Map<String, dynamic> binding, {
-    required String username,
-    required String password,
-  }) => _run(() async {
-    await service.request(
-      '/bindings/${binding['id']}/reauthorize',
-      body: {
-        'expected_revision': binding['revision'],
-        'username': username,
-        'password': password,
-      },
-    );
-    await _refresh();
-  });
-  Future<void> unbind(Map<String, dynamic> binding) => _run(() async {
-    await service.request(
-      '/bindings/${binding['id']}/unbind',
-      body: {'expected_revision': binding['revision']},
-    );
-    await _refresh();
-  });
-  Future<void> syncCatalog(Map<String, dynamic> binding) => _run(() async {
-    await service.request(
-      '/bindings/${binding['id']}/sync',
-      body: <String, dynamic>{},
-    );
-    message = '目录同步任务已排队，可稍后刷新查看。';
-  });
-
   Future<void> activate(
     Map<String, dynamic> binding, {
     String? address,

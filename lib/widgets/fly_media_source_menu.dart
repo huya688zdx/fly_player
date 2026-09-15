@@ -5,8 +5,6 @@ import 'package:provider/provider.dart';
 import '../desktop/desktop_environment.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../screens/fly_account_screen.dart';
-import '../screens/fly_catalog_screen.dart';
-import '../screens/play_stats_report_screen.dart';
 import '../services/fly_data/fly_account_controller.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
@@ -14,7 +12,7 @@ import '../ui/app_popup_theme.dart';
 import 'common/app_option_list.dart';
 import 'common/track_option_sheet.dart';
 
-enum _SourceAction { switchSource, account, catalog, stats }
+enum _SourceAction { switchSource, account }
 
 class _SourceChoice {
   const _SourceChoice(this.accountKey, this.action, [this.bindingId = '']);
@@ -34,16 +32,6 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
       _SourceAction.account,
       Icons.account_circle_outlined,
       AppLocalizations.of(context).flyAccountTitle,
-    ),
-    (
-      _SourceAction.catalog,
-      Icons.video_library_outlined,
-      AppLocalizations.of(context).flyCatalogSyncedTitles,
-    ),
-    (
-      _SourceAction.stats,
-      Icons.bar_chart_rounded,
-      AppLocalizations.of(context).flySourceWatchStatistics,
     ),
   ];
 
@@ -289,8 +277,6 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
     }
     final page = switch (choice.action) {
       _SourceAction.account => const FlyBindingsScreen(),
-      _SourceAction.catalog => const FlyCatalogScreen(),
-      _SourceAction.stats => const PlayStatsReportScreen(),
       _SourceAction.switchSource => throw StateError('Handled above'),
     };
     await Navigator.of(
