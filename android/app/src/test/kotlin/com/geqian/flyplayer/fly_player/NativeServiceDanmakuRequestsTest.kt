@@ -77,6 +77,9 @@ class NativeServiceDanmakuRequestsTest {
             assertNull(NativeServiceDanmakuPayload.fromReply(ready + ("status" to status)))
         }
         assertNull(NativeServiceDanmakuPayload.fromReply(ready + ("sourceKey" to "dandan:1")))
+        assertEquals("dandan:1", NativeServiceDanmakuPayload.fromReply(
+            ready + ("sourceKey" to "dandan:1"), allowOriginal = true)?.sourceKey)
+        assertNull(NativeServiceDanmakuPayload.fromReply(ready + ("sourceKey" to "local:file"), allowOriginal = true))
         assertNull(NativeServiceDanmakuPayload.fromReply(ready + ("danmakuFile" to "")))
         assertNull(NativeServiceDanmakuPayload.fromReply(null))
     }

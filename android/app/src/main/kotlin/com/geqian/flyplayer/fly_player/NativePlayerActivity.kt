@@ -8831,8 +8831,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         "sourceLabel" to "",
     )
 
-    // 在线弹幕搜索（DanDanPlay）状态
+    // 在线弹幕搜索（飞翔后端 / 弹弹play）状态。
     private var danmakuSearchKeyword = ""
+    private var danmakuSearchForceFly = false
     private var danmakuSearchResults: List<Map<String, Any?>> = emptyList()
 
     // AI 动态遮罩配置镜像（键同 DanmakuDynamicOcclusionConfig.fromMap）。
@@ -9070,7 +9071,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(panelCardGroup(TextView(this).apply {
             text = when {
                 sourceLabel.isNotEmpty() -> sourceLabel
-                sourceKey.startsWith("nas:") -> "服务弹幕"
+                sourceKey.startsWith("nas:") -> "飞翔后端弹幕"
                 sourceKey.startsWith("dandan:") -> "弹弹play"
                 sourceKey.isNotEmpty() -> sourceKey
                 else -> localizedString(R.string.player_text_0240)
@@ -9080,18 +9081,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }))
         if (flyOpedAccess.signedIn) {
-            addPanelRow(panelCardGroup(panelNavRow("服务弹幕",
-                if (sourceKey.startsWith("nas:")) "重新获取" else "获取") {
-                loadServiceDanmakuSource()
-            }))
+            addPanelRow(panelCardGroup(
+                panelNavRow("飞翔后端弹幕", if (sourceKey.startsWith("nas:")) "重新获取" else "获取") {
+                    loadServiceDanmakuSource()
+                },
+                panelNavRow("搜索飞翔后端弹幕", "选择作品与分集") { openDanmakuSearch(forceFly = true) },
+            ))
         }
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0241)))
         addPanelRow(panelCardGroup(
             panelNavRow(if (networkOffline) localizedString(R.string.player_text_0242) else localizedString(R.string.player_text_0243)) {
                 if (networkOffline) { showTransientHint(localizedString(R.string.player_text_0244)); return@panelNavRow }
-                danmakuSearchKeyword = ""
-                danmakuSearchResults = emptyList()
-                pushPanel(PanelPage(localizedString(R.string.player_text_0245)) { buildDanmakuSearchPage() })
+                openDanmakuSearch()
             },
             panelNavRow(localizedString(R.string.player_text_0246)) { pickLocalDanmakuFile() },
         ))
@@ -9252,6 +9253,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val fromEpTitle = extractEpisodeNumber(item["episodeTitle"]?.toString())
         if (fromEpTitle > 0) return fromEpTitle
         return extractEpisodeNumber(item["subtitle"]?.toString())
+    }
+
+    private fun openDanmakuSearch(forceFly: Boolean = false) {
+        invalidateServiceDanmakuRequest()
+        danmakuSearchForceFly = forceFly
+        danmakuSearchKeyword = ""
+        danmakuSearchResults = emptyList()
+        pushPanel(PanelPage(if (forceFly) "飞翔后端弹幕" else localizedString(R.string.player_text_0245)) { buildDanmakuSearchPage() })
     }
 
     private fun buildDanmakuSearchPage() {
@@ -9441,13 +9450,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun serviceDanmakuUnavailable(ticket: NativeServiceDanmakuRequests.Ticket,
-        message: String = "暂无服务弹幕") {
+        message: String = "暂无飞翔后端弹幕") {
         if (!serviceDanmakuRequestIsCurrent(ticket)) return
         invalidateServiceDanmakuRequest()
         showTransientHint(message)
     }
 
-    private fun loadServiceDanmakuSource() {
+    private fun loadServiceDanmakuSource(candidate: Map<String, Any?>? = null) {
         if (!flyOpedAccess.signedIn || activityDestroying || playbackParked) return
         val context = serviceDanmakuContext()
         val ticket = serviceDanmakuRequests.begin(context)
@@ -9455,43 +9464,46 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (!serviceDanmakuRequestIsCurrent(ticket)) return
         pendingDanmakuSource = null
         showCenterHint(localizedString(R.string.player_text_0254))
-        NativePlayerReverseBridge.dispatch("loadNasDanmakuSource",
-            context.mediaArgs + ("statsScope" to context.statsScope),
+        NativePlayerReverseBridge.dispatch(if (candidate == null) "loadNasDanmakuSource" else "loadFlyDanmakuCandidate",
+            context.mediaArgs + ("statsScope" to context.statsScope) +
+                (candidate?.let { mapOf("candidate" to it) } ?: emptyMap()),
             onResult = { result -> runOnUiThread {
                 if (!serviceDanmakuRequestIsCurrent(ticket)) return@runOnUiThread
                 val status = (result as? Map<*, *>)?.get("status")
                 if (status == "unavailable") {
-                    // A closed account gate is different from an empty cache.
-                    // Refreshing removes the service entry after logout.
+                    // 账号失效与没有匹配结果分开处理，退出登录后同步隐藏后端入口。
                     refreshFlyAccountState(force = true, onRefreshed = {
-                        serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
+                        serviceDanmakuUnavailable(ticket, "飞翔后端弹幕暂不可用")
                     })
                     return@runOnUiThread
                 }
                 val reply = NativeServiceDanmakuPayload.fromReply(result)
                 if (reply == null) {
-                    serviceDanmakuUnavailable(ticket,
-                        if (status == "missing") "暂无服务弹幕" else "服务弹幕暂不可用")
+                    serviceDanmakuUnavailable(ticket, "未取得飞翔后端弹幕，可搜索作品后选择分集")
+                    if (candidate == null) openDanmakuSearch(forceFly = true)
                     return@runOnUiThread
                 }
                 parseJsonFileAsync(reply.path) { payload ->
                     if (!serviceDanmakuRequestIsCurrent(ticket)) return@parseJsonFileAsync
                     if (payload == null || !reply.matches(payload)) {
-                        serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
+                        serviceDanmakuUnavailable(ticket, "飞翔后端弹幕暂不可用")
                         return@parseJsonFileAsync
                     }
-                    // A logout can occur while the file is being read, before the
-                    // periodic account refresh. Recheck the live Flutter account.
+                    // 读文件期间也可能退出登录，应用前再次核对 Flutter 当前账号。
                     refreshFlyAccountState(force = true, onRefreshed = { refreshed ->
                         if (serviceDanmakuRequestIsCurrent(ticket)) {
                             if (refreshed) {
                                 invalidateServiceDanmakuRequest()
                                 applyLoadedDanmakuPayload(payload)
-                            } else serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
+                            } else serviceDanmakuUnavailable(ticket, "飞翔后端弹幕暂不可用")
                         }
                     })
                 }
-            } }, onError = { runOnUiThread { serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用") } })
+            } }, onError = { runOnUiThread {
+                if (!serviceDanmakuRequestIsCurrent(ticket)) return@runOnUiThread
+                serviceDanmakuUnavailable(ticket, "飞翔后端弹幕暂不可用，可继续搜索来源")
+                if (candidate == null) openDanmakuSearch(forceFly = true)
+            } })
     }
 
     /** 已开始播放且没有弹幕时后台准备；手选来源会使现有票据失效。 */
@@ -9511,7 +9523,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             context.mediaArgs + mapOf("statsScope" to context.statsScope, "context_id" to flyBifContext),
             onResult = { result -> runOnUiThread {
                 if (!current()) return@runOnUiThread
-                val reply = NativeServiceDanmakuPayload.fromReply(result) ?: return@runOnUiThread
+                val reply = NativeServiceDanmakuPayload.fromReply(result, allowOriginal = true) ?: return@runOnUiThread
                 parseJsonFileAsync(reply.path) { payload ->
                     if (!current() || payload == null || !reply.matches(payload)) return@parseJsonFileAsync
                     refreshFlyAccountState(force = true, onRefreshed = { refreshed ->
@@ -9527,6 +9539,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 透传给 Flutter 的媒体身份（让 Flutter 用自己的 _buildMediaKey 算 mediaKey）。 */
     private fun danmakuMediaArgs(): Map<String, Any?> = mapOf(
+        "statsScope" to loadArgsMap["statsScope"]?.toString().orEmpty(),
+        "context_id" to flyBifContext,
         "itemGuid" to loadArgsMap["itemGuid"]?.toString().orEmpty(),
         "mediaGuid" to loadArgsMap["mediaGuid"]?.toString().orEmpty(),
         "seasonGuid" to loadArgsMap["seasonGuid"]?.toString().orEmpty(),
@@ -9535,6 +9549,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 不能用会回退到标题解析的 currentEpisodeNumber()，否则可能算出对不上的 key。
         "episodeNumber" to ((loadArgsMap["episodeNumber"] as? Number)?.toInt() ?: 0),
         "seriesTitle" to loadArgsMap["seriesTitle"]?.toString().orEmpty(),
+        "itemTitle" to loadArgsMap["title"]?.toString().orEmpty(),
+        "tmdbId" to loadArgsMap["tmdbId"]?.toString().orEmpty(),
     )
 
     /** 在线选集除了弹弹play条目，还要带上当前媒体身份，让 Flutter 保存为当前激活源。 */
@@ -9711,36 +9727,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }.getOrNull()
 
     private fun searchDanmaku(keyword: String) {
+        invalidateServiceDanmakuRequest()
+        val context = serviceDanmakuContext()
+        val ticket = if (context.signedIn) serviceDanmakuRequests.begin(context) else null
+        serviceDanmakuTicket = ticket
+        val generation = mediaLoadGeneration
+        fun current() = if (ticket != null) serviceDanmakuRequestIsCurrent(ticket) else
+            !activityDestroying && !playbackParked && generation == mediaLoadGeneration &&
+                context == serviceDanmakuContext() && danmakuSearchKeyword == keyword
         showCenterHint(localizedString(R.string.player_text_0267))
         NativePlayerReverseBridge.dispatch(
             method = "searchDanmakuSource",
-            args = mapOf(
+            args = context.mediaArgs + mapOf(
                 "keyword" to keyword,
+                "forceFly" to danmakuSearchForceFly,
                 // 季集号只用于本地排序和提示，不附加当前影片的搜索过滤条件。
                 "seasonNumber" to ((loadArgsMap["seasonNumber"] as? Number)?.toInt() ?: 0),
             ),
             onResult = { result ->
                 runOnUiThread {
+                    if (!current()) return@runOnUiThread
                     hideCenterHint()
-                    // 自动定位当前集：季度和集号都命中才排到最前。
+                    // 保留共享层的来源优先级，仅在同一来源内部将当前集排前。
                     val currentEp = currentEpisodeNumber()
-                    val parsed = parseDanmakuResults(result)
-                    danmakuSearchResults = if (currentEp > 0) {
-                        parsed.sortedByDescending {
-                            nativePanelDanmakuResultIsCurrent(
-                                resultEpisodeNumber = resultEpisodeNumber(it),
-                                currentEpisodeNumber = currentEp,
-                                matchesCurrentSeason = it["matchesCurrentSeason"] == true,
-                            )
-                        }
-                    } else {
-                        parsed
+                    danmakuSearchResults = parseDanmakuResults(result).groupBy { it["source"] }.values.flatMap { rows ->
+                        rows.sortedByDescending { nativePanelDanmakuResultIsCurrent(
+                            resultEpisodeNumber = resultEpisodeNumber(it), currentEpisodeNumber = currentEp,
+                            matchesCurrentSeason = it["matchesCurrentSeason"] == true,
+                        ) }
                     }
                     if (danmakuSearchResults.isEmpty()) showTransientHint(localizedString(R.string.player_text_0268))
                     if (panelVisible) renderTopPanel()
                 }
             },
-            onError = { runOnUiThread { hideCenterHint(); showTransientHint(localizedString(R.string.player_text_0269)) } },
+            onError = { runOnUiThread { if (current()) { hideCenterHint(); showTransientHint(localizedString(R.string.player_text_0269)) } } },
         )
     }
 
@@ -9750,10 +9770,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return raw.mapNotNull { it as? Map<String, Any?> }
     }
 
+    private fun expandFlyDanmakuResult(candidate: Map<String, Any?>) {
+        if (!flyOpedAccess.signedIn || activityDestroying || playbackParked) return
+        invalidateServiceDanmakuRequest()
+        val context = serviceDanmakuContext()
+        val ticket = serviceDanmakuRequests.begin(context)
+        serviceDanmakuTicket = ticket
+        showCenterHint("正在读取飞翔后端分集")
+        NativePlayerReverseBridge.dispatch("expandFlyDanmakuCandidate",
+            context.mediaArgs + ("candidate" to candidate),
+            onResult = { result -> runOnUiThread {
+                if (!serviceDanmakuRequestIsCurrent(ticket)) return@runOnUiThread
+                hideCenterHint()
+                val episodes = parseDanmakuResults(result)
+                if (episodes.isEmpty()) {
+                    showTransientHint("这个来源暂未返回分集，可尝试其他作品")
+                    return@runOnUiThread
+                }
+                pushPanel(PanelPage(candidate["title"]?.toString().orEmpty().ifEmpty { "飞翔后端分集" }) {
+                    addPanelRow(panelSectionHeader("选择分集 · 飞翔后端弹幕"))
+                    for (episode in episodes) addPanelRow(danmakuResultRow(episode))
+                })
+            } }, onError = { runOnUiThread {
+                serviceDanmakuUnavailable(ticket, "飞翔后端分集暂不可用，可尝试其他作品")
+            } })
+    }
+
     private fun danmakuResultRow(item: Map<String, Any?>): View {
         val title = item["title"]?.toString()?.takeIf { it.isNotEmpty() }
             ?: item["animeTitle"]?.toString().orEmpty()
-        val subtitle = item["subtitle"]?.toString().orEmpty()
+        val subtitle = listOf(
+            if (item["source"] == "fly") "飞翔后端" else "弹弹play",
+            item["subtitle"]?.toString().orEmpty(),
+            if (item["kind"] == "series") "查看分集" else "",
+        ).filter { it.isNotEmpty() }.joinToString(" · ")
         // 只有季度和集号都与正在播放的媒体一致，才标记「当前集」。
         val currentEp = currentEpisodeNumber()
         val isCurrent = nativePanelDanmakuResultIsCurrent(
@@ -9800,6 +9850,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun loadDanmakuFromResult(item: Map<String, Any?>) {
+        if (item["source"] == "fly") {
+            if (item["kind"] == "series") expandFlyDanmakuResult(item) else loadServiceDanmakuSource(item)
+            return
+        }
         invalidateServiceDanmakuRequest()
         val episodeId = (item["episodeId"] as? Number)?.toLong() ?: 0L
         if (episodeId <= 0L) {

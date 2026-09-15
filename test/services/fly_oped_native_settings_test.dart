@@ -36,6 +36,12 @@ void main() {
       expect((await send('getFlyAccountState'))['signedIn'], isFalse);
       expect(await send('loadNasDanmakuSource', {'statsScope': scope,
         'itemGuid': 'item', 'signedIn': true}), {'status': 'unavailable'});
+      expect(await send('expandFlyDanmakuCandidate', {'statsScope': scope,
+        'itemGuid': 'item', 'candidate': {'source': 'fly', 'kind': 'series'},
+        'signedIn': true}), isNull);
+      expect(await send('loadFlyDanmakuCandidate', {'statsScope': scope,
+        'itemGuid': 'item', 'candidate': {'source': 'fly', 'kind': 'episode'},
+        'signedIn': true}), isNull);
       expect(await send('persistFlyOpedSettings', {'enabled': false,
         'statsScope': scope, 'signedIn': true}), isFalse);
       expect(await FlyOpedSettings.load(), isTrue);

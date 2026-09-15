@@ -30,11 +30,13 @@ internal data class NativeServiceDanmakuPayload(val path: String, val sourceKey:
     fun matches(payload: Map<*, *>?): Boolean = payload?.get("sourceKey") == sourceKey
 
     companion object {
-        fun fromReply(raw: Any?): NativeServiceDanmakuPayload? {
+        fun fromReply(raw: Any?, allowOriginal: Boolean = false): NativeServiceDanmakuPayload? {
             val data = raw as? Map<*, *> ?: return null
             if (data["status"] != "ready") return null
             val path = (data["danmakuFile"] as? String)?.takeIf { it.isNotBlank() } ?: return null
-            val key = (data["sourceKey"] as? String)?.takeIf { it.startsWith("nas:") } ?: return null
+            val key = (data["sourceKey"] as? String)?.takeIf {
+                it.startsWith("nas:") || (allowOriginal && it.startsWith("dandan:"))
+            } ?: return null
             return NativeServiceDanmakuPayload(path, key)
         }
     }

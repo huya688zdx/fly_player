@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show Locale;
 
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../danmaku/models/danmaku_settings.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
 import '../playback/settings/mpv_settings_store.dart';
@@ -24,7 +25,6 @@ import 'fly_data/fly_data_service.dart';
 import 'fly_data/fly_oped_settings.dart';
 import 'fly_data/fly_bif_service.dart';
 import 'fly_data/fly_playback_activity.dart';
-import 'fly_data/fly_nas_danmaku_cache.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -249,8 +249,24 @@ class NativePlayerBridge {
 
     unawaited(_onUnbind?.call());
     String bifContext = '';
+    int danmakuRequestRevision = 0;
     FlyBifAccess? bifAccess;
     FlyPlaybackActivity? activity;
+    bool Function() captureDanmakuRequest(Map args, {bool requireFly = false}) {
+      final revision = ++danmakuRequestRevision;
+      final service = FlyDataService.instance;
+      final session = service.session;
+      final epoch = service.scopeIdentity;
+      final contextId = args['context_id'];
+      return () =>
+          revision == danmakuRequestRevision &&
+          identical(_activeBindToken, token) &&
+          acceptsScope(args['statsScope']) &&
+          (!requireFly || flyAccountActive()) &&
+          identical(session, service.session) &&
+          epoch == service.scopeIdentity &&
+          (contextId == null || contextId == '' || contextId == bifContext);
+    }
     _onUnbind = () async {
       bifContext = '';
       await activity?.stop();
@@ -270,15 +286,9 @@ class NativePlayerBridge {
         case 'prepareNasDanmakuSource':
           final args = (call.arguments as Map?) ?? const {};
           final automatic = call.method == 'prepareNasDanmakuSource';
-          final service = FlyDataService.instance;
-          final session = service.session;
-          final epoch = service.scopeIdentity;
+          final acceptsRequest = captureDanmakuRequest(args, requireFly: true);
           bool current() =>
-              identical(_activeBindToken, token) &&
-              acceptsScope(args['statsScope']) &&
-              flyAccountActive() &&
-              identical(session, service.session) &&
-              epoch == service.scopeIdentity &&
+              acceptsRequest() &&
               (!automatic ||
                   (bifContext.isNotEmpty &&
                       args['context_id'] == bifContext &&
@@ -286,17 +296,8 @@ class NativePlayerBridge {
           if (!current()) return {'status': 'unavailable'};
           final settings = await const DanmakuSettingsStore().load();
           if (!current()) return {'status': 'unavailable'};
-          if (automatic) {
-            if (!settings.enabled) return {'status': 'unavailable'};
-            final ready = await FlyNasDanmakuCache.instance.prepareOnPlayback(
-              statsScope: statsScope,
-              itemGuid: (args['itemGuid'] ?? '').toString(),
-              mediaGuid: (args['mediaGuid'] ?? '').toString(),
-              isCurrent: current,
-            );
-            if (!ready || !current()) return {'status': 'missing'};
-          }
-          final path = await NativeDanmakuPrefetch.resolveNasToFile(
+          if (automatic && !settings.enabled) return {'status': 'unavailable'};
+          final path = await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
             seriesTitle: (args['seriesTitle'] ?? '').toString(),
             itemTitle: (args['itemTitle'] ?? '').toString(),
             seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
@@ -306,7 +307,10 @@ class NativePlayerBridge {
             mediaGuid: (args['mediaGuid'] ?? '').toString(),
             seasonGuid: (args['seasonGuid'] ?? '').toString(),
             statsScope: statsScope,
-            settings: settings,
+            settings: automatic ? settings : settings.copyWith(
+              sourceStrategy: DanmakuSourceStrategy.nasOnly,
+            ),
+            allowDisabled: !automatic,
             isCurrent: current,
           );
           if (!current()) return {'status': 'unavailable'};
@@ -318,7 +322,9 @@ class NativePlayerBridge {
               'status': 'ready',
               'danmakuFile': path,
               'sourceKey': payload['sourceKey'],
-              'sourceLabel': payload['sourceLabel'] ?? '服务弹幕',
+              'sourceLabel': payload['sourceLabel'] ??
+                  (payload['sourceKey']?.toString().startsWith('dandan:') == true
+                      ? '弹弹play' : '飞翔后端弹幕'),
             };
           } catch (_) {
             return {'status': 'unavailable'};
@@ -592,13 +598,47 @@ class NativePlayerBridge {
           );
           return true;
         case 'searchDanmakuSource':
-          // 纯网络（DanDanPlay 检索），不依赖 State/context，直接处理。
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final current = captureDanmakuRequest(args);
+          if (!current()) return const [];
           return await NativeDanmakuPrefetch.searchCandidates(
             keyword: (args['keyword'] ?? '').toString(),
             seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
+            statsScope: statsScope,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            forceFly: args['forceFly'] == true,
+            isCurrent: current,
           );
+        case 'expandFlyDanmakuCandidate':
+        case 'loadFlyDanmakuCandidate':
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final current = captureDanmakuRequest(args, requireFly: true);
+          final raw = args['candidate'];
+          if (!current() || raw is! Map) return null;
+          final candidate = Map<String, dynamic>.from(raw);
+          if (call.method == 'expandFlyDanmakuCandidate') {
+            return await NativeDanmakuPrefetch.expandFlyCandidate(
+              candidate: candidate,
+              statsScope: statsScope,
+              itemGuid: (args['itemGuid'] ?? '').toString(),
+              mediaGuid: (args['mediaGuid'] ?? '').toString(),
+              isCurrent: current,
+            );
+          }
+          final settings = await const DanmakuSettingsStore().load();
+          if (!current()) return null;
+          final loaded = await NativeDanmakuPrefetch.importFlyCandidateToFile(
+            candidate: candidate,
+            settings: settings,
+            statsScope: statsScope,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            isCurrent: current,
+          );
+          return loaded == null || !current() ? null : {'status': 'ready', ...loaded};
         case 'loadDanmakuEpisode':
+          ++danmakuRequestRevision;
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final episodeId = (args['episodeId'] as num?)?.toInt() ?? 0;
           if (episodeId <= 0) return null;
@@ -617,6 +657,7 @@ class NativePlayerBridge {
             mediaItemTitle: (args['mediaItemTitle'] ?? '').toString(),
           );
         case 'importDanmakuFile':
+          ++danmakuRequestRevision;
           // 原生壳已用 SAF 选好弹幕文件并拷到可读路径，这里解析并落 payload 文件回传。
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final path = (args['path'] ?? '').toString().trim();
@@ -644,6 +685,7 @@ class NativePlayerBridge {
             seriesTitle: (args['seriesTitle'] ?? '').toString(),
           );
         case 'loadSavedDanmakuSource':
+          ++danmakuRequestRevision;
           // 用户在原生面板点选某条 Flutter 弹幕源 → 按 sourceKey 加载成 payload 回传。
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final sourceKey = (args['sourceKey'] ?? '').toString().trim();
