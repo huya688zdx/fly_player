@@ -9416,6 +9416,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private val serviceDanmakuRequests = NativeServiceDanmakuRequests()
     private var serviceDanmakuContextId = UUID.randomUUID().toString()
     private var serviceDanmakuTicket: NativeServiceDanmakuRequests.Ticket? = null
+    private var automaticDanmakuContextId = ""
 
     private fun serviceDanmakuContext() = NativeServiceDanmakuContext(
         signedIn = flyOpedAccess.signedIn,
@@ -9491,6 +9492,37 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     })
                 }
             } }, onError = { runOnUiThread { serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用") } })
+    }
+
+    /** 已开始播放且没有弹幕时后台准备；手选来源会使现有票据失效。 */
+    private fun prepareAutomaticServiceDanmaku() {
+        if (!danmakuEnabled || !flyOpedAccess.signedIn || activityDestroying || playbackParked ||
+            loadArgsMap["danmakuAutoSearchAllowed"] == false ||
+            flyBifContext.isEmpty() || serviceDanmakuTicket != null || pendingDanmakuSource != null ||
+            danmakuSettings["sourceKey"]?.toString().orEmpty().isNotEmpty() ||
+            automaticDanmakuContextId == serviceDanmakuContextId) return
+        val context = serviceDanmakuContext()
+        val ticket = serviceDanmakuRequests.begin(context)
+        if (!serviceDanmakuRequestIsCurrent(ticket)) return
+        automaticDanmakuContextId = serviceDanmakuContextId
+        fun current() = danmakuEnabled && serviceDanmakuRequestIsCurrent(ticket) &&
+            danmakuSettings["sourceKey"]?.toString().orEmpty().isEmpty()
+        NativePlayerReverseBridge.dispatch("prepareNasDanmakuSource",
+            context.mediaArgs + mapOf("statsScope" to context.statsScope, "context_id" to flyBifContext),
+            onResult = { result -> runOnUiThread {
+                if (!current()) return@runOnUiThread
+                val reply = NativeServiceDanmakuPayload.fromReply(result) ?: return@runOnUiThread
+                parseJsonFileAsync(reply.path) { payload ->
+                    if (!current() || payload == null || !reply.matches(payload)) return@parseJsonFileAsync
+                    refreshFlyAccountState(force = true, onRefreshed = { refreshed ->
+                        if (refreshed && current()) {
+                            captureDanmakuSettings(payload)
+                            applyPersistedDanmakuPrefs()
+                            playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(payload))
+                        }
+                    })
+                }
+            } }, onError = { /* 自动查找失败保留服务端记录，播放继续。 */ })
     }
 
     /** 透传给 Flutter 的媒体身份（让 Flutter 用自己的 _buildMediaKey 算 mediaKey）。 */
@@ -10948,6 +10980,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (durationSec <= 0L) return
         val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
         val paused = playbackParked || state.paused
+        if (!paused) prepareAutomaticServiceDanmaku()
         val bifContext = flyBifContext
         if (bifContext.isNotEmpty()) NativePlayerReverseBridge.dispatch("flyPlaybackActivity", mapOf(
             "context_id" to bifContext, "state" to if (paused) "paused" else "playing",

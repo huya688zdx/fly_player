@@ -35,6 +35,7 @@ import '../../services/fly_data/fly_data_service.dart';
 import '../../services/fly_data/fly_oped_settings.dart';
 import '../../services/fly_data/fly_bif_service.dart';
 import '../../services/fly_data/fly_playback_activity.dart';
+import '../../services/fly_data/fly_nas_danmaku_cache.dart';
 import '../../widgets/fly_assistant_panel.dart';
 import 'desktop_danmaku_overlay.dart';
 import 'desktop_mpv_runtime.dart';
@@ -158,6 +159,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   bool _directLinkRefreshPending = false;
   DateTime? _lastDirectLinkRefreshAttempt;
   int _sourceChangeGeneration = 0;
+  int _autoDanmakuGeneration = -1;
+  int _danmakuResolvedSourceGeneration = -1;
   final _flyClient = FlyPlaybackServiceClient.instance;
   Object? _observedFlyAccountIdentity;
   FlyBifAccess? _flyBifAccess;
@@ -813,9 +816,67 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       return false;
     } finally {
       if (mounted && generation == _danmakuLoadGeneration) {
+        _danmakuResolvedSourceGeneration = _sourceChangeGeneration;
         _updateView(() => _danmakuLoading = false);
+        _startAutomaticServiceDanmaku();
       }
     }
+  }
+
+  void _startAutomaticServiceDanmaku() {
+    if (!_isPlaying ||
+        !_danmakuSettings.enabled ||
+        _danmakuLoading ||
+        _danmakuComments.isNotEmpty ||
+        !_flyAccountSignedIn ||
+        _danmakuResolvedSourceGeneration != _sourceChangeGeneration ||
+        _autoDanmakuGeneration == _sourceChangeGeneration) {
+      return;
+    }
+    final access = _flyBifAccess;
+    if (access == null ||
+        !access.isCurrent() ||
+        !_source.danmakuAutoSearchAllowed ||
+        _source.externalLocalSource) {
+      return;
+    }
+    final source = _source;
+    _autoDanmakuGeneration = _sourceChangeGeneration;
+    final generation = _danmakuLoadGeneration;
+    bool current() =>
+        access.isCurrent() &&
+        generation == _danmakuLoadGeneration &&
+        _danmakuSettings.enabled &&
+        _danmakuComments.isEmpty;
+    unawaited(() async {
+      final ready = await FlyNasDanmakuCache.instance.prepareOnPlayback(
+        statsScope: source.statsScope,
+        itemGuid: source.itemGuid,
+        mediaGuid: source.mediaGuid,
+        isCurrent: current,
+      );
+      if (!ready || !current()) return;
+      final path = await NativeDanmakuPrefetch.resolveNasToFile(
+        statsScope: source.statsScope,
+        itemGuid: source.itemGuid,
+        mediaGuid: source.mediaGuid,
+        seasonGuid: source.seasonGuid,
+        seriesTitle: source.seriesTitle,
+        itemTitle: source.title,
+        seasonNumber: source.seasonNumber,
+        episodeNumber: source.episodeNumber,
+        tmdbId: source.tmdbId,
+        settings: _danmakuSettings,
+        isCurrent: current,
+      );
+      if (path == null || !current()) return;
+      // 后台成果不能覆盖这段时间内用户手动选择的来源。
+      await _loadDanmakuForSource(
+        path,
+        preserveOnFailure: true,
+        isCurrent: access.isCurrent,
+      );
+    }());
   }
 
   Future<bool> _refreshServiceDanmaku() async {
@@ -1770,6 +1831,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (playing) {
       _scheduleControlsHide();
       _scheduleProgressReport();
+      _startAutomaticServiceDanmaku();
     } else {
       _progressTimer?.cancel();
       _directLinkTimer?.cancel();

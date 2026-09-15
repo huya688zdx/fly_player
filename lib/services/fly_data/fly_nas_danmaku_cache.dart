@@ -68,8 +68,7 @@ enum FlyNasDanmakuStatus {
   };
 }
 
-/// Reads an already confirmed NAS cache. Never matches titles or schedules work.
-/// Every request captures the Fly session and the source's original binding.
+/// 缓存读取与播放后的后台准备共用当前账号和精确媒体绑定。
 class FlyNasDanmakuCache {
   FlyNasDanmakuCache({
     FlyDataSession? Function()? sessionReader,
@@ -107,6 +106,68 @@ class FlyNasDanmakuCache {
       (PlayStatsService.instance.database as SqflitePlayStatsDatabase)
           .bindingReference['binding_id'] ??
       '';
+
+  /// 由实际播放触发；服务端负责去重和判断是否首次查找。
+  /// 等待期间不占用起播预算，切账号、切文件或手选来源即停止取用结果。
+  Future<bool> prepareOnPlayback({
+    required String statsScope,
+    required String itemGuid,
+    String mediaGuid = '',
+    required bool Function() isCurrent,
+  }) async {
+    final session = _sessionReader();
+    if (session == null || statsScope.isEmpty || itemGuid.isEmpty) return false;
+    final binding = _bindingReader();
+    final epoch = _scopeEpochReader();
+    bool current() =>
+        isCurrent() &&
+        identical(session, _sessionReader()) &&
+        epoch == _scopeEpochReader() &&
+        binding.isNotEmpty &&
+        binding == _bindingReader() &&
+        statsScope == _scopeReader() &&
+        statsScope ==
+            PlayStatsService.scopeForBinding(session.accountKey, binding);
+    if (!current()) return false;
+    final api = _apiFactory(session.serverUrl, session.token);
+    try {
+      final prepared = await api
+          .post('/danmaku/ensure', {
+            'source_ref': {
+              'binding_id': binding,
+              'remote_item_id': itemGuid,
+              if (mediaGuid.isNotEmpty) 'remote_media_source_id': mediaGuid,
+            },
+          })
+          .timeout(const Duration(seconds: 4));
+      if (!current()) return false;
+      if (prepared['status'] == 'ready') return true;
+      final requestId = prepared['request_id'];
+      if (!['queued', 'running'].contains(prepared['status']) ||
+          requestId is! String ||
+          requestId.isEmpty) {
+        return false;
+      }
+      // 每五秒查询一次，最多六十次；播放器退出也不会取消服务端准备成果。
+      for (var attempt = 0; attempt < 60; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 5));
+        if (!current()) return false;
+        final request = await api
+            .get('/service-requests/${Uri.encodeComponent(requestId)}')
+            .timeout(const Duration(seconds: 4));
+        if (!current()) return false;
+        if (request['goal_status'] == 'ready') return true;
+        if (!['working', 'waiting'].contains(request['goal_status'])) {
+          return false;
+        }
+      }
+    } catch (_) {
+      // 网络、版本差异与服务故障不能打断正在播放的视频。
+    } finally {
+      api.close();
+    }
+    return false;
+  }
 
   Future<FlyNasDanmakuResult?> resolve({
     required String statsScope,
