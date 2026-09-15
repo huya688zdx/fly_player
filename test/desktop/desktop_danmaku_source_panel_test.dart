@@ -73,7 +73,7 @@ void main() {
       ),
     );
     expect(service.session, isNotNull);
-    expect(find.text('服务弹幕'), findsNothing);
+    expect(find.text('飞翔后端弹幕'), findsNothing);
     expect(find.text('重新获取'), findsNothing);
     expect(find.text('导入本地弹幕'), findsOneWidget);
     expect(find.text('在线搜索'), findsOneWidget);
@@ -86,7 +86,7 @@ void main() {
     database.bindingReference = {'binding_id': 'fixture-binding'};
     update(() {});
     await tester.pumpAndSettle();
-    expect(find.text('服务弹幕'), findsOneWidget);
+    expect(find.text('飞翔后端弹幕'), findsOneWidget);
     expect(find.text('重新获取'), findsOneWidget);
 
     await database.bindOwnerScope('legacy-feiniu');
@@ -94,7 +94,7 @@ void main() {
     update(() {});
     await tester.pumpAndSettle();
     expect(service.session, isNotNull);
-    expect(find.text('服务弹幕'), findsNothing);
+    expect(find.text('飞翔后端弹幕'), findsNothing);
     expect(find.text('已导入的本地文件'), findsOneWidget);
   });
 
@@ -113,7 +113,7 @@ void main() {
     await tester.tap(find.text('重新获取'));
     await tester.pumpAndSettle();
     expect(calls, 1);
-    expect(find.text('暂无服务弹幕，可在媒体资料中查找'), findsOneWidget);
+    expect(find.text('暂无可自动使用的弹幕，可点“查找来源”选择'), findsOneWidget);
     expect(find.text('已导入的本地文件'), findsOneWidget);
     expect(find.text('23 条'), findsOneWidget);
     await tester.tap(find.text('重新获取'));
@@ -150,20 +150,20 @@ void main() {
       });
       await tester.pump();
         if (change == 'account') {
-          expect(find.text('服务弹幕'), findsNothing);
+          expect(find.text('飞翔后端弹幕'), findsNothing);
           update(() => signedIn = true);
           await tester.pump();
         }
         first.complete(true);
         await tester.pumpAndSettle();
-        expect(find.text('已加载服务弹幕'), findsNothing);
+        expect(find.text('已加载飞翔后端弹幕'), findsNothing);
         await tester.tap(find.text('重新获取'));
       await tester.pump();
       expect(calls, 2);
         second.complete(false);
         await tester.pumpAndSettle();
-      expect(find.text('暂无服务弹幕，可在媒体资料中查找'), findsOneWidget);
-      expect(find.text('已加载服务弹幕'), findsNothing);
+      expect(find.text('暂无可自动使用的弹幕，可点“查找来源”选择'), findsOneWidget);
+      expect(find.text('已加载飞翔后端弹幕'), findsNothing);
       expect(find.text('已导入的本地文件'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
