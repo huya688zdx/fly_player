@@ -35,7 +35,6 @@ import '../../services/fly_data/fly_data_service.dart';
 import '../../services/fly_data/fly_oped_settings.dart';
 import '../../services/fly_data/fly_bif_service.dart';
 import '../../services/fly_data/fly_playback_activity.dart';
-import '../../services/fly_data/fly_nas_danmaku_cache.dart';
 import '../../widgets/fly_assistant_panel.dart';
 import 'desktop_danmaku_overlay.dart';
 import 'desktop_mpv_runtime.dart';
@@ -849,14 +848,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         _danmakuSettings.enabled &&
         _danmakuComments.isEmpty;
     unawaited(() async {
-      final ready = await FlyNasDanmakuCache.instance.prepareOnPlayback(
-        statsScope: source.statsScope,
-        itemGuid: source.itemGuid,
-        mediaGuid: source.mediaGuid,
-        isCurrent: current,
-      );
-      if (!ready || !current()) return;
-      final path = await NativeDanmakuPrefetch.resolveNasToFile(
+      final path = await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
         statsScope: source.statsScope,
         itemGuid: source.itemGuid,
         mediaGuid: source.mediaGuid,
@@ -896,7 +888,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     bool current() => sameContext() && generation == _danmakuLoadGeneration;
     _updateView(() => _danmakuLoading = true);
     try {
-      final path = await NativeDanmakuPrefetch.resolveNasToFile(
+      final path = await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
         statsScope: source.statsScope,
         isCurrent: current,
         seriesTitle: source.seriesTitle,
@@ -904,7 +896,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         seasonNumber: source.seasonNumber,
         episodeNumber: source.episodeNumber,
         tmdbId: source.tmdbId,
-        settings: _danmakuSettings,
+        settings: _danmakuSettings.copyWith(
+          sourceStrategy: DanmakuSourceStrategy.nasOnly,
+        ),
+        allowDisabled: true,
         itemGuid: source.itemGuid,
         mediaGuid: source.mediaGuid,
         seasonGuid: source.seasonGuid,
@@ -989,11 +984,37 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     );
   }
 
-  Future<List<Map<String, dynamic>>> _searchDanmakuSources(String keyword) {
+  Future<List<Map<String, dynamic>>> _searchDanmakuSources(
+    String keyword, {
+    bool forceFly = false,
+  }) {
+    final source = _source;
+    final generation = _sourceChangeGeneration;
     return NativeDanmakuPrefetch.searchCandidates(
       keyword: keyword,
       currentEpisodeNumber: _source.episodeNumber,
       seasonNumber: _source.seasonNumber,
+      statsScope: source.statsScope,
+      itemGuid: source.itemGuid,
+      mediaGuid: source.mediaGuid,
+      forceFly: forceFly,
+      isCurrent: () =>
+          _isCurrentSourceChange(generation) && identical(source, _source),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _expandFlyDanmakuCandidate(
+    Map<String, dynamic> candidate,
+  ) {
+    final source = _source;
+    final generation = _sourceChangeGeneration;
+    return NativeDanmakuPrefetch.expandFlyCandidate(
+      candidate: candidate,
+      statsScope: source.statsScope,
+      itemGuid: source.itemGuid,
+      mediaGuid: source.mediaGuid,
+      isCurrent: () =>
+          _isCurrentSourceChange(generation) && identical(source, _source),
     );
   }
 
@@ -1029,22 +1050,39 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     Map<String, dynamic> candidate,
   ) async {
     final generation = _sourceChangeGeneration;
+    final source = _source;
+    final loadGeneration = ++_danmakuLoadGeneration;
+    final epoch = _flyClient.epoch;
+    bool sameContext() =>
+        _isCurrentSourceChange(generation) &&
+        identical(source, _source) &&
+        epoch == _flyClient.epoch;
+    bool current() => sameContext() && loadGeneration == _danmakuLoadGeneration;
     final episodeId = (candidate['episodeId'] as num?)?.toInt() ?? 0;
-    if (episodeId <= 0) return false;
-    final result = await NativeDanmakuPrefetch.importEpisodeToFile(
-      episodeId: episodeId,
-      animeTitle: '${candidate['animeTitle'] ?? ''}',
-      episodeTitle: '${candidate['episodeTitle'] ?? ''}',
-      episodeNumber: (candidate['episodeNumber'] as num?)?.toInt() ?? 0,
-      itemGuid: _source.itemGuid,
-      mediaGuid: _source.mediaGuid,
-      seasonGuid: _source.seasonGuid,
-      seasonNumber: _source.seasonNumber,
-      currentEpisodeNumber: _source.episodeNumber,
-      seriesTitle: _source.seriesTitle,
-      mediaItemTitle: _source.title,
-    );
-    if (!_isCurrentSourceChange(generation)) return false;
+    if (candidate['source'] != 'fly' && episodeId <= 0) return false;
+    final result = candidate['source'] == 'fly'
+        ? await NativeDanmakuPrefetch.importFlyCandidateToFile(
+            candidate: candidate,
+            settings: _danmakuSettings,
+            statsScope: source.statsScope,
+            itemGuid: source.itemGuid,
+            mediaGuid: source.mediaGuid,
+            isCurrent: current,
+          )
+        : await NativeDanmakuPrefetch.importEpisodeToFile(
+            episodeId: episodeId,
+            animeTitle: '${candidate['animeTitle'] ?? ''}',
+            episodeTitle: '${candidate['episodeTitle'] ?? ''}',
+            episodeNumber: (candidate['episodeNumber'] as num?)?.toInt() ?? 0,
+            itemGuid: source.itemGuid,
+            mediaGuid: source.mediaGuid,
+            seasonGuid: source.seasonGuid,
+            seasonNumber: source.seasonNumber,
+            currentEpisodeNumber: source.episodeNumber,
+            seriesTitle: source.seriesTitle,
+            mediaItemTitle: source.title,
+          );
+    if (!current()) return false;
     final path = result?['danmakuFile']?.toString().trim() ?? '';
     if (path.isEmpty) {
       _showPlayerMessage('在线弹幕加载失败');
@@ -1054,8 +1092,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final animeTitle = '${candidate['animeTitle'] ?? ''}'.trim();
     final loaded = await _loadDanmakuForSource(
       path,
-      sourceLabel: episodeTitle.isNotEmpty ? episodeTitle : animeTitle,
+      sourceLabel: candidate['source'] == 'fly'
+          ? '${result?['sourceLabel'] ?? '飞翔后端弹幕'}'
+          : episodeTitle.isNotEmpty
+          ? episodeTitle
+          : animeTitle,
       enableOnSuccess: true,
+      preserveOnFailure: true,
+      isCurrent: sameContext,
     );
     if (loaded) _showPlayerMessage('已加载在线弹幕');
     return loaded;
@@ -3530,6 +3574,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         onRefreshServiceSource: _refreshServiceDanmaku,
         onLoadSavedSources: _loadSavedDanmakuSources,
         onSearch: _searchDanmakuSources,
+        onSearchFly: (keyword) => _searchDanmakuSources(keyword, forceFly: true),
+        onExpandSearchResult: _expandFlyDanmakuCandidate,
         onSelectSavedSource: _selectSavedDanmakuSource,
         onSelectSearchResult: _selectDanmakuSearchResult,
         onDeleteSavedSource: _deleteSavedDanmakuSource,

@@ -228,8 +228,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                     if (flyAccountSignedIn) ...[
                       const SizedBox(height: 18),
                       const _DanmakuSectionTitle(
-                        title: '弹幕来源',
-                        subtitle: '手动导入文件优先，网络来源按以下策略加载。',
+                        title: '弹幕来源优先顺序',
+                        subtitle: '自动获取与在线搜索使用同一顺序；手动导入文件优先。',
                       ),
                       const SizedBox(height: 10),
                       _DanmakuCard(
@@ -238,14 +238,15 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
+                              Column(
                                 children: [
                                   for (final strategy
                                       in DanmakuSourceStrategy.values)
-                                    Expanded(
+                                    SizedBox(
+                                      width: double.infinity,
                                       child: Padding(
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 3,
+                                          vertical: 3,
                                         ),
                                         child: _DanmakuChoiceButton(
                                           label: strategy.label,

@@ -687,6 +687,8 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
     this.onRefreshServiceSource,
     required this.onLoadSavedSources,
     required this.onSearch,
+    this.onSearchFly,
+    this.onExpandSearchResult,
     required this.onSelectSavedSource,
     required this.onSelectSearchResult,
     required this.onDeleteSavedSource,
@@ -705,6 +707,9 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final Future<bool> Function()? onRefreshServiceSource;
   final Future<List<Map<String, dynamic>>> Function() onLoadSavedSources;
   final Future<List<Map<String, dynamic>>> Function(String keyword) onSearch;
+  final Future<List<Map<String, dynamic>>> Function(String keyword)? onSearchFly;
+  final Future<List<Map<String, dynamic>>> Function(Map<String, dynamic> result)?
+      onExpandSearchResult;
   final Future<bool> Function(Map<String, dynamic> source) onSelectSavedSource;
   final Future<bool> Function(Map<String, dynamic> result) onSelectSearchResult;
   final Future<void> Function(Map<String, dynamic> source) onDeleteSavedSource;
@@ -723,6 +728,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
   );
   List<Map<String, dynamic>> _savedSources = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _searchResults = const <Map<String, dynamic>>[];
+  List<Map<String, dynamic>>? _parentResults;
   bool _loadingSources = true;
   bool _searching = false;
   bool _applying = false;
@@ -744,6 +750,9 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
       _serviceRefreshGeneration++;
       _refreshingService = false;
       _serviceStatus = '';
+      _searchResults = const [];
+      _parentResults = null;
+      _searching = false;
     }
   }
 
@@ -774,7 +783,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     }
     setState(() {
       _refreshingService = false;
-      _serviceStatus = applied ? '已加载服务弹幕' : '暂无服务弹幕，可在媒体资料中查找';
+      _serviceStatus = applied ? '已加载飞翔后端弹幕' : '暂无可自动使用的弹幕，可点“查找来源”选择';
     });
   }
 
@@ -794,14 +803,19 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     });
   }
 
-  Future<void> _search() async {
+  Future<void> _search({bool flyOnly = false}) async {
     final keyword = _searchController.text.trim();
     if (keyword.isEmpty || _searching) return;
     setState(() => _searching = true);
-    final results = await widget.onSearch(keyword);
-    if (!mounted) return;
+    final generation = _serviceRefreshGeneration;
+    final search = flyOnly
+        ? widget.onSearchFly ?? widget.onSearch
+        : widget.onSearch;
+    final results = await search(keyword);
+    if (!mounted || generation != _serviceRefreshGeneration) return;
     setState(() {
       _searchResults = results;
+      _parentResults = null;
       _searching = false;
     });
   }
@@ -827,6 +841,20 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
 
   Future<void> _applySearchResult(Map<String, dynamic> result) async {
     if (_applying || _refreshingService) return;
+    if (result['source'] == 'fly' && result['kind'] == 'series') {
+      final expand = widget.onExpandSearchResult;
+      if (expand == null || _searching) return;
+      final generation = _serviceRefreshGeneration;
+      setState(() => _searching = true);
+      final episodes = await expand(result);
+      if (!mounted || generation != _serviceRefreshGeneration) return;
+      setState(() {
+        _parentResults = _searchResults;
+        _searchResults = episodes;
+        _searching = false;
+      });
+      return;
+    }
     setState(() => _applying = true);
     final applied = await widget.onSelectSearchResult(result);
     if (!mounted) return;
@@ -903,14 +931,24 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                   if (widget.flyAccountSignedIn) ...<Widget>[
                     const SizedBox(height: 10),
                     _SettingsStatusCard(
-                      title: '服务弹幕',
+                      title: '飞翔后端弹幕',
                       value: _refreshingService
                           ? '正在获取'
                           : _serviceStatus.isEmpty
-                          ? '读取媒体服务中的弹幕'
+                          ? '通过飞翔后端查找并获取弹幕'
                           : _serviceStatus,
                       description: '',
                     ),
+                    if (widget.onSearchFly != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _searching || _applying || _refreshingService
+                              ? null
+                              : () => unawaited(_search(flyOnly: true)),
+                          child: const Text('查找来源'),
+                        ),
+                      ),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton.icon(
@@ -935,6 +973,14 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                   ),
                   const SizedBox(height: 18),
                   const _DanmakuSectionTitle('在线搜索'),
+                  if (widget.flyAccountSignedIn)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: Text(
+                        '优先顺序在应用设置 → 弹幕设置中调整。',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ),
                   const SizedBox(height: 8),
                   Material(
                     color: Colors.transparent,
@@ -984,16 +1030,29 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                         ),
                     ],
                   ),
+                  if (_parentResults != null)
+                    TextButton.icon(
+                      onPressed: _searching || _applying
+                          ? null
+                          : () => setState(() {
+                              _searchResults = _parentResults!;
+                              _parentResults = null;
+                            }),
+                      icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                      label: const Text('返回作品列表'),
+                    ),
                   if (_searchResults.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 10),
                     for (final result in _searchResults) ...<Widget>[
                       _DanmakuSourceTile(
-                        title: '${result['title'] ?? '弹弹play'}',
+                        title: '${result['title'] ?? '弹幕来源'}',
                         subtitle: '${result['subtitle'] ?? ''}',
-                        trailing: result['matchesCurrentEpisode'] == true
+                        trailing: result['kind'] == 'series'
+                            ? '选择分集'
+                            : result['matchesCurrentEpisode'] == true
                             ? '当前集'
                             : '',
-                        onTap: _applying
+                        onTap: _applying || _searching
                             ? null
                             : () => unawaited(_applySearchResult(result)),
                       ),
