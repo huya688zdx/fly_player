@@ -10,7 +10,6 @@ import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_sheet_controller.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../desktop/desktop_environment.dart';
-import '../desktop/playback/external_playback_controls.dart';
 import '../desktop/playback/external_playback_host.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
@@ -85,7 +84,6 @@ import '../widgets/detail/detail_hero_overlay.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
 import '../widgets/detail/detail_status_page.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
-import '../widgets/fly_assistant_panel.dart';
 import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_selector_row.dart';
 import '../widgets/detail/detail_resolution_section.dart';
@@ -1043,12 +1041,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                             : null,
                         onDownloadTap: _neutralDownloadUnavailable,
                       ),
-                      FlyAssistantAction(itemGuid: _currentItemGuid),
-                      if (DesktopEnvironment.isWindows)
-                        ExternalPlaybackControls(
-                          itemGuid: _currentItemGuid,
-                          onApplySelection: _startNeutralPlayback,
-                        ),
                       if (showVersionSelector)
                         DetailResolutionSection(
                           options: versionLabels,
@@ -2591,7 +2583,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           String? danmakuFile;
           if (danmakuSettings.enabled) {
             danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-              statsScope: source.statsScope,
               isCurrent: () => mounted && _currentItemGuid == source.itemGuid,
               seriesTitle: source.seriesTitle,
               itemTitle: source.title,
@@ -3684,12 +3675,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                     },
                                   ),
                                 ),
-                                FlyAssistantAction(itemGuid: _currentItemGuid),
-                                if (DesktopEnvironment.isWindows)
-                                  ExternalPlaybackControls(
-                                    itemGuid: _currentItemGuid,
-                                    onApplySelection: _openPlayer,
-                                  ),
                                 AnimatedBuilder(
                                   animation: _actionsPopController,
                                   builder: (context, child) {

@@ -27,7 +27,6 @@ import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/home_data_cache.dart';
-import '../services/fly_data/fly_account_controller.dart';
 import '../services/session_exit_bridge.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
@@ -69,7 +68,6 @@ import 'poster_browse/poster_browse_session_key.dart';
 import 'search_screen.dart';
 import '../widgets/app_atmospheric_background.dart';
 import '../widgets/common/bird_loader.dart';
-import '../widgets/fly_media_source_menu.dart';
 
 part 'media_list_screen_actions.dart';
 part 'media_list_screen_widgets.dart';

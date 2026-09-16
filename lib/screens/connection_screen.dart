@@ -15,7 +15,6 @@ import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/media_backend_connection_store.dart';
-import '../services/fly_data/fly_account_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common/app_ambient_page.dart';
 import '../ui/app_transitions.dart';
@@ -133,7 +132,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _isSubmitting = false;
   bool _showFeiniuAdvanced = false;
   String? _inlineError;
-  bool _switchingToFly = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
 
   @override
@@ -262,7 +260,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _submit() async {
-    if (_switchingToFly) return;
     if (_selectedBackend.isServerFamily) {
       await _verifyServerConnection(
         MediaBackendRegistry.requireDescriptor(_selectedBackend),
@@ -599,15 +596,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _openLoginHistory() async {
-    if (_switchingToFly) return;
     FocusScope.of(context).unfocus();
     // 进入历史页前先刷新一次，确保拿到最新（含其它后端）的登录历史。
     final latest = await LoginHistoryStore.load();
-    if (!mounted ||
-        _switchingToFly ||
-        ModalRoute.of(context)?.isCurrent != true) {
-      return;
-    }
+    if (!mounted) return;
     setState(() {
       _historyEntries = latest;
     });
@@ -619,11 +611,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
     // 历史页内可能删除/清空，回来时同步最新列表。
     final refreshed = await LoginHistoryStore.load();
-    if (!mounted ||
-        _switchingToFly ||
-        ModalRoute.of(context)?.isCurrent != true) {
-      return;
-    }
+    if (!mounted) return;
     setState(() {
       _historyEntries = refreshed;
     });
@@ -680,7 +668,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _resetFnConnectWebLoginState() async {
-    if (_isSubmitting || _switchingToFly) return;
+    if (_isSubmitting) return;
     final l10n = AppLocalizations.of(context);
     final confirmed = await showAppConfirmDialog(
       context,
@@ -690,12 +678,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       confirmText: l10n.fnConnectReloginConfirm,
       confirmColor: context.appColors.warning,
     );
-    if (!mounted ||
-        _switchingToFly ||
-        !confirmed ||
-        ModalRoute.of(context)?.isCurrent != true) {
-      return;
-    }
+    if (!mounted || !confirmed) return;
     setState(() {
       _isSubmitting = true;
     });
@@ -726,7 +709,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _openDownloadedData() async {
-    if (_switchingToFly) return;
     await Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
         const DownloadListScreen(offline: true),
@@ -874,50 +856,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  Future<void> _returnToFlyAccount(FlyAccountController account) async {
-    if (_switchingToFly || _isSubmitting || account.busy) return;
-    setState(() => _switchingToFly = true);
-    FocusScope.of(context).unfocus();
-    // Capture the current route before the provider gate can rebuild this page.
-    final navigator = Navigator.of(context);
-    final route = ModalRoute.of(context);
-    try {
-      await account.returnToFlyMode();
-      if (!mounted) return;
-      if (route?.isCurrent == true && route?.isFirst == false) {
-        navigator.popUntil((route) => route.isFirst);
-      }
-      // Keep navigation blocked until the gate replaces this page or its exit
-      // animation disposes it; mounted/isCurrent may still be true this frame.
-    } catch (_) {
-      if (mounted) {
-        setState(() => _switchingToFly = false);
-        _showValidationError(account.message ?? '切换未完成，请稍后重试。');
-      }
-    }
-  }
-
-  Widget _buildFlyAccountEntry() {
-    final account = context.watch<FlyAccountController?>();
-    if (account == null || !account.legacyMode) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          OutlinedButton.icon(
-            key: const Key('connectionSwitchToFlyAccount'),
-            onPressed: _isSubmitting || _switchingToFly || account.busy
-                ? null
-                : () => _returnToFlyAccount(account),
-            icon: const Icon(Icons.manage_accounts_outlined, size: 20),
-            label: const Text('切换到飞翔账号'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildResponsiveConnectionBody(
     BuildContext context,
     ThemeData theme,
@@ -930,7 +868,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         final formColumn = Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [_buildFlyAccountEntry(), _buildForm(theme, l10n)],
+          children: [_buildForm(theme, l10n)],
         );
 
         final content = isWide
@@ -1124,7 +1062,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 key: const Key('connectionSubmitButton'),
                 isSubmitting: _isSubmitting,
                 label: l10n.connectionLogin,
-                onPressed: _isSubmitting || _switchingToFly ? null : _submit,
+                onPressed: _isSubmitting ? null : _submit,
               ),
             ],
           ),
@@ -1210,7 +1148,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         autofillHints: const <String>[AutofillHints.url],
         suffix: IconButton(
           tooltip: l10n.connectionLoginHistory,
-          onPressed: _switchingToFly ? null : _openLoginHistory,
+          onPressed: _openLoginHistory,
           icon: Icon(
             Icons.history_rounded,
             color: _historyEntries.isEmpty
@@ -1308,14 +1246,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         runSpacing: 2,
         children: [
           TextButton(
-            onPressed: _switchingToFly ? null : _openDownloadedData,
+            onPressed: _openDownloadedData,
             style: _footerButtonStyle(theme, foregroundColor: colors.textMuted),
             child: Text(l10n.connectionOpenDownloads),
           ),
           TextButton(
-            onPressed: _isSubmitting || _switchingToFly
-                ? null
-                : _resetFnConnectWebLoginState,
+            onPressed: _isSubmitting ? null : _resetFnConnectWebLoginState,
             style: _footerButtonStyle(
               theme,
               foregroundColor: colors.textMuted,

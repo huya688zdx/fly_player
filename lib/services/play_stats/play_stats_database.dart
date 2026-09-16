@@ -1,7 +1,7 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
-import 'fly_sync_identity.dart';
+import 'play_stats_record_id.dart';
 
 /// 定义播放统计数据库访问层的统一接口。
 abstract class PlayStatsDatabase {
@@ -51,6 +51,7 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   /// reset the installation's existing write context.
   final bool createWriteEpoch;
   static const String databaseName = 'play_stats.db';
+  // 保留既有本地数据库版本与迁移，避免切换普通版时降级或丢失历史。
   static const int databaseVersion = 4;
 
   Database? _database;
@@ -58,7 +59,6 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   final FutureOpenGate<Database> _openGate = FutureOpenGate<Database>();
 
   String get ownerScope => _ownerScope;
-  Map<String, String> bindingReference = const {};
   int _scopeGeneration = 0;
   int get scopeGeneration => _scopeGeneration;
   Future<bool> get exists async => databaseExists(
@@ -81,7 +81,6 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
     final existing = _database;
     _database = null;
     _ownerScope = normalized;
-    bindingReference = const {};
     _scopeGeneration++;
     if (existing != null && existing.isOpen) {
       await existing.close();
@@ -126,7 +125,7 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
       // write epoch, independently of any copied credentials.
       if (createWriteEpoch) {
         await database.transaction((txn) async {
-          final epoch = newFlySyncId();
+          final epoch = newPlayStatsRecordId();
           await txn.insert('fly_datasets', {
             'id': epoch,
             'label': 'Fly 本机新记录',
@@ -236,7 +235,7 @@ WHERE COALESCE(country_codes_json, '') = ''
       for (final statement in _schemaStatementsV4) {
         await db.execute(statement);
       }
-      final legacyDataset = newFlySyncId();
+      final legacyDataset = newPlayStatsRecordId();
       await db.insert('fly_datasets', {
         'id': legacyDataset,
         'label': '升级前历史（需要关联或确认未导入）',

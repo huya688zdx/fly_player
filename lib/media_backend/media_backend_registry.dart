@@ -3,8 +3,6 @@ import '../api/feiniu_api.dart';
 import '../api/jellyfin_api.dart';
 import '../providers/nas_provider.dart';
 import '../services/play_stats/play_stats_metadata_gateway.dart';
-import '../services/play_stats/play_stats_service.dart';
-import '../services/play_stats/play_stats_database.dart';
 import 'feiniu/feiniu_media_backend.dart';
 import 'feiniu/feiniu_play_stats_gateway.dart';
 import 'emby/emby_media_backend.dart';
@@ -111,9 +109,6 @@ class MediaBackendRegistry {
   static PlayStatsMetadataGateway? createPlayStatsMetadataGateway(
     NasProvider nas,
   ) {
-    final ref = (PlayStatsService.instance.database as SqflitePlayStatsDatabase)
-        .bindingReference;
-    if (ref.isNotEmpty && ref['backend_kind'] != 'feiniu') return null;
     if (!nas.isConfigured) {
       return null;
     }
