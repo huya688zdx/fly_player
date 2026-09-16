@@ -731,8 +731,7 @@ class EmbyMediaBackend implements MediaBackend {
     MediaPlaybackRequest request,
   ) async {
     // 直链直播（static direct-stream）：一次取数（条目 + MediaSources）即得全部播放事实，
-    // 中立 bundle 自足、桥接器纯本地装配 MpvMediaSource（见
-    // docs/superpowers/specs/2026-06-25-emby-playback-design.md）。
+    // 中立 bundle 自足、桥接器纯本地装配 MpvMediaSource。
     final item = await api.getItem(
       serverUrl: _serverUrl,
       userId: _userId,

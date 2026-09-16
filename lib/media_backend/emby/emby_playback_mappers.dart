@@ -7,8 +7,7 @@ import '../playback/media_playback.dart';
 /// `EmbyMediaBackend.getPlayback` 装配 [MediaPlaybackBundle]。
 ///
 /// 投递方式固定 [MediaPlaybackDeliveryKind.directLink]：static 直链原文件，mpv 直接吃原始
-/// 容器、所有内嵌音轨/字幕在 mpv 侧按轨道号切换，无服务端转码会话（见
-/// `docs/superpowers/specs/2026-06-25-emby-playback-design.md` §2）。
+/// 容器、所有内嵌音轨/字幕在 mpv 侧按轨道号切换，无服务端转码会话。
 
 /// 选中 `MediaSource` → 中立播放源。视频属性取首条 video `MediaStream`；[url] 为已拼好的
 /// 直链（[EmbyApi.buildStreamUrl]）或转码 HLS（[EmbyApi.buildHlsStreamUrl]，此时 [delivery]

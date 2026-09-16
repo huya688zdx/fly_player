@@ -4,8 +4,7 @@ package com.geqian.flyplayer.fly_player.mpv
  * JNI binding to libmnnseg.so (MNN Interpreter wrapper).
  *
  * Backends (wire value): 0 = CPU, 3 = OpenCL, 7 = Vulkan. Use Vulkan by default
- * — it is the only backend stable on both Adreno and Mali (see
- * docs/danmaku-occlusion-rework-plan.md Phase 0 benchmark).
+ * — 早期 Adreno 和 Mali 设备验证采用此后端。
  *
  * One handle can run the (fully-convolutional) model at multiple input sizes;
  * [nativeRun] takes the desired square size N.
