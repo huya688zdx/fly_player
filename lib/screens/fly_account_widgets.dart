@@ -51,9 +51,10 @@ class _FlyAccountPage extends StatelessWidget {
 }
 
 class _FlyLoginPage extends StatelessWidget {
-  const _FlyLoginPage({required this.child});
+  const _FlyLoginPage({required this.child, required this.onEditDeviceName});
 
   final Widget child;
+  final VoidCallback? onEditDeviceName;
 
   Widget _form(BuildContext context) {
     final colors = context.appColors;
@@ -61,14 +62,29 @@ class _FlyLoginPage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          AppLocalizations.of(context).flyAccountLoginTitle,
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: 24,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.4,
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                AppLocalizations.of(context).flyAccountLoginTitle,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: AppLocalizations.of(context).flyAccountCurrentDeviceName,
+              onPressed: onEditDeviceName,
+              icon: Icon(
+                Icons.settings_outlined,
+                size: 20,
+                color: colors.textMuted,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 28),
         child,

@@ -350,6 +350,38 @@ void main() {
     updatedAtMillis: 2,
   );
 
+  testWidgets('设备名称从标题设置入口修改并用于本次登录', (tester) async {
+    await tester.runAsync(() => FlyLoginHistoryStore.save(savedLogin));
+    account.signedIn = false;
+    await tester.pumpWidget(
+      RepaintBoundary(key: _captureKey, child: _app(account)),
+    );
+    await settleHistory(tester);
+    expect(find.byType(ExpansionTile), findsNothing);
+    expect(find.widgetWithText(TextFormField, '当前设备名称'), findsNothing);
+    await tester.tap(find.byTooltip('当前设备名称'));
+    await tester.pumpAndSettle();
+    final field = find.widgetWithText(TextFormField, '当前设备名称');
+    expect(
+      tester.widget<TextFormField>(field).initialValue,
+      savedLogin.deviceName,
+    );
+    await tester.enterText(field, '');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(field, findsOneWidget);
+    await tester.enterText(field, '客厅电脑');
+    await _capture(tester, 'login-device-settings');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(field, findsNothing);
+    await tester.ensureVisible(find.text('登录飞翔'));
+    await tester.tap(find.text('登录飞翔'));
+    await settleHistory(tester);
+    expect(account.logins.single.$4, '客厅电脑');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('登录页重新创建后回填最近账号，提交才登录并核对服务身份', (tester) async {
     await tester.runAsync(() => FlyLoginHistoryStore.save(savedLogin));
     account.signedIn = false;

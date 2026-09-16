@@ -345,6 +345,59 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     }
   }
 
+  Future<void> _editDeviceName(FlyAccountController account) async {
+    if (!_canUseForm(account) || _historyBusy) return;
+    _formRevision++;
+    final form = GlobalKey<FormState>();
+    final l10n = AppLocalizations.of(context);
+    var name = device.text;
+    final value = await _showFlyDesktopPanel<String>(
+      context,
+      title: l10n.flyAccountCurrentDeviceName,
+      builder: (context) {
+        void save() {
+          if (form.currentState!.validate()) {
+            AppSheetTransitions.close(context, name.trim());
+          }
+        }
+
+        return _FlyDesktopPanel(
+          title: l10n.flyAccountCurrentDeviceName,
+          child: SingleChildScrollView(
+            child: Form(
+              key: form,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextFormField(
+                    initialValue: name,
+                    autofocus: true,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: l10n.flyAccountCurrentDeviceName,
+                    ),
+                    onChanged: (value) => name = value,
+                    onFieldSubmitted: (_) => save(),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? l10n.flyAccountFieldRequired(
+                            l10n.flyAccountCurrentDeviceName,
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton(onPressed: save, child: Text(l10n.commonSave)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (value != null && _canUseForm(account)) device.text = value;
+  }
+
   Widget _loginField(
     TextEditingController controller,
     String label, {
@@ -422,6 +475,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     final account = context.watch<FlyAccountController>();
     final blocked = account.busy || _historyBusy || _submitting || _leaving;
     return _FlyLoginPage(
+      onEditDeviceName: blocked ? null : () => _editDeviceName(account),
       child: Form(
         key: _form,
         child: Column(
@@ -500,31 +554,6 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                   onPressed: blocked ? null : () => _openHistory(account),
                   icon: const Icon(Icons.history_rounded, size: 18),
                   label: Text(AppLocalizations.of(context).flyAccountHistory),
-                ),
-              ],
-            ),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: EdgeInsets.zero,
-              dense: true,
-              shape: const Border(),
-              collapsedShape: const Border(),
-              iconColor: context.appColors.textMuted,
-              collapsedIconColor: context.appColors.textMuted,
-              title: Text(
-                AppLocalizations.of(
-                  context,
-                ).flyAccountDeviceNameSummary(device.text),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: context.appColors.textMuted,
-                ),
-              ),
-              children: [
-                _loginField(
-                  device,
-                  AppLocalizations.of(context).flyAccountCurrentDeviceName,
-                  enabled: !blocked,
                 ),
               ],
             ),
