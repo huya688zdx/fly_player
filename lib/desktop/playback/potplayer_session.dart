@@ -6,8 +6,12 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import 'external_player_adapter.dart';
+
 /// 跟踪本次启动的进程；列表内切集先交接媒体身份，再接受新影片的真实采样。
-class PotPlayerSession with WidgetsBindingObserver {
+class PotPlayerSession
+    with WidgetsBindingObserver
+    implements ExternalPlayerSession {
   PotPlayerSession({
     required this.pid,
     required this.mediaUrl,
@@ -20,6 +24,7 @@ class PotPlayerSession with WidgetsBindingObserver {
 
   static const channel = MethodChannel('fly_player/potplayer');
   final int pid;
+  @override
   String mediaUrl;
   final bool Function() isCurrentSession;
   final void Function(Duration position, Duration duration, bool paused)
@@ -39,7 +44,14 @@ class PotPlayerSession with WidgetsBindingObserver {
   DateTime? _seekRequestedAt;
   Future<void>? _finishing;
 
+  @override
   bool get finished => _finished;
+
+  @override
+  bool get isCurrent => isCurrentSession();
+
+  @override
+  bool get hasPlaylist => onMediaChanged != null;
 
   // Native true means the command was delivered, not that playback changed.
   static Future<bool> sendCommand(
@@ -70,6 +82,7 @@ class PotPlayerSession with WidgetsBindingObserver {
         const {},
   );
 
+  @override
   Future<void> start({
     required bool paused,
     required double speed,
@@ -183,6 +196,12 @@ class PotPlayerSession with WidgetsBindingObserver {
   bool _matches(Map<String, dynamic> state) =>
       state['alive'] == true && sameMedia('${state['file'] ?? ''}', mediaUrl);
 
+  @override
+  Future<bool> matchesMedia(String expectedUrl) async =>
+      _current &&
+      _matches(await _snapshot()) &&
+      sameMedia(mediaUrl, expectedUrl);
+
   static bool sameMedia(String actual, String expected) {
     if (actual.isEmpty || expected.isEmpty) return false;
     String normalize(String value) {
@@ -207,6 +226,7 @@ class PotPlayerSession with WidgetsBindingObserver {
     onProgress(_position, _duration, _paused);
   }
 
+  @override
   Future<void> poll() async {
     if (_finished || _polling) return;
     _polling = true;
@@ -333,6 +353,46 @@ class PotPlayerSession with WidgetsBindingObserver {
     }
   }
 
+  @override
+  Future<bool> setPaused(bool paused) async {
+    if (!_current) return false;
+    return await sendCommand('configure', {
+      'pid': pid,
+      'paused': paused,
+      'mediaUrl': mediaUrl,
+    });
+  }
+
+  @override
+  Future<bool> seek(Duration position) async {
+    if (!_current) return false;
+    return await sendCommand('activate', {
+      'pid': pid,
+      'positionMs': position.inMilliseconds,
+      'focus': false,
+      'mediaUrl': mediaUrl,
+    });
+  }
+
+  @override
+  Future<bool> stepPlaylist(int direction) async {
+    if (!_current) return false;
+    return await sendCommand('stepPlaylist', {
+      'pid': pid,
+      'direction': direction,
+      'mediaUrl': mediaUrl,
+    });
+  }
+
+  @override
+  Future<void> loadSubtitle({required String path, required String mediaUrl}) =>
+      channel.invokeMethod<void>('subtitle', {
+        'pid': pid,
+        'path': path,
+        'mediaUrl': mediaUrl,
+      });
+
+  @override
   Future<bool> activate({
     Duration? position,
     bool resumePlayback = true,
@@ -400,6 +460,7 @@ class PotPlayerSession with WidgetsBindingObserver {
   }
 
   /// A sent Win32 message can precede its effect; confirm only actual samples.
+  @override
   Future<bool> confirmPlayback({Duration? position, bool? paused}) async {
     final expectedMedia = mediaUrl;
     bool current() => _current && sameMedia(mediaUrl, expectedMedia);
@@ -423,6 +484,7 @@ class PotPlayerSession with WidgetsBindingObserver {
     return false;
   }
 
+  @override
   Future<void> finish({
     bool reportFinal = true,
     bool closePlayer = false,

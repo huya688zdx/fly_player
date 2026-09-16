@@ -7,7 +7,7 @@ import '../desktop_floating_panel.dart';
 import 'external_playback_host.dart';
 import 'external_playback_mini_settings.dart';
 
-/// 常用控制直接操作当前 PotPlayer 会话，不另起播放或进度计时。
+/// 常用控制直接操作当前外部播放器会话，不另起播放或进度计时。
 class ExternalPlaybackMiniPlayer extends StatefulWidget {
   const ExternalPlaybackMiniPlayer({
     super.key,
@@ -342,45 +342,49 @@ class _ExternalPlaybackMiniPlayerState
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              TextButton.icon(
-                                style: TextButton.styleFrom(
-                                  foregroundColor:
-                                      status?.danmakuEnabled == true
-                                      ? colors.accent
-                                      : colors.textSecondary,
-                                  textStyle: const TextStyle(fontSize: 11),
-                                  visualDensity: VisualDensity.compact,
+                              if (status?.player.supportsSubtitles == true)
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor:
+                                        status?.danmakuEnabled == true
+                                        ? colors.accent
+                                        : colors.textSecondary,
+                                    textStyle: const TextStyle(fontSize: 11),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  onPressed: enabled
+                                      ? () => _run(
+                                          () =>
+                                              ExternalPlaybackHost.applyDanmaku(
+                                                itemGuid: itemGuid,
+                                                enabled:
+                                                    !status!.danmakuEnabled,
+                                              ),
+                                        )
+                                      : null,
+                                  icon: Icon(
+                                    status?.danmakuEnabled == true
+                                        ? Icons.subtitles_rounded
+                                        : Icons.subtitles_off_outlined,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    status?.danmakuEnabled == true
+                                        ? '弹幕已开'
+                                        : '弹幕已关',
+                                  ),
                                 ),
-                                onPressed: enabled
-                                    ? () => _run(
-                                        () => ExternalPlaybackHost.applyDanmaku(
-                                          itemGuid: itemGuid,
-                                          enabled: !status!.danmakuEnabled,
+                              if (status?.player.supportsSubtitles == true)
+                                _button(
+                                  Icons.tune_rounded,
+                                  '弹幕与字幕调节',
+                                  widget.onToggleSettings == null
+                                      ? null
+                                      : () => _windowAction(
+                                          widget.onToggleSettings!,
                                         ),
-                                      )
-                                    : null,
-                                icon: Icon(
-                                  status?.danmakuEnabled == true
-                                      ? Icons.subtitles_rounded
-                                      : Icons.subtitles_off_outlined,
-                                  size: 16,
+                                  primary: widget.settingsExpanded,
                                 ),
-                                label: Text(
-                                  status?.danmakuEnabled == true
-                                      ? '弹幕已开'
-                                      : '弹幕已关',
-                                ),
-                              ),
-                              _button(
-                                Icons.tune_rounded,
-                                '弹幕与字幕调节',
-                                widget.onToggleSettings == null
-                                    ? null
-                                    : () => _windowAction(
-                                        widget.onToggleSettings!,
-                                      ),
-                                primary: widget.settingsExpanded,
-                              ),
                               TextButton.icon(
                                 style: TextButton.styleFrom(
                                   textStyle: const TextStyle(fontSize: 11),
@@ -398,7 +402,9 @@ class _ExternalPlaybackMiniPlayerState
                                   Icons.open_in_new_rounded,
                                   size: 14,
                                 ),
-                                label: const Text('回到 PotPlayer'),
+                                label: Text(
+                                  '回到 ${status?.player.displayName ?? '外部播放器'}',
+                                ),
                               ),
                             ],
                           ),
@@ -418,7 +424,7 @@ class _ExternalPlaybackMiniPlayerState
                           ),
                         ),
                       ],
-                      if (status != null)
+                      if (status != null && status.player.supportsSubtitles)
                         Visibility(
                           visible: widget.expanded && widget.settingsExpanded,
                           maintainState: true,

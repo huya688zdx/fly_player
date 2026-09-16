@@ -2980,6 +2980,7 @@ class DesktopEpisodePoster extends StatelessWidget {
     super.key,
     required this.headers,
     required this.current,
+    this.gaplessPlayback = false,
     this.watched = false,
     this.progress = 0,
   });
@@ -2987,6 +2988,7 @@ class DesktopEpisodePoster extends StatelessWidget {
   final bool grid;
   final Map<String, String> headers;
   final bool current;
+  final bool gaplessPlayback;
   final bool watched;
   final double progress;
   @override
@@ -2996,12 +2998,14 @@ class DesktopEpisodePoster extends StatelessWidget {
             path,
             headers: headers,
             fit: BoxFit.cover,
+            gaplessPlayback: gaplessPlayback,
             errorBuilder: (_, __, ___) => _placeholder(),
           )
         : path.isNotEmpty
         ? Image.file(
             File(playbackFilePath(path)),
             fit: BoxFit.cover,
+            gaplessPlayback: gaplessPlayback,
             errorBuilder: (_, __, ___) => _placeholder(),
           )
         : _placeholder();

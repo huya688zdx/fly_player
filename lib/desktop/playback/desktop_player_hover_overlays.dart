@@ -963,82 +963,54 @@ class _DesktopHoverEpisodePreviewPanelState
     extends State<DesktopHoverEpisodePreviewPanel> {
   @override
   Widget build(BuildContext context) {
-    // 上/下一集共用同一个玻璃外壳，动画只发生在内容层：标签/标题/海报任一
-    // 变化即内部纯淡出淡入，窗口本身不动、不闪。
-    final contentKey = ValueKey<String>(
-      '${widget.label}|${widget.title}|${widget.posterPath}',
-    );
+    // 同一张预览卡更新内容，避免快速切换时旧图文与新图文叠在一起。
     return Padding(
       padding: const EdgeInsets.all(12),
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        // 纯淡出淡入：位移分量会让退场内容呈下坠感，不要。
-        transitionBuilder: (child, animation) =>
-            FadeTransition(opacity: animation, child: child),
-        layoutBuilder: (currentChild, previousChildren) => Stack(
-          alignment: Alignment.bottomCenter,
-          children: <Widget>[
-            for (final child in previousChildren)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: ExcludeSemantics(child: child),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: double.infinity,
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: DesktopEpisodePoster(
+                widget.posterPath,
+                true,
+                headers: widget.headers,
+                current: false,
+                gaplessPlayback: true,
               ),
-            if (currentChild != null) currentChild,
-          ],
-        ),
-        child: KeyedSubtree(
-          key: contentKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              SizedBox(
-                width: double.infinity,
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: DesktopEpisodePoster(
-                    widget.posterPath,
-                    true,
-                    headers: widget.headers,
-                    current: false,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                widget.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0x99FFFFFF),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
-                ),
-              ),
-              const SizedBox(height: 4),
-              // 固定两行高度：不同集标题行数不同也不改变窗口高度，
-              // 内容交叉时几何完全稳定。
-              SizedBox(
-                height: 38,
-                child: Text(
-                  widget.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(height: 10),
+          Text(
+            widget.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0x99FFFFFF),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // 固定两行高度：不同集标题行数不同也不改变窗口高度。
+          SizedBox(
+            height: 38,
+            child: Text(
+              widget.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
