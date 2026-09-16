@@ -4,7 +4,7 @@
 /// 切画质保留音轨/字幕。它是反向重载路径上 [MediaPlaybackRequest] 的对位物：后者表达
 /// 「从头解析一次播放」，本类表达「在已有会话上做最小改动」。
 ///
-/// 约束（见 `docs/superpowers/specs/2026-06-21-public-media-playback-reverse-reload-design.md`）：
+/// 约束：
 /// - 字段名一律中立，禁止出现 `mediaGuid` / `videoGuid` / `audioGuid` / `subtitleGuid` /
 ///   `proxySession` / `Feiniu` / `Emby`。飞牛 guid 在 player 层桥接器内部映射。
 /// - 不承载 `MpvMediaSource`、本地代理、导航等播放器装配信息；「当前会话」由 player 层
