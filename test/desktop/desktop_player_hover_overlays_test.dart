@@ -253,6 +253,41 @@ void main() {
     expect(find.text('第10集 · 起风'), findsOneWidget);
   });
 
+  testWidgets('上下一集预览快速折返时只保留当前内容和海报控件', (tester) async {
+    Widget preview(String label, String title) => MaterialApp(
+      home: Material(
+        child: SizedBox(
+          width: 224,
+          child: DesktopHoverEpisodePreviewPanel(
+            label: label,
+            title: title,
+            posterPath: '',
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(preview('上一集', '第10集 · 起风'));
+    await tester.pumpAndSettle();
+    final poster = tester.element(find.byType(DesktopEpisodePoster));
+
+    await tester.pumpWidget(preview('下一集', '第12集 · 寻得'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('上一集'), findsNothing);
+    expect(find.text('第10集 · 起风'), findsNothing);
+    expect(find.text('下一集'), findsOneWidget);
+    expect(find.text('第12集 · 寻得'), findsOneWidget);
+    expect(tester.element(find.byType(DesktopEpisodePoster)), same(poster));
+
+    await tester.pumpWidget(preview('上一集', '第10集 · 起风'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('上一集'), findsOneWidget);
+    expect(find.text('第10集 · 起风'), findsOneWidget);
+    expect(find.text('下一集'), findsNothing);
+    expect(find.text('第12集 · 寻得'), findsNothing);
+    expect(tester.element(find.byType(DesktopEpisodePoster)), same(poster));
+  });
+
   testWidgets('上一集悬停弹层走通用定位：底边与全局弹层统一间距', (tester) async {
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1.0;

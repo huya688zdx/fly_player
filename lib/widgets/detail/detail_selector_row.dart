@@ -48,16 +48,34 @@ class DetailSelectorRow extends StatefulWidget {
 }
 
 class _DetailSelectorRowState extends State<DetailSelectorRow> {
-  // GlobalKey 保持悬停弹窗状态跨页面重建稳定；点开模态 sheet 前先经它收起弹窗。
-  final GlobalKey<DesktopHoverDropdownState> _subtitleDropdownKey =
+  // 两个入口共用同一玻璃外壳，切换时只改变锚点与内容。
+  final GlobalKey<DesktopHoverDropdownState> _dropdownKey =
       GlobalKey<DesktopHoverDropdownState>();
-  final GlobalKey<DesktopHoverDropdownState> _audioDropdownKey =
-      GlobalKey<DesktopHoverDropdownState>();
+  final GlobalKey _subtitleAnchorKey = GlobalKey();
+  final GlobalKey _audioAnchorKey = GlobalKey();
+  bool _audioActive = false;
+  bool _popupOpen = false;
+
+  void _notifyOpenChanged(bool open) {
+    _popupOpen = open;
+    (_audioActive ? widget.onAudioOpenChanged : widget.onSubtitleOpenChanged)
+        ?.call(open);
+  }
+
+  void _showPopup(bool audio) {
+    if (_audioActive != audio) {
+      final wasOpen = _popupOpen;
+      if (wasOpen) _notifyOpenChanged(false);
+      setState(() => _audioActive = audio);
+      // 已打开时 show 不会再次通知，因此将展开态交给新的入口。
+      if (wasOpen) _notifyOpenChanged(true);
+    }
+    _dropdownKey.currentState?.show();
+  }
 
   /// 桌面端选轨由悬停小窗完整承接：点击不再唤起模态 sheet（触屏无 hover，
   /// 保留点按打开 sheet）；触屏/未接弹窗时点按先收起弹窗再走原回调。
   VoidCallback? _triggerTap({
-    required GlobalKey<DesktopHoverDropdownState> dropdownKey,
     required DesktopHoverDropdownSpec? spec,
     required VoidCallback? original,
   }) {
@@ -66,22 +84,21 @@ class _DetailSelectorRowState extends State<DetailSelectorRow> {
       return () {};
     }
     return () {
-      dropdownKey.currentState?.hide();
+      _dropdownKey.currentState?.hide();
       original();
     };
   }
 
   Widget _wrapWithHoverPopup({
     required DesktopHoverDropdownSpec? spec,
-    required GlobalKey<DesktopHoverDropdownState> dropdownKey,
-    required ValueChanged<bool>? onOpenChanged,
+    required bool audio,
     required Widget label,
   }) {
-    if (spec == null) return label;
-    return DesktopHoverDropdown(
-      key: dropdownKey,
-      spec: spec,
-      onOpenChanged: onOpenChanged,
+    if (spec == null || !DesktopEnvironment.isDesktopPlatform) return label;
+    return MouseRegion(
+      key: audio ? _audioAnchorKey : _subtitleAnchorKey,
+      onEnter: (_) => _showPopup(audio),
+      onExit: (_) => _dropdownKey.currentState?.hide(delayed: true),
       child: label,
     );
   }
@@ -95,21 +112,19 @@ class _DetailSelectorRowState extends State<DetailSelectorRow> {
     final rowHeight = (22 * uiScale).clamp(20.0, 32.0);
     final selectorGap = (15 * uiScale).clamp(12.0, 18.0);
     final selectorInnerGap = (10 * uiScale).clamp(8.0, 14.0);
-    return ConstrainedBox(
+    final row = ConstrainedBox(
       constraints: BoxConstraints(minHeight: rowHeight),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _wrapWithHoverPopup(
             spec: widget.subtitleHoverPopup,
-            dropdownKey: _subtitleDropdownKey,
-            onOpenChanged: widget.onSubtitleOpenChanged,
+            audio: false,
             label: _SelectorLabel(
               label: widget.subtitleLabel,
               showArrow: widget.showSubtitleArrow,
               expanded: widget.subtitleExpanded,
               onTap: _triggerTap(
-                dropdownKey: _subtitleDropdownKey,
                 spec: widget.subtitleHoverPopup,
                 original: widget.onSubtitleTap,
               ),
@@ -118,14 +133,12 @@ class _DetailSelectorRowState extends State<DetailSelectorRow> {
           SizedBox(width: selectorGap),
           _wrapWithHoverPopup(
             spec: widget.audioHoverPopup,
-            dropdownKey: _audioDropdownKey,
-            onOpenChanged: widget.onAudioOpenChanged,
+            audio: true,
             label: _SelectorLabel(
               label: widget.audioLabel,
               showArrow: widget.showAudioArrow,
               expanded: widget.audioExpanded,
               onTap: _triggerTap(
-                dropdownKey: _audioDropdownKey,
                 spec: widget.audioHoverPopup,
                 original: widget.onAudioTap,
               ),
@@ -146,6 +159,17 @@ class _DetailSelectorRowState extends State<DetailSelectorRow> {
           ),
         ],
       ),
+    );
+    if (!DesktopEnvironment.isDesktopPlatform ||
+        (widget.subtitleHoverPopup == null && widget.audioHoverPopup == null)) {
+      return row;
+    }
+    return DesktopHoverDropdown(
+      key: _dropdownKey,
+      anchorKey: _audioActive ? _audioAnchorKey : _subtitleAnchorKey,
+      spec: _audioActive ? widget.audioHoverPopup : widget.subtitleHoverPopup,
+      onOpenChanged: _notifyOpenChanged,
+      child: row,
     );
   }
 }
