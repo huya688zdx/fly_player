@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_windows/webview_windows.dart' as windows_webview;
 
 import '../l10n/generated/app_localizations.dart';
 import 'fn_web_login_bridge_script.dart';
@@ -21,6 +23,7 @@ class EmbyFnEntryLoginPage extends StatefulWidget {
     required this.serverUrl,
     this.userName = '',
     this.password = '',
+    this.requireTargetPath = false,
   });
 
   /// 目标 Emby 服务器地址（已归一化的 `https://<sub>.<fnId>.fnos.net`）。
@@ -30,6 +33,9 @@ class EmbyFnEntryLoginPage extends StatefulWidget {
   final String userName;
   final String password;
 
+  /// 应用入口与 NAS 桌面同主机，需匹配应用路径后才能读取令牌。
+  final bool requireTargetPath;
+
   @override
   State<EmbyFnEntryLoginPage> createState() => _EmbyFnEntryLoginPageState();
 }
@@ -37,12 +43,19 @@ class EmbyFnEntryLoginPage extends StatefulWidget {
 class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   static const String _bridgeName = 'FnEntryBridge';
 
-  late final WebViewController _controller;
+  WebViewController? _controller;
+  windows_webview.WebviewController? _windowsController;
+  StreamSubscription<String>? _windowsUrlSubscription;
+  StreamSubscription<windows_webview.LoadingState>? _windowsLoadingSubscription;
+  StreamSubscription<dynamic>? _windowsMessageSubscription;
+  StreamSubscription<windows_webview.WebErrorStatus>? _windowsErrorSubscription;
 
   /// 目标 Emby 主机（如 `embyserver4-9.geqian688.fnos.net`）。只有当 WebView 真正落回
   /// 该主机、且 cookie 里有 entry-token 时才算抓到——这是"已过服务闸"的证明，避免在入口/
   /// 授权中途的页面（NAS 桌面等同域页）上抓到尚未生效的早期 entry-token。
   String _targetHost = '';
+  String _targetOrigin = '';
+  String _fnIdFamily = '';
 
   bool _isReady = false;
   bool _isClosing = false;
@@ -53,23 +66,31 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   @override
   void initState() {
     super.initState();
-    _targetHost = (Uri.tryParse(widget.serverUrl)?.host ?? '')
-        .trim()
-        .toLowerCase();
-    _controller = WebViewController();
-    unawaited(_initialize());
+    final target = Uri.tryParse(widget.serverUrl);
+    _targetHost = (target?.host ?? '').trim().toLowerCase();
+    _targetOrigin = _originOf(target);
+    _fnIdFamily = _fnIdFamilyFor(_targetHost);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_initialize());
+    });
   }
 
   Future<void> _initialize() async {
     final l10n = AppLocalizations.of(context);
     try {
-      await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await _controller.setBackgroundColor(const Color(0xFF08111A));
-      await _controller.addJavaScriptChannel(
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        await _initializeWindows();
+        return;
+      }
+      final controller = WebViewController();
+      _controller = controller;
+      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await controller.setBackgroundColor(const Color(0xFF08111A));
+      await controller.addJavaScriptChannel(
         _bridgeName,
         onMessageReceived: (message) => _handleBridgeMessage(message.message),
       );
-      await _controller.setNavigationDelegate(
+      await controller.setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (url) {
             if (!mounted || _isClosing) return;
@@ -109,15 +130,73 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
           },
         ),
       );
-      await _controller.loadRequest(Uri.parse(widget.serverUrl));
+      await controller.loadRequest(Uri.parse(widget.serverUrl));
     } catch (error) {
-      _completeFailure(l10n.fnConnectEntryOpenFailed('$error'));
+      _completeInitializationFailure(l10n, error);
+    }
+  }
+
+  Future<void> _initializeWindows() async {
+    final l10n = AppLocalizations.of(context);
+    try {
+      if (!mounted || _isClosing) return;
+      final controller = windows_webview.WebviewController();
+      await controller.initialize();
+      if (!mounted || _isClosing) {
+        await controller.dispose();
+        return;
+      }
+      _windowsController = controller;
+      await controller.setBackgroundColor(const Color(0xFF08111A));
+      await controller.setPopupWindowPolicy(
+        windows_webview.WebviewPopupWindowPolicy.sameWindow,
+      );
+      await controller.addScriptToExecuteOnDocumentCreated(
+        _buildInjectionScript(),
+      );
+      if (!mounted || _isClosing) return;
+      _windowsUrlSubscription = controller.url.listen((url) {
+        if (!mounted || _isClosing) return;
+        setState(() {
+          _statusText = AppLocalizations.of(
+            context,
+          ).fnConnectEntryLoading(_friendlyUrl(url));
+        });
+      });
+      _windowsLoadingSubscription = controller.loadingState.listen((state) {
+        if (!mounted || _isClosing) return;
+        if (state == windows_webview.LoadingState.navigationCompleted) {
+          setState(() {
+            _isReady = true;
+            _statusText = AppLocalizations.of(
+              context,
+            ).fnConnectEntryProcessing(_friendlyUrl(widget.serverUrl));
+          });
+          unawaited(_injectBridgeScript());
+        } else if (state == windows_webview.LoadingState.loading) {
+          setState(() => _isReady = false);
+        }
+      });
+      _windowsMessageSubscription = controller.webMessage.listen((message) {
+        _handleBridgeMessage(message is String ? message : jsonEncode(message));
+      });
+      _windowsErrorSubscription = controller.onLoadError.listen((error) {
+        if (mounted && !_isClosing) setState(() => _statusText = error.name);
+      });
+      await controller.loadUrl(widget.serverUrl);
+    } catch (error) {
+      _completeInitializationFailure(l10n, error);
     }
   }
 
   Future<void> _injectBridgeScript() async {
     try {
-      await _controller.runJavaScript(_buildInjectionScript());
+      final controller = _windowsController;
+      if (controller != null) {
+        await controller.executeScript(_buildInjectionScript());
+      } else {
+        await _controller?.runJavaScript(_buildInjectionScript());
+      }
     } catch (_) {}
   }
 
@@ -128,6 +207,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       password: widget.password,
       requireCredentialsForAutoLogin: true,
       reportBlockedState: true,
+      useWindowsWebViewMessage: defaultTargetPlatform == TargetPlatform.windows,
     );
   }
 
@@ -137,7 +217,8 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       final decoded = jsonDecode(rawMessage);
       if (decoded is! Map<String, dynamic>) return;
       final pageUrl = decoded['pageUrl']?.toString() ?? '';
-      final pageHost = (Uri.tryParse(pageUrl)?.host ?? '').trim().toLowerCase();
+      final page = Uri.tryParse(pageUrl);
+      final pageHost = (page?.host ?? '').trim().toLowerCase();
       final cookie = decoded['cookie']?.toString() ?? '';
       final blocked = decoded['blocked'] == true;
       if (pageHost.isEmpty) return;
@@ -159,9 +240,11 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
           .map((e) => e.split('=').first.trim())
           .where((e) => e.isNotEmpty)
           .toList();
-      debugPrint(
-        '[EmbyEntry] host=$pageHost blocked=$blocked cookies=$names url=$pageUrl',
-      );
+      if (!_requiresSecureTarget) {
+        debugPrint(
+          '[EmbyEntry] host=$pageHost blocked=$blocked cookies=$names url=$pageUrl',
+        );
+      }
 
       // 只在真正落到目标 Emby 主机、且不是被拦截页时抓取——此时的 entry-token 才是对
       // Emby 服务已生效的那个（桌面/同域页上的可能对该子服务无效）。
@@ -175,17 +258,27 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
           return;
         }
         final token = _extractEntryToken(cookie);
-        if (token.isNotEmpty) {
+        if (token.isNotEmpty && _allowsTargetToken(page, isAuthPage, blocked)) {
           _completeSuccess(token);
+          return;
         }
-        return;
+        // 飞翔的 NAS 桌面可能与应用入口同主机，但仍需转到精确应用路径。
+        if (!_requiresSecureTarget) return;
       }
 
       // 已登录的同域页（飞牛桌面）：自动跳一次目标 Emby 地址去触发该服务的令牌签发/校验。
-      if (pageHost.endsWith('.fnos.net') && !_autoRedirectedToTarget) {
+      if (_isSameFnIdFamily(pageHost) &&
+          (!_requiresSecureTarget || page?.scheme == 'https') &&
+          !blocked &&
+          !_autoRedirectedToTarget) {
         _autoRedirectedToTarget = true;
         debugPrint('[EmbyEntry] redirect → ${widget.serverUrl}');
-        unawaited(_controller.loadRequest(Uri.parse(widget.serverUrl)));
+        final windowsController = _windowsController;
+        if (windowsController != null) {
+          unawaited(windowsController.loadUrl(widget.serverUrl));
+        } else {
+          unawaited(_controller?.loadRequest(Uri.parse(widget.serverUrl)));
+        }
       }
     } catch (_) {}
   }
@@ -198,6 +291,40 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       }
     }
     return '';
+  }
+
+  bool get _requiresSecureTarget => widget.requireTargetPath;
+
+  bool _allowsTargetToken(Uri? page, bool isAuthPage, bool blocked) {
+    if (!_requiresSecureTarget) return true;
+    if (page == null || page.scheme != 'https' || isAuthPage || blocked) {
+      return false;
+    }
+    final path = page.path;
+    return _originOf(page) == _targetOrigin &&
+        (path == '/app/fly-data-service' ||
+            path.startsWith('/app/fly-data-service/'));
+  }
+
+  bool _isSameFnIdFamily(String host) {
+    if (!_requiresSecureTarget) return host.endsWith('.fnos.net');
+    return _fnIdFamily.isNotEmpty &&
+        (host == _fnIdFamily || host.endsWith('.$_fnIdFamily'));
+  }
+
+  static String _originOf(Uri? uri) {
+    if (uri == null || uri.host.isEmpty) return '';
+    return Uri(
+      scheme: uri.scheme.toLowerCase(),
+      host: uri.host.toLowerCase(),
+      port: uri.hasPort ? uri.port : null,
+    ).toString().replaceFirst(RegExp(r'/$'), '');
+  }
+
+  static String _fnIdFamilyFor(String host) {
+    final labels = host.split('.');
+    if (labels.length < 3 || labels[labels.length - 2] != 'fnos') return '';
+    return '${labels[labels.length - 3]}.fnos.net';
   }
 
   void _completeSuccess(String entryToken) {
@@ -213,6 +340,14 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
     Navigator.of(context).pop(null);
+  }
+
+  void _completeInitializationFailure(AppLocalizations l10n, Object error) {
+    _completeFailure(
+      _requiresSecureTarget
+          ? l10n.loginErrorGenericFailure
+          : l10n.fnConnectEntryOpenFailed('$error'),
+    );
   }
 
   String _friendlyUrl(String url) {
@@ -235,20 +370,19 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         actions: [
           IconButton(
             tooltip: l10n.fnConnectEntryAuthorizedBack,
-            onPressed: _isReady
-                ? () => _controller.loadRequest(Uri.parse(widget.serverUrl))
-                : null,
+            onPressed: _isReady ? () => _loadTargetUrl() : null,
             icon: const Icon(Icons.check_circle_outline_rounded),
           ),
           IconButton(
             tooltip: l10n.fnConnectEntryReload,
-            onPressed: _isReady ? () => _controller.reload() : null,
+            onPressed: _isReady ? () => _reload() : null,
             icon: const Icon(Icons.refresh_rounded),
           ),
           IconButton(
             tooltip: l10n.commonCancel,
             onPressed: () {
               if (_isClosing) return;
+              _isClosing = true;
               Navigator.of(context).pop(null);
             },
             icon: const Icon(Icons.close_rounded),
@@ -286,8 +420,39 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         ),
       ),
       body: _isReady
-          ? WebViewWidget(controller: _controller)
+          ? (_windowsController != null
+                ? windows_webview.Webview(_windowsController!)
+                : WebViewWidget(controller: _controller!))
           : const Center(child: BirdLoader(size: 120)),
     );
+  }
+
+  void _loadTargetUrl() {
+    final windowsController = _windowsController;
+    if (windowsController != null) {
+      unawaited(windowsController.loadUrl(widget.serverUrl));
+    } else {
+      unawaited(_controller?.loadRequest(Uri.parse(widget.serverUrl)));
+    }
+  }
+
+  void _reload() {
+    final windowsController = _windowsController;
+    if (windowsController != null) {
+      unawaited(windowsController.reload());
+    } else {
+      unawaited(_controller?.reload());
+    }
+  }
+
+  @override
+  void dispose() {
+    _isClosing = true;
+    unawaited(_windowsUrlSubscription?.cancel());
+    unawaited(_windowsLoadingSubscription?.cancel());
+    unawaited(_windowsMessageSubscription?.cancel());
+    unawaited(_windowsErrorSubscription?.cancel());
+    unawaited(_windowsController?.dispose());
+    super.dispose();
   }
 }

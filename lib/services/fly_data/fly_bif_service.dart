@@ -8,7 +8,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../playback/playback_source.dart';
 
-import 'fly_data_api.dart';
 import 'fly_data_service.dart';
 import 'fly_oped.dart';
 import 'fly_playback_service_client.dart';
@@ -299,11 +298,7 @@ class FlyBifService {
     FlyDataSession session,
     FlySourceRef source,
   ) async {
-    final api = FlyDataApi(
-      session.serverUrl,
-      token: session.token,
-      maxResponseBytes: 64 * 1024,
-    );
+    final api = session.createApi(maxResponseBytes: 64 * 1024);
     try {
       return await api
           .post('/bif/resolve', {'source_ref': source.toJson()})
@@ -320,7 +315,7 @@ class FlyBifService {
     FlyDataSession session,
     FlyBifAsset asset,
   ) async {
-    final api = FlyDataApi(session.serverUrl, token: session.token);
+    final api = session.createApi();
     try {
       return await api
           .bifBytes(asset.url, expectedBytes: asset.bytes)

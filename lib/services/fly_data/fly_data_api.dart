@@ -23,6 +23,7 @@ class FlyDataApi {
   FlyDataApi(
     String serverUrl, {
     String? token,
+    String fnEntryToken = '',
     Dio? dio,
     this.maxResponseBytes,
     Duration receiveTimeout = const Duration(seconds: 60),
@@ -35,8 +36,42 @@ class FlyDataApi {
       followRedirects: false,
       headers: {if (token != null) 'Authorization': 'Bearer $token'},
     );
+    final base = Uri.parse(_dio.options.baseUrl);
+    _isFnApplication = isFlyFnApplicationUrl(serverUrl);
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final target = options.uri;
+          // 凭据只属于所选服务，禁止跨源、路径逃逸和重定向带出凭据。
+          if (target.origin != base.origin ||
+              !target.path.startsWith('${base.path}/') ||
+              target.pathSegments.any(
+                (part) =>
+                    part == '..' ||
+                    part == '.' ||
+                    part.contains('/') ||
+                    part.contains('\\'),
+              )) {
+            handler.reject(DioException(requestOptions: options));
+            return;
+          }
+          options.followRedirects = false;
+          if (_isFnApplication && fnEntryToken.isNotEmpty) {
+            if (!RegExp(
+              r'^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$',
+            ).hasMatch(fnEntryToken)) {
+              handler.reject(DioException(requestOptions: options));
+              return;
+            }
+            options.headers['Cookie'] = 'entry-token=$fnEntryToken';
+          }
+          handler.next(options);
+        },
+      ),
+    );
   }
   final Dio _dio;
+  late final bool _isFnApplication;
 
   /// Optional raw JSON limit for playback-side cache reads.
   final int? maxResponseBytes;
@@ -199,12 +234,21 @@ class FlyDataApi {
   ) async {
     try {
       final response = await send();
+      if (response.data is! Map) {
+        throw StateError(
+          _isFnApplication ? flyFnAccessMessage : '此地址没有返回飞翔服务数据，请核对服务地址。',
+        );
+      }
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (error) {
       final code = await _safeErrorCode(error.response?.data);
       // DioException.toString can contain request details; never surface/log it.
       throw StateError(
-        code == null ? '数据服务连接失败，请检查地址和网络后手动重试。' : '数据服务拒绝请求：$code',
+        code == null && _isFnApplication && error.response != null
+            ? flyFnAccessMessage
+            : code == null
+            ? '数据服务连接失败，请检查地址和网络后手动重试。'
+            : '数据服务拒绝请求：$code',
       );
     }
   }
@@ -247,8 +291,30 @@ String normalizeServerUrl(String value) {
       uri.userInfo.isNotEmpty ||
       uri.hasQuery ||
       uri.hasFragment ||
-      (uri.path.isNotEmpty && uri.path != '/')) {
-    throw const FormatException('请输入服务根地址，例如 http://nas:8787（不要含帐号、路径或查询参数）。');
+      ![
+        '',
+        '/',
+        '/app/fly-data-service',
+        '/app/fly-data-service/',
+      ].contains(uri.path)) {
+    throw const FormatException(
+      '请输入服务根地址或 FN 应用链接（/app/fly-data-service），不要含账号或查询参数。',
+    );
   }
-  return uri.replace(path: '').toString().replaceAll(RegExp(r'/$'), '');
+  if (uri.host.endsWith('.fnos.net') &&
+      uri.path.startsWith('/app/') &&
+      uri.scheme != 'https') {
+    throw const FormatException('FN 应用链接请使用 HTTPS。');
+  }
+  return uri.toString().replaceAll(RegExp(r'/$'), '');
+}
+
+const flyFnAccessMessage = 'FN 访问授权未完成或已失效，请重新授权后重试。';
+
+bool isFlyFnApplicationUrl(String value) {
+  final uri = Uri.tryParse(value.trim());
+  return uri != null &&
+      uri.scheme == 'https' &&
+      uri.host.endsWith('.fnos.net') &&
+      ['/app/fly-data-service', '/app/fly-data-service/'].contains(uri.path);
 }
