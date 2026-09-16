@@ -57,23 +57,59 @@ class _FlyLoginPage extends StatelessWidget {
 
   Widget _form(BuildContext context) {
     final colors = context.appColors;
-    return LoginFormPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            AppLocalizations.of(context).flyAccountLoginTitle,
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          AppLocalizations.of(context).flyAccountLoginTitle,
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
           ),
-          const SizedBox(height: 16),
-          child,
-        ],
-      ),
+        ),
+        const SizedBox(height: 28),
+        child,
+      ],
+    );
+  }
+
+  Widget _brand(BuildContext context) {
+    final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset('lib/img/app_logo.png', width: 76, height: 76),
+        const SizedBox(height: 28),
+        Text(
+          l10n.connectionAppName,
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 30,
+            height: 1.25,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.8,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          l10n.connectionTagline,
+          style: TextStyle(
+            color: colors.textSecondary,
+            fontSize: 15,
+            height: 1.8,
+          ),
+        ),
+        const SizedBox(height: 32),
+        SizedBox(
+          width: 36,
+          child: Divider(color: colors.selectionStrong, thickness: 2),
+        ),
+      ],
     );
   }
 
@@ -87,28 +123,43 @@ class _FlyLoginPage extends StatelessWidget {
             builder: (context, constraints) {
               final desktop =
                   DesktopEnvironment.isDesktopPlatform &&
-                  constraints.maxWidth >= 900;
+                  constraints.maxWidth >= 1000;
               final content = desktop
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          key: const Key('flyLoginDesktopBrand'),
-                          width: 280,
-                          child: LoginLogoHeader(
-                            title: AppLocalizations.of(
-                              context,
-                            ).connectionAppName,
-                          ),
+                  ? DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
+                        gradient: LinearGradient(
+                          colors: [
+                            Color.alphaBlend(
+                              context.appColors.selection.withValues(
+                                alpha: 0.08,
+                              ),
+                              context.appColors.surface,
+                            ),
+                            context.appColors.surface.withValues(alpha: 0.85),
+                          ],
                         ),
-                        const SizedBox(width: 32),
-                        SizedBox(
-                          key: const Key('flyLoginDesktopForm'),
-                          width: 460,
-                          child: _form(context),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(44),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              key: const Key('flyLoginDesktopBrand'),
+                              width: 260,
+                              child: _brand(context),
+                            ),
+                            const SizedBox(width: 76),
+                            SizedBox(
+                              key: const Key('flyLoginDesktopForm'),
+                              width: 420,
+                              child: _form(context),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     )
                   : ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 460),
@@ -124,7 +175,7 @@ class _FlyLoginPage extends StatelessWidget {
                               ).connectionAppName,
                             ),
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 40),
                           _form(context),
                         ],
                       ),
