@@ -29,7 +29,7 @@ Future<String?> _authorizeFlyFn(BuildContext context, String serverUrl) =>
     showDesktopLoginDialog<String>(
       context,
       child: EmbyFnEntryLoginPage(
-        serverUrl: serverUrl,
+        serverUrl: '${serverUrl.replaceFirst(RegExp(r'/+$'), '')}/',
         requireTargetPath: true,
       ),
     );
