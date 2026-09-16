@@ -239,7 +239,7 @@ void main() {
                               (dir) => dir.path
                                   .split(Platform.pathSeparator)
                                   .last
-                                  .startsWith('fly_potplayer_'),
+                                  .startsWith('fly_external_player_'),
                             ),
                         isEmpty,
                       );

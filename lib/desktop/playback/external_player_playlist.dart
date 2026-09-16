@@ -254,27 +254,4 @@ class ExternalPlayerPlaylist {
     }
     return const <ExternalPlaylistEpisode>[];
   }
-
-  static Future<String> write({
-    required Directory directory,
-    required String currentUrl,
-    required Map<String, String> titlesByUrl,
-  }) async {
-    String line(String value) => value.replaceAll(RegExp(r'[\r\n]'), ' ');
-    final lines = <String>[
-      '\uFEFFDAUMPLAYLIST',
-      'playname=${line(currentUrl)}',
-      'playtime=0',
-      'topindex=0',
-    ];
-    var index = 1;
-    for (final entry in titlesByUrl.entries) {
-      lines.add('$index*file*${line(entry.key)}');
-      lines.add('$index*title*${line(entry.value)}');
-      index++;
-    }
-    final file = File('${directory.path}/playlist.dpl');
-    await file.writeAsString(lines.join('\r\n'), flush: true);
-    return file.path;
-  }
 }
