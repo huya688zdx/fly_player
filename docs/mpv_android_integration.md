@@ -36,6 +36,19 @@ cd android
 ./gradlew -PmpvAndroidDir=/absolute/path/to/mpv-android :app:assembleDebug
 ```
 
+## Android MNN JNI 构建
+
+`full` 风味的 `libmnnseg.so` 使用 NDK 与预编译 `libMNN.so` 外部构建。
+在 `android/app` 下，使用 NDK 工具链的 `clang++`，替换头文件与库目录：
+
+```bash
+clang++ --target=aarch64-linux-android24 -std=c++14 -O2 -shared -fPIC \
+  -I<mnn_include> src/full/cpp/mnn_seg_jni.cpp -o src/full/jniLibs/arm64-v8a/libmnnseg.so \
+  -L<mnn_android_arm64> -lMNN -llog
+```
+
+此命令保留自原集成记录（NDK 28、MNN 3.5.0）；本次文档整理未重编译验证。
+
 ## Runtime notes
 
 - The Android player view calls into `is.xyz.mpv.MPVLib`, matching the upstream `libplayer.so` JNI package.
