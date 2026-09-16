@@ -26,7 +26,7 @@ import 'external_playback_notice.dart';
 import 'external_player_playlist.dart';
 import 'external_player_subtitles.dart';
 
-/// PotPlayer 外部会话的独立控制页，只展示宿主实际回报的状态。
+/// 外部播放器会话的独立控制页，只展示宿主实际回报的状态。
 class ExternalPlaybackScreen extends StatefulWidget {
   const ExternalPlaybackScreen({super.key});
 
@@ -37,7 +37,7 @@ class ExternalPlaybackScreen extends StatefulWidget {
 }
 
 class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
-  static const _potPlayerSubtitleId = 'potplayer-default';
+  static const _externalPlayerSubtitleId = 'external-player-default';
   final _qualityDropdownKey = GlobalKey<DesktopHoverDropdownState>();
   final _subtitleDropdownKey = GlobalKey<DesktopHoverDropdownState>();
   final _seasonDropdownKey = GlobalKey<DesktopHoverDropdownState>();
@@ -139,7 +139,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Future<void> _run(
     Future<bool?> Function() action, {
-    String failure = '操作未能完成，请确认 PotPlayer 会话仍然有效',
+    String failure = '操作未能完成，请确认外部播放器会话仍然有效',
   }) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -174,7 +174,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           _appliedSubtitleGuid =
               ExternalPlaybackHost.status.value!.source.subtitleTrackGuid;
         });
-        _message('设置已应用到 PotPlayer');
+        _message('设置已应用到 ${status.player.displayName}');
       }
       return applied;
     });
@@ -325,7 +325,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 340),
                 child: Text(
-                  '从媒体详情页使用 PotPlayer 播放，\n即可在这里管理进度、弹幕、字幕与剧集。',
+                  '从媒体详情页使用外部播放器播放，\n即可在这里管理进度、弹幕、字幕与剧集。',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: colors.textSecondary,
@@ -407,7 +407,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'PotPlayer 会话控制与片源设置',
+                '${status.player.displayName} 会话控制与片源设置',
                 style: TextStyle(color: colors.textMuted, fontSize: 12),
               ),
             ],
@@ -463,7 +463,13 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         valueListenable: ExternalPlaybackMiniController.active,
         builder: (context, active, _) {
           final VoidCallback? action =
-              available && ExternalPlaybackHost.status.value != null
+              available &&
+                  ExternalPlaybackHost
+                          .status
+                          .value
+                          ?.player
+                          .supportsMiniPlayer ==
+                      true
               ? () async {
                   try {
                     await ExternalPlaybackMiniController.enter();
@@ -617,7 +623,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                       )
                     : null,
                 icon: const Icon(Icons.open_in_new_rounded),
-                label: const Text('回到 PotPlayer'),
+                label: Text('回到 ${status.player.displayName}'),
               ),
             ],
           ),
@@ -729,7 +735,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 ? null
                 : () => _run(
                     () => ExternalPlaybackHost(context).reconnect(),
-                    failure: '重新连接 PotPlayer 失败',
+                    failure: '重新连接外部播放器失败',
                   ),
             child: const Text('重新连接'),
           )
@@ -833,11 +839,15 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 const SizedBox(width: 8),
                 FilledButton.icon(
                   onPressed:
-                      !_busy && status.canControl && _dirty && _canApply(status)
+                      !_busy &&
+                          status.canControl &&
+                          status.player.supportsSubtitles &&
+                          _dirty &&
+                          _canApply(status)
                       ? () => _apply(status)
                       : null,
                   icon: const Icon(Icons.sync_rounded, size: 18),
-                  label: const Text('应用到 PotPlayer'),
+                  label: Text('应用到 ${status.player.displayName}'),
                 ),
               ],
             ),
@@ -849,6 +859,15 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildDanmaku(BuildContext context, ExternalPlaybackStatus status) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    if (!status.player.supportsSubtitles) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          '${status.player.displayName} 暂不支持由 Fly Player 编辑字幕或弹幕。',
+          style: TextStyle(color: colors.textMuted, fontSize: 12),
+        ),
+      );
+    }
     final draft = _draft!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1098,9 +1117,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         !subtitles.any((track) => track.guid == source.subtitleTrackGuid);
     final subtitleItems = [
       if (source.subtitleTrackGuid == null)
-        const TrackOptionSheetItem(
-          id: _potPlayerSubtitleId,
-          title: '由 PotPlayer 选择',
+        TrackOptionSheetItem(
+          id: _externalPlayerSubtitleId,
+          title: '由 ${status.player.displayName} 选择',
         ),
       ...PlayDetailSheetController.subtitleItems(
         subtitleTracks: subtitles,
@@ -1111,7 +1130,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
       for (final item in subtitleItems) item.id: item.title,
     };
     final selectedSubtitleId = _draftSubtitleGuid == null
-        ? _potPlayerSubtitleId
+        ? _externalPlayerSubtitleId
         : PlayDetailSheetController.subtitleSelectedIdOf(_draftSubtitleGuid);
     final subtitleLabel =
         subtitleOptions[selectedSubtitleId] ??
@@ -1119,8 +1138,8 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               (track) =>
                   track.guid == source.subtitleTrackGuid && track.isBitmap == 1,
             )
-            ? '当前位图字幕（在 PotPlayer 中切换）'
-            : '当前内封字幕（在 PotPlayer 中切换）');
+            ? '当前位图字幕（在 ${status.player.displayName} 中切换）'
+            : '当前内封字幕（在 ${status.player.displayName} 中切换）');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1162,80 +1181,92 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                   )
                 : null,
           ),
-        const SizedBox(height: 26),
-        Text(
-          '外挂字幕',
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          '启用弹幕时，Fly Player 会将外挂 ASS、SRT、VTT 与弹幕合成为一条临时 ASS；关闭字幕只关闭影片字幕。',
-          style: TextStyle(color: colors.textMuted, fontSize: 11),
-        ),
-        const SizedBox(height: 12),
-        _buildTrackDropdown(
-          dropdownKey: _subtitleDropdownKey,
-          valueLabel: subtitleLabel,
-          spec: status.canControl
-              ? DesktopHoverDropdownSpec.single(
-                  title: l10n.playerSubtitleSelectTitle,
-                  width: 360,
-                  items: subtitleItems,
-                  selectedId: selectedSubtitleId,
-                  onSelected: (id) => setState(
-                    () => _draftSubtitleGuid = id == _potPlayerSubtitleId
-                        ? null
-                        : PlayDetailSheetController.subtitleResultOf(id),
-                  ),
-                )
-              : null,
-        ),
-        if (selectedTrackIsUnavailable) ...[
-          const SizedBox(height: 10),
+        if (!status.player.supportsSubtitles) ...[
+          const SizedBox(height: 26),
           Text(
-            source.subtitleTracks.any(
-                  (track) =>
-                      track.guid == source.subtitleTrackGuid &&
-                      track.isBitmap == 1,
-                )
-                ? '当前是位图字幕，请在 PotPlayer 菜单中切换；这里可关闭或改用外挂文本字幕。'
-                : '当前是内封字幕，请在 PotPlayer 菜单中切换；这里可关闭或改用外挂文本字幕。',
-            style: TextStyle(color: colors.warning, fontSize: 11, height: 1.5),
+            '${status.player.displayName} 暂不支持由 Fly Player 编辑字幕或弹幕。',
+            style: TextStyle(color: colors.textMuted, fontSize: 11),
           ),
-        ],
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            color: colors.surfaceSubtle,
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(color: colors.borderSubtle),
+        ] else ...[
+          const SizedBox(height: 26),
+          Text(
+            '外挂字幕',
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.volume_up_outlined,
-                color: colors.textSecondary,
-                size: 18,
+          const SizedBox(height: 6),
+          Text(
+            '启用弹幕时，Fly Player 会将外挂 ASS、SRT、VTT 与弹幕合成为一条临时 ASS；关闭字幕只关闭影片字幕。',
+            style: TextStyle(color: colors.textMuted, fontSize: 11),
+          ),
+          const SizedBox(height: 12),
+          _buildTrackDropdown(
+            dropdownKey: _subtitleDropdownKey,
+            valueLabel: subtitleLabel,
+            spec: status.canControl && status.player.supportsSubtitles
+                ? DesktopHoverDropdownSpec.single(
+                    title: l10n.playerSubtitleSelectTitle,
+                    width: 360,
+                    items: subtitleItems,
+                    selectedId: selectedSubtitleId,
+                    onSelected: (id) => setState(
+                      () => _draftSubtitleGuid = id == _externalPlayerSubtitleId
+                          ? null
+                          : PlayDetailSheetController.subtitleResultOf(id),
+                    ),
+                  )
+                : null,
+          ),
+          if (selectedTrackIsUnavailable) ...[
+            const SizedBox(height: 10),
+            Text(
+              source.subtitleTracks.any(
+                    (track) =>
+                        track.guid == source.subtitleTrackGuid &&
+                        track.isBitmap == 1,
+                  )
+                  ? '当前是位图字幕，请在 ${status.player.displayName} 菜单中切换；这里可关闭或改用外挂文本字幕。'
+                  : '当前是内封字幕，请在 ${status.player.displayName} 菜单中切换；这里可关闭或改用外挂文本字幕。',
+              style: TextStyle(
+                color: colors.warning,
+                fontSize: 11,
+                height: 1.5,
               ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  '音轨和内封字幕由 PotPlayer 管理，请在播放器菜单中切换。',
-                  style: TextStyle(
-                    color: colors.textSecondary,
-                    fontSize: 12,
-                    height: 1.5,
+            ),
+          ],
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: colors.surfaceSubtle,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: colors.borderSubtle),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.volume_up_outlined,
+                  color: colors.textSecondary,
+                  size: 18,
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    '音轨和内封字幕由 ${status.player.displayName} 管理，请在播放器菜单中切换。',
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -1399,7 +1430,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
             child: Text(
-              '切集后会重新解析该集的片源、字幕和弹幕；连续播放由 PotPlayer 的播放列表设置控制。',
+              status.player.supportsPlaylist
+                  ? '切集后会重新解析该集的片源、字幕和弹幕；连续播放由 ${status.player.displayName} 的播放列表设置控制。'
+                  : '切集后会重新解析该集的片源、字幕和弹幕。',
               style: TextStyle(color: colors.textMuted, fontSize: 10),
             ),
           ),
