@@ -154,11 +154,24 @@ class _ExternalPlayerSettingsScreenState
   Widget build(BuildContext context) {
     final colors = AppAmbientPage.controlColorsOf(context);
     final desktop = DesktopEnvironment.isDesktopPlatform;
-    final buttonForeground =
-        ThemeData.estimateBrightnessForColor(colors.accent) == Brightness.light
-        ? const Color(0xFF172030)
-        : Colors.white;
-    final page = AppAmbientPage(
+    final controlTheme = AppThemeBuilder.buildFromColors(
+      colors,
+      baseTheme: Theme.of(context),
+    );
+    final buttonShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    );
+    final secondaryButtonStyle = OutlinedButton.styleFrom(
+      foregroundColor: colors.textSecondary,
+      backgroundColor: colors.surface.withValues(alpha: 0.24),
+      side: BorderSide(color: colors.borderSubtle),
+      minimumSize: const Size(0, 38),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      shape: buttonShape,
+    );
+    final page = Theme(
+      data: controlTheme,
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: buildSecondaryHostAppBar(context, title: const Text('外部播放器接入')),
@@ -179,15 +192,15 @@ class _ExternalPlayerSettingsScreenState
                   Row(
                     children: [
                       Container(
-                        width: 40,
-                        height: 40,
+                        width: 44,
+                        height: 44,
                         decoration: BoxDecoration(
                           color: colors.accentSoft,
-                          borderRadius: BorderRadius.circular(11),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                         child: Icon(
                           Icons.open_in_new_rounded,
-                          color: colors.accent,
+                          color: colors.accentStrong,
                           size: 21,
                         ),
                       ),
@@ -200,35 +213,41 @@ class _ExternalPlayerSettingsScreenState
                               'PotPlayer 接入',
                               style: TextStyle(
                                 color: colors.textPrimary,
-                                fontSize: 20,
+                                fontSize: 18,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
+                            const SizedBox(height: 4),
                             Text(
                               '由 Fly Player 管理片源、弹幕与播放进度',
                               style: TextStyle(
                                 color: colors.textSecondary,
                                 fontSize: 12,
+                                height: 1.5,
                               ),
                             ),
                           ],
                         ),
                       ),
+                      const SizedBox(width: 12),
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: (_enabled ? colors.success : colors.textMuted)
-                              .withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(20),
+                          color: _enabled
+                              ? colors.accentSoft
+                              : colors.surface.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
                           _enabled ? '已启用' : '未启用',
                           style: TextStyle(
-                            color: _enabled ? colors.success : colors.textMuted,
-                            fontSize: 12,
+                            color: _enabled
+                                ? colors.accentStrong
+                                : colors.textMuted,
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -238,11 +257,9 @@ class _ExternalPlayerSettingsScreenState
                   const SizedBox(height: 18),
                   Container(
                     decoration: BoxDecoration(
-                      color: AppAmbientPage.cardColorOf(
-                        context,
-                        colors.surface,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
+                      color: colors.surface.withValues(alpha: 0.36),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: colors.borderSubtle),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -250,27 +267,44 @@ class _ExternalPlayerSettingsScreenState
                         SwitchListTile(
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
-                            vertical: 2,
+                            vertical: 8,
                           ),
                           title: Text(
                             '使用 PotPlayer 播放',
                             style: TextStyle(
                               color: colors.textPrimary,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           subtitle: Text(
                             '启用后，此电脑上的视频将交给 PotPlayer。',
-                            style: TextStyle(color: colors.textSecondary),
+                            style: TextStyle(
+                              color: colors.textSecondary,
+                              fontSize: 12,
+                              height: 1.5,
+                            ),
                           ),
                           value: _enabled,
-                          activeThumbColor: colors.accent,
+                          activeThumbColor: colors.accentStrong,
                           activeTrackColor: colors.accentSoft,
+                          inactiveThumbColor: colors.textMuted,
+                          inactiveTrackColor: colors.textMuted.withValues(
+                            alpha: 0.12,
+                          ),
+                          trackOutlineColor: const WidgetStatePropertyAll(
+                            Colors.transparent,
+                          ),
                           onChanged: _busy
                               ? null
                               : (value) => _save(enabled: value),
                         ),
-                        Divider(height: 1, color: colors.borderSubtle),
+                        Divider(
+                          height: 1,
+                          indent: 16,
+                          endIndent: 16,
+                          color: colors.borderSubtle,
+                        ),
                         Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
@@ -280,6 +314,7 @@ class _ExternalPlayerSettingsScreenState
                                 '程序路径',
                                 style: TextStyle(
                                   color: colors.textPrimary,
+                                  fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -287,17 +322,44 @@ class _ExternalPlayerSettingsScreenState
                               TextField(
                                 controller: _pathController,
                                 enabled: !_busy,
-                                style: TextStyle(color: colors.textPrimary),
+                                style: TextStyle(
+                                  color: colors.textPrimary,
+                                  fontSize: 13,
+                                ),
+                                cursorColor: colors.accent,
                                 decoration: InputDecoration(
                                   hintText:
                                       r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
                                   prefixIcon: Icon(
-                                    Icons.route_rounded,
-                                    color: colors.accent,
+                                    Icons.folder_open_rounded,
+                                    color: colors.textMuted,
+                                    size: 18,
                                   ),
                                   isDense: true,
-                                  border: const OutlineInputBorder(),
+                                  filled: true,
+                                  fillColor: colors.backgroundBase.withValues(
+                                    alpha: 0.32,
+                                  ),
+                                  hintStyle: TextStyle(
+                                    color: colors.textMuted,
+                                    fontSize: 12,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 14,
+                                  ),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide.none,
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                      color: colors.borderSubtle,
+                                    ),
+                                  ),
                                   focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                     borderSide: BorderSide(
                                       color: colors.accent,
                                       width: 1.5,
@@ -313,12 +375,7 @@ class _ExternalPlayerSettingsScreenState
                                 children: [
                                   OutlinedButton.icon(
                                     onPressed: _busy ? null : _selectExecutable,
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: colors.accent,
-                                      side: BorderSide(
-                                        color: colors.borderStrong,
-                                      ),
-                                    ),
+                                    style: secondaryButtonStyle,
                                     icon: const Icon(
                                       Icons.folder_open_rounded,
                                       size: 18,
@@ -327,12 +384,7 @@ class _ExternalPlayerSettingsScreenState
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: _busy ? null : _detectExecutable,
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: colors.accent,
-                                      side: BorderSide(
-                                        color: colors.borderStrong,
-                                      ),
-                                    ),
+                                    style: secondaryButtonStyle,
                                     icon: const Icon(
                                       Icons.search_rounded,
                                       size: 18,
@@ -343,7 +395,14 @@ class _ExternalPlayerSettingsScreenState
                                     onPressed: _busy ? null : () => _save(),
                                     style: FilledButton.styleFrom(
                                       backgroundColor: colors.accent,
-                                      foregroundColor: buttonForeground,
+                                      foregroundColor:
+                                          controlTheme.colorScheme.onPrimary,
+                                      minimumSize: const Size(72, 38),
+                                      textStyle: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      shape: buttonShape,
                                     ),
                                     child: const Text('保存'),
                                   ),
@@ -383,7 +442,7 @@ class _ExternalPlayerSettingsScreenState
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 22),
                   Padding(
                     padding: const EdgeInsets.only(left: 2, bottom: 7),
                     child: Text(
@@ -397,36 +456,55 @@ class _ExternalPlayerSettingsScreenState
                   ),
                   Container(
                     decoration: BoxDecoration(
-                      color: AppAmbientPage.cardColorOf(
-                        context,
-                        colors.surface,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
+                      color: colors.surface.withValues(alpha: 0.36),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: colors.borderSubtle),
                     ),
                     child: Column(
                       children: [
                         ListTile(
                           dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
                           leading: Icon(
                             Icons.subtitles_rounded,
-                            color: colors.accent,
+                            color: colors.accentStrong,
+                            size: 21,
                           ),
                           title: Text(
                             '弹幕设置',
-                            style: TextStyle(color: colors.textPrimary),
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
-                          subtitle: Text(switch (_danmakuEnabled) {
-                            true => '已开启，匹配后会带入 PotPlayer',
-                            false => '已关闭，开启后才会显示弹幕',
-                            null => '暂未读取到弹幕状态',
-                          }, style: TextStyle(color: colors.textSecondary)),
+                          subtitle: Text(
+                            switch (_danmakuEnabled) {
+                              true => '已开启，匹配后会带入 PotPlayer',
+                              false => '已关闭，开启后才会显示弹幕',
+                              null => '暂未读取到弹幕状态',
+                            },
+                            style: TextStyle(
+                              color: colors.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
                           trailing: Icon(
                             Icons.chevron_right_rounded,
-                            color: colors.textSecondary,
+                            color: colors.textMuted,
+                            size: 18,
                           ),
                           onTap: _busy ? null : _openDanmakuSettings,
                         ),
-                        Divider(height: 1, color: colors.borderSubtle),
+                        Divider(
+                          height: 1,
+                          indent: 52,
+                          endIndent: 16,
+                          color: colors.borderSubtle,
+                        ),
                         _buildMiniModeTile(colors),
                       ],
                     ),
@@ -442,18 +520,24 @@ class _ExternalPlayerSettingsScreenState
                           context,
                           colors.surface,
                         ),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(18),
                       ),
                       child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
                         iconColor: colors.accent,
                         collapsedIconColor: colors.textSecondary,
                         leading: Icon(
                           Icons.help_outline_rounded,
                           color: colors.textSecondary,
+                          size: 21,
                         ),
                         title: Text(
                           '使用说明',
-                          style: TextStyle(color: colors.textPrimary),
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         subtitle: Text(
                           '进度同步、播放列表与字幕限制',
@@ -492,7 +576,7 @@ class _ExternalPlayerSettingsScreenState
     );
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-      child: page,
+      child: AppAmbientPage(child: page),
     );
   }
 
@@ -505,16 +589,27 @@ class _ExternalPlayerSettingsScreenState
           valueListenable: ExternalPlaybackMiniController.active,
           builder: (context, active, _) => ListTile(
             dense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
             enabled: available && status != null,
             leading: Icon(
               active ? Icons.picture_in_picture_alt : Icons.push_pin_outlined,
               color: available && status != null
-                  ? colors.accent
+                  ? colors.accentStrong
                   : colors.textMuted,
+              size: 21,
             ),
             title: Text(
               active ? '极简模式已开启' : '打开极简模式',
-              style: TextStyle(color: colors.textPrimary),
+              style: TextStyle(
+                color: available && status != null
+                    ? colors.textPrimary
+                    : colors.textMuted,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             subtitle: Text(
               status == null
@@ -522,7 +617,7 @@ class _ExternalPlayerSettingsScreenState
                   : available
                   ? '顶部居中显示，可拖动并保持置顶'
                   : '当前窗口暂不可用',
-              style: TextStyle(color: colors.textSecondary),
+              style: TextStyle(color: colors.textMuted, fontSize: 12),
             ),
             trailing: Icon(
               Icons.north_east_rounded,
