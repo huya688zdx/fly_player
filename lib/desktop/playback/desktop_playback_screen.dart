@@ -54,7 +54,7 @@ typedef DesktopResolvedEpisode = ({
 /// 片头片尾跳过提示种类。
 enum _SkipPromptKind { intro, outro }
 
-/// Windows / Apple 共用 media_kit 播放会话，iOS 使用触控呈现。
+/// Windows、Linux 和 Apple 共用 media_kit 播放会话，iOS 使用触控呈现。
 ///
 /// 桌面媒体播放页：播放状态由 media_kit 持有，页面只负责桌面控制层和面板。
 class DesktopPlaybackScreen extends StatefulWidget {
@@ -107,7 +107,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     with WindowListener {
   late List<Map<String, dynamic>> _episodes = widget.episodes ?? const [];
   bool get _canBrowseEpisodes =>
-      _episodes.isNotEmpty || widget.loadSeasons != null;
+      !_source.isLive && (_episodes.isNotEmpty || widget.loadSeasons != null);
   static const String _autoPlayPrefKey = 'player_auto_play_enabled';
   static const String _nextEpisodePreloadPrefKey =
       'player_next_episode_preload_enabled';
@@ -124,6 +124,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   late final Player _player;
   late final VideoController _videoController;
+  static const _displayChannel = MethodChannel('fly_player/display');
+  double _displayRefreshRate = 0;
+  Size? _videoOutputSize;
+  Timer? _videoOutputResizeTimer;
   DesktopSystemMediaControls? _systemMediaControls;
   late final DesktopWeakNetworkMonitor _weakNetwork;
   late MpvMediaSource _source;
@@ -288,6 +292,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _volume = _player.state.volume;
     if (_volume > 0) _lastAudibleVolume = _volume;
     if (Platform.isWindows) {
+      _displayChannel.setMethodCallHandler((call) async {
+        if (call.method == 'changed' && mounted) {
+          await _applyDesktopVideoSync();
+        }
+      });
       _systemMediaControls = DesktopSystemMediaControls(
         onPlaying: _setSystemPlaying,
         onSeek: (position) async {
@@ -338,12 +347,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   @override
   void dispose() {
+    _videoOutputResizeTimer?.cancel();
+    if (Platform.isWindows) _displayChannel.setMethodCallHandler(null);
     unawaited(_systemMediaControls?.dispose());
     windowManager.removeListener(this);
     if (_isLocked) unawaited(setPlayerWindowPreventClose(false));
     _weakNetwork.dispose();
     final session = widget.session;
     final retain =
+        !_source.isLive &&
         session.retainedByHost &&
         !session.disposed &&
         session.ready &&
@@ -613,25 +625,45 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     await _setMpvProperty('scale', scale.$1);
     await _setMpvProperty('cscale', scale.$2);
     await _setMpvProperty('dscale', scale.$3);
-    // 补帧 auto：安卓的自动判定只对本地低码率内容启用，桌面片源均为远端 HTTP，恒为关闭。
+    // mpv 的时间轴帧混合需要显示同步和对应的渲染节拍才能生效。
     final interpolation =
         settings[MpvSettingsCatalog.frameInterpolationKey] == 'on';
     await _setMpvProperty('interpolation', interpolation ? 'yes' : 'no');
     await _setMpvProperty('tscale', interpolation ? 'oversample' : 'mitchell');
-    await _setMpvProperty(
-      'video-sync',
-      switch (settings[MpvSettingsCatalog.videoSyncKey] ?? 'auto') {
-        'audio' => 'audio',
-        'smooth' => 'display-tempo',
-        _ => 'display-resample',
-      },
-    );
+    await _applyDesktopVideoSync();
     await _setMpvProperty(
       'tone-mapping',
       switch (settings[MpvSettingsCatalog.toneMappingKey] ?? 'auto') {
         'auto' || 'bt2390' => 'bt.2390',
         final other => other,
       },
+    );
+  }
+
+  Future<void> _applyDesktopVideoSync() async {
+    if (!mounted) return;
+    if (Platform.isWindows) {
+      try {
+        final rate = await _displayChannel.invokeMethod<double>(
+          'getRefreshRate',
+        );
+        if (!mounted) return;
+        _displayRefreshRate = rate != null && rate.isFinite && rate > 0
+            ? rate
+            : 0;
+      } on MissingPluginException {
+        _displayRefreshRate = 0;
+      } on PlatformException catch (error) {
+        debugPrint('[桌面显示同步] 无法读取刷新率：${error.message}');
+        _displayRefreshRate = 0;
+      }
+      await _setMpvProperty('override-display-fps', '$_displayRefreshRate');
+    }
+    await _setMpvProperty(
+      'video-sync',
+      Platform.isWindows && _displayRefreshRate <= 0
+          ? 'audio'
+          : DesktopMpvRuntime.videoSyncMode(_mpvSettings),
     );
   }
 
@@ -669,7 +701,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     bool preserveOnFailure = false,
     bool Function()? isCurrent,
   }) async {
-    if (isCurrent?.call() == false) return false;
+    if (_source.isLive || isCurrent?.call() == false) return false;
     final generation = ++_danmakuLoadGeneration;
     final source = _source;
     bool current() =>
@@ -989,6 +1021,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   /// 仅在已启用的章节或固定时长范围内提示跳过。
   void _onPositionChanged(Duration position) {
     _syncSystemMediaControls();
+    if (_source.isLive) return;
     _weakNetwork.onPosition(position);
     unawaited(_refreshSegmentedSubtitle(position));
     if (!_isLoading && _errorMessage == null) {
@@ -1013,6 +1046,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   _SkipPromptKind? _computeSkipPromptKind(Duration position) {
+    if (_source.isLive) return null;
     if ((!_introOutroEnabled && !_fixedDurationSkipEnabled) ||
         _playbackCompleted ||
         _isLoading ||
@@ -1608,6 +1642,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   void _onCompletedChanged(bool completed) {
+    if (_source.isLive) {
+      if (completed && mounted && !_isLoading) {
+        _showGenericError('直播已中断，请重试或切换线路');
+      }
+      return;
+    }
     if (!mounted || !completed || _playbackCompleted || _isLoading) return;
     _reportProgress();
     _progressTimer?.cancel();
@@ -1826,6 +1866,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   Future<void> _seekTo(Duration position) {
+    if (_source.isLive) return Future<void>.value();
     _cancelAutoNext(suppress: false);
     // seek 前内核可能仍是 completed；新位置即使在片尾也必须允许下一次 EOF。
     if (mounted && _playbackCompleted) {
@@ -1908,7 +1949,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Future<void> _toggleAbRepeat() async {
     if (_updatingAbLoop || _isLoading) return;
-    if (_player.state.duration <= Duration.zero) {
+    if (_source.isLive || _player.state.duration <= Duration.zero) {
       _showPlayerMessage(_l10n.playerAbLoopUnavailable);
       return;
     }
@@ -3387,6 +3428,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (_isLocked) _showLockedHint();
   }
 
+  @override
+  void onWindowMoved() => unawaited(_applyDesktopVideoSync());
+
+  @override
+  void onWindowEnterFullScreen() => unawaited(_applyDesktopVideoSync());
+
+  @override
+  void onWindowLeaveFullScreen() => unawaited(_applyDesktopVideoSync());
+
   KeyEventResult _handleKeyEvent(VideoState videoState, KeyEvent event) {
     final isInitialPress = event is KeyDownEvent;
     final isRepeatablePress = isInitialPress || event is KeyRepeatEvent;
@@ -3585,6 +3635,66 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   Widget _buildVideoControls(VideoState videoState) {
+    // 控制层随 media_kit 的全屏路由重建，必须在这里测量当前视频区域。
+    return ListenableBuilder(
+      listenable: _viewRevision,
+      builder: (context, _) => StreamBuilder<VideoParams>(
+        stream: _player.stream.videoParams,
+        initialData: _player.state.videoParams,
+        builder: (context, snapshot) => LayoutBuilder(
+          builder: (context, constraints) {
+            final params = snapshot.data!;
+            var source = Size(
+              (params.dw ?? 0).toDouble(),
+              (params.dh ?? 0).toDouble(),
+            );
+            if (params.rotate == 90 || params.rotate == 270) {
+              source = Size(source.height, source.width);
+            }
+            final aspect = switch (_aspectRatioMode) {
+              '4:3' => 4 / 3,
+              '16:9' => 16 / 9,
+              '21:9' => 21 / 9,
+              _ => null,
+            };
+            if (aspect != null) {
+              source = Size(source.height * aspect, source.height);
+            }
+            final size = DesktopMpvRuntime.videoOutputSize(
+              source: source,
+              viewport: constraints.biggest,
+              pixelRatio: MediaQuery.devicePixelRatioOf(context),
+              fit: _fit,
+            );
+            if (TickerMode.valuesOf(context).enabled &&
+                size != null &&
+                size != _videoOutputSize) {
+              _videoOutputSize = size;
+              _videoOutputResizeTimer?.cancel();
+              // 拖动窗口时合并纹理重建；最终缩放仍由 mpv 的选定算法完成。
+              _videoOutputResizeTimer = Timer(
+                const Duration(milliseconds: 100),
+                () async {
+                  if (!mounted ||
+                      !context.mounted ||
+                      !TickerMode.valuesOf(context).enabled) {
+                    return;
+                  }
+                  await _videoController.setSize(
+                    width: size.width.toInt(),
+                    height: size.height.toInt(),
+                  );
+                },
+              );
+            }
+            return _buildVideoControlsContent(videoState);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoControlsContent(VideoState videoState) {
     return ListenableBuilder(
       listenable: Listenable.merge(<Listenable>[
         _controlsVisibleNotifier,
@@ -3709,6 +3819,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                               >(
                                 valueListenable: _hoverOverlayNotifier,
                                 builder: (context, hover, _) => DesktopPlayerControls(
+                                  isLive: _source.isLive,
                                   activeMenu: hover.visible
                                       ? hover.kind?.name
                                       : null,
@@ -4479,6 +4590,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   Future<void> _retryCurrentSource() async {
     if (!mounted) return;
+    if (_source.isLive) {
+      await _reloadPlaybackSource();
+      await _setSystemPlaying(true);
+      return;
+    }
     _updateView(() {
       _isLoading = true;
       _errorMessage = null;

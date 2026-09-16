@@ -61,7 +61,31 @@ class DesktopFloatingPanel extends StatelessWidget {
                 behavior: ScrollConfiguration.of(
                   context,
                 ).copyWith(scrollbars: false),
-                child: child,
+                child: ScrollbarTheme(
+                  data: ScrollbarTheme.of(context).copyWith(
+                    trackVisibility: const WidgetStatePropertyAll(false),
+                    thickness: WidgetStateProperty.resolveWith(
+                      (states) =>
+                          states.contains(WidgetState.hovered) ||
+                              states.contains(WidgetState.dragged)
+                          ? 5
+                          : 3,
+                    ),
+                    radius: const Radius.circular(999),
+                    crossAxisMargin: 2,
+                    mainAxisMargin: 4,
+                    thumbColor: WidgetStateProperty.resolveWith(
+                      (states) => colors.textSecondary.withValues(
+                        alpha:
+                            states.contains(WidgetState.hovered) ||
+                                states.contains(WidgetState.dragged)
+                            ? 0.70
+                            : 0.35,
+                      ),
+                    ),
+                  ),
+                  child: child,
+                ),
               ),
             ),
           ),

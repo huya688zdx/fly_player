@@ -22,13 +22,14 @@ Future<void> _hoverAt(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  testWidgets('悬浮箭头：溢出时悬停出现，点击按 0.8 视口翻页，边界自动隐藏', (tester) async {
+  testWidgets('悬浮箭头按 0.8 视口翻页，左右到头后连续点击不穿透卡片', (tester) async {
     tester.view.physicalSize = const Size(800, 200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
     final controller = ScrollController();
     addTearDown(controller.dispose);
+    var cardTaps = 0;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -47,7 +48,11 @@ void main() {
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (context, index) => SizedBox(
                     width: 100,
-                    child: Center(child: Text('卡 $index')),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => cardTaps++,
+                      child: Center(child: Text('卡 $index')),
+                    ),
                   ),
                 ),
               ),
@@ -64,7 +69,6 @@ void main() {
 
     await _hoverAt(tester, find.byType(ListView));
     expect(_opacityOf(tester, Icons.chevron_right), 1);
-    expect(_opacityOf(tester, Icons.chevron_left), 0);
 
     // 点右箭头：按 0.8 视口宽度翻页，此后左右箭头都可用。
     await tester.tap(find.byIcon(Icons.chevron_right));
@@ -76,11 +80,36 @@ void main() {
     expect(_opacityOf(tester, Icons.chevron_left), 1);
     expect(_opacityOf(tester, Icons.chevron_right), 1);
 
-    // 滚到最右：右箭头隐藏。
-    controller.jumpTo(controller.position.maxScrollExtent);
+    // 点击到最右后，继续点原位置不能触发底下的卡片。
+    controller.jumpTo(controller.position.maxScrollExtent - 100);
     await tester.pumpAndSettle();
-    expect(_opacityOf(tester, Icons.chevron_right), 0);
+    final right = tester.getCenter(find.byIcon(Icons.chevron_right));
+    await tester.tapAt(right);
+    await tester.pumpAndSettle();
+    await tester.tapAt(right);
+    await tester.tapAt(right);
+    await tester.pumpAndSettle();
+    expect(cardTaps, 0);
+    expect(controller.offset, controller.position.maxScrollExtent);
+    expect(_opacityOf(tester, Icons.chevron_right), 1);
+    expect(find.byTooltip('已到最右侧'), findsOneWidget);
+
+    // 左端保持同样的禁用命中区。
+    controller.jumpTo(100);
+    await tester.pumpAndSettle();
+    final left = tester.getCenter(find.byIcon(Icons.chevron_left));
+    await tester.tapAt(left);
+    await tester.pumpAndSettle();
+    await tester.tapAt(left);
+    await tester.tapAt(left);
+    await tester.pumpAndSettle();
+    expect(cardTaps, 0);
+    expect(controller.offset, 0);
     expect(_opacityOf(tester, Icons.chevron_left), 1);
+    expect(find.byTooltip('已到最左侧'), findsOneWidget);
+
+    await tester.tap(find.byType(ListView));
+    expect(cardTaps, 1);
   });
 
   testWidgets('桌面媒体架缩成分屏宽度后仍可双向翻页，放大后刷新边界', (tester) async {

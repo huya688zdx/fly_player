@@ -361,9 +361,10 @@ void main() {
 
       await hoverAt(tester, find.byType(ListView));
 
-      // 起点可右滚不可左滚。
+      // 起点可右滚，左箭头保留并禁用。
       expect(arrowOpacityOf(tester, Icons.chevron_right), 1);
-      expect(arrowOpacityOf(tester, Icons.chevron_left), 0);
+      expect(arrowOpacityOf(tester, Icons.chevron_left), 1);
+      expect(find.byTooltip('已到最左侧'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.chevron_right));
       await tester.pumpAndSettle();

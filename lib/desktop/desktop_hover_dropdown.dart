@@ -38,7 +38,15 @@ class DesktopHoverDropdownSpec {
     required this.groups,
     this.width = 280,
     this.maxHeight = 380,
-  });
+  }) : contentBuilder = null;
+
+  /// 复用已有复杂面板的内容，定位、外壳和关闭行为仍由公共弹窗负责。
+  const DesktopHoverDropdownSpec.custom({
+    required this.contentBuilder,
+    this.width = 280,
+    this.maxHeight = 380,
+  }) : title = null,
+       groups = const [];
 
   /// 单组便捷构造（字幕/音轨等单列表场景）。
   factory DesktopHoverDropdownSpec.single({
@@ -66,6 +74,7 @@ class DesktopHoverDropdownSpec {
   /// 面板标题；null 时不渲染标题行（排序/布局下拉直接以选项开头）。
   final String? title;
   final List<DesktopDropdownOptionGroup> groups;
+  final WidgetBuilder? contentBuilder;
 
   /// 面板首选宽度；窄 Overlay 内收缩，条目过长省略号截断。
   final double width;
@@ -79,9 +88,8 @@ class DesktopHoverDropdownSpec {
 /// 定位：默认贴触发件下方左对齐（水平钳制到窗口边界内），下方空间不足时
 /// 翻转到上方；经 [CompositedTransformFollower] 锚定，页面滚动时跟随触发件。
 ///
-/// Overlay 弹层子树承载的是 tight 全屏约束，因此内容经 [UnconstrainedBox]
-/// 逃逸约束、按面板内容收缩——否则命中测试区会随弹层铺满全屏，鼠标永远
-/// 「在小窗内」，移出收起逻辑全部失效。
+/// Overlay 的全屏约束先经 [UnconstrainedBox] 释放，让 Follower 的锚点按
+/// 实际面板尺寸计算；否则向上展开会错误地减去整窗高度。
 ///
 /// 点选由外部收起；触发件自身的 onTap 在打开模态 sheet 前应先调用
 /// [DesktopHoverDropdownState.hide]。
@@ -123,7 +131,9 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
   bool get _tapMode => widget.activation == DesktopDropdownActivation.tap;
 
-  bool get _enabled => widget.spec != null && widget.spec!.groups.isNotEmpty;
+  bool get _enabled =>
+      widget.spec != null &&
+      (widget.spec!.groups.isNotEmpty || widget.spec!.contentBuilder != null);
 
   void _notifyOpenChanged() => widget.onOpenChanged?.call(_visible);
 
@@ -260,19 +270,19 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
 
     final panel = IgnorePointer(
       ignoring: !_visible,
-      child: CompositedTransformFollower(
-        link: _link,
-        showWhenUnlinked: false,
-        targetAnchor: placement.above
-            ? Alignment.topLeft
-            : Alignment.bottomLeft,
-        followerAnchor: placement.above
-            ? Alignment.bottomLeft
-            : Alignment.topLeft,
-        offset: Offset(placement.dx, placement.above ? -6 : 6),
-        child: UnconstrainedBox(
-          alignment: Alignment.topLeft,
-          clipBehavior: Clip.none,
+      child: UnconstrainedBox(
+        alignment: Alignment.topLeft,
+        clipBehavior: Clip.none,
+        child: CompositedTransformFollower(
+          link: _link,
+          showWhenUnlinked: false,
+          targetAnchor: placement.above
+              ? Alignment.topLeft
+              : Alignment.bottomLeft,
+          followerAnchor: placement.above
+              ? Alignment.bottomLeft
+              : Alignment.topLeft,
+          offset: Offset(placement.dx, placement.above ? -6 : 6),
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: _visible ? 1 : 0),
             duration: _fadeDuration,
@@ -290,98 +300,113 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                 onEnter: _tapMode ? null : (_) => _handlePanelEnter(),
                 onExit: _tapMode ? null : (_) => _handlePanelExit(),
                 child: DesktopFloatingPanel(
-                  child: SizedBox(
-                    width: placement.width,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (spec.title != null) ...<Widget>[
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 9,
-                              ),
-                              child: Text(
-                                spec.title!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: colors.textSecondary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.3,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: placement.width,
+                      maxHeight: spec.contentBuilder == null
+                          ? placement.maxHeight
+                          : spec.maxHeight.clamp(0.0, placement.maxHeight),
+                    ),
+                    child:
+                        spec.contentBuilder?.call(context) ??
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (spec.title != null) ...<Widget>[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 9,
+                                  ),
+                                  child: Text(
+                                    spec.title!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 9),
+                                Divider(height: 1, color: colors.borderSubtle),
+                                const SizedBox(height: 6),
+                              ],
+                              Flexible(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxHeight: spec.maxHeight,
+                                  ),
+                                  child: SingleChildScrollView(
+                                    padding: EdgeInsets.zero,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        for (
+                                          var i = 0;
+                                          i < spec.groups.length;
+                                          i++
+                                        ) ...<Widget>[
+                                          if (i > 0) ...<Widget>[
+                                            const SizedBox(height: 4),
+                                            Divider(
+                                              height: 1,
+                                              thickness: 1,
+                                              color: colors.borderSubtle,
+                                            ),
+                                            const SizedBox(height: 4),
+                                          ],
+                                          for (final item
+                                              in spec.groups[i].items)
+                                            DesktopDropdownOptionRow(
+                                              item: item,
+                                              enabled: !spec
+                                                  .groups[i]
+                                                  .disabledIds
+                                                  .contains(item.id),
+                                              leading: spec
+                                                  .groups[i]
+                                                  .leadingById[item.id],
+                                              selected:
+                                                  item.id ==
+                                                  spec.groups[i].selectedId,
+                                              onTap: () {
+                                                final currentGroup = widget
+                                                    .spec
+                                                    ?.groups
+                                                    .elementAtOrNull(i);
+                                                if (!mounted ||
+                                                    !_visible ||
+                                                    currentGroup == null ||
+                                                    currentGroup.disabledIds
+                                                        .contains(item.id) ||
+                                                    !currentGroup.items.any(
+                                                      (current) =>
+                                                          current.id == item.id,
+                                                    )) {
+                                                  return;
+                                                }
+                                                _close();
+                                                spec.groups[i].onSelected(
+                                                  item.id,
+                                                );
+                                              },
+                                            ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 9),
-                            Divider(height: 1, color: colors.borderSubtle),
-                            const SizedBox(height: 6),
-                          ],
-                          ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxHeight: placement.maxHeight,
-                            ),
-                            child: SingleChildScrollView(
-                              padding: EdgeInsets.zero,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  for (
-                                    var i = 0;
-                                    i < spec.groups.length;
-                                    i++
-                                  ) ...<Widget>[
-                                    if (i > 0) ...<Widget>[
-                                      const SizedBox(height: 4),
-                                      Divider(
-                                        height: 1,
-                                        thickness: 1,
-                                        color: colors.borderSubtle,
-                                      ),
-                                      const SizedBox(height: 4),
-                                    ],
-                                    for (final item in spec.groups[i].items)
-                                      DesktopDropdownOptionRow(
-                                        item: item,
-                                        enabled: !spec.groups[i].disabledIds
-                                            .contains(item.id),
-                                        leading:
-                                            spec.groups[i].leadingById[item.id],
-                                        selected:
-                                            item.id ==
-                                            spec.groups[i].selectedId,
-                                        onTap: () {
-                                          final currentGroup = widget
-                                              .spec
-                                              ?.groups
-                                              .elementAtOrNull(i);
-                                          if (!mounted ||
-                                              !_visible ||
-                                              currentGroup == null ||
-                                              currentGroup.disabledIds.contains(
-                                                item.id,
-                                              ) ||
-                                              !currentGroup.items.any(
-                                                (current) =>
-                                                    current.id == item.id,
-                                              )) {
-                                            return;
-                                          }
-                                          _close();
-                                          spec.groups[i].onSelected(item.id);
-                                        },
-                                      ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
+                        ),
                   ),
                 ),
               ),
@@ -439,16 +464,16 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     // 下方放得下（或上下都放不下）时优先下方，贴近图 2 的下拉形态。
     final minNeeded = (spec.maxHeight < 240 ? spec.maxHeight : 240.0) + 18;
     final above = spaceBelow < minNeeded && spaceAbove > spaceBelow;
-    final maxExtent = (above ? spaceAbove : spaceBelow) - 12;
-    final maxHeight = spec.maxHeight.clamp(
+    // 整个面板都计入边界，包含标题与内边距；仅限制列表仍会越过窗口底边。
+    final maxHeight = ((above ? spaceAbove : spaceBelow) - 18).clamp(
       0.0,
-      maxExtent.isNegative ? 0.0 : maxExtent,
+      double.infinity,
     );
-
     final width = spec.width.clamp(
       0.0,
       (overlaySize.width - 24).clamp(0.0, double.infinity),
     );
+
     final maxLeft = (overlaySize.width - width - 12).clamp(
       12.0,
       double.infinity,
@@ -456,9 +481,9 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     final left = triggerRect.left.clamp(12.0, maxLeft);
     return _DropdownPlacement(
       dx: left - triggerRect.left,
+      width: width,
       above: above,
       maxHeight: maxHeight,
-      width: width,
     );
   }
 }
@@ -484,15 +509,15 @@ Widget desktopTapDropdownWrapper({
 class _DropdownPlacement {
   const _DropdownPlacement({
     required this.dx,
+    required this.width,
     required this.above,
     required this.maxHeight,
-    required this.width,
   });
 
   final double dx;
+  final double width;
   final bool above;
   final double maxHeight;
-  final double width;
 }
 
 /// 原桌面下拉的紧凑选项行，也供其他桌面小窗复用。

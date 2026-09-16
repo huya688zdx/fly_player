@@ -105,6 +105,40 @@ void main() {
     expect(source, isNot(contains('_contentKey')));
   });
 
+  testWidgets('搜索框固定图标右缘向左展开，退出时向右收起', (tester) async {
+    final anchor = LayerLink();
+    await _pumpSearchHost(tester, _ControlledSearchBackend(), anchor: anchor);
+    final button = find.byIcon(Icons.search_rounded);
+    final anchorRight = tester.getRect(find.byType(IconButton)).right;
+    await tester.tap(button);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 70));
+    final opening = tester.getRect(find.byType(SizeTransition));
+    expect(opening.right, closeTo(anchorRight, .5));
+
+    await tester.pumpAndSettle();
+    final expanded = tester.getRect(find.byType(SizeTransition));
+    expect(expanded.right, closeTo(anchorRight, .5));
+    expect(opening.width, greaterThan(0));
+    expect(opening.width, lessThan(expanded.width));
+    expect(opening.left, greaterThan(expanded.left));
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
+      isTrue,
+    );
+
+    await tester.tapAt(const Offset(100, 500));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 70));
+    final closing = tester.getRect(find.byType(SizeTransition));
+    expect(closing.right, closeTo(anchorRight, .5));
+    expect(closing.width, greaterThan(0));
+    expect(closing.width, lessThan(expanded.width));
+    expect(closing.left, greaterThan(expanded.left));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+  });
+
   testWidgets('输入立即搜索且请求切换期间结果窗持续存在', (tester) async {
     final backend = _ControlledSearchBackend();
     final hostContext = await _pumpSearchHost(tester, backend);
@@ -191,6 +225,7 @@ Future<BuildContext> _pumpSearchHost(
   WidgetTester tester,
   _ControlledSearchBackend backend, {
   ScrollController? scrollController,
+  LayerLink? anchor,
 }) async {
   final nasProvider = NasProvider();
   final mediaProvider = _TestMediaBackendProvider(nasProvider, backend);
@@ -211,9 +246,30 @@ Future<BuildContext> _pumpSearchHost(
           builder: (context) {
             hostContext = context;
             return Scaffold(
-              body: ListView(
-                controller: scrollController,
-                children: const <Widget>[SizedBox(height: 1800)],
+              body: Stack(
+                children: <Widget>[
+                  ListView(
+                    controller: scrollController,
+                    children: const <Widget>[SizedBox(height: 1800)],
+                  ),
+                  if (anchor != null)
+                    Positioned(
+                      right: 64,
+                      top: 20,
+                      child: CompositedTransformTarget(
+                        link: anchor,
+                        child: SizedBox.square(
+                          dimension: 44,
+                          child: IconButton(
+                            icon: const Icon(Icons.search_rounded),
+                            onPressed: () => unawaited(
+                              showDesktopSearch(context, anchor: anchor),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             );
           },

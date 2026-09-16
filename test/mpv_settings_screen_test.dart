@@ -166,7 +166,7 @@ void main() {
     final editableText = tester
         .widgetList<EditableText>(
           find.descendant(
-            of: find.byType(AlertDialog),
+            of: find.byType(Dialog),
             matching: find.byType(EditableText),
           ),
         )

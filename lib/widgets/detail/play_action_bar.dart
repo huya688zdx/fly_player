@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 import '../../ui/app_transitions.dart';
+import '../../utils/detail_layout_solver.dart';
 import 'play_control_row.dart';
 
 class PlayActionBar extends StatelessWidget {
@@ -43,7 +44,8 @@ class PlayActionBar extends StatelessWidget {
       DetailTokens.remainFontSize,
       role: AdaptiveFontRole.caption,
     );
-    return Column(
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         AnimatedSize(
           duration: AppTransitions.progressSizeDuration,
@@ -105,6 +107,20 @@ class PlayActionBar extends StatelessWidget {
           onWatchedTap: onWatchedTap,
         ),
       ],
+    );
+    if (!DetailLayoutSolver.usesDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    )) {
+      return content;
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: DetailLayoutSolver.desktopActionWidth,
+        ),
+        child: content,
+      ),
     );
   }
 }

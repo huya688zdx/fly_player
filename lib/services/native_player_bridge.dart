@@ -6,9 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show Locale;
 
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../danmaku/models/danmaku_settings.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
 import '../playback/settings/mpv_settings_store.dart';
+import '../playback/playback_source.dart';
 import '../providers/app_locale_provider.dart';
 import '../providers/nas_provider.dart';
 import 'app_log_service.dart';
@@ -165,7 +167,8 @@ class NativePlayerBridge {
       MediaSessionReloadIntent intent,
     )?
     onReloadServerSession,
-    Future<void> Function(String playLink)? onReleaseServerSession,
+    Future<void> Function(String playLink, {String? scope})?
+    onReleaseServerSession,
     Future<String?> Function(String loadArgs, int positionMs)?
     onResolveSegmentedSubtitle,
     Future<void> Function()? onUnbind,
@@ -185,14 +188,31 @@ class NativePlayerBridge {
     bool acceptsScope(Object? scope) =>
         statsScope == PlayStatsService.instance.currentScope &&
         ((scope == null || scope == '') ? true : scope == statsScope);
-    Map<String, dynamic>? scopedResult(Map<String, dynamic>? result) {
-      if (result == null ||
+    Future<Map<String, dynamic>?> scopedResult(
+      Map<String, dynamic>? result, {
+      String? retainedPlayLink,
+    }) async {
+      if (result == null) return null;
+      final raw = result['loadArgs'];
+      final args = raw is String
+          ? Map<String, dynamic>.from(jsonDecode(raw) as Map)
+          : const <String, dynamic>{};
+      if (!identical(_activeBindToken, token) ||
           statsScope != PlayStatsService.instance.currentScope) {
+        final link = (args['playLink'] ?? '').toString().trim();
+        if (link.isNotEmpty && link != retainedPlayLink) {
+          try {
+            await onReleaseServerSession?.call(
+              link,
+              scope: args['playbackSessionScope']?.toString(),
+            );
+          } catch (_) {
+            // 清理失败也不能把过期结果交给新账户播放。
+          }
+        }
         return null;
       }
-      final raw = result['loadArgs'];
       if (raw is! String) return result;
-      final args = Map<String, dynamic>.from(jsonDecode(raw) as Map);
       return {
         ...result,
         'loadArgs': jsonEncode({...args, 'statsScope': statsScope}),
@@ -213,7 +233,12 @@ class NativePlayerBridge {
         case 'releaseServerSession':
           final args = (call.arguments as Map?) ?? const {};
           final link = (args['playLink'] ?? '').toString().trim();
-          if (link.isNotEmpty) await onReleaseServerSession?.call(link);
+          if (link.isNotEmpty) {
+            await onReleaseServerSession?.call(
+              link,
+              scope: args['playbackSessionScope']?.toString(),
+            );
+          }
           return null;
         case 'resolvePlayback':
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
@@ -224,7 +249,7 @@ class NativePlayerBridge {
             '[DANMAKU][NATIVE_SWITCH] bridge resolvePlayback recv '
             'item="$guid" keys=${args.keys.toList()}',
           );
-          final resolved = scopedResult(
+          final resolved = await scopedResult(
             await onResolvePlayback(
               guid,
               qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
@@ -253,6 +278,7 @@ class NativePlayerBridge {
                 return v.isEmpty ? null : v;
               }(),
             ),
+            retainedPlayLink: (args['currentPlayLink'] ?? '').toString().trim(),
           );
           // 统计元数据缓存:预取/切集/切版本的解析结果都进缓存;会话切换只认 recordProgress。
           NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
@@ -270,7 +296,8 @@ class NativePlayerBridge {
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final current = (args['loadArgs'] ?? '').toString();
           if (current.isEmpty) return null;
-          if (!acceptsScope((jsonDecode(current) as Map)['statsScope'])) {
+          final currentArgs = jsonDecode(current) as Map;
+          if (!acceptsScope(currentArgs['statsScope'])) {
             return null;
           }
           // 把 channel 的「带 key=override / 空串=关闭 / 不带=保留」语义组装成中立意图：
@@ -281,7 +308,7 @@ class NativePlayerBridge {
               ? (args['subtitleGuid'] ?? '').toString()
               : null;
           final startMs = (args['startPositionMs'] as num?)?.toInt();
-          final reloaded = scopedResult(
+          final reloaded = await scopedResult(
             await onReloadServerSession(
               current,
               MediaSessionReloadIntent(
@@ -299,6 +326,7 @@ class NativePlayerBridge {
                     : null,
               ),
             ),
+            retainedPlayLink: (currentArgs['playLink'] ?? '').toString().trim(),
           );
           NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
             reloaded?['loadArgs'],
@@ -613,7 +641,9 @@ class NativePlayerBridge {
     // 弹幕：详情页 engine 仍存活时，用 source 的媒体上下文做一次 DanDanPlay 自动匹配+
     // 拉取，序列化落临时文件，随 Intent 传给原生壳。失败则无弹幕、不阻塞播放。
     var resolvedDanmakuFile = danmakuFilePath;
-    if (resolvedDanmakuFile == null && settings.enabled) {
+    if (resolvedDanmakuFile == null &&
+        settings.enabled &&
+        !MpvMediaSource.fromMap(loadArgs).isLive) {
       resolvedDanmakuFile = await NativeDanmakuPrefetch.resolveToFile(
         isCurrent: () => identical(danmakuBindToken, _activeBindToken),
         seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),

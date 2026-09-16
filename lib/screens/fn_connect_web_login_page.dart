@@ -131,7 +131,6 @@ class FnConnectWebLoginPage extends StatefulWidget {
 
 class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   static const String _bridgeName = 'FnConnectBridge';
-  static bool _windowsEnvironmentInitialized = false;
 
   WebViewCookieManager? _cookieManager;
 
@@ -172,10 +171,6 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     final l10n = AppLocalizations.of(context);
     try {
       if (defaultTargetPlatform == TargetPlatform.windows) {
-        if (!_windowsEnvironmentInitialized) {
-          await windows_webview.WebviewController.initializeEnvironment();
-          _windowsEnvironmentInitialized = true;
-        }
         if (!mounted || _isClosing) return;
         final controller = windows_webview.WebviewController();
         _windowsController = controller;

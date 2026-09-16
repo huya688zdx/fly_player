@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/services/native_reentry_support.dart';
 import 'package:fly_player/services/playback_progress_offline_queue.dart';
@@ -16,6 +17,7 @@ void main() {
     'unchanged',
     'default',
     'alreadyStale',
+    'capturedAccount',
   ]) {
     test('release guard at Dio request queue: $scenario', () async {
       SharedPreferences.setMockInitialValues({
@@ -25,9 +27,11 @@ void main() {
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         final nas = _Nas('http://127.0.0.1:${server.port}');
         final requests = <Map>[];
+        final requestHeaders = <HttpHeaders>[];
         var owner = 1;
         var intercepted = false;
         server.listen((request) async {
+          requestHeaders.add(request.headers);
           requests.add(
             jsonDecode(await utf8.decoder.bind(request).join()) as Map,
           );
@@ -56,22 +60,42 @@ void main() {
           nas.onAccessCode = () {
             intercepted = true;
             scheduleMicrotask(() {
-              if (scenario == 'account') nas.sessionUser = 'account-B';
+              if (scenario == 'account' || scenario == 'capturedAccount') {
+                nas.sessionUser = 'account-B';
+              }
               if (scenario == 'owner') owner = 2;
             });
           };
-          await NativeReentrySupport.releaseServerSession(
-            nas,
-            'synthetic-link',
-            isCurrent: scenario == 'default'
-                ? null
-                : () => nas.userName == 'account-A' && owner == 1,
-          );
+          if (scenario == 'capturedAccount') {
+            final release = FeiniuApi(nas).captureServerSessionRelease();
+            await release('synthetic-link');
+          } else {
+            await NativeReentrySupport.releaseServerSession(
+              nas,
+              'synthetic-link',
+              isCurrent: scenario == 'default'
+                  ? null
+                  : () => nas.userName == 'account-A' && owner == 1,
+            );
+          }
           expect(intercepted, scenario != 'alreadyStale');
-          if (scenario == 'unchanged' || scenario == 'default') {
+          if (scenario == 'unchanged' ||
+              scenario == 'default' ||
+              scenario == 'capturedAccount') {
             expect(requests, hasLength(1));
             expect(requests.single['req'], 'media.quit');
             expect(requests.single['playLink'], 'synthetic-link');
+            if (scenario == 'capturedAccount') {
+              expect(nas.sessionUser, 'account-B');
+              expect(
+                requestHeaders.single.value('authorization'),
+                'token-account-A',
+              );
+              expect(
+                requestHeaders.single.value('x-access-code'),
+                base64Encode(utf8.encode('code-account-A')),
+              );
+            }
           } else {
             expect(requests, isEmpty);
           }
@@ -92,7 +116,7 @@ class _Nas extends NasProvider {
   @override
   String get baseUrl => server;
   @override
-  String get token => 'synthetic-token';
+  String get token => 'token-$sessionUser';
   @override
   bool get isConfigured => true;
   @override
@@ -100,7 +124,7 @@ class _Nas extends NasProvider {
   @override
   String get accessCode {
     onAccessCode?.call();
-    return '';
+    return 'code-$sessionUser';
   }
 }
 

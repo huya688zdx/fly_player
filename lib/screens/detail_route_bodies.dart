@@ -70,7 +70,10 @@ class _DetailItemRouteBodyState extends State<DetailItemRouteBody> {
       future: payloadFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return DetailLoadingSkeleton(presentation: widget.presentation);
+          return DetailLoadingSkeleton(
+            presentation: widget.presentation,
+            showPoster: false,
+          );
         }
         if (snapshot.hasError) {
           unawaited(

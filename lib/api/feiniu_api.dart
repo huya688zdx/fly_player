@@ -425,6 +425,8 @@ class FeiniuApi {
 
   final NasProvider nasProvider;
   static const _sessionControlGuardKey = 'feiniu.sessionControlIsCurrent';
+  static const _sessionReleaseCredentialsKey =
+      'feiniu.sessionReleaseCredentials';
   final Dio _dio = Dio();
   late final String _boundBaseUrl;
   final Random _random = Random();
@@ -465,16 +467,34 @@ class FeiniuApi {
             );
           }
           _removeManagedNasAuthHeaders(options.headers);
+          final releaseCredentials =
+              options.extra[_sessionReleaseCredentialsKey]
+                  as ({String token, String accessCode})?;
           final shouldAttachNasAuth =
-              _isProviderStillBoundToOrigin() &&
+              (releaseCredentials != null || _isProviderStillBoundToOrigin()) &&
               isSameHttpOrigin(_boundBaseUrl, options.uri.toString());
+          if (releaseCredentials != null) {
+            // 旧会话只能使用创建时的凭据，不能混入切换后的账户或访问码。
+            options.headers.removeWhere(
+              (name, _) =>
+                  name.toLowerCase() == 'x-access-code' ||
+                  name.toLowerCase() == 'x-access-source',
+            );
+            if (shouldAttachNasAuth) {
+              options.headers.addAll(
+                buildFeiniuAccessCodeHeaders(releaseCredentials.accessCode),
+              );
+            }
+            options.followRedirects = false;
+          }
           _apiVerboseLog(
             '[API][REQ] ${options.method} ${options.baseUrl}${options.path} '
             'query=${options.queryParameters}',
           );
-          if (shouldAttachNasAuth && nasProvider.token.isNotEmpty) {
-            options.headers['Authorization'] = nasProvider.token;
-            options.headers['Trim-MC-token'] = nasProvider.token;
+          final token = releaseCredentials?.token ?? nasProvider.token;
+          if (shouldAttachNasAuth && token.isNotEmpty) {
+            options.headers['Authorization'] = token;
+            options.headers['Trim-MC-token'] = token;
           }
           if (shouldAttachNasAuth &&
               shouldUseRelayModeCookieForBaseUrl(options.uri.toString())) {
@@ -1988,6 +2008,20 @@ class FeiniuApi {
     'startTimestamp': startTimestamp,
   });
 
+  /// 在反向通道绑定时保留原账户凭据，供迟到结果回收其创建的会话。
+  Future<void> Function(String playLink) captureServerSessionRelease() {
+    final credentials = (
+      token: nasProvider.token,
+      accessCode: nasProvider.accessCode,
+    );
+    return (playLink) => _controlServerSession(
+      'media.quit',
+      playLink,
+      const {},
+      releaseCredentials: credentials,
+    );
+  }
+
   Future<void> quitServerPlaySession(
     String playLink, {
     bool Function()? isCurrent,
@@ -2003,15 +2037,20 @@ class FeiniuApi {
     String playLink,
     Map<String, dynamic> parameters, {
     bool Function()? isCurrent,
+    ({String token, String accessCode})? releaseCredentials,
   }) async {
     if (playLink.trim().isEmpty || isCurrent?.call() == false) return;
     final clientId = await _playbackClientIdStore.ensureClientId();
     if (isCurrent?.call() == false) return;
     final response = await _dio.post(
       _playMediaBridgePath,
-      options: isCurrent == null
-          ? null
-          : Options(extra: {_sessionControlGuardKey: isCurrent}),
+      options: Options(
+        extra: {
+          if (isCurrent != null) _sessionControlGuardKey: isCurrent,
+          if (releaseCredentials != null)
+            _sessionReleaseCredentialsKey: releaseCredentials,
+        },
+      ),
       data: {
         'req': method,
         'reqid': clientId.substring(0, min(16, clientId.length)).toUpperCase(),

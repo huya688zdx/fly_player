@@ -26,17 +26,20 @@ import '../../services/server_native_picker_support.dart';
 import '../../services/server_reentry_support.dart';
 import 'desktop_playback_screen.dart';
 import 'desktop_playback_session.dart';
+import 'desktop_playback_launch_guard.dart';
 import 'external_playback_host.dart';
 import 'external_player_settings.dart';
 
-/// Windows / macOS / iOS 的 media_kit 播放宿主，共用换源与进度上报。
+/// Windows、Linux 和 Apple 共用 media_kit 播放宿主、换源与进度上报。
 final class DesktopPlaybackHost implements PlaybackHost {
   const DesktopPlaybackHost(
     this.context, {
     this.createSession = _createSession,
+    this.launchRequest,
   });
 
   final BuildContext context;
+  final DesktopPlaybackLaunchRequest? launchRequest;
   final DesktopPlaybackSession Function(
     MpvMediaSource source, {
     String? danmakuFilePath,
@@ -60,6 +63,12 @@ final class DesktopPlaybackHost implements PlaybackHost {
   static String? _requestedSourceScope;
   static int _sourceRequest = 0;
 
+  static bool sourceInUse(String scope, String playLink) =>
+      (_scope == scope &&
+          _session?.disposed == false &&
+          _session!.source.playLink?.trim() == playLink) ||
+      ExternalPlaybackHost.sourceInUse(scope, playLink);
+
   void _presentScreen(WidgetBuilder builder) {
     final route = MaterialPageRoute<void>(builder: builder);
     _route = route;
@@ -72,6 +81,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
   }
 
   bool _isCurrentRequest(int request, String scope) =>
+      launchRequest?.isCurrent != false &&
       context.mounted &&
       request == _requestGeneration &&
       scope == playbackSessionScope(context);
@@ -98,7 +108,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
     String? subtitleGuid,
     Duration? position,
   }) async {
-    if (!context.mounted) return false;
+    if (!context.mounted || launchRequest?.isCurrent == false) return false;
     final request = ++_requestGeneration;
     final requestScope = playbackSessionScope(context);
     final settings = await ExternalPlayerSettings.load();
@@ -106,7 +116,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
       return false;
     }
     if (settings.enabled) {
-      return ExternalPlaybackHost(context).resume(
+      return ExternalPlaybackHost(context, launchRequest: launchRequest).resume(
         itemGuid: itemGuid,
         mediaGuid: mediaGuid,
         audioGuid: audioGuid,
@@ -124,6 +134,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
     final builder = _screenBuilder;
     if (session == null ||
         builder == null ||
+        session.source.isLive ||
         session.disposed ||
         _scope != playbackSessionScope(context) ||
         itemGuid.trim().isEmpty ||
@@ -164,7 +175,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
     NasProvider? nas,
     bool offline = false,
   }) async {
-    if (!context.mounted) {
+    if (!context.mounted || launchRequest?.isCurrent == false) {
       return false;
     }
 
@@ -195,14 +206,16 @@ final class DesktopPlaybackHost implements PlaybackHost {
             connection?.userName;
     Future<void> releaseLink(String link) async {
       link = link.trim();
-      if (offline ||
-          !backend.capabilities.usesLegacyFeiniuFlow ||
-          link.isEmpty) {
+      if (link.isEmpty) return;
+      if (!backend.capabilities.usesLegacyFeiniuFlow) {
+        await backend.releasePlaybackSession(link);
         return;
       }
+      if (offline) return;
       // 新请求可能复用同一出流句柄，旧请求只释放已不再被认领的来源。
       bool canRelease() =>
           resourceScopeIsCurrent() &&
+          !ExternalPlaybackHost.sourceInUse(requestScope, link) &&
           !((_sourceRequest != request &&
                   _requestedSourceScope == requestScope &&
                   _requestedSource?.playLink?.trim() == link) ||
@@ -222,18 +235,23 @@ final class DesktopPlaybackHost implements PlaybackHost {
 
     Future<void> releaseSource(MpvMediaSource owned) =>
         releaseLink(owned.playLink ?? '');
+    // 从这里起，宿主的 finally 或正式会话负责释放此源。
+    launchRequest?.pendingSource = null;
     try {
       final settings = await ExternalPlayerSettings.load();
       if (!context.mounted || !_isCurrentRequest(request, requestScope)) {
         return false;
       }
-      if (settings.enabled) {
+      if (settings.enabled && !source.isLive) {
         await _retireSession();
         if (!context.mounted || !_isCurrentRequest(request, requestScope)) {
           return false;
         }
         transferred = true;
-        return ExternalPlaybackHost(context).launch(
+        return ExternalPlaybackHost(
+          context,
+          launchRequest: launchRequest,
+        ).launch(
           source: source,
           episodes: episodes,
           initialPlayInfo: initialPlayInfo,
@@ -244,7 +262,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
         );
       }
 
-      // 只在 Windows 桌面播放真正启动时初始化，Android 主路径不会触发。
+      // 只在 media_kit 播放真正启动时初始化，Android 主路径不会触发。
       await ExternalPlaybackHost.stop();
       if (!context.mounted || !_isCurrentRequest(request, requestScope)) {
         return false;
@@ -341,9 +359,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
               )
             : null,
         resolveSegmentedSubtitle: subtitles?.resolve,
-        releaseServerSession: backend.capabilities.usesLegacyFeiniuFlow
-            ? releaseLink
-            : null,
+        releaseServerSession: releaseLink,
         resolveSubtitleFile: backend.capabilities.usesLegacyFeiniuFlow
             ? (guid, {format}) => NativeReentrySupport.resolveSubtitleFile(
                 effectiveNas,
@@ -398,7 +414,8 @@ final class DesktopPlaybackHost implements PlaybackHost {
               },
         reloadSource: (current, intent) async {
           final currentLoadArgs = jsonEncode(current.toMap());
-          final result = backend.capabilities.usesLegacyFeiniuFlow
+          final result =
+              backend.capabilities.usesLegacyFeiniuFlow && !current.isLive
               ? await NativeReentrySupport.reloadServerSession(
                   effectiveNas,
                   currentLoadArgs: currentLoadArgs,

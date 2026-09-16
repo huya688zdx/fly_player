@@ -56,22 +56,25 @@ class DesktopPlaybackReporter {
     final report = reportProgress;
     if (report == null ||
         source.externalLocalSource ||
-        duration.inSeconds <= 0) {
+        (!source.isLive && duration.inSeconds <= 0)) {
       return;
     }
     final progress = <String, dynamic>{
       'itemGuid': source.itemGuid,
       'mediaGuid': source.mediaGuid,
+      'mediaType': source.mediaType,
       'videoGuid': source.videoGuid,
       'audioGuid': source.audioTrackGuid ?? '',
       'subtitleGuid': source.subtitleTrackGuid ?? '',
       'resolution': source.resolution,
       'bitrate': source.bitrate,
       'playLink': source.playLink ?? '',
-      'ts': completed
+      'ts': source.isLive
+          ? 0
+          : completed
           ? duration.inSeconds
           : position.inSeconds.clamp(0, duration.inSeconds),
-      'duration': duration.inSeconds,
+      'duration': source.isLive ? 0 : duration.inSeconds,
       'isPaused': paused,
     };
     _serverPending = _serverPending

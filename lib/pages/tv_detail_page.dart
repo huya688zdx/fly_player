@@ -36,6 +36,7 @@ import '../ui/region_name_localizer.dart';
 import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
+import '../utils/detail_layout_solver.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/play_detail_formatters.dart';
@@ -216,6 +217,29 @@ class _TvDetailPageState extends State<TvDetailPage>
     if ((offset - _scrollOffsetNotifier.value).abs() > 0.5) {
       _scrollOffsetNotifier.value = offset;
     }
+  }
+
+  Widget _buildSeriesHeroSliver({
+    required double height,
+    required String title,
+    Widget? titleChild,
+  }) {
+    final width = MediaQuery.sizeOf(context).width;
+    final sliver = SliverToBoxAdapter(
+      child: DetailHeroOverlay(
+        height: height,
+        title: title,
+        titleChild: titleChild,
+      ),
+    );
+    if (!DetailLayoutSolver.usesDesktopLayout(width)) return sliver;
+    final outerPadding =
+        DetailLayoutSolver.horizontalPadding(width) -
+        DetailTokens.screenHorizontalPadding;
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: outerPadding),
+      sliver: sliver,
+    );
   }
 
   Future<void> _load() async {
@@ -830,19 +854,25 @@ class _TvDetailPageState extends State<TvDetailPage>
     final layout = MediaLayoutProfile.of(context);
     final media = MediaQuery.of(context);
     final screenSize = media.size;
+    final desktop = DetailLayoutSolver.usesDesktopLayout(screenSize.width);
+    final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+      screenSize.width,
+    );
     final heroAdaptive = TvHeroAdaptive.resolve(
       screenSize,
       devicePixelRatio: media.devicePixelRatio,
     );
     final posterHeightMax = screenSize.height * 0.48;
     final posterHeightMin = math.min(300.0, posterHeightMax);
-    final posterHeight = math
-        .min(
-          screenSize.height * heroAdaptive.posterHeightRatio,
-          screenSize.width / 1.55,
-        )
-        .clamp(posterHeightMin, posterHeightMax)
-        .toDouble();
+    final posterHeight = desktop
+        ? DetailLayoutSolver.desktopSeriesHeroHeight(screenSize)
+        : math
+              .min(
+                screenSize.height * heroAdaptive.posterHeightRatio,
+                screenSize.width / 1.55,
+              )
+              .clamp(posterHeightMin, posterHeightMax)
+              .toDouble();
     final collapseRangeMax = math.max(1.0, posterHeight);
     final collapseRange = (posterHeight - media.padding.top - kToolbarHeight)
         .clamp(1.0, collapseRangeMax);
@@ -923,6 +953,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                 fillGapsWithImage: false,
                 overlayOpacity: 0.74,
                 maxScrollZoom: 1.38,
+                useDesktopReadingScrim: desktop,
                 ambientTintOverride: ambientTint,
               );
             },
@@ -933,20 +964,18 @@ class _TvDetailPageState extends State<TvDetailPage>
               parent: AlwaysScrollableScrollPhysics(),
             ),
             slivers: [
-              SliverToBoxAdapter(
-                child: DetailHeroOverlay(
-                  height: posterHeight,
-                  title: title,
-                  titleChild: heroTitleChild,
-                ),
+              _buildSeriesHeroSliver(
+                height: posterHeight,
+                title: title,
+                titleChild: heroTitleChild,
               ),
               SliverToBoxAdapter(
                 child: Container(
                   color: Colors.transparent,
-                  padding: const EdgeInsets.fromLTRB(
-                    DetailTokens.screenHorizontalPadding,
+                  padding: EdgeInsets.fromLTRB(
+                    horizontalPadding,
                     8,
-                    DetailTokens.screenHorizontalPadding,
+                    horizontalPadding,
                     18,
                   ),
                   child: Column(
@@ -1013,6 +1042,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                           },
                           child: DetailDescriptionSection(
                             text: overview,
+                            maxLines: desktop ? 3 : 4,
+                            baseFontSize: desktop ? 14 : 15,
                             onMoreTap: () {
                               LongTextOverlayPage.show(
                                 context,
@@ -1033,7 +1064,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                         ).detailTvSeasonCount(seasonCount),
                         style: TextStyle(
                           color: colors.textPrimary,
-                          fontSize: 30,
+                          fontSize: desktop ? 24 : 30,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -1553,7 +1584,11 @@ class _TvDetailPageState extends State<TvDetailPage>
       builder: (context, ambientTint) {
         final colors = context.appColors;
         if (_loading) {
-          return DetailLoadingSkeleton(presentation: widget.presentation);
+          return DetailLoadingSkeleton(
+            presentation: widget.presentation,
+            showPoster: false,
+            seriesHeader: true,
+          );
         }
         if (_error != null) {
           return DetailStatusPage(
@@ -1576,19 +1611,25 @@ class _TvDetailPageState extends State<TvDetailPage>
         final layout = MediaLayoutProfile.of(context);
         final media = MediaQuery.of(context);
         final screenSize = media.size;
+        final desktop = DetailLayoutSolver.usesDesktopLayout(screenSize.width);
+        final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+          screenSize.width,
+        );
         final heroAdaptive = TvHeroAdaptive.resolve(
           screenSize,
           devicePixelRatio: media.devicePixelRatio,
         );
         final posterHeightMax = screenSize.height * 0.48;
         final posterHeightMin = math.min(300.0, posterHeightMax);
-        final posterHeight = math
-            .min(
-              screenSize.height * heroAdaptive.posterHeightRatio,
-              screenSize.width / 1.55,
-            )
-            .clamp(posterHeightMin, posterHeightMax)
-            .toDouble();
+        final posterHeight = desktop
+            ? DetailLayoutSolver.desktopSeriesHeroHeight(screenSize)
+            : math
+                  .min(
+                    screenSize.height * heroAdaptive.posterHeightRatio,
+                    screenSize.width / 1.55,
+                  )
+                  .clamp(posterHeightMin, posterHeightMax)
+                  .toDouble();
         final collapseRangeMax = math.max(1.0, posterHeight);
         final collapseRange =
             (posterHeight - media.padding.top - kToolbarHeight).clamp(
@@ -1692,6 +1733,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                     fillGapsWithImage: false,
                     overlayOpacity: 0.74,
                     maxScrollZoom: 1.38,
+                    useDesktopReadingScrim: desktop,
                     ambientTintOverride: ambientTint,
                   );
                 },
@@ -1702,20 +1744,18 @@ class _TvDetailPageState extends State<TvDetailPage>
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
                 slivers: [
-                  SliverToBoxAdapter(
-                    child: DetailHeroOverlay(
-                      height: posterHeight,
-                      title: title,
-                      titleChild: heroTitleChild,
-                    ),
+                  _buildSeriesHeroSliver(
+                    height: posterHeight,
+                    title: title,
+                    titleChild: heroTitleChild,
                   ),
                   SliverToBoxAdapter(
                     child: Container(
                       color: Colors.transparent,
-                      padding: const EdgeInsets.fromLTRB(
-                        DetailTokens.screenHorizontalPadding,
+                      padding: EdgeInsets.fromLTRB(
+                        horizontalPadding,
                         8,
-                        DetailTokens.screenHorizontalPadding,
+                        horizontalPadding,
                         18,
                       ),
                       child: Column(
@@ -1746,6 +1786,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                           if (displayState.showOverview)
                             DetailDescriptionSection(
                               text: overview,
+                              maxLines: desktop ? 3 : 4,
+                              baseFontSize: desktop ? 14 : 15,
                               onMoreTap: () {
                                 LongTextOverlayPage.show(
                                   context,
@@ -1764,7 +1806,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                             ).detailTvSeasonCount(seasonCount),
                             style: TextStyle(
                               color: colors.textPrimary,
-                              fontSize: 30,
+                              fontSize: desktop ? 24 : 30,
                               fontWeight: FontWeight.w700,
                             ),
                           ),

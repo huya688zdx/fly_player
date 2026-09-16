@@ -22,10 +22,30 @@ import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/playback/bookmarks/bookmark_store.dart';
 import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/playback/settings/mpv_settings_store.dart';
+import 'package:fly_player/theme/app_theme.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 void main() {
+  test('桌面插帧采用显示同步，纹理按显示区域的物理像素缩放', () {
+    final settings = <String, String>{
+      'frame_interpolation': 'on',
+      'video_sync': 'audio',
+    };
+    expect(DesktopMpvRuntime.videoSyncMode(settings), 'display-resample');
+    settings['frame_interpolation'] = 'off';
+    expect(DesktopMpvRuntime.videoSyncMode(settings), 'audio');
+    expect(
+      DesktopMpvRuntime.videoOutputSize(
+        source: const Size(1920, 1080),
+        viewport: const Size(800, 600),
+        pixelRatio: 1.5,
+        fit: BoxFit.contain,
+      ),
+      const Size(1200, 675),
+    );
+  });
+
   testWidgets('透明图标进入退出及播放暂停切换后停止调度帧', (tester) async {
     Widget icon(bool selected, {String? playback}) => MaterialApp(
       home: Center(
@@ -825,19 +845,24 @@ void main() {
     );
   });
 
-  test('Windows 原画态入口显示原画且低码率使用 Kbps', () {
+  test('Windows 原画态入口显示原画，码率省略末尾零且低码率使用 Kbps', () {
     final source = _qualitySource();
 
     expect(DesktopMpvRuntime.currentQualityLabel(source, '原画'), '原画');
     expect(DesktopMpvRuntime.qualityBitrateLabel(894000), '894 Kbps');
+    expect(DesktopMpvRuntime.qualityBitrateLabel(2100000), '2.1 Mbps');
+    expect(DesktopMpvRuntime.qualityBitrateLabel(2000000), '2 Mbps');
+    expect(DesktopMpvRuntime.qualityBitrateLabel(1020000), '1.02 Mbps');
   });
 
   testWidgets('Windows 画质面板使用主档与自定义两级结构', (tester) async {
+    final theme = AppThemeBuilder.build(AppThemePreset.latte);
     await tester.pumpWidget(
       MaterialApp(
         // 本测试断言中文文案（原画/自定义）；加入 en/ja 后测试默认 locale 会解析到
         // English，这里显式钉住 zh-CN 以保持原语义。
         locale: const Locale('zh', 'CN'),
+        theme: theme,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
@@ -864,6 +889,14 @@ void main() {
     expect(find.text('720P'), findsOneWidget);
     expect(find.text('480P'), findsOneWidget);
     expect(find.text('1080P SDR'), findsNothing);
+
+    // 浅色外壳下，未选中的画质文字也必须清晰可读。
+    final surface = theme.extension<AppThemeColors>()!.surface;
+    final text = tester.widget<Text>(find.text('720P')).style!.color!;
+    expect(
+      (surface.computeLuminance() + 0.05) / (text.computeLuminance() + 0.05),
+      greaterThanOrEqualTo(4.5),
+    );
 
     await tester.tap(find.text('自定义'));
     await tester.pumpAndSettle();
