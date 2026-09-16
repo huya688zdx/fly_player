@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' show Locale;
 
 import '../danmaku/settings/danmaku_settings_store.dart';
-import '../danmaku/models/danmaku_settings.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
 import '../playback/settings/mpv_settings_store.dart';
