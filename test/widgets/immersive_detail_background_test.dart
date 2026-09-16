@@ -291,14 +291,43 @@ void main() {
     expect(gradient.colors[3].a, lessThanOrEqualTo(0.45));
   });
 
-  testWidgets('标题覆盖层只承载标题而不再绘制第二套分界渐变', (tester) async {
+  testWidgets('浅色详情标题与 Logo 回退跟随页面文字色，不叠加阴影或分界渐变', (tester) async {
+    final colors = AppThemeBuilder.build(
+      AppThemePreset.latte,
+    ).extension<AppThemeColors>()!;
     await tester.pumpWidget(
       MaterialApp(
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
-        home: const Scaffold(body: DetailHeroOverlay(height: 400, title: '标题')),
+        home: AppRuntimeColorScope(
+          colors: colors,
+          hasRuntimeColors: true,
+          child: const Scaffold(
+            body: Column(
+              children: [
+                DetailHeroOverlay(height: 300, title: '标题', subtitle: '剧集信息'),
+                DetailHeroLogoTitle(
+                  images: MediaImageRequest.empty,
+                  fallbackTitle: 'Logo 回退',
+                  maxHeight: 100,
+                  maxWidth: 400,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
 
+    final title = tester.widget<Text>(find.text('标题'));
+    final fallback = tester.widget<Text>(find.text('Logo 回退'));
+    expect(title.style?.color, colors.textPrimary);
+    expect(fallback.style?.color, colors.textPrimary);
+    expect(
+      tester.widget<Text>(find.text('剧集信息')).style?.color,
+      colors.textSecondary,
+    );
+    expect(title.style?.shadows, isEmpty);
+    expect(fallback.style?.shadows, isEmpty);
     expect(find.byType(DecoratedBox), findsNothing);
   });
 

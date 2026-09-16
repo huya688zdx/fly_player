@@ -68,6 +68,45 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('提示浮层打开时窗口缩小出现滚动条，不重挂载页面', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    await tester.pumpWidget(
+      MaterialApp(
+        scrollBehavior: const DesktopScrollBehavior(),
+        home: Scaffold(
+          body: ListView(
+            children: [
+              Tooltip(
+                message: '媒体来源说明',
+                child: IconButton(
+                  onPressed: () {},
+                  icon: const Icon(Icons.info_outline),
+                ),
+              ),
+              const SizedBox(height: 300),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester
+        .state<TooltipState>(find.byType(Tooltip).first)
+        .ensureTooltipVisible();
+    await tester.pumpAndSettle();
+    await tester.binding.setSurfaceSize(const Size(800, 200));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(const Size(800, 190));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(IconButton), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('controller 首帧尚未建立内容尺寸时不会抛错', (tester) async {
     final controller = ScrollController();
     addTearDown(controller.dispose);

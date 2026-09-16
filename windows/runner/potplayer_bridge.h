@@ -14,7 +14,7 @@
 
 class PotPlayerBridge {
  public:
-  explicit PotPlayerBridge(flutter::BinaryMessenger* messenger);
+  PotPlayerBridge(HWND host_window, flutter::BinaryMessenger* messenger);
   ~PotPlayerBridge();
 
  private:
@@ -40,11 +40,16 @@ class PotPlayerBridge {
   };
 
   void Run();
+  bool SetMiniPinned(bool pinned);
+  void StopMiniPinWatch();
   Completion Execute(Request request, HWND receiver);
   static LRESULT CALLBACK ReceiverProc(HWND window, UINT message, WPARAM wparam,
                                        LPARAM lparam);
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
+  HWND host_window_;
+  HWINEVENTHOOK mini_foreground_hook_ = nullptr;
+  HWINEVENTHOOK mini_location_hook_ = nullptr;
   std::thread worker_;
   std::mutex mutex_;
   std::condition_variable ready_;

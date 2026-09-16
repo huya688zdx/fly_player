@@ -4,6 +4,7 @@ import '../media_backend/feiniu/feiniu_playback_context.dart';
 import '../media_backend/playback/media_playback.dart';
 import '../media_backend/playback/media_playback_resolution.dart';
 import '../media_backend/playback/media_playback_source_bridge.dart';
+import '../models/playback_stream.dart';
 import '../utils/player_artwork_path_resolver.dart';
 import '../utils/player_title_formatter.dart';
 import 'playback_source.dart';
@@ -57,6 +58,17 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
     required MediaPlaybackBackendContext? context,
     required AppLocalizations l10n,
   }) async {
+    if (context is FeiniuLivePlaybackContext) {
+      final source = _assembleLive(
+        request: request,
+        context: context,
+        l10n: l10n,
+      );
+      return MediaPlaybackSourceResult(
+        source: source,
+        legacySidecar: context.playInfo,
+      );
+    }
     if (context is! FeiniuPlaybackContext) {
       throw StateError('飞牛播放桥接器收到不匹配的后端上下文');
     }
@@ -69,6 +81,50 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
     return MediaPlaybackSourceResult(
       source: source,
       legacySidecar: context.playInfo,
+    );
+  }
+
+  MpvMediaSource _assembleLive({
+    required MediaPlaybackRequest request,
+    required FeiniuLivePlaybackContext context,
+    required AppLocalizations l10n,
+  }) {
+    final playInfo = context.playInfo;
+    final item = playInfo.item;
+    final selected = context.selectedChannel;
+    final qualities = <PlaybackQualityOption>[
+      for (var index = 0; index < context.channels.length; index++)
+        PlaybackQualityOption(
+          mediaGuid: context.channels[index].guid,
+          videoGuid: '',
+          resolution: context.channels[index].fileName,
+          bitrate: 0,
+          isDefault: context.channels[index].guid == selected.guid ? 1 : 0,
+          source: PlaybackQualitySource.originalProxy,
+          directLinkQualityIndex: null,
+          sourceFileName: context.channels[index].fileName,
+        ),
+    ];
+    return MpvMediaSource(
+      loadNonce: createMpvLoadNonce(),
+      itemGuid: item.guid,
+      posterPath: resolvePlayerArtworkPathForPlayItem(item),
+      mediaGuid: selected.guid,
+      mediaType: 'LiveChannel',
+      ancestorName: item.ancestorName,
+      videoGuid: '',
+      url: selected.path,
+      headers: const <String, String>{},
+      title: formatPlayerTitleFromPlayItem(
+        item,
+        fallbackTitle: request.fallbackTitle,
+        l10n: l10n,
+      ),
+      durationSeconds: 0,
+      startPosition: Duration.zero,
+      reliableSeek: false,
+      playbackMode: PlayerPlaybackMode.originalQuality,
+      qualities: qualities,
     );
   }
 

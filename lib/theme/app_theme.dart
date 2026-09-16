@@ -81,31 +81,34 @@ extension AppAccentToneX on AppAccentTone {
 
   Color get color => switch (this) {
     AppAccentTone.blue => const Color(0xFF3A82F7),
-    AppAccentTone.cyan => const Color(0xFF27B5E9),
-    AppAccentTone.green => const Color(0xFF37B36B),
-    AppAccentTone.amber => const Color(0xFFD39A28),
+    AppAccentTone.cyan => const Color(0xFF74B8C8),
+    AppAccentTone.green => const Color(0xFF8AAC94),
+    AppAccentTone.amber => const Color(0xFFD0A36B),
     AppAccentTone.rose => const Color(0xFFD95B77),
-    AppAccentTone.coral => const Color(0xFFE67358),
+    AppAccentTone.coral => const Color(0xFFD79579),
     AppAccentTone.indigo => const Color(0xFF6B6FE8),
-    AppAccentTone.mint => const Color(0xFF39C7A7),
+    AppAccentTone.mint => const Color(0xFF75C5B4),
   };
 
   Color get strongColor => switch (this) {
     AppAccentTone.blue => const Color(0xFF63A0FF),
-    AppAccentTone.cyan => const Color(0xFF7AD8FF),
-    AppAccentTone.green => const Color(0xFF87E6AC),
-    AppAccentTone.amber => const Color(0xFFFFCC67),
+    AppAccentTone.cyan => const Color(0xFFA2D4DF),
+    AppAccentTone.green => const Color(0xFFBAD5C1),
+    AppAccentTone.amber => const Color(0xFFE4BE8B),
     AppAccentTone.rose => const Color(0xFFFF97B2),
-    AppAccentTone.coral => const Color(0xFFFFA089),
+    AppAccentTone.coral => const Color(0xFFE8B79F),
     AppAccentTone.indigo => const Color(0xFF9EA4FF),
-    AppAccentTone.mint => const Color(0xFF8EECD8),
+    AppAccentTone.mint => const Color(0xFFA8DFD2),
   };
 
   Color colorFor({required bool light}) {
+    // 奶白底色上的琥珀使用咖啡棕，避免浅金色按钮与背景混在一起。
+    if (light && this == AppAccentTone.amber) return const Color(0xFF8E6446);
     return light ? AppThemePalette.mix(color, Colors.white, 0.16) : color;
   }
 
   Color strongColorFor({required bool light}) {
+    if (light && this == AppAccentTone.amber) return const Color(0xFF765037);
     return light ? AppThemePalette.emphasize(color) : strongColor;
   }
 
@@ -688,14 +691,14 @@ class AppThemePalette {
     final presetBase = switch (preset) {
       AppThemePreset.midnight => fallback,
       AppThemePreset.ocean => const AppThemeColors(
-        backgroundBase: Color(0xFF07121A),
-        backgroundElevated: Color(0xFF0A1721),
-        surface: Color(0xFF0E1D29),
-        surfaceSubtle: Color(0xFF13283A),
-        surfaceStrong: Color(0xFF173B58),
-        navBarBackground: Color(0xFF091722),
-        borderSubtle: Color(0x225F82A8),
-        borderStrong: Color(0x3378A1CC),
+        backgroundBase: Color(0xFF06151C),
+        backgroundElevated: Color(0xFF0A2028),
+        surface: Color(0xFF142731),
+        surfaceSubtle: Color(0xFF1A313D),
+        surfaceStrong: Color(0xFF233E4B),
+        navBarBackground: Color(0xFF091D25),
+        borderSubtle: Color(0x225C93A0),
+        borderStrong: Color(0x337AB7C2),
         accent: Color(0xFF2E9BFF),
         accentSoft: Color(0x1F2E9BFF),
         accentStrong: Color(0xFF7CC6FF),
@@ -703,26 +706,26 @@ class AppThemePalette {
         selectionSoft: Color(0x1F2E9BFF),
         selectionStrong: Color(0xFF7CC6FF),
         link: Color(0xFF7CC6FF),
-        chipBackground: Color(0xFF122434),
-        chipBorder: Color(0x336386B2),
-        chipText: Color(0xFFD6E9FA),
-        textPrimary: Color(0xFFF4FAFF),
-        textSecondary: Color(0xFFBDD2E6),
-        textMuted: Color(0xFF88A3BC),
+        chipBackground: Color(0xFF12323A),
+        chipBorder: Color(0x33638F99),
+        chipText: Color(0xFFD8EEF0),
+        textPrimary: Color(0xFFF2FAFB),
+        textSecondary: Color(0xFFBED8DC),
+        textMuted: Color(0xFF8BAEB4),
         success: Color(0xFF24AF6E),
         warning: Color(0xFFD3A031),
         danger: Color(0xFFE05D67),
         overlayScrim: Color(0xBF031019),
       ),
       AppThemePreset.forest => const AppThemeColors(
-        backgroundBase: Color(0xFF08130E),
-        backgroundElevated: Color(0xFF0B1913),
-        surface: Color(0xFF102019),
-        surfaceSubtle: Color(0xFF173026),
-        surfaceStrong: Color(0xFF1C4437),
-        navBarBackground: Color(0xFF0B1812),
-        borderSubtle: Color(0x223E6F5A),
-        borderStrong: Color(0x3364A184),
+        backgroundBase: Color(0xFF0A1510),
+        backgroundElevated: Color(0xFF0E1D15),
+        surface: Color(0xFF14281E),
+        surfaceSubtle: Color(0xFF24372B),
+        surfaceStrong: Color(0xFF304838),
+        navBarBackground: Color(0xFF102219),
+        borderSubtle: Color(0x224C765F),
+        borderStrong: Color(0x3379A58C),
         accent: Color(0xFF3EBC7A),
         accentSoft: Color(0x1F3EBC7A),
         accentStrong: Color(0xFF8AE0B2),
@@ -730,12 +733,12 @@ class AppThemePalette {
         selectionSoft: Color(0x1F3EBC7A),
         selectionStrong: Color(0xFF8AE0B2),
         link: Color(0xFF8AE0B2),
-        chipBackground: Color(0xFF173126),
-        chipBorder: Color(0x335A8C76),
-        chipText: Color(0xFFD7EBDD),
-        textPrimary: Color(0xFFF5FCF7),
-        textSecondary: Color(0xFFC6DCCF),
-        textMuted: Color(0xFF91AC9D),
+        chipBackground: Color(0xFF1B3528),
+        chipBorder: Color(0x33648772),
+        chipText: Color(0xFFD8EADD),
+        textPrimary: Color(0xFFF2FAF4),
+        textSecondary: Color(0xFFC5DCCB),
+        textMuted: Color(0xFF91AE9B),
         success: Color(0xFF42C978),
         warning: Color(0xFFD4A443),
         danger: Color(0xFFE26A68),
@@ -769,14 +772,14 @@ class AppThemePalette {
         overlayScrim: Color(0xBF080A0D),
       ),
       AppThemePreset.sunset => const AppThemeColors(
-        backgroundBase: Color(0xFF18100D),
-        backgroundElevated: Color(0xFF211613),
-        surface: Color(0xFF291C18),
-        surfaceSubtle: Color(0xFF36221D),
-        surfaceStrong: Color(0xFF4A2D24),
-        navBarBackground: Color(0xFF1E1512),
-        borderSubtle: Color(0x22C99570),
-        borderStrong: Color(0x33D79E79),
+        backgroundBase: Color(0xFF17100E),
+        backgroundElevated: Color(0xFF211713),
+        surface: Color(0xFF2A1D18),
+        surfaceSubtle: Color(0xFF38251F),
+        surfaceStrong: Color(0xFF4B3930),
+        navBarBackground: Color(0xFF1E1613),
+        borderSubtle: Color(0x22C18B70),
+        borderStrong: Color(0x33D39A7C),
         accent: Color(0xFFE6815B),
         accentSoft: Color(0x24E6815B),
         accentStrong: Color(0xFFFFB094),
@@ -784,26 +787,26 @@ class AppThemePalette {
         selectionSoft: Color(0x24E6815B),
         selectionStrong: Color(0xFFFFB094),
         link: Color(0xFFFFB094),
-        chipBackground: Color(0xFF31221D),
-        chipBorder: Color(0x337E6458),
-        chipText: Color(0xFFF2DDD2),
+        chipBackground: Color(0xFF34251F),
+        chipBorder: Color(0x337D665B),
+        chipText: Color(0xFFF3DED4),
         textPrimary: Color(0xFFFFF7F4),
-        textSecondary: Color(0xFFE2C7BC),
-        textMuted: Color(0xFFB08D84),
+        textSecondary: Color(0xFFE3C9BE),
+        textMuted: Color(0xFFB18E84),
         success: Color(0xFF4BC983),
         warning: Color(0xFFE2AA4A),
         danger: Color(0xFFE56A63),
         overlayScrim: Color(0xBF0E0503),
       ),
       AppThemePreset.aurora => const AppThemeColors(
-        backgroundBase: Color(0xFF071619),
-        backgroundElevated: Color(0xFF0B1E22),
-        surface: Color(0xFF0F252A),
-        surfaceSubtle: Color(0xFF153239),
-        surfaceStrong: Color(0xFF1B4450),
-        navBarBackground: Color(0xFF0A1A1E),
-        borderSubtle: Color(0x225B9AA0),
-        borderStrong: Color(0x3385BEC4),
+        backgroundBase: Color(0xFF07171A),
+        backgroundElevated: Color(0xFF0B2226),
+        surface: Color(0xFF102A2E),
+        surfaceSubtle: Color(0xFF213B3B),
+        surfaceStrong: Color(0xFF2B4B48),
+        navBarBackground: Color(0xFF0A1D20),
+        borderSubtle: Color(0x225D9B99),
+        borderStrong: Color(0x3385BDB2),
         accent: Color(0xFF35C7B0),
         accentSoft: Color(0x2435C7B0),
         accentStrong: Color(0xFF8DECDD),
@@ -811,12 +814,12 @@ class AppThemePalette {
         selectionSoft: Color(0x242FA3F1),
         selectionStrong: Color(0xFF88D0FF),
         link: Color(0xFF8DECDD),
-        chipBackground: Color(0xFF143036),
-        chipBorder: Color(0x3367969D),
-        chipText: Color(0xFFD5EBED),
-        textPrimary: Color(0xFFF3FDFD),
-        textSecondary: Color(0xFFC2DADC),
-        textMuted: Color(0xFF90AEB1),
+        chipBackground: Color(0xFF163538),
+        chipBorder: Color(0x33699591),
+        chipText: Color(0xFFD7EEEA),
+        textPrimary: Color(0xFFF2FCFA),
+        textSecondary: Color(0xFFC3DCD8),
+        textMuted: Color(0xFF90AFAB),
         success: Color(0xFF3CCB8E),
         warning: Color(0xFFD4AA46),
         danger: Color(0xFFE26F75),
@@ -1161,9 +1164,11 @@ class AppThemeBuilder {
   }
 
   static Color _foregroundOn(Color background) {
-    return background.computeLuminance() >= 0.54
-        ? const Color(0xFF172030)
-        : Colors.white;
+    const dark = Color(0xFF172030);
+    final luminance = background.computeLuminance();
+    final darkContrast = (luminance + 0.05) / (dark.computeLuminance() + 0.05);
+    final lightContrast = 1.05 / (luminance + 0.05);
+    return darkContrast >= lightContrast ? dark : Colors.white;
   }
 }
 

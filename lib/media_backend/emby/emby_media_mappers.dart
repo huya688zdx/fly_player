@@ -74,6 +74,19 @@ MediaItemCard mapEmbyItemCard(
   );
 }
 
+/// Emby/Jellyfin 直播频道卡。两家可能返回 TvChannel 等不同类型，公共层统一为 LiveChannel。
+MediaItemCard mapEmbyLiveChannelCard(
+  Map<String, Object?> item, {
+  required String serverUrl,
+  required String token,
+}) {
+  return mapEmbyItemCard(
+    <String, Object?>{...item, 'Type': 'LiveChannel'},
+    serverUrl: serverUrl,
+    token: token,
+  );
+}
+
 /// 卡片清晰度角标：取首条视频流高 → `1080p`/`4K` 等。需查询带上 `MediaStreams` 字段，
 /// 缺失时返回空（不显示角标）。
 List<String> _cardResolutions(Map<String, Object?> item) {

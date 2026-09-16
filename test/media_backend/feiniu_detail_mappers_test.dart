@@ -270,12 +270,12 @@ void main() {
     expect(season.primaryImage.url, '/s1.jpg');
   });
 
-  test('mapFeiniuEpisode 映射选集条目（tvTitle 优先标题、ts 续播、releaseDate 作播出日期）', () {
+  test('mapFeiniuEpisode 映射选集条目（真实集名优先、ts 续播、releaseDate 作播出日期）', () {
     final episode = mapFeiniuEpisode(
       buildLibraryItem(
         guid: 'e-1',
         title: '原始集名',
-        tvTitle: '展示集名',
+        tvTitle: '剧名',
         type: 'Episode',
         seasonNumber: 1,
         episodeNumber: 3,
@@ -289,7 +289,7 @@ void main() {
       ),
     );
     expect(episode.id, 'e-1');
-    expect(episode.title, '展示集名');
+    expect(episode.title, '原始集名');
     expect(episode.seasonNumber, 1);
     expect(episode.episodeNumber, 3);
     expect(episode.overview, '本集简介');
@@ -298,6 +298,12 @@ void main() {
     expect(episode.watched, isTrue);
     expect(episode.resumePositionSeconds, 120);
     expect(episode.primaryImage.url, '/still.jpg');
+    expect(
+      mapFeiniuEpisode(
+        buildLibraryItem(title: ' ', tvTitle: '剧名', type: 'Episode'),
+      ).title,
+      '剧名',
+    );
   });
 
   test('mapFeiniuEpisode 续播：ts==0 回退 watchedTs', () {

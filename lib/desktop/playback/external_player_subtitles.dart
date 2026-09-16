@@ -6,11 +6,35 @@ import 'package:flutter/foundation.dart';
 
 import '../../danmaku/models/danmaku_comment.dart';
 import '../../danmaku/models/danmaku_settings.dart';
+import '../../models/stream_track_data.dart';
+import '../../playback/playback_source.dart';
 import 'desktop_danmaku_lane_tracker.dart';
 import 'desktop_danmaku_overlay.dart';
 
 /// 将当前字幕和弹幕合成同一条 ASS，供外部播放器同步播放、暂停和跳转。
 class ExternalPlayerSubtitles {
+  /// 仅返回能够导出并与弹幕合成的外挂文本字幕。
+  static List<SubtitleTrackOption> selectableTracks(MpvMediaSource source) {
+    const supported = <String>{'ass', 'srt', 'vtt'};
+    return source.subtitleTracks.where((track) {
+      final localPath = source.localSubtitleFiles[track.guid]?.trim() ?? '';
+      final fileName = localPath.replaceAll('\\', '/').split('/').last;
+      final extension = fileName.contains('.')
+          ? fileName.split('.').last.toLowerCase()
+          : '';
+      final format = extension.isNotEmpty
+          ? extension
+          : (track.format.isNotEmpty ? track.format : track.codecName)
+                .trim()
+                .toLowerCase();
+      return track.isBitmap != 1 &&
+          supported.contains(format) &&
+          (track.isExternal == 1 ||
+              track.extraFile == 1 ||
+              localPath.isNotEmpty);
+    }).toList();
+  }
+
   static Future<String?> prepare({
     required Directory directory,
     String? subtitlePath,

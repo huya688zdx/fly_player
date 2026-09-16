@@ -101,8 +101,11 @@ abstract class MediaBackend {
   /// 字幕选择器。仅展示 + 选择标识，不含播放句柄 / 直链。
   ///
   /// 默认返回空（飞牛走自有版本 / 轨道选择路径，不经本接口）；Emby 等公共后端 override。
-  Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) async =>
-      const <MediaSourceVersion>[];
+  /// 直播入口显式传入 [isLive]，飞牛据此读取频道线路，避免调用点播轨道接口。
+  Future<List<MediaSourceVersion>> getItemSourceVersions(
+    String itemId, {
+    bool isLive = false,
+  }) async => const <MediaSourceVersion>[];
 
   /// 剧集的季列表。
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId);
@@ -161,6 +164,9 @@ abstract class MediaBackend {
     required String mediaSourceId,
     required int positionSeconds,
   }) async {}
+
+  /// 释放指定播放会话；直播退出、换线或解析结果过期时按句柄回收调谐器。
+  Future<void> releasePlaybackSession(String sessionId) async {}
 
   /// 设置 / 取消「收藏」，返回最终收藏态（true=已收藏）。
   ///

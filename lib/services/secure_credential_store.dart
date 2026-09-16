@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/services.dart';
 
+import 'secure_credential_store_linux.dart';
 import 'secure_credential_store_windows.dart';
 
 enum SecureCredentialReadStatus { value, missing, unavailable }
@@ -165,14 +166,12 @@ class MemorySecureCredentialBackend implements SecureCredentialBackend {
 class SecureCredentialStore {
   static SecureCredentialBackend _backend = _defaultBackend();
 
-  /// 平台默认后端：Android 和 Apple 走 `fly_player/secret_store` 原生通道，
-  /// Apple Runner 用 Keychain 实现该通道；Windows 桌面
-  /// 无该通道实现，改用 DPAPI（当前用户加密）后端，否则 NasProvider 启动恢复
-  /// 凭据时会抛 SecureCredentialUnavailableException（桌面首启「加载失败」）。
+  /// Android 和 Apple 使用原生通道，Windows 使用 DPAPI，Linux 使用桌面密钥环。
   /// 测试环境（TestDefaultBinaryMessenger）保持内存后端语义不变。
   static SecureCredentialBackend _defaultBackend() {
     final channelBackend = MethodChannelSecureCredentialBackend();
     if (_isTestMessenger()) return channelBackend;
+    if (Platform.isLinux) return const LinuxSecureCredentialBackend();
     if (!Platform.isWindows) return channelBackend;
     return WindowsSecureCredentialBackend();
   }

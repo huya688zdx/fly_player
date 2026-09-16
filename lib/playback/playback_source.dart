@@ -47,6 +47,11 @@ class MpvMediaSource {
   final String posterPath;
   final String mediaGuid;
   final String mediaType;
+
+  bool get isLive => const {
+    'livechannel',
+    'tvchannel',
+  }.contains(mediaType.trim().toLowerCase());
   final String ancestorName;
   final String videoGuid;
   final int? directLinkQualityIndex;
@@ -322,6 +327,7 @@ class MpvMediaSource {
     required String itemGuid,
     required String mediaGuid,
     required String title,
+    String statsScope = '',
     String seriesGuid = '',
     String seasonGuid = '',
     String posterPath = '',
@@ -492,6 +498,7 @@ class MpvMediaSource {
             ));
     return MpvMediaSource(
       loadNonce: loadNonce ?? createMpvLoadNonce(),
+      statsScope: statsScope,
       itemGuid: normalizedItemGuid,
       seriesGuid: seriesGuid,
       seasonGuid: seasonGuid,

@@ -15,6 +15,7 @@ import 'desktop/desktop_hover_region.dart';
 import 'desktop/desktop_scroll_behavior.dart';
 import 'desktop/desktop_shell.dart';
 import 'desktop/playback/external_playback_screen.dart';
+import 'desktop/playback/external_playback_mini_controller.dart';
 import 'desktop/desktop_window_frame.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
@@ -67,8 +68,10 @@ void main() {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
       await initializeWindowsDataHome();
-      if (Platform.isWindows) {
+      if (Platform.isWindows || Platform.isMacOS) {
         await windowManager.ensureInitialized();
+      }
+      if (Platform.isWindows) {
         await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
         await windowManager.setTitle('飞翔播放器');
       }
@@ -434,7 +437,9 @@ class FlyPlayerApp extends StatelessWidget {
                         textScaler: TextScaler.linear(scale),
                       ),
                       child: defaultTargetPlatform == TargetPlatform.windows
-                          ? DesktopWindowFrame(child: content)
+                          ? ExternalPlaybackMiniHost(
+                              child: DesktopWindowFrame(child: content),
+                            )
                           : content,
                     ),
                   );

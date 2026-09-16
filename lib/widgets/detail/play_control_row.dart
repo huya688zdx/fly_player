@@ -5,6 +5,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 import '../../ui/app_transitions.dart';
+import '../../utils/detail_layout_solver.dart';
 import '../common/liquid_glass.dart';
 import 'detail_icon_button.dart';
 
@@ -37,17 +38,27 @@ class PlayControlRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final primaryForeground = Theme.of(context).colorScheme.onPrimary;
+    // 动态取色可能先于 Material 主题更新，文字须按按钮实际底色取对比色。
+    final primaryForeground =
+        ThemeData.estimateBrightnessForColor(colors.accent) == Brightness.light
+        ? const Color(0xFF172030)
+        : Colors.white;
+    final desktop = DetailLayoutSolver.usesDesktopLayout(
+      MediaQuery.sizeOf(context).width,
+    );
+    final buttonHeight = desktop
+        ? DetailLayoutSolver.desktopControlHeight
+        : DetailTokens.playButtonHeight;
     final playTextSize = AdaptiveText.roleSize(
       DetailTokens.playTextFontSize,
       role: AdaptiveFontRole.button,
     );
-    return Row(
+    final controls = Row(
       children: [
         Expanded(
           // 保留实心强调色主按钮，仅叠 iOS26 镜面高光，不磨砂。
           child: SizedBox(
-            height: DetailTokens.playButtonHeight,
+            height: buttonHeight,
             child: ClipRRect(
               borderRadius: DetailTokens.playButtonBorderRadius,
               child: Stack(
@@ -56,9 +67,7 @@ class PlayControlRow extends StatelessWidget {
                   FilledButton(
                     onPressed: primaryEnabled ? onPrimaryTap ?? () {} : null,
                     style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(
-                        DetailTokens.playButtonHeight,
-                      ),
+                      minimumSize: Size.fromHeight(buttonHeight),
                       backgroundColor: colors.accent,
                       foregroundColor: primaryForeground,
                       disabledBackgroundColor: colors.accent.withValues(
@@ -136,6 +145,16 @@ class PlayControlRow extends StatelessWidget {
           onTap: onWatchedTap,
         ),
       ],
+    );
+    if (!desktop) return controls;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: DetailLayoutSolver.desktopActionWidth,
+        ),
+        child: controls,
+      ),
     );
   }
 }

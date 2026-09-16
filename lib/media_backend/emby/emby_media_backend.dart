@@ -42,6 +42,7 @@ class EmbyMediaBackend implements MediaBackend {
 
   static const String _cardFields =
       'PrimaryImageAspectRatio,Overview,PremiereDate,CommunityRating,MediaStreams,Genres';
+  static const String _liveTvCatalogId = 'emby:livetv';
 
   String get _serverUrl => connection.serverUrl;
   String get _userId => connection.userId;
@@ -71,13 +72,64 @@ class EmbyMediaBackend implements MediaBackend {
       userId: _userId,
       accessToken: _token,
     );
-    final catalogs = views
+    EmbyItemPage? liveTvProbe;
+    try {
+      liveTvProbe = await api.getLiveTvChannels(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        limit: 1,
+      );
+    } catch (_) {
+      // 未配置直播或当前用户无权限时，保持普通媒体库可用。
+    }
+    final hasLiveChannels = liveTvProbe?.items.isNotEmpty == true;
+    final visibleViews = views
+        .where(
+          (view) =>
+              !_isLiveTvType(
+                (view['CollectionType'] ?? view['Type'] ?? '').toString(),
+              ) ||
+              hasLiveChannels,
+        )
+        .toList(growable: true);
+    if (hasLiveChannels &&
+        !visibleViews.any(
+          (view) => _isLiveTvType(
+            (view['CollectionType'] ?? view['Type'] ?? '').toString(),
+          ),
+        )) {
+      visibleViews.add(<String, Object?>{
+        'Id': _liveTvCatalogId,
+        'Name': '直播',
+        'CollectionType': 'livetv',
+      });
+    }
+    final catalogs = visibleViews
         .map((v) => mapEmbyView(v, serverUrl: _serverUrl, token: _token))
         .toList(growable: false);
     for (final catalog in catalogs) {
       _catalogTypesById[catalog.id] = catalog.type.trim().toLowerCase();
     }
     return catalogs;
+  }
+
+  Future<bool> _isLiveTvCatalog(String catalogId) async {
+    final id = catalogId.trim();
+    if (id.isEmpty) return false;
+    if (!_catalogTypesById.containsKey(id)) {
+      try {
+        await getCatalogs();
+      } catch (_) {
+        return id == _liveTvCatalogId;
+      }
+    }
+    return _isLiveTvType(_catalogTypesById[id] ?? '') || id == _liveTvCatalogId;
+  }
+
+  static bool _isLiveTvType(String raw) {
+    final type = raw.trim().toLowerCase().replaceAll(' ', '');
+    return type == 'livetv' || type == 'livechannel' || type == 'tvchannel';
   }
 
   /// 该 catalog 是否为合集库（Emby CollectionType=boxsets）。缓存未命中时（如列表页
@@ -182,6 +234,21 @@ class EmbyMediaBackend implements MediaBackend {
     int page = 1,
     int limit = 30,
   }) async {
+    if (await _isLiveTvCatalog(catalogId)) {
+      final pageResult = await api.getLiveTvChannels(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        startIndex: (page - 1) * limit,
+        limit: limit,
+      );
+      return pageResult.items
+          .map(
+            (e) =>
+                mapEmbyLiveChannelCard(e, serverUrl: _serverUrl, token: _token),
+          )
+          .toList(growable: false);
+    }
     // Recursive + IncludeItemTypes：把库下的文件夹拍平，直接出影片/剧集本身
     // （否则首页预览会显示无封面的中间文件夹，而非真正的条目）。
     // 例外：合集库（boxsets）要出的就是 BoxSet 本身——按 Movie,Series 过滤会把合集
@@ -226,20 +293,18 @@ class EmbyMediaBackend implements MediaBackend {
   Future<List<MediaItemCard>> searchItems(String query) async {
     final term = query.trim();
     if (term.isEmpty) return const <MediaItemCard>[];
-    // 复用分页查询的 SearchTerm；Recursive 拍平库结构，限影片/剧集/单集（主内容）。
+    // 复用分页查询的 SearchTerm；直播频道也纳入全局搜索。
     final page = await api.getItemPage(
       serverUrl: _serverUrl,
       userId: _userId,
       accessToken: _token,
       searchTerm: term,
       recursive: true,
-      includeItemTypes: 'Movie,Series,Episode',
+      includeItemTypes: 'Movie,Series,Episode,TvChannel',
       limit: 60,
       fields: _cardFields,
     );
-    return page.items
-        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
-        .toList(growable: false);
+    return page.items.map(_mapGeneralCard).toList(growable: false);
   }
 
   @override
@@ -254,6 +319,9 @@ class EmbyMediaBackend implements MediaBackend {
     // 退化为仅类型/年份/排序、不报错。
     // 合集库（boxsets）：影视分类/题材/年代/剧集状态对合集条目无意义（BoxSet 无这些查询
     // 口径），只留收藏过滤 + 排序。
+    if (await _isLiveTvCatalog(catalogId)) {
+      return const MediaCatalogFilterSchema();
+    }
     if (await _isBoxsetsCatalog(catalogId)) {
       return const MediaCatalogFilterSchema(
         dimensions: <MediaFilterDimension>[
@@ -383,6 +451,27 @@ class EmbyMediaBackend implements MediaBackend {
 
   @override
   Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query) async {
+    if (await _isLiveTvCatalog(query.catalogId)) {
+      final page = await api.getLiveTvChannels(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        startIndex: (query.page - 1) * query.pageSize,
+        limit: query.pageSize,
+      );
+      return MediaItemCardPage(
+        items: page.items
+            .map(
+              (e) => mapEmbyLiveChannelCard(
+                e,
+                serverUrl: _serverUrl,
+                token: _token,
+              ),
+            )
+            .toList(growable: false),
+        total: page.totalRecordCount,
+      );
+    }
     // 合集库列表页出 BoxSet 本身（与首页预览同口径），普通库按类型选择拍平出影片/剧集。
     final isBoxsets = await _isBoxsetsCatalog(query.catalogId);
     final page = await api.getItemPage(
@@ -407,9 +496,7 @@ class EmbyMediaBackend implements MediaBackend {
       fields: _cardFields,
     );
     return MediaItemCardPage(
-      items: page.items
-          .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
-          .toList(growable: false),
+      items: page.items.map(_mapGeneralCard).toList(growable: false),
       total: page.totalRecordCount,
     );
   }
@@ -480,9 +567,11 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   /// 收藏 Tab 的中立类型标签 → Emby `IncludeItemTypes`。与分类查询不同,收藏页含单集 / 人物。
-  /// 空（「全部」Tab）→ 影片 + 剧集 + 单集（人物有独立 Tab,不混入全部）。
+  /// 空（「全部」Tab）→ 影片 + 剧集 + 单集 + 直播频道（人物有独立 Tab,不混入全部）。
   static String _favoriteIncludeItemTypesFor(List<String>? types) {
-    if (types == null || types.isEmpty) return 'Movie,Series,Episode';
+    if (types == null || types.isEmpty) {
+      return 'Movie,Series,Episode,TvChannel';
+    }
     final mapped = <String>{};
     for (final raw in types) {
       switch (raw.trim().toLowerCase()) {
@@ -496,6 +585,11 @@ class EmbyMediaBackend implements MediaBackend {
         case 'episode':
           mapped.add('Episode');
           break;
+        case 'livechannel':
+        case 'tvchannel':
+        case 'livetvchannel':
+          mapped.add('TvChannel');
+          break;
         case 'person':
           mapped.add('Person');
           break;
@@ -503,7 +597,13 @@ class EmbyMediaBackend implements MediaBackend {
           if (raw.trim().isNotEmpty) mapped.add(raw.trim());
       }
     }
-    return mapped.isEmpty ? 'Movie,Series,Episode' : mapped.join(',');
+    return mapped.isEmpty ? 'Movie,Series,Episode,TvChannel' : mapped.join(',');
+  }
+
+  MediaItemCard _mapGeneralCard(Map<String, Object?> item) {
+    return _isLiveTvType((item['Type'] ?? '').toString())
+        ? mapEmbyLiveChannelCard(item, serverUrl: _serverUrl, token: _token)
+        : mapEmbyItemCard(item, serverUrl: _serverUrl, token: _token);
   }
 
   /// 中立类型标签 → Emby `IncludeItemTypes`。空 / 全部影视 → `Movie,Series`；`TV` → `Series`；
@@ -589,7 +689,10 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) async {
+  Future<List<MediaSourceVersion>> getItemSourceVersions(
+    String itemId, {
+    bool isLive = false,
+  }) async {
     // 与 getItemSourceInfo 同一拉取（MediaSources 含每源 MediaStreams + Default*StreamIndex），
     // 但保留所有源映射成可选版本 + 音轨 / 字幕轨。
     final item = await api.getItem(
@@ -742,6 +845,10 @@ class EmbyMediaBackend implements MediaBackend {
       // Chapters：拖动 seek 预览缩略图（章节图）的位置 + ImageTag 来源。
       fields: 'MediaSources,ProviderIds,DateCreated,Chapters',
     );
+
+    if (_isLiveTvType((item['Type'] ?? '').toString())) {
+      return _getLivePlayback(item, request);
+    }
 
     final sources = _mediaSources(item);
     if (sources.isEmpty) {
@@ -896,6 +1003,226 @@ class EmbyMediaBackend implements MediaBackend {
     );
   }
 
+  final Map<String, _EmbyLivePlaybackSession> _liveSessionsBySourceKey =
+      <String, _EmbyLivePlaybackSession>{};
+  final Map<String, String> _liveSourceKeyBySessionId = <String, String>{};
+
+  Future<MediaPlaybackResolution> _getLivePlayback(
+    Map<String, Object?> item,
+    MediaPlaybackRequest request,
+  ) async {
+    final requestedSourceId = _actualLiveSourceId(request.qualityId);
+    final playbackInfo = await api.getPlaybackInfo(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: request.itemId,
+      mediaSourceId: requestedSourceId,
+    );
+    if (playbackInfo.mediaSources.isEmpty) {
+      throw StateError('直播频道 ${request.itemId} 无可用播放源');
+    }
+    var source = playbackInfo.mediaSources.first;
+    if (requestedSourceId.isNotEmpty) {
+      final matches = playbackInfo.mediaSources.where(
+        (candidate) => (candidate['Id'] ?? '').toString() == requestedSourceId,
+      );
+      if (matches.isEmpty) {
+        throw StateError('直播频道 ${request.itemId} 找不到播放源 $requestedSourceId');
+      }
+      source = matches.first;
+    }
+    final playSessionId = playbackInfo.playSessionId.trim().isNotEmpty
+        ? playbackInfo.playSessionId.trim()
+        : _newPlaySessionId();
+    var opened = false;
+    try {
+      if (source['RequiresOpening'] == true) {
+        final openToken = (source['OpenToken'] ?? '').toString().trim();
+        if (openToken.isEmpty) {
+          throw StateError('直播频道 ${request.itemId} 缺少 OpenToken');
+        }
+        source = await api.openLiveStream(
+          serverUrl: _serverUrl,
+          userId: _userId,
+          accessToken: _token,
+          itemId: request.itemId,
+          playSessionId: playSessionId,
+          openToken: openToken,
+        );
+        opened = true;
+      }
+      final actualSourceId = (source['Id'] ?? '').toString().trim();
+      if (actualSourceId.isEmpty) {
+        throw StateError('直播频道 ${request.itemId} 的播放源缺少 Id');
+      }
+      final liveStreamId = (source['LiveStreamId'] ?? '').toString().trim();
+      final requiresClosing = source['RequiresClosing'] == true;
+      final sourceKey = 'live:$playSessionId:$actualSourceId';
+      final useTranscoding =
+          source['SupportsDirectStream'] == false &&
+          (source['TranscodingUrl'] ?? '').toString().trim().isNotEmpty;
+      final url = useTranscoding
+          ? _authenticatedLiveUrl((source['TranscodingUrl'] ?? '').toString())
+          : _liveDirectStreamUrl(
+              itemId: request.itemId,
+              source: source,
+              playSessionId: playSessionId,
+              liveStreamId: liveStreamId,
+            );
+      final headers = <String, String>{
+        if (_isTrustedServerUrl(url)) ..._entryTokenHeaders(),
+        ..._requiredHeaders(source['RequiredHttpHeaders']),
+      };
+      final tracks = mapEmbyPlaybackTracks(source);
+      final selectedAudio = selectPlaybackTrack(
+        tracks: tracks.audio,
+        preferredTrackId: request.audioTrackId,
+        preferredTrackIndex: request.preferredAudioTrackIndex,
+        fallbackTrackId: embyDefaultAudioId(source),
+      );
+      final selectedSubtitle = selectPlaybackTrack(
+        tracks: tracks.subtitle,
+        preferredTrackId: _normalizeSubtitleTrackId(request.subtitleTrackId),
+        preferredTrackIndex: request.preferredSubtitleTrackIndex,
+        fallbackTrackId: embyDefaultSubtitleId(source),
+        explicitlyDisabled: request.subtitleTrackExplicitlyDisabled,
+      );
+      final session = _EmbyLivePlaybackSession(
+        itemId: request.itemId,
+        sourceKey: sourceKey,
+        mediaSourceId: actualSourceId,
+        playSessionId: playSessionId,
+        liveStreamId: liveStreamId,
+        requiresClosing: requiresClosing,
+        playMethod: useTranscoding ? 'Transcode' : 'DirectStream',
+      );
+      _liveSessionsBySourceKey[sourceKey] = session;
+      _liveSourceKeyBySessionId[playSessionId] = sourceKey;
+      final title = (item['Name'] ?? '').toString().trim();
+      return MediaPlaybackResolution(
+        bundle: MediaPlaybackBundle(
+          itemId: request.itemId,
+          title: title.isNotEmpty ? title : request.fallbackTitle,
+          itemType: 'LiveChannel',
+          posterUrl: _primaryImageUrl(request.itemId),
+          durationSeconds: 0,
+          startPosition: Duration.zero,
+          selectedSource: mapEmbyPlaybackSource(
+            source,
+            id: sourceKey,
+            url: url,
+            headers: headers,
+            delivery: useTranscoding
+                ? MediaPlaybackDeliveryKind.transcoding
+                : MediaPlaybackDeliveryKind.directLink,
+            reliableSeek: false,
+          ),
+          selectedAudioTrack: selectedAudio,
+          selectedSubtitleTrack: selectedSubtitle,
+          audioTracks: tracks.audio,
+          subtitleTracks: tracks.subtitle,
+          session: MediaPlaybackSession(
+            id: playSessionId,
+            serverManaged: true,
+            requiresStop: true,
+          ),
+        ),
+        backendContext: const EmbyPlaybackContext(),
+      );
+    } catch (_) {
+      if (opened) {
+        final liveStreamId = (source['LiveStreamId'] ?? '').toString().trim();
+        if (liveStreamId.isNotEmpty) {
+          try {
+            await api.closeLiveStream(
+              serverUrl: _serverUrl,
+              accessToken: _token,
+              liveStreamId: liveStreamId,
+              playSessionId: playSessionId,
+            );
+          } catch (_) {}
+        }
+      }
+      rethrow;
+    }
+  }
+
+  String _actualLiveSourceId(String? requestedId) {
+    final id = requestedId?.trim() ?? '';
+    return _liveSessionsBySourceKey[id]?.mediaSourceId ?? id;
+  }
+
+  String _liveDirectStreamUrl({
+    required String itemId,
+    required Map<String, Object?> source,
+    required String playSessionId,
+    required String liveStreamId,
+  }) {
+    final directStreamUrl = (source['DirectStreamUrl'] ?? '').toString().trim();
+    if (directStreamUrl.isNotEmpty) {
+      return _authenticatedLiveUrl(directStreamUrl);
+    }
+    return api.buildStreamUrl(
+      serverUrl: _serverUrl,
+      itemId: itemId,
+      mediaSourceId: (source['Id'] ?? '').toString(),
+      accessToken: _token,
+      container: (source['Container'] ?? '').toString(),
+      playSessionId: playSessionId,
+      liveStreamId: liveStreamId,
+    );
+  }
+
+  String _authenticatedLiveUrl(String raw) {
+    final resolved = _resolveLiveUrl(raw);
+    if (!_isTrustedServerUrl(resolved.toString())) return resolved.toString();
+    final query = <String, String>{...resolved.queryParameters};
+    query.putIfAbsent('api_key', () => _token);
+    return resolved.replace(queryParameters: query).toString();
+  }
+
+  Uri _resolveLiveUrl(String raw) {
+    final base = Uri.parse(_serverUrl);
+    final candidate = Uri.parse(raw.trim());
+    if (candidate.hasScheme) return candidate;
+    if (candidate.hasAuthority) return candidate.replace(scheme: base.scheme);
+    final basePath = base.path.replaceFirst(RegExp(r'/$'), '');
+    final candidatePath = candidate.path.startsWith('/')
+        ? candidate.path
+        : '/${candidate.path}';
+    final path =
+        basePath.isEmpty ||
+            basePath == '/' ||
+            candidatePath == basePath ||
+            candidatePath.startsWith('$basePath/')
+        ? candidatePath
+        : '$basePath$candidatePath';
+    return base.replace(
+      path: path,
+      query: candidate.hasQuery ? candidate.query : null,
+      fragment: candidate.hasFragment ? candidate.fragment : null,
+    );
+  }
+
+  bool _isTrustedServerUrl(String raw) {
+    final server = Uri.tryParse(_serverUrl);
+    final target = Uri.tryParse(raw);
+    if (server == null || target == null || !target.hasScheme) return false;
+    return server.scheme.toLowerCase() == target.scheme.toLowerCase() &&
+        server.host.toLowerCase() == target.host.toLowerCase() &&
+        server.port == target.port;
+  }
+
+  static Map<String, String> _requiredHeaders(Object? raw) {
+    if (raw is! Map) return const <String, String>{};
+    return <String, String>{
+      for (final entry in raw.entries)
+        if (entry.key.toString().trim().isNotEmpty && entry.value != null)
+          entry.key.toString(): entry.value.toString(),
+    };
+  }
+
   /// 当前活跃的服务端转码会话（PlaySessionId）；空 = 无转码。
   ///
   /// 每次 [getPlayback] 出转码流前记账，下一次解析（切档 / 切回原画 / 换集）先回收旧任务。
@@ -958,6 +1285,8 @@ class EmbyMediaBackend implements MediaBackend {
     required int positionSeconds,
     bool isPaused = false,
   }) async {
+    final live = _liveSessionsBySourceKey[mediaSourceId];
+    if (live == null && mediaSourceId.startsWith('live:')) return;
     // 更新 Emby UserData.PlaybackPositionTicks（续播位），使跨会话 / 跨客户端续播一致。
     // 秒 → 100ns ticks。best-effort：调用方静默吞错（断网 / 令牌过期不阻断播放）。
     await api.reportPlaybackProgress(
@@ -965,9 +1294,15 @@ class EmbyMediaBackend implements MediaBackend {
       userId: _userId,
       accessToken: _token,
       itemId: itemId,
-      mediaSourceId: mediaSourceId,
-      positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
+      mediaSourceId: live?.mediaSourceId ?? mediaSourceId,
+      positionTicks: live == null
+          ? (positionSeconds < 0 ? 0 : positionSeconds * 10000000)
+          : 0,
       isPaused: isPaused,
+      playSessionId: live?.playSessionId ?? '',
+      liveStreamId: live?.liveStreamId ?? '',
+      canSeek: live == null,
+      playMethod: live?.playMethod ?? 'DirectStream',
     );
   }
 
@@ -977,14 +1312,22 @@ class EmbyMediaBackend implements MediaBackend {
     required String mediaSourceId,
     int positionSeconds = 0,
   }) async {
+    final live = _liveSessionsBySourceKey[mediaSourceId];
+    if (live == null && mediaSourceId.startsWith('live:')) return;
     // 建立播放会话——之后的进度回写才会被 Emby 持久化。best-effort：调用方静默吞错。
     await api.reportPlaybackStart(
       serverUrl: _serverUrl,
       userId: _userId,
       accessToken: _token,
       itemId: itemId,
-      mediaSourceId: mediaSourceId,
-      positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
+      mediaSourceId: live?.mediaSourceId ?? mediaSourceId,
+      positionTicks: live == null
+          ? (positionSeconds < 0 ? 0 : positionSeconds * 10000000)
+          : 0,
+      playSessionId: live?.playSessionId ?? '',
+      liveStreamId: live?.liveStreamId ?? '',
+      canSeek: live == null,
+      playMethod: live?.playMethod ?? 'DirectStream',
     );
   }
 
@@ -994,14 +1337,57 @@ class EmbyMediaBackend implements MediaBackend {
     required String mediaSourceId,
     required int positionSeconds,
   }) async {
-    await api.reportPlaybackStopped(
-      serverUrl: _serverUrl,
-      userId: _userId,
-      accessToken: _token,
-      itemId: itemId,
-      mediaSourceId: mediaSourceId,
-      positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
-    );
+    final live = _liveSessionsBySourceKey[mediaSourceId];
+    if (live == null && mediaSourceId.startsWith('live:')) return;
+    if (live == null) {
+      await api.reportPlaybackStopped(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        itemId: itemId,
+        mediaSourceId: mediaSourceId,
+        positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
+      );
+      return;
+    }
+    await _stopAndReleaseLiveSession(mediaSourceId);
+  }
+
+  @override
+  Future<void> releasePlaybackSession(String sessionId) async {
+    final sourceKey = _liveSourceKeyBySessionId[sessionId.trim()];
+    if (sourceKey == null) return;
+    await _stopAndReleaseLiveSession(sourceKey);
+  }
+
+  Future<void> _stopAndReleaseLiveSession(String sourceKey) async {
+    // 先摘账，避免退出上报与显式释放并发时重复停止、重复关流。
+    final live = _liveSessionsBySourceKey.remove(sourceKey);
+    if (live == null) return;
+    _liveSourceKeyBySessionId.remove(live.playSessionId);
+    try {
+      await api.reportPlaybackStopped(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        itemId: live.itemId,
+        mediaSourceId: live.mediaSourceId,
+        positionTicks: 0,
+        playSessionId: live.playSessionId,
+        liveStreamId: live.liveStreamId,
+        canSeek: false,
+        playMethod: live.playMethod,
+      );
+    } finally {
+      if (live.requiresClosing && live.liveStreamId.isNotEmpty) {
+        await api.closeLiveStream(
+          serverUrl: _serverUrl,
+          accessToken: _token,
+          liveStreamId: live.liveStreamId,
+          playSessionId: live.playSessionId,
+        );
+      }
+    }
   }
 
   @override
@@ -1172,4 +1558,24 @@ class EmbyMediaBackend implements MediaBackend {
     if (value is num) return value.toInt();
     return int.tryParse('${value ?? ''}') ?? 0;
   }
+}
+
+class _EmbyLivePlaybackSession {
+  const _EmbyLivePlaybackSession({
+    required this.itemId,
+    required this.sourceKey,
+    required this.mediaSourceId,
+    required this.playSessionId,
+    required this.liveStreamId,
+    required this.requiresClosing,
+    required this.playMethod,
+  });
+
+  final String itemId;
+  final String sourceKey;
+  final String mediaSourceId;
+  final String playSessionId;
+  final String liveStreamId;
+  final bool requiresClosing;
+  final String playMethod;
 }
