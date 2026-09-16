@@ -36,9 +36,7 @@ class FlyDanmakuApi {
     if (session == null || source == null || mediaGuid.isEmpty) return null;
     final epoch = service.scopeIdentity;
     return FlyDanmakuApi(
-      api: FlyDataApi(
-        session.serverUrl,
-        token: session.token,
+      api: session.createApi(
         maxResponseBytes: 8 * 1024 * 1024,
         receiveTimeout: const Duration(seconds: 150),
       ),

@@ -24,6 +24,7 @@ class FlyDataSession {
     this.serviceInstanceId = '',
     this.role = 'user',
     this.addresses = const [],
+    this.fnEntryToken = '',
   });
   final String serverUrl,
       userId,
@@ -35,6 +36,18 @@ class FlyDataSession {
   final String serviceInstanceId;
   final String role;
   final List<String> addresses;
+  final String fnEntryToken;
+  // 从捕获的会话创建客户端，避免并发切换账号时读取别的入口令牌。
+  FlyDataApi createApi({
+    int? maxResponseBytes,
+    Duration receiveTimeout = const Duration(seconds: 60),
+  }) => FlyDataApi(
+    serverUrl,
+    token: token,
+    fnEntryToken: fnEntryToken,
+    maxResponseBytes: maxResponseBytes,
+    receiveTimeout: receiveTimeout,
+  );
   String get accountKey =>
       '${serviceInstanceId.isEmpty ? serverUrl : serviceInstanceId}|$userId';
   String get deviceKey => '$installationId:$deviceId';
@@ -49,6 +62,7 @@ class FlyDataSession {
     'service_instance_id': serviceInstanceId,
     'role': role,
     'addresses': addresses,
+    'fn_entry_token': fnEntryToken,
   };
   factory FlyDataSession.fromJson(Map<String, dynamic> row) => FlyDataSession(
     serverUrl: row['server_url'] as String,
@@ -61,6 +75,7 @@ class FlyDataSession {
     serviceInstanceId: row['service_instance_id'] as String? ?? '',
     role: row['role'] as String? ?? 'user',
     addresses: (row['addresses'] as List? ?? []).cast<String>(),
+    fnEntryToken: row['fn_entry_token'] as String? ?? '',
   );
 }
 
@@ -84,6 +99,7 @@ class FlyDataService {
         ? ''
         : '${value.accountKey}|${value.deviceKey}|${value.serverUrl}';
   }
+
   /// Authentication can succeed even when optional history storage fails.
   String? loginHistoryWarning;
   bool _busy = false;
@@ -119,6 +135,7 @@ class FlyDataService {
     required String deviceName,
     bool rememberPassword = true,
     String? expectedInstanceId,
+    String fnEntryToken = '',
   }) => _exclusive(() async {
     loginHistoryWarning = null;
     final url = normalizeServerUrl(serverUrl);
@@ -130,7 +147,7 @@ class FlyDataService {
       await SecureCredentialStore.write(_installationKey, newFlySyncId());
       install = await SecureCredentialStore.read(_installationKey);
     }
-    final api = FlyDataApi(url);
+    final api = FlyDataApi(url, fnEntryToken: fnEntryToken);
     try {
       final identity = await api.get('/system/identity');
       final instanceId = identity['service_instance_id'] as String? ?? '';
@@ -162,6 +179,7 @@ class FlyDataService {
         serviceInstanceId: response['service_instance_id'] as String? ?? '',
         role: user['role'] as String? ?? 'user',
         addresses: [url],
+        fnEntryToken: isFlyFnApplicationUrl(url) ? fnEntryToken : '',
       );
       await drainWrites();
       await _migrateAccountOwner('$url|${next.userId}', next.accountKey);
@@ -239,10 +257,22 @@ class FlyDataService {
   }
 
   /// Probe with no bearer first. Aliases of one service share account identity.
-  Future<void> switchAddress(String value) => _exclusive(() async {
+  Future<void> switchAddress(String value) => _switchAddress(value);
+
+  Future<void> renewFnAccess(String entryToken) =>
+      _switchAddress(_requireSession().serverUrl, fnEntryToken: entryToken);
+
+  Future<void> _switchAddress(
+    String value, {
+    String? fnEntryToken,
+  }) => _exclusive(() async {
     final previous = _requireSession();
     final url = normalizeServerUrl(value);
-    final probe = FlyDataApi(url);
+    final entryToken = isFlyFnApplicationUrl(url)
+        ? fnEntryToken ??
+              (url == previous.serverUrl ? previous.fnEntryToken : '')
+        : '';
+    final probe = FlyDataApi(url, fnEntryToken: entryToken);
     late final String instanceId;
     try {
       instanceId =
@@ -260,7 +290,11 @@ class FlyDataService {
     if (previous.serviceInstanceId.isEmpty && url != previous.serverUrl) {
       throw StateError('请先通过旧登录地址核验并迁移账号，再添加新地址。');
     }
-    final api = FlyDataApi(url, token: previous.token);
+    final api = FlyDataApi(
+      url,
+      token: previous.token,
+      fnEntryToken: entryToken,
+    );
     try {
       final me = await api.get('/me');
       if (me['service_instance_id'] != instanceId ||
@@ -274,6 +308,7 @@ class FlyDataService {
     // in-flight reads. The account and token are unchanged, and /me has still
     // verified them; only a changed address, instance or address set needs saving.
     if (previous.serverUrl == url &&
+        previous.fnEntryToken == entryToken &&
         previous.serviceInstanceId == instanceId &&
         previous.addresses.contains(url)) {
       return;
@@ -281,6 +316,7 @@ class FlyDataService {
     final next = FlyDataSession.fromJson({
       ...previous.toJson(),
       'server_url': url,
+      'fn_entry_token': entryToken,
       'service_instance_id': instanceId,
       'addresses': {...previous.addresses, previous.serverUrl, url}.toList(),
     });
@@ -338,7 +374,7 @@ class FlyDataService {
     if (current.serviceInstanceId.isEmpty) {
       throw StateError('请先核验旧服务地址完成统一账号迁移。');
     }
-    final api = FlyDataApi(current.serverUrl, token: current.token);
+    final api = current.createApi();
     try {
       final result = body == null
           ? await api.get(path, query: query)
@@ -355,7 +391,7 @@ class FlyDataService {
   Future<Uint8List> imageBytes(String mediaId) async {
     final current = _requireSession();
     if (current.serviceInstanceId.isEmpty) throw StateError('请先核验飞翔服务实例。');
-    final api = FlyDataApi(current.serverUrl, token: current.token);
+    final api = current.createApi();
     try {
       final bytes = await api.imageBytes(mediaId);
       if (!identical(current, session)) throw StateError('账号已改变。');
@@ -398,7 +434,7 @@ class FlyDataService {
     final current = session;
     try {
       if (current != null) {
-        final api = FlyDataApi(current.serverUrl, token: current.token);
+        final api = current.createApi();
         try {
           await api.post('/auth/logout', <String, dynamic>{});
         } finally {
@@ -416,7 +452,7 @@ class FlyDataService {
 
   Future<List<Map<String, dynamic>>> remoteDatasets() async {
     final current = _requireSession();
-    final api = FlyDataApi(current.serverUrl, token: current.token);
+    final api = current.createApi();
     try {
       final response = await api.get('/sync/datasets');
       return (response['items'] as List)
@@ -430,7 +466,7 @@ class FlyDataService {
   Future<int> adopt(Map<String, dynamic> dataset) => _exclusive(() async {
     final current = _requireSession();
     final scope = _scopeToken;
-    final api = FlyDataApi(current.serverUrl, token: current.token);
+    final api = current.createApi();
     try {
       final rows = await _history(api, dataset['id'] as String, details: true);
       final identities = await _identities(api, dataset['id'] as String);
@@ -463,7 +499,7 @@ class FlyDataService {
     );
     _checkScope(scope);
     final ids = await scoped.unlinkedRecordIds(current.accountKey);
-    final api = FlyDataApi(current.serverUrl, token: current.token);
+    final api = current.createApi();
     try {
       final datasets = await api.get('/sync/datasets');
       for (final dataset in datasets['items'] as List) {
@@ -492,7 +528,7 @@ class FlyDataService {
       ownerScope: currentScope,
     );
     _checkScope(scope);
-    final api = FlyDataApi(current.serverUrl, token: current.token);
+    final api = current.createApi();
     try {
       final old = await scoped.state(current.accountKey);
       String streamId;

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/services/fly_data/fly_data_api.dart';
 import 'package:fly_player/services/fly_data/fly_data_service.dart';
@@ -18,6 +19,14 @@ void main() {
     () {
       expect(normalizeServerUrl('http://nas:8787/'), 'http://nas:8787');
       expect(
+        normalizeServerUrl('https://test.fnos.net/app/fly-data-service/'),
+        'https://test.fnos.net/app/fly-data-service',
+      );
+      expect(
+        () => normalizeServerUrl('https://test.fnos.net/app/other'),
+        throwsFormatException,
+      );
+      expect(
         () => normalizeServerUrl('http://user:password@nas:8787'),
         throwsFormatException,
       );
@@ -31,6 +40,61 @@ void main() {
       );
     },
   );
+
+  test('FN 入口凭据仅发送到所选应用，授权页和跨源请求可安全失败', () async {
+    const url = 'https://test.fnos.net/app/fly-data-service';
+    final dio = Dio();
+    final api = FlyDataApi(
+      url,
+      token: 'fly-token',
+      fnEntryToken: 'entry-fixture',
+      dio: dio,
+    );
+    final sent = <RequestOptions>[];
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (request, handler) {
+          sent.add(request);
+          handler.resolve(
+            Response(
+              requestOptions: request,
+              statusCode: 200,
+              data: request.path == '/me'
+                  ? {'user': 'fixture'}
+                  : '<html>FN Connect</html>',
+            ),
+          );
+        },
+      ),
+    );
+    try {
+      await api.get('/me');
+      expect(sent.single.uri.toString(), '$url/api/v1/me');
+      expect(sent.single.headers['Cookie'], 'entry-token=entry-fixture');
+      expect(sent.single.headers['Authorization'], 'Bearer fly-token');
+      expect(sent.single.followRedirects, isFalse);
+      await expectLater(
+        api.get('/system/identity'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            '授权提示',
+            flyFnAccessMessage,
+          ),
+        ),
+      );
+      for (final path in [
+        'https://other.fnos.net/app/fly-data-service/api/v1/me',
+        'https://test.fnos.net/api/v1/me',
+        '/../../other',
+      ]) {
+        await expectLater(api.get(path), throwsStateError);
+      }
+      expect(sent, hasLength(2));
+    } finally {
+      api.close();
+    }
+  });
 
   test(
     'real HTTP failure retains original bytes; snapshot drains writes and releases its transaction before HTTP',
@@ -54,7 +118,7 @@ void main() {
               ? <String, dynamic>{}
               : jsonDecode(bytes) as Map<String, dynamic>;
           Map<String, dynamic> response;
-          switch (request.uri.path) {
+          switch (request.uri.path.replaceFirst('/app/fly-data-service', '')) {
             case '/api/v1/system/identity':
               expect(request.headers.value('authorization'), isNull);
               identityChecked = true;
@@ -154,12 +218,18 @@ void main() {
           service.session!.installationId,
         );
         await restored.login(
-          serverUrl: url,
+          serverUrl: '$url/app/fly-data-service/',
           username: 'test',
           password: 'test-only-password',
           deviceName: 'test device',
         );
         expect(installations.toSet(), hasLength(1));
+        final reopened = FlyDataService(
+          database: database,
+          drainWrites: () async {},
+        );
+        await reopened.restoreSession();
+        expect(reopened.session!.serverUrl, '$url/app/fly-data-service');
         final saved = await secure.read('fly_data_service_session_v1');
         expect(saved.value, isNot(contains('test-only-password')));
         await restored.syncNow();
