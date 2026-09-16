@@ -90,13 +90,24 @@ class _ExternalPlaybackMiniSettingsState
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final source = widget.status.source;
+    final status = widget.status;
+    final source = status.source;
+    final playerName = status.player.displayName;
+    if (!status.player.supportsSubtitles) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+        child: Text(
+          '$playerName 暂不支持由 Fly Player 编辑字幕或弹幕。',
+          style: TextStyle(fontSize: 10, color: colors.textMuted),
+        ),
+      );
+    }
     final tracks = ExternalPlayerSubtitles.selectableTracks(source);
     final items = [
       if (source.subtitleTrackGuid == null)
-        const TrackOptionSheetItem(
-          id: 'potplayer-default',
-          title: '由 PotPlayer 选择',
+        TrackOptionSheetItem(
+          id: 'external-player-default',
+          title: '由 $playerName 选择',
         ),
       ...PlayDetailSheetController.subtitleItems(
         subtitleTracks: tracks,
@@ -105,7 +116,7 @@ class _ExternalPlaybackMiniSettingsState
     ];
     final options = {for (final item in items) item.id: item.title};
     final selected = _subtitleGuid == null
-        ? 'potplayer-default'
+        ? 'external-player-default'
         : PlayDetailSheetController.subtitleSelectedIdOf(_subtitleGuid);
     final canEdit = widget.status.canControl && !_saving;
     return Padding(
@@ -170,7 +181,7 @@ class _ExternalPlaybackMiniSettingsState
                     onSelected: (id) {
                       _subtitleMenu.currentState?.hide();
                       setState(() {
-                        _subtitleGuid = id == 'potplayer-default'
+                        _subtitleGuid = id == 'external-player-default'
                             ? null
                             : PlayDetailSheetController.subtitleResultOf(id);
                         _dirty = true;
@@ -201,7 +212,7 @@ class _ExternalPlaybackMiniSettingsState
                     const SizedBox(width: 7),
                     Expanded(
                       child: Text(
-                        options[selected] ?? '内封字幕（PotPlayer 管理）',
+                        options[selected] ?? '内封字幕（由 $playerName 管理）',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -223,7 +234,7 @@ class _ExternalPlaybackMiniSettingsState
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Text(
-              '内封 / 位图字幕请在 PotPlayer 中切换',
+              '内封 / 位图字幕请在 $playerName 中切换',
               style: TextStyle(fontSize: 10, color: colors.textMuted),
             ),
           ),

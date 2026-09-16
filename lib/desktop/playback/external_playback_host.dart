@@ -31,7 +31,8 @@ import 'external_player_media_proxy.dart';
 import 'external_player_playlist.dart';
 import 'external_player_settings.dart';
 import 'external_player_subtitles.dart';
-import 'potplayer_session.dart';
+import 'external_player_adapter.dart';
+import 'external_player_adapters.dart';
 
 typedef _PreparedExternalItem = ({
   MpvMediaSource source,
@@ -60,6 +61,7 @@ class ExternalPlaybackStatus {
     this.progressResult,
     this.danmakuSettings = DanmakuSettings.defaults,
     this.playlist = const [],
+    this.player = ExternalPlayerAdapters.defaultPlayer,
   });
   final MpvMediaSource source;
   final Duration position;
@@ -75,6 +77,7 @@ class ExternalPlaybackStatus {
   final PlaybackProgressResult? progressResult;
   final DanmakuSettings danmakuSettings;
   final List<ExternalPlaylistEpisode> playlist;
+  final ExternalPlayerAdapter player;
 
   bool get canControl => phase == ExternalPlaybackPhase.ready;
 
@@ -96,6 +99,7 @@ class ExternalPlaybackStatus {
     progressResult: progressResult,
     danmakuSettings: danmakuSettings,
     playlist: playlist,
+    player: player,
   );
 }
 
@@ -105,12 +109,14 @@ final class ExternalPlaybackHost implements PlaybackHost {
 
   final BuildContext context;
   final DesktopPlaybackLaunchRequest? launchRequest;
-  static PotPlayerSession? _session;
+  static ExternalPlayerSession? _session;
   static MpvMediaSource? _source;
   static String? _scope;
   static bool _launching = false;
   static Object? _launchOwner;
   static final status = ValueNotifier<ExternalPlaybackStatus?>(null);
+  static ExternalPlayerAdapter get player =>
+      status.value?.player ?? ExternalPlayerAdapters.defaultPlayer;
   static Future<bool> Function(
     String?,
     String?,
@@ -152,7 +158,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
 
   static bool _controlsItem(String itemGuid) =>
       _session?.finished == false &&
-      _session!.isCurrentSession() &&
+      _session!.isCurrent &&
       _source?.itemGuid == itemGuid &&
       status.value?.source.itemGuid == itemGuid &&
       status.value?.canControl == true;
@@ -166,11 +172,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     final session = _session!;
     await session.poll();
     if (!_controlsItem(itemGuid) || !identical(_session, session)) return false;
-    if (!await PotPlayerSession.sendCommand('configure', {
-      'pid': session.pid,
-      'paused': paused,
-      'mediaUrl': session.mediaUrl,
-    })) {
+    if (!await session.setPaused(paused)) {
       return false;
     }
     if (!identical(_session, session) || !_controlsItem(itemGuid)) return false;
@@ -193,12 +195,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         status.value!.duration.inMilliseconds,
       ),
     );
-    if (!await PotPlayerSession.sendCommand('activate', {
-      'pid': session.pid,
-      'positionMs': target.inMilliseconds,
-      'focus': false,
-      'mediaUrl': session.mediaUrl,
-    })) {
+    if (!await session.seek(target)) {
       return false;
     }
     if (!identical(_session, session) || !_controlsItem(itemGuid)) return false;
@@ -213,7 +210,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     String? label,
     bool? enabled,
   }) async {
-    if (!_controlsItem(itemGuid)) return false;
+    if (!_controlsItem(itemGuid) || !player.supportsSubtitles) return false;
     return await _applyDanmaku?.call(path, label, enabled, null, null) ?? false;
   }
 
@@ -222,7 +219,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     required DanmakuSettings settings,
     String? subtitleGuid,
   }) async {
-    if (!_controlsItem(itemGuid)) return false;
+    if (!_controlsItem(itemGuid) || !player.supportsSubtitles) return false;
     return await _applyDanmaku?.call(
           null,
           null,
@@ -297,17 +294,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
     );
     if (target < 0 || current < 0) return false;
     if (target == current) return activateCurrent(itemGuid: itemGuid);
-    // 已有 DPL 的相邻条目直接在当前进程切换，最终身份交接由真实采样确认。
+    // 已有原生播放列表时直接切换相邻条目，最终身份交接由真实采样确认。
     final session = _session!;
-    if ((target - current).abs() == 1 && session.onMediaChanged != null) {
+    if ((target - current).abs() == 1 && session.hasPlaylist) {
       _changingSource = true;
       status.value = active.withPhase(ExternalPlaybackPhase.preparing);
       try {
-        if (!await PotPlayerSession.sendCommand('stepPlaylist', {
-          'pid': session.pid,
-          'mediaUrl': session.mediaUrl,
-          'direction': target > current ? 1 : -1,
-        })) {
+        if (!await session.stepPlaylist(target > current ? 1 : -1)) {
           return false;
         }
         final deadline = DateTime.now().add(const Duration(minutes: 2));
@@ -412,14 +405,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
           _scope != playbackSessionScope(context)) {
         return false;
       }
-      final snapshot = await PotPlayerSession.channel
-          .invokeMapMethod<String, dynamic>('snapshot', {'pid': session!.pid});
+      final matchesMedia = await session!.matchesMedia(expectedUrl!);
       if (launchRequest?.isCurrent == false ||
-          snapshot?['alive'] != true ||
-          !PotPlayerSession.sameMedia(
-            '${snapshot?['file'] ?? ''}',
-            expectedUrl!,
-          ) ||
+          !matchesMedia ||
           !identical(_source, expected) ||
           !identical(_session, session) ||
           !context.mounted ||
@@ -580,7 +568,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     final requestedScope = playbackSessionScope(context);
     Directory? directory;
     ExternalPlayerMediaProxy? mediaProxy;
-    PotPlayerSession? launched;
+    ExternalPlayerSession? launched;
     Future<void> Function()? releaseUnlaunchedSource;
     var disposed = false;
     bool ownsLaunch() =>
@@ -651,9 +639,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
       launchRequest?.pendingSource = null;
       final settings = await ExternalPlayerSettings.load();
       checkLaunch();
-      final error = await ExternalPlayerSettings.validateExecutable(
-        settings.executablePath,
-      );
+      final adapter = settings.adapter;
+      final error = await adapter.validateExecutable(settings.executablePath);
       checkLaunch();
       if (error != null) throw StateError(error);
 
@@ -667,6 +654,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           danmakuLabel: '',
           danmakuCount: 0,
           phase: ExternalPlaybackPhase.preparing,
+          player: adapter,
           progressMessage: '等待播放器就绪',
         );
       }
@@ -685,13 +673,14 @@ final class ExternalPlaybackHost implements PlaybackHost {
         );
         checkLaunch();
       }
-      directory = await Directory.systemTemp.createTemp('fly_potplayer_');
+      directory = await Directory.systemTemp.createTemp('fly_external_player_');
       checkLaunch();
       final initialDanmakuSettings = await const DanmakuSettingsStore().load();
       checkLaunch();
       var initialDanmakuPath = danmakuFilePath;
       var initialDanmakuCount = 0;
       final subtitle = await _prepareSubtitle(
+        player: adapter,
         source: source,
         backend: backend,
         nas: effectiveNas,
@@ -727,7 +716,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
       );
       checkLaunch();
       final isHttp = uri?.scheme == 'http' || uri?.scheme == 'https';
-      if (catalog.length > 1 ||
+      if ((adapter.supportsPlaylist && catalog.length > 1) ||
           (isHttp && backend.capabilities.usesLegacyFeiniuFlow)) {
         final api = FeiniuApi(effectiveNas);
         mediaProxy = await ExternalPlayerMediaProxy.start(
@@ -762,7 +751,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
       };
       final playlist = catalog;
       String? playlistPath;
-      if (mediaProxy != null && catalog.length > 1) {
+      if (adapter.supportsPlaylist &&
+          mediaProxy != null &&
+          catalog.length > 1) {
         final titles = <String, String>{};
         final proxy = mediaProxy;
         for (var index = 0; index < catalog.length; index++) {
@@ -809,6 +800,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
               var nextDanmaku = result?['danmakuFile']?.toString();
               var nextCount = 0;
               final nextSubtitle = await _prepareSubtitle(
+                player: adapter,
                 source: next,
                 backend: backend,
                 nas: effectiveNas,
@@ -855,7 +847,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           titles[entryUrl] = episode.title;
         }
         if (titles.length > 1) {
-          playlistPath = await ExternalPlayerPlaylist.write(
+          playlistPath = await adapter.writePlaylist(
             directory: ownedDirectory,
             currentUrl: playerUrl,
             titlesByUrl: titles,
@@ -866,19 +858,6 @@ final class ExternalPlaybackHost implements PlaybackHost {
       if (!context.mounted || !isCurrentSession()) {
         throw StateError('播放页面或账号已切换，请重新播放');
       }
-      final pid = await PotPlayerSession.channel.invokeMethod<int>('launch', {
-        'executable': settings.executablePath,
-        'url':
-            playlistPath ??
-            (uri?.scheme == 'file'
-                ? uri!.toFilePath(windows: true)
-                : playerUrl),
-        'startMs': source.startPosition.inMilliseconds,
-        'title': source.title,
-        'headers': mediaProxy == null ? source.headers : <String, String>{},
-      });
-      if (pid == null || pid <= 0) throw StateError('未能启动 PotPlayer');
-
       final serverReporter = ServerPlaybackReporter(backend);
       var phase = ExternalPlaybackPhase.preparing;
       String? statusError;
@@ -945,7 +924,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           }
         },
       );
-      // PotPlayer 内部切轨没有可靠回调，不能把 Fly 中的原选择当成实际播放音轨。
+      // 接口不回传播放器内部音轨，不能把 Fly 中的原选择当成实际播放音轨。
       var reportedSource = source.copyWith(clearAudioTrackGuid: true);
       var lastPosition = Duration.zero;
       var lastDuration = Duration.zero;
@@ -966,7 +945,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
           position: lastPosition,
           duration: lastDuration,
           paused: lastPaused ?? source.startPaused,
-          danmakuEnabled: activeDanmakuSettings.enabled,
+          danmakuEnabled:
+              adapter.supportsSubtitles && activeDanmakuSettings.enabled,
           danmakuLabel: activeDanmakuLabel,
           danmakuCount: activeDanmakuCount,
           phase: _changingSource && phase == ExternalPlaybackPhase.ready
@@ -978,6 +958,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           progressResult: lastProgressResult,
           danmakuSettings: activeDanmakuSettings,
           playlist: List.unmodifiable(playlist),
+          player: adapter,
         );
       }
 
@@ -1003,9 +984,17 @@ final class ExternalPlaybackHost implements PlaybackHost {
       }
 
       final ownedProxy = mediaProxy;
-      launched = PotPlayerSession(
-        pid: pid,
+      launched = await adapter.launch(
+        executablePath: settings.executablePath,
+        url:
+            playlistPath ??
+            (uri?.scheme == 'file'
+                ? uri!.toFilePath(windows: true)
+                : playerUrl),
         mediaUrl: playerUrl,
+        startPosition: source.startPosition,
+        title: source.title,
+        headers: mediaProxy == null ? source.headers : <String, String>{},
         isCurrentSession: () =>
             isCurrentSession() &&
             identical(_session, launched) &&
@@ -1031,6 +1020,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                   var path = next.danmaku;
                   var count = 0;
                   final refreshed = await _prepareSubtitle(
+                    player: adapter,
                     source: nextSource,
                     backend: backend,
                     nas: effectiveNas,
@@ -1097,13 +1087,15 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 reporter.onLaunch(source);
                 if (startupComplete && next.subtitle?.isNotEmpty == true) {
                   try {
-                    await PotPlayerSession.channel.invokeMethod<void>(
-                      'subtitle',
-                      {'pid': pid, 'path': next.subtitle, 'mediaUrl': url},
+                    await launched!.loadSubtitle(
+                      path: next.subtitle!,
+                      mediaUrl: url,
                     );
                   } catch (_) {
                     // 快速再次切集时，原生桥拒绝向另一集投递旧字幕。
-                    if (!disposed) notify('字幕或弹幕未能载入，请在 PotPlayer 检查字幕选项');
+                    if (!disposed) {
+                      notify('字幕或弹幕未能载入，请在 ${adapter.displayName} 检查字幕选项');
+                    }
                   }
                 }
                 return source.startPosition;
@@ -1201,19 +1193,19 @@ final class ExternalPlaybackHost implements PlaybackHost {
         paused: source.startPaused,
         speed: source.playbackSpeed,
         initialPosition: source.startPosition,
-        onWaiting: () => notify('PotPlayer 正在解析文件，较大的蓝光原盘可能需要一分钟左右'),
+        onWaiting: () =>
+            notify('${adapter.displayName} 正在解析文件，较大的蓝光原盘可能需要一分钟左右'),
       );
       checkLaunch();
       if (activeSubtitle?.isNotEmpty == true) {
         try {
-          await PotPlayerSession.channel.invokeMethod<void>('subtitle', {
-            'pid': pid,
-            'path': activeSubtitle,
-            'mediaUrl': launched.mediaUrl,
-          });
+          await launched.loadSubtitle(
+            path: activeSubtitle!,
+            mediaUrl: launched.mediaUrl,
+          );
         } catch (_) {
           if (ownsLaunch() && !disposed) {
-            notify('字幕或弹幕未能载入，请在 PotPlayer 检查字幕选项');
+            notify('字幕或弹幕未能载入，请在 ${adapter.displayName} 检查字幕选项');
           }
         }
         checkLaunch();
@@ -1267,6 +1259,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
               var nextDanmaku = path ?? activeDanmakuPath;
               var nextCount = 0;
               var nextSubtitle = await _prepareSubtitle(
+                player: adapter,
                 source: selectedSource,
                 backend: backend,
                 nas: effectiveNas,
@@ -1301,11 +1294,10 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 );
               }
               if (nextSubtitle != null) {
-                await PotPlayerSession.channel.invokeMethod<void>('subtitle', {
-                  'pid': pid,
-                  'path': nextSubtitle,
-                  'mediaUrl': launched!.mediaUrl,
-                });
+                await launched!.loadSubtitle(
+                  path: nextSubtitle,
+                  mediaUrl: launched.mediaUrl,
+                );
               }
               if (!current()) return false;
               source = selectedSource;
@@ -1327,7 +1319,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           };
       publishStatus();
       checkLaunch();
-      notify('已在 PotPlayer 播放；请保持 Fly Player 运行以同步进度');
+      notify('已在 ${adapter.displayName} 播放；请保持 Fly Player 运行以同步进度');
       checkLaunch();
       return true;
     } catch (error) {
@@ -1361,6 +1353,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
   }
 
   static Future<String?> _prepareSubtitle({
+    required ExternalPlayerAdapter player,
     required MpvMediaSource source,
     required MediaBackend backend,
     required NasProvider nas,
@@ -1373,6 +1366,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     bool requireSubtitle = false,
     void Function(String path, int count)? onDanmakuPrepared,
   }) async {
+    if (!player.supportsSubtitles) return null;
     final sourceAtStart = _source;
     final sessionAtStart = _session;
     final settings =
@@ -1417,7 +1411,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     if (requireSubtitle && (subtitle?.isEmpty ?? true)) {
       final known =
           track != null && (track.isExternal == 1 || track.extraFile == 1);
-      if (!known) throw StateError('当前字幕不能从控制页载入，请在 PotPlayer 中切换');
+      if (!known) throw StateError('当前字幕不能从控制页载入，请在 ${player.displayName} 中切换');
     }
     if ((subtitle?.isEmpty ?? true) &&
         track != null &&

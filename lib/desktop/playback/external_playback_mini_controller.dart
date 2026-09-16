@@ -5,7 +5,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'external_playback_host.dart';
 import 'external_playback_mini_player.dart';
-import 'potplayer_session.dart';
+import 'external_player_adapter.dart';
 
 /// 极简模式复用主窗口和播放会话；离开时恢复窗口，不重建导航器。
 class ExternalPlaybackMiniController {
@@ -42,6 +42,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
   bool _alwaysOnTop = false;
   bool _pinned = true;
   bool _resizable = true;
+  ExternalPlayerAdapter? _miniPlayer;
 
   @override
   void initState() {
@@ -53,11 +54,13 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
   }
 
   Future<void> _enter() async {
-    if (_active || _changing || ExternalPlaybackHost.status.value == null) {
+    final player = ExternalPlaybackHost.status.value?.player;
+    if (_active || _changing || player == null || !player.supportsMiniPlayer) {
       return;
     }
     _changing = true;
     try {
+      _miniPlayer = player;
       _fullscreen = await windowManager.isFullScreen();
       _maximized = await windowManager.isMaximized();
       _alwaysOnTop = await windowManager.isAlwaysOnTop();
@@ -85,6 +88,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
       if (mounted) setState(() => _pinned = true);
     } catch (_) {
       if (_active) await _restore();
+      _miniPlayer = null;
       rethrow;
     } finally {
       _changing = false;
@@ -117,6 +121,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
       _settingsExpanded = false;
       _pageSize = null;
       _bounds = null;
+      _miniPlayer = null;
     });
     ExternalPlaybackMiniController.active.value = false;
   }
@@ -150,8 +155,10 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
     }
   }
 
-  Future<void> _setPinned(bool pinned) =>
-      PotPlayerSession.channel.invokeMethod<void>('setMiniPinned', pinned);
+  Future<void> _setPinned(bool pinned) async {
+    final player = _miniPlayer;
+    if (player != null) await player.setMiniPinned(pinned);
+  }
 
   Future<void> _toggleSettings() async {
     if (!_active || !_expanded || _changing) return;
@@ -184,6 +191,7 @@ class _ExternalPlaybackMiniHostState extends State<ExternalPlaybackMiniHost> {
         }),
       );
     }
+    _miniPlayer = null;
     if (identical(ExternalPlaybackMiniController._host, this)) {
       ExternalPlaybackMiniController._host = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {

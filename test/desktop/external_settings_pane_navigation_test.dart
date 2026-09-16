@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fly_player/danmaku/settings/danmaku_settings_store.dart';
 import 'package:fly_player/desktop/desktop_detail_pane_host.dart';
 import 'package:fly_player/desktop/desktop_split_controller.dart';
+import 'package:fly_player/desktop/playback/external_player_settings.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/screens/external_player_settings_screen.dart';
 import 'package:fly_player/screens/settings_destination_routes.dart';
@@ -46,6 +49,40 @@ Future<void> _dispose(WidgetTester tester) async {
 }
 
 void main() {
+  test('旧外部播放器配置沿用 PotPlayer，保存后记录播放器类型', () async {
+    SharedPreferences.setMockInitialValues({
+      'desktop_external_player_v1': jsonEncode({
+        'enabled': false,
+        'executablePath': r'D:\PotPlayer\PotPlayerMini64.exe',
+      }),
+    });
+    final settings = await ExternalPlayerSettings.load();
+    expect(settings.playerId, 'potplayer');
+    expect(settings.adapter.displayName, 'PotPlayer');
+    await settings.save();
+    final saved = await ExternalPlayerSettings.load();
+    expect(saved.playerId, settings.playerId);
+    expect(saved.executablePath, settings.executablePath);
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      jsonDecode(
+        preferences.getString('desktop_external_player_v1')!,
+      )['playerId'],
+      'potplayer',
+    );
+  });
+
+  test('未知播放器类型不能被静默替换或保存', () async {
+    SharedPreferences.setMockInitialValues({
+      'desktop_external_player_v1': jsonEncode({'playerId': 'unknown-player'}),
+    });
+    await expectLater(ExternalPlayerSettings.load(), throwsStateError);
+    await expectLater(
+      const ExternalPlayerSettings(playerId: 'unknown-player').save(),
+      throwsStateError,
+    );
+  });
+
   testWidgets('子页直接 push 后宿主记录真实栈，重开外部设置、返回和关闭一致', (tester) async {
     final split = DesktopSplitController(enabled: true);
     addTearDown(split.dispose);
