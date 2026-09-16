@@ -140,6 +140,52 @@ void main() {
   });
 
   testWidgets(
+    'FN 登录授权页使用带尾斜杠的应用入口',
+    (tester) async {
+      const root = MethodChannel('io.jns.webview.win');
+      const view = MethodChannel('io.jns.webview.win/1');
+      const events = MethodChannel('io.jns.webview.win/1/events');
+      final loads = <String>[];
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        root,
+        (call) async => call.method == 'initialize' ? {'textureId': 1} : null,
+      );
+      messenger.setMockMethodCallHandler(view, (call) async {
+        if (call.method == 'loadUrl') loads.add(call.arguments as String);
+        return null;
+      });
+      messenger.setMockMethodCallHandler(events, (_) async => null);
+      addTearDown(() {
+        for (final channel in [root, view, events]) {
+          messenger.setMockMethodCallHandler(channel, null);
+        }
+      });
+      account.signedIn = false;
+      await tester.pumpWidget(_app(account));
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '飞翔服务地址'),
+        'https://geqian688.fnos.net/app/fly-data-service',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '飞翔账号'),
+        'viewer',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '密码'),
+        'password',
+      );
+      await tester.tap(find.text('登录飞翔'));
+      await tester.pump();
+
+      expect(loads, <String>[
+        'https://geqian688.fnos.net/app/fly-data-service/',
+      ]);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
     '来源页复用选项行和贴边滚动条，无绑定时指引后端处理',
     (tester) async {
       DesktopEnvironment.debugOverridePlatform = true;
