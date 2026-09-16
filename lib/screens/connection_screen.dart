@@ -1010,6 +1010,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Text(
+                l10n.flyAccountMediaLogin,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  color: context.appColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 20),
               _BackendSelector(
                 key: const Key('connectionBackendSelector'),
                 l10n: l10n,
@@ -1018,7 +1027,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
               const SizedBox(height: 10),
               _buildConnectionCardHeader(l10n),
-              const SizedBox(height: 10),
+              const SizedBox(height: 16),
               AnimatedSize(
                 duration: switchDuration,
                 curve: Curves.easeOutCubic,
@@ -1137,15 +1146,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final serviceName = descriptor?.displayName ?? l10n.connectionFeiniuMedia;
     return Row(
       children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(
-            color: colors.accentStrong,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 9),
         Expanded(
           child: Text(
             '${l10n.connectionLogin} $serviceName',
@@ -1153,8 +1153,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: colors.textPrimary,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -1451,9 +1451,9 @@ class _BackendSelector extends StatelessWidget {
               child: FractionallySizedBox(
                 widthFactor: 1 / count,
                 child: Container(
-                  height: 44,
+                  height: 76,
                   decoration: BoxDecoration(
-                    color: selectionColor.withValues(alpha: 0.20),
+                    color: selectionColor.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(11),
                     border: Border.all(
                       color: selectionColor.withValues(alpha: 0.38),
@@ -1497,40 +1497,51 @@ class _BackendSelectorButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
-        child: AnimatedDefaultTextStyle(
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : const Duration(milliseconds: 120),
-          curve: Curves.easeOutCubic,
-          style: TextStyle(
-            color: selected
-                ? context.appColors.textPrimary
-                : context.appColors.textSecondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset(
-                assetName,
-                width: 19,
-                height: 19,
-                fit: BoxFit.contain,
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
+          child: SizedBox(
+            height: 58,
+            child: AnimatedDefaultTextStyle(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 120),
+              curve: Curves.easeOutCubic,
+              style: Theme.of(context).textTheme.labelLarge!.copyWith(
+                color: selected
+                    ? context.appColors.textPrimary
+                    : context.appColors.textSecondary,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
               ),
-              const SizedBox(width: 5),
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(label, maxLines: 1, textAlign: TextAlign.center),
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Image.asset(
+                    assetName,
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.contain,
+                  ),
+                  const SizedBox(height: 6),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
