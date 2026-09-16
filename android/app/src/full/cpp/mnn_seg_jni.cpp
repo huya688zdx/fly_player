@@ -4,10 +4,9 @@
 // per model. Kotlin side does bitmap preprocessing and passes a normalized
 // NCHW float buffer; this returns the foreground mask (N*N floats, input size).
 //
-// Built externally with the NDK against the prebuilt libMNN.so (see
-// docs/danmaku-occlusion-rework-plan.md for the build command). The model is
-// fully convolutional (ISNet/U2Net) so one handle can run at multiple input
-// sizes via resizeTensor — call nativeRun with the desired N.
+// 使用 NDK 与预编译 libMNN.so 外部构建，命令见 docs/mpv_android_integration.md。
+// 模型为全卷积模型（ISNet/U2Net），同一个句柄可通过 resizeTensor 支持不同输入尺寸；
+// 调用 nativeRun 时传入所需尺寸 N。
 #include <jni.h>
 #include <android/log.h>
 #include <MNN/ErrorCode.hpp>

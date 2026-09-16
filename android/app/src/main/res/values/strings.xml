@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   原生（Kotlin/Android）层的用户可见文案集中放在这里。
-  规范见 CODEX_KOTLIN_I18N_TASK.md：
+  文案规范：
     - 命名 snake_case，按模块前缀分组（notification_ / player_ / detail_ / parallel_ / mpv_ / storage_ ...）。
     - 只放「会显示给用户」的文案（Toast / 通知 / 对话框 / contentDescription 等），日志与注释不放。
     - 不新增第二语言，仅做文案外置（默认 values 即中文兜底）。

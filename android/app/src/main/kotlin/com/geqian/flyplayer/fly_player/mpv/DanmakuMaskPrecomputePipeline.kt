@@ -17,7 +17,7 @@ import kotlin.math.abs
  * segmentation runtime on a fixed STEP grid (~280ms of video time per mask), and
  * hands each finished mask to [onStep] tagged with the video PTS it belongs to.
  *
- * Why a separate pipeline (see docs/danmaku-occlusion-planb-v2-plan.md):
+ * 使用独立流水线的原因：
  *  - The old path (DanmakuDynamicOcclusion sampler) produced ONE mask per backoff
  *    interval (450–700ms) → PTS buffer too sparse → ±350ms alignment error, lag,
  *    residue. Moving inference off the realtime path AND raising mask density to
