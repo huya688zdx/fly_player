@@ -268,6 +268,7 @@ class NativePlayerBridge {
           epoch == service.scopeIdentity &&
           (contextId == null || contextId == '' || contextId == bifContext);
     }
+
     _onUnbind = () async {
       bifContext = '';
       await activity?.stop();
@@ -298,6 +299,7 @@ class NativePlayerBridge {
           final settings = await const DanmakuSettingsStore().load();
           if (!current()) return {'status': 'unavailable'};
           if (automatic && !settings.enabled) return {'status': 'unavailable'};
+          String? preparationStatus;
           final path = await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
             seriesTitle: (args['seriesTitle'] ?? '').toString(),
             itemTitle: (args['itemTitle'] ?? '').toString(),
@@ -308,14 +310,19 @@ class NativePlayerBridge {
             mediaGuid: (args['mediaGuid'] ?? '').toString(),
             seasonGuid: (args['seasonGuid'] ?? '').toString(),
             statsScope: statsScope,
-            settings: automatic ? settings : settings.copyWith(
-              sourceStrategy: DanmakuSourceStrategy.nasOnly,
-            ),
+            settings: automatic
+                ? settings
+                : settings.copyWith(
+                    sourceStrategy: DanmakuSourceStrategy.nasOnly,
+                  ),
             allowDisabled: !automatic,
             isCurrent: current,
+            onStatus: (message) => preparationStatus = message,
           );
           if (!current()) return {'status': 'unavailable'};
-          if (path == null) return {'status': 'missing'};
+          if (path == null) {
+            return {'status': 'missing', 'message': preparationStatus};
+          }
           try {
             final payload = jsonDecode(await File(path).readAsString()) as Map;
             if (!current()) return {'status': 'unavailable'};
@@ -323,9 +330,12 @@ class NativePlayerBridge {
               'status': 'ready',
               'danmakuFile': path,
               'sourceKey': payload['sourceKey'],
-              'sourceLabel': payload['sourceLabel'] ??
-                  (payload['sourceKey']?.toString().startsWith('dandan:') == true
-                      ? '弹弹play' : '飞翔后端弹幕'),
+              'sourceLabel':
+                  payload['sourceLabel'] ??
+                  (payload['sourceKey']?.toString().startsWith('dandan:') ==
+                          true
+                      ? '弹弹play'
+                      : '飞翔后端弹幕'),
             };
           } catch (_) {
             return {'status': 'unavailable'};
@@ -637,7 +647,9 @@ class NativePlayerBridge {
             mediaGuid: (args['mediaGuid'] ?? '').toString(),
             isCurrent: current,
           );
-          return loaded == null || !current() ? null : {'status': 'ready', ...loaded};
+          return loaded == null || !current()
+              ? null
+              : {'status': 'ready', ...loaded};
         case 'loadDanmakuEpisode':
           ++danmakuRequestRevision;
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};

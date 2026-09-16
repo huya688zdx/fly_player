@@ -45,6 +45,7 @@ enum FlyNasDanmakuStatus {
   notRequested,
   searching,
   downloading,
+  reconnecting,
   ready,
   notSignedIn,
   notBound,
@@ -52,7 +53,12 @@ enum FlyNasDanmakuStatus {
   miss,
   stale,
   needsReview,
+  versionRequired,
+  sourceFailed,
+  cancelled,
   disabled,
+  automaticDisabled,
+  aiUnavailable,
   timeout,
   failed,
   invalidPayload;
@@ -61,14 +67,20 @@ enum FlyNasDanmakuStatus {
     notRequested => '可从飞翔数据服务读取已保存并关联的弹幕。',
     searching => '已提交查找任务，飞翔后台正在查找弹幕。',
     downloading => '已提交获取任务，飞翔后台正在更新这集弹幕。',
+    reconnecting => '与飞翔后台的连接暂时中断，恢复后继续等待这集弹幕。',
     ready => '已成功读取 NAS 保存的弹幕。',
     notSignedIn => '请先登录飞翔账号，再选择已绑定的媒体连接。',
     notBound => '当前播放未关联飞翔媒体绑定，请从飞翔账号选择连接后重新播放。',
     notFound => '当前单集不在此连接的 NAS 目录中，请核对连接并在后台同步目录。',
     miss => '当前连接的这一集尚未关联可用弹幕。请到后台对应单集资料页获取或复用已保存弹幕。',
     stale => '当前文件的弹幕需要更新或重新确认，请在后台该单集资料页处理后重试。',
-    needsReview => '飞翔后台未能自动确认这集的弹幕来源，需要核对匹配结果。',
+    needsReview => '飞翔后台未能确认作品、季集或版权来源，需要在任务中核对候选。',
+    versionRequired => '后台无法确定当前播放文件，请检查当前媒体连接及文件版本。',
+    sourceFailed => '弹幕来源下载失败，请在后台任务中查看来源状态后重试。',
+    cancelled => '这集的后台任务已停止，可手动重新获取。',
     disabled => 'NAS 弹幕服务尚未启用，请在飞翔后台检查弹幕设置。',
+    automaticDisabled => '可在飞翔后端 AI 设置中勾选“AI 自动寻找弹幕”。',
+    aiUnavailable => '后台 AI 暂不可用，请检查 AI 设置中的启用状态、连接、数据授权与调用额度。',
     timeout => 'NAS 读取超时，可重新获取；也请检查飞翔服务的外网或 VPN 地址。',
     failed => '暂时无法读取 NAS 弹幕，请检查飞翔账号和服务连接后重试。',
     invalidPayload => 'NAS 弹幕内容或版本校验未通过，请在后台重新保存后重试。',
@@ -127,6 +139,32 @@ class FlyNasDanmakuCache {
     );
   }
 
+  static FlyNasDanmakuStatus _reasonStatus(
+    Object? reason,
+    FlyNasDanmakuStatus fallback,
+  ) => switch (reason) {
+    'AUTO_DANMAKU_DISABLED' => FlyNasDanmakuStatus.automaticDisabled,
+    'LLM_DISABLED' ||
+    'LLM_NOT_CONFIGURED' ||
+    'PUBLIC_METADATA_DISABLED' ||
+    'LLM_BUDGET_EXHAUSTED' ||
+    'GOAL_BUDGET_EXHAUSTED' ||
+    'DAILY_CALL_LIMIT' ||
+    'WAITING_RESOURCE_CONTROLLER' => FlyNasDanmakuStatus.aiUnavailable,
+    'SOURCE_VERSION_REQUIRED' ||
+    'SOURCE_VERSION_CHANGED' ||
+    'CURRENT_FILE_REVIEW_REQUIRED' => FlyNasDanmakuStatus.versionRequired,
+    'SOURCE_PROTOCOL_ERROR' ||
+    'SOURCE_AUTH_FAILED' ||
+    'SOURCE_RATE_LIMITED' ||
+    'SOURCE_OFFLINE' ||
+    'SOURCE_TIME_LIMIT' => FlyNasDanmakuStatus.sourceFailed,
+    'AUTHORIZATION_REVOKED' => FlyNasDanmakuStatus.notSignedIn,
+    'SOURCE_NOT_FOUND' => FlyNasDanmakuStatus.miss,
+    'USER_CANCELLED' => FlyNasDanmakuStatus.cancelled,
+    _ => fallback,
+  };
+
   /// 由实际播放触发；服务端负责去重和判断是否首次查找。
   /// 等待期间不占用起播预算，切账号、切文件或手选来源即停止取用结果。
   Future<bool> prepareOnPlayback({
@@ -152,19 +190,20 @@ class FlyNasDanmakuCache {
     if (!current()) return false;
     final api =
         _apiFactory?.call(session.serverUrl, session.token) ??
-        session.createApi(maxResponseBytes: 8 * 1024 * 1024);
+        session.createApi(
+          maxResponseBytes: 8 * 1024 * 1024,
+          receiveTimeout: const Duration(seconds: 15),
+        );
     var phase = 'ensure';
     try {
-      final prepared = await api
-          .post('/danmaku/ensure', {
-            if (refreshExisting) 'refresh_existing': true,
-            'source_ref': {
-              'binding_id': binding,
-              'remote_item_id': itemGuid,
-              if (mediaGuid.isNotEmpty) 'remote_media_source_id': mediaGuid,
-            },
-          })
-          .timeout(const Duration(seconds: 4));
+      final prepared = await api.post('/danmaku/ensure', {
+        if (refreshExisting) 'refresh_existing': true,
+        'source_ref': {
+          'binding_id': binding,
+          'remote_item_id': itemGuid,
+          if (mediaGuid.isNotEmpty) 'remote_media_source_id': mediaGuid,
+        },
+      });
       if (!current()) return false;
       if (prepared['status'] == 'ready') return true;
       final requestId = prepared['request_id'];
@@ -181,12 +220,14 @@ class FlyNasDanmakuCache {
                   requestId.isEmpty ||
                   itemId is! String ||
                   itemId.isEmpty))) {
-        onStatus?.call(switch (prepared['status']) {
-          'disabled' => FlyNasDanmakuStatus.disabled,
-          'needs_review' => FlyNasDanmakuStatus.needsReview,
-          'failed' => FlyNasDanmakuStatus.failed,
-          _ => FlyNasDanmakuStatus.stale,
-        });
+        onStatus?.call(
+          _reasonStatus(prepared['reason'], switch (prepared['status']) {
+            'disabled' => FlyNasDanmakuStatus.disabled,
+            'needs_review' => FlyNasDanmakuStatus.needsReview,
+            'failed' => FlyNasDanmakuStatus.failed,
+            _ => FlyNasDanmakuStatus.stale,
+          }),
+        );
         return false;
       }
       onStatus?.call(
@@ -199,13 +240,24 @@ class FlyNasDanmakuCache {
         await Future<void>.delayed(const Duration(seconds: 5));
         if (!current()) return false;
         phase = 'poll';
-        final request = await api
-            .get(
-              downloading
-                  ? '/danmaku/jobs'
-                  : '/service-requests/${Uri.encodeComponent(requestId as String)}',
-            )
-            .timeout(const Duration(seconds: 4));
+        Map<String, dynamic> request;
+        try {
+          request = await api.get(
+            downloading
+                ? '/danmaku/jobs'
+                : '/service-requests/${Uri.encodeComponent(requestId as String)}',
+          );
+        } catch (error) {
+          if (!current()) return false;
+          // 只恢复已有任务的只读查询，不重复提交查找，不吞掉授权或协议错误。
+          if (error is! TimeoutException &&
+              !(error is StateError &&
+                  error.message == '数据服务连接失败，请检查地址和网络后手动重试。')) {
+            rethrow;
+          }
+          onStatus?.call(FlyNasDanmakuStatus.reconnecting);
+          continue;
+        }
         if (!current()) return false;
         if (downloading) {
           final jobs = (request['items'] as List? ?? []).whereType<Map>().where(
@@ -218,7 +270,12 @@ class FlyNasDanmakuCache {
           final status = jobs.single['status'];
           if (status == 'succeeded') return true;
           if (!['queued', 'running'].contains(status)) {
-            onStatus?.call(FlyNasDanmakuStatus.failed);
+            onStatus?.call(
+              _reasonStatus(
+                jobs.single['error_code'],
+                FlyNasDanmakuStatus.failed,
+              ),
+            );
             return false;
           }
           continue;
@@ -235,11 +292,14 @@ class FlyNasDanmakuCache {
         if (state == 'ready') return true;
         if (!['pending', 'working', 'waiting'].contains(state)) {
           onStatus?.call(
-            state == 'needs_decision'
-                ? FlyNasDanmakuStatus.needsReview
-                : state == 'failed'
-                ? FlyNasDanmakuStatus.failed
-                : FlyNasDanmakuStatus.stale,
+            _reasonStatus(
+              items.single['reason'],
+              state == 'needs_decision'
+                  ? FlyNasDanmakuStatus.needsReview
+                  : state == 'failed'
+                  ? FlyNasDanmakuStatus.failed
+                  : FlyNasDanmakuStatus.stale,
+            ),
           );
           return false;
         }
