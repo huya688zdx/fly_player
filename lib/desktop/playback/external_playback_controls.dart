@@ -23,6 +23,13 @@ Future<void> showExternalDanmakuSources(
   BuildContext context,
   ExternalPlaybackStatus status,
 ) {
+  if (!status.player.supportsSubtitles) {
+    _externalPlaybackMessage(
+      context,
+      '${status.player.displayName} 暂不支持由 Fly Player 编辑字幕或弹幕。',
+    );
+    return Future<void>.value();
+  }
   final source = status.source;
 
   Future<bool> applyPayload(
@@ -54,7 +61,9 @@ Future<void> showExternalDanmakuSources(
       if (context.mounted) {
         _externalPlaybackMessage(
           context,
-          applied ? '弹幕已应用到 PotPlayer' : '弹幕未能应用，请确认当前影片和字幕选项',
+          applied
+              ? '弹幕已应用到 ${status.player.displayName}'
+              : '弹幕未能应用，请确认当前影片和字幕选项',
         );
       }
       return applied;
