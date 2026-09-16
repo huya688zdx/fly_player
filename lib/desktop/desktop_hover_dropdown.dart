@@ -96,6 +96,7 @@ class DesktopHoverDropdown extends StatefulWidget {
     this.activation = DesktopDropdownActivation.hover,
     this.onOpenChanged,
     this.pageScrollController,
+    this.anchorKey,
   });
 
   final Widget child;
@@ -107,6 +108,9 @@ class DesktopHoverDropdown extends StatefulWidget {
 
   /// 固定工具栏不在页面滚动区内时，指定其所控制的列表。
   final ScrollController? pageScrollController;
+
+  /// 多个入口共用面板时指定当前锚点，由入口调用 [DesktopHoverDropdownState.show]。
+  final GlobalKey? anchorKey;
 
   @override
   State<DesktopHoverDropdown> createState() => DesktopHoverDropdownState();
@@ -167,7 +171,11 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
   }
 
   /// 供外部收起弹窗。
-  void hide() => _close();
+  void hide({bool delayed = false}) =>
+      delayed ? _scheduleGraceClose() : _close();
+
+  /// 共用面板的入口切换内容后保持展开，不重复播放入场动画。
+  void show() => _openNow();
 
   /// 悬停走廊：指针在触发件与小窗之间的间隙时延迟收起。
   void _scheduleGraceClose() {
@@ -230,7 +238,9 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
           cursor: !hoverMode && enabled
               ? SystemMouseCursors.click
               : MouseCursor.defer,
-          onEnter: hoverMode && enabled ? (_) => _openNow() : null,
+          onEnter: hoverMode && enabled && widget.anchorKey == null
+              ? (_) => _openNow()
+              : null,
           onExit: hoverMode && enabled
               // 移出触发件进入小窗前的间隙时延迟收起；移入小窗会取消该计时。
               ? (_) => _scheduleGraceClose()
@@ -254,16 +264,22 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
       child: UnconstrainedBox(
         alignment: Alignment.topLeft,
         clipBehavior: Clip.none,
-        child: CompositedTransformFollower(
-          link: _link,
-          showWhenUnlinked: false,
-          targetAnchor: placement.above
-              ? Alignment.topLeft
-              : Alignment.bottomLeft,
-          followerAnchor: placement.above
-              ? Alignment.bottomLeft
-              : Alignment.topLeft,
-          offset: Offset(placement.dx, placement.above ? -6 : 6),
+        child: TweenAnimationBuilder<Offset>(
+          tween: Tween<Offset>(begin: placement.offset, end: placement.offset),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          builder: (context, offset, child) => CompositedTransformFollower(
+            link: _link,
+            showWhenUnlinked: false,
+            targetAnchor: placement.above
+                ? Alignment.topLeft
+                : Alignment.bottomLeft,
+            followerAnchor: placement.above
+                ? Alignment.bottomLeft
+                : Alignment.topLeft,
+            offset: offset,
+            child: child,
+          ),
           child: TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: _visible ? 1 : 0),
             duration: _fadeDuration,
@@ -281,91 +297,109 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
                 onEnter: _tapMode ? null : (_) => _handlePanelEnter(),
                 onExit: _tapMode ? null : (_) => _handlePanelExit(),
                 child: DesktopFloatingPanel(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: placement.width,
-                      maxHeight: spec.contentBuilder == null
-                          ? placement.maxHeight
-                          : spec.maxHeight.clamp(0.0, placement.maxHeight),
-                    ),
-                    child:
-                        spec.contentBuilder?.call(context) ??
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (spec.title != null) ...<Widget>[
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 9,
-                                  ),
-                                  child: Text(
-                                    spec.title!,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: colors.textSecondary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.3,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 9),
-                                Divider(height: 1, color: colors.borderSubtle),
-                                const SizedBox(height: 6),
-                              ],
-                              Flexible(
-                                child: ConstrainedBox(
-                                  constraints: BoxConstraints(
-                                    maxHeight: spec.maxHeight,
-                                  ),
-                                  child: SingleChildScrollView(
-                                    padding: EdgeInsets.zero,
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        for (
-                                          var i = 0;
-                                          i < spec.groups.length;
-                                          i++
-                                        ) ...<Widget>[
-                                          if (i > 0) ...<Widget>[
-                                            const SizedBox(height: 4),
-                                            Divider(
-                                              height: 1,
-                                              thickness: 1,
-                                              color: colors.borderSubtle,
-                                            ),
-                                            const SizedBox(height: 4),
-                                          ],
-                                          for (final item
-                                              in spec.groups[i].items)
-                                            _HoverDropdownOptionRow(
-                                              item: item,
-                                              selected:
-                                                  item.id ==
-                                                  spec.groups[i].selectedId,
-                                              onTap: () {
-                                                _close();
-                                                spec.groups[i].onSelected(
-                                                  item.id,
-                                                );
-                                              },
-                                            ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
+                  child: AnimatedSize(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    alignment: placement.above
+                        ? Alignment.bottomLeft
+                        : Alignment.topLeft,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: placement.width,
+                        maxHeight: spec.contentBuilder == null
+                            ? placement.maxHeight
+                            : spec.maxHeight.clamp(0.0, placement.maxHeight),
+                      ),
+                      child: KeyedSubtree(
+                        key: ValueKey(widget.anchorKey),
+                        child:
+                            spec.contentBuilder?.call(context) ??
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                10,
+                                12,
+                                10,
+                                10,
                               ),
-                            ],
-                          ),
-                        ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (spec.title != null) ...<Widget>[
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 9,
+                                      ),
+                                      child: Text(
+                                        spec.title!,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: colors.textSecondary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.3,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 9),
+                                    Divider(
+                                      height: 1,
+                                      color: colors.borderSubtle,
+                                    ),
+                                    const SizedBox(height: 6),
+                                  ],
+                                  Flexible(
+                                    child: ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxHeight: spec.maxHeight,
+                                      ),
+                                      child: SingleChildScrollView(
+                                        padding: EdgeInsets.zero,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            for (
+                                              var i = 0;
+                                              i < spec.groups.length;
+                                              i++
+                                            ) ...<Widget>[
+                                              if (i > 0) ...<Widget>[
+                                                const SizedBox(height: 4),
+                                                Divider(
+                                                  height: 1,
+                                                  thickness: 1,
+                                                  color: colors.borderSubtle,
+                                                ),
+                                                const SizedBox(height: 4),
+                                              ],
+                                              for (final item
+                                                  in spec.groups[i].items)
+                                                _HoverDropdownOptionRow(
+                                                  item: item,
+                                                  selected:
+                                                      item.id ==
+                                                      spec.groups[i].selectedId,
+                                                  onTap: () {
+                                                    _close();
+                                                    spec.groups[i].onSelected(
+                                                      item.id,
+                                                    );
+                                                  },
+                                                ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -390,9 +424,15 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
   /// 触发件与边界必须统一使用所属 Overlay 的局部坐标；嵌套导航器的内容区
   /// 可能带有全局偏移，混用全局坐标与局部尺寸会把右侧菜单推向窗口左边。
   _DropdownPlacement? _resolvePlacement(DesktopHoverDropdownSpec spec) {
-    final triggerBox = context.findRenderObject();
+    final targetBox = context.findRenderObject();
+    final triggerBox = widget.anchorKey == null
+        ? targetBox
+        : widget.anchorKey!.currentContext?.findRenderObject();
     final overlayBox = Overlay.of(context).context.findRenderObject();
-    if (triggerBox is! RenderBox ||
+    if (targetBox is! RenderBox ||
+        !targetBox.attached ||
+        !targetBox.hasSize ||
+        triggerBox is! RenderBox ||
         !triggerBox.attached ||
         !triggerBox.hasSize ||
         overlayBox is! RenderBox ||
@@ -403,6 +443,9 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     final triggerRect =
         triggerBox.localToGlobal(Offset.zero, ancestor: overlayBox) &
         triggerBox.size;
+    final targetRect =
+        targetBox.localToGlobal(Offset.zero, ancestor: overlayBox) &
+        targetBox.size;
     final overlaySize = overlayBox.size;
 
     final spaceBelow = overlaySize.height - triggerRect.bottom;
@@ -426,7 +469,12 @@ class DesktopHoverDropdownState extends State<DesktopHoverDropdown> {
     );
     final left = triggerRect.left.clamp(12.0, maxLeft);
     return _DropdownPlacement(
-      dx: left - triggerRect.left,
+      offset: Offset(
+        left - targetRect.left,
+        above
+            ? triggerRect.top - targetRect.top - 6
+            : triggerRect.bottom - targetRect.bottom + 6,
+      ),
       width: width,
       above: above,
       maxHeight: maxHeight,
@@ -454,13 +502,13 @@ Widget desktopTapDropdownWrapper({
 
 class _DropdownPlacement {
   const _DropdownPlacement({
-    required this.dx,
+    required this.offset,
     required this.width,
     required this.above,
     required this.maxHeight,
   });
 
-  final double dx;
+  final Offset offset;
   final double width;
   final bool above;
   final double maxHeight;
