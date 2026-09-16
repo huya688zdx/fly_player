@@ -146,6 +146,7 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
     required String deviceName,
     bool rememberPassword = true,
     String? expectedInstanceId,
+    String fnEntryToken = '',
   }) {
     _syncEpoch++;
     return _run(() async {
@@ -157,6 +158,7 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         deviceName: deviceName,
         rememberPassword: rememberPassword,
         expectedInstanceId: expectedInstanceId,
+        fnEntryToken: fnEntryToken,
       );
       await _rememberLoginMode('fly');
       legacyMode = false;
@@ -228,6 +230,20 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> refresh() => _run(_refresh);
+  Future<void> renewFnAccess(String entryToken) {
+    final current = session, epoch = accountEpoch;
+    return _run(() async {
+      if (current == null ||
+          !identical(current, session) ||
+          epoch != accountEpoch ||
+          legacyMode) {
+        throw StateError('账号或服务地址已改变，请重新授权 FN 访问。');
+      }
+      await service.renewFnAccess(entryToken);
+      await _refresh();
+    });
+  }
+
   Future<void> _refresh() async {
     if (session == null) return;
     await service.switchAddress(session!.serverUrl);

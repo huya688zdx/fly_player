@@ -729,6 +729,7 @@ class _Account extends FlyAccountController {
     required String deviceName,
     bool rememberPassword = true,
     String? expectedInstanceId,
+    String fnEntryToken = '',
   }) async {
     logins.add((url, username, password, deviceName));
     loginInstanceIds.add(expectedInstanceId);

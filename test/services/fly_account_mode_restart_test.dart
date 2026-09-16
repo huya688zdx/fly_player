@@ -62,6 +62,7 @@ class _ModeService extends FlyDataService {
     required String deviceName,
     bool rememberPassword = true,
     String? expectedInstanceId,
+    String fnEntryToken = '',
   }) async {
     if (failLogin) throw StateError('fixture login rejected');
     session = _session();

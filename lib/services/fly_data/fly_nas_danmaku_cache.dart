@@ -94,18 +94,12 @@ class FlyNasDanmakuCache {
            scopeReader ??
            (() => FlyDataService.instance.scopeIdentity),
        _bindingReader = bindingReader ?? _currentBinding,
-       _apiFactory =
-           apiFactory ??
-           ((url, token) => FlyDataApi(
-             url,
-             token: token,
-             maxResponseBytes: 8 * 1024 * 1024,
-           ));
+       _apiFactory = apiFactory;
 
   static final instance = FlyNasDanmakuCache();
   final FlyDataSession? Function() _sessionReader;
   final String Function() _scopeReader, _scopeEpochReader, _bindingReader;
-  final FlyDataApi Function(String, String) _apiFactory;
+  final FlyDataApi Function(String, String)? _apiFactory;
   final Duration budget;
   final void Function(FlyNasDanmakuStatus)? onStatus;
 
@@ -116,12 +110,21 @@ class FlyNasDanmakuCache {
 
   static void _logFailure(String phase, Object error) {
     final message = error is StateError ? error.message : '';
-    final safe = const ['弹幕缓存格式不可用。', '弹幕缓存超过本机读取上限。',
-      'Invalid data response.', 'Data response exceeds limit.',
-      '数据服务连接失败，请检查地址和网络后手动重试。'].contains(message) ||
+    final safe =
+        const [
+          '弹幕缓存格式不可用。',
+          '弹幕缓存超过本机读取上限。',
+          'Invalid data response.',
+          'Data response exceeds limit.',
+          '数据服务连接失败，请检查地址和网络后手动重试。',
+        ].contains(message) ||
         RegExp(r'^数据服务拒绝请求：[A-Z0-9_]{1,80}$').hasMatch(message);
-    AppLogService.instance.recordErrorSync(source: 'fly_nas_danmaku',
-      error: '飞翔弹幕读取异常', details: 'phase=$phase type=${error.runtimeType}${safe ? ' message=$message' : ''}');
+    AppLogService.instance.recordErrorSync(
+      source: 'fly_nas_danmaku',
+      error: '飞翔弹幕读取异常',
+      details:
+          'phase=$phase type=${error.runtimeType}${safe ? ' message=$message' : ''}',
+    );
   }
 
   /// 由实际播放触发；服务端负责去重和判断是否首次查找。
@@ -147,7 +150,9 @@ class FlyNasDanmakuCache {
         statsScope ==
             PlayStatsService.scopeForBinding(session.accountKey, binding);
     if (!current()) return false;
-    final api = _apiFactory(session.serverUrl, session.token);
+    final api =
+        _apiFactory?.call(session.serverUrl, session.token) ??
+        session.createApi(maxResponseBytes: 8 * 1024 * 1024);
     var phase = 'ensure';
     try {
       final prepared = await api
@@ -165,11 +170,17 @@ class FlyNasDanmakuCache {
       final requestId = prepared['request_id'];
       final itemId = prepared['item_id'];
       final jobId = prepared['job_id'], matchId = prepared['match_id'];
-      final downloading = jobId is String && jobId.isNotEmpty &&
-          matchId is String && matchId.isNotEmpty;
+      final downloading =
+          jobId is String &&
+          jobId.isNotEmpty &&
+          matchId is String &&
+          matchId.isNotEmpty;
       if (!['queued', 'running'].contains(prepared['status']) ||
-          (!downloading && (requestId is! String || requestId.isEmpty ||
-              itemId is! String || itemId.isEmpty))) {
+          (!downloading &&
+              (requestId is! String ||
+                  requestId.isEmpty ||
+                  itemId is! String ||
+                  itemId.isEmpty))) {
         onStatus?.call(switch (prepared['status']) {
           'disabled' => FlyNasDanmakuStatus.disabled,
           'needs_review' => FlyNasDanmakuStatus.needsReview,
@@ -178,19 +189,28 @@ class FlyNasDanmakuCache {
         });
         return false;
       }
-      onStatus?.call(downloading ? FlyNasDanmakuStatus.downloading : FlyNasDanmakuStatus.searching);
+      onStatus?.call(
+        downloading
+            ? FlyNasDanmakuStatus.downloading
+            : FlyNasDanmakuStatus.searching,
+      );
       // 当前视频持续观察到任务终态，避免排队较久后漏掉完成结果；退出不取消服务端成果。
       while (current()) {
         await Future<void>.delayed(const Duration(seconds: 5));
         if (!current()) return false;
         phase = 'poll';
         final request = await api
-            .get(downloading ? '/danmaku/jobs' : '/service-requests/${Uri.encodeComponent(requestId as String)}')
+            .get(
+              downloading
+                  ? '/danmaku/jobs'
+                  : '/service-requests/${Uri.encodeComponent(requestId as String)}',
+            )
             .timeout(const Duration(seconds: 4));
         if (!current()) return false;
         if (downloading) {
           final jobs = (request['items'] as List? ?? []).whereType<Map>().where(
-            (job) => job['id'] == jobId && job['match_id'] == matchId);
+            (job) => job['id'] == jobId && job['match_id'] == matchId,
+          );
           if (jobs.length != 1) {
             onStatus?.call(FlyNasDanmakuStatus.failed);
             return false;
@@ -204,7 +224,8 @@ class FlyNasDanmakuCache {
           continue;
         }
         final items = (request['items'] as List? ?? []).whereType<Map>().where(
-          (item) => item['id'] == itemId);
+          (item) => item['id'] == itemId,
+        );
         if (items.length != 1 || items.single['resource_kind'] != 'danmaku') {
           onStatus?.call(FlyNasDanmakuStatus.stale);
           return false;
@@ -213,10 +234,13 @@ class FlyNasDanmakuCache {
         final state = items.single['state'];
         if (state == 'ready') return true;
         if (!['pending', 'working', 'waiting'].contains(state)) {
-          onStatus?.call(state == 'needs_decision'
-              ? FlyNasDanmakuStatus.needsReview
-              : state == 'failed' ? FlyNasDanmakuStatus.failed
-              : FlyNasDanmakuStatus.stale);
+          onStatus?.call(
+            state == 'needs_decision'
+                ? FlyNasDanmakuStatus.needsReview
+                : state == 'failed'
+                ? FlyNasDanmakuStatus.failed
+                : FlyNasDanmakuStatus.stale,
+          );
           return false;
         }
         if (items.single['existing_job_kind'] == 'danmaku') {
@@ -227,8 +251,11 @@ class FlyNasDanmakuCache {
       // 网络、版本差异与服务故障不能打断正在播放的视频。
       if (current()) {
         _logFailure(phase, error);
-        onStatus?.call(error is TimeoutException
-            ? FlyNasDanmakuStatus.timeout : FlyNasDanmakuStatus.failed);
+        onStatus?.call(
+          error is TimeoutException
+              ? FlyNasDanmakuStatus.timeout
+              : FlyNasDanmakuStatus.failed,
+        );
       }
     } finally {
       api.close();
@@ -269,7 +296,9 @@ class FlyNasDanmakuCache {
         binding == _bindingReader() &&
         (isCurrent?.call() ?? true);
     if (!valid()) return null;
-    final api = _apiFactory(session.serverUrl, session.token);
+    final api =
+        _apiFactory?.call(session.serverUrl, session.token) ??
+        session.createApi(maxResponseBytes: 8 * 1024 * 1024);
     final elapsed = Stopwatch()..start();
     var expired = false;
     var status = FlyNasDanmakuStatus.invalidPayload;

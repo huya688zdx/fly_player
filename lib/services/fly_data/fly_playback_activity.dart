@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math';
 import 'fly_bif_service.dart';
-import 'fly_data_api.dart';
 
 /// A lease belongs to one immutable playback context. Pausing keeps it alive;
 /// stopping is ordered after any in-flight update and cannot be undone locally.
@@ -26,10 +25,7 @@ class FlyPlaybackActivity {
         isCurrent: access.isCurrent,
         source: access.source.toJson(),
         send: (body) async {
-          final api = FlyDataApi(
-            access.session.serverUrl,
-            token: access.session.token,
-          );
+          final api = access.session.createApi();
           try {
             await api
                 .post('/playback/activity', body)

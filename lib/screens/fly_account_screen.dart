@@ -8,6 +8,7 @@ import '../desktop/desktop_environment.dart';
 import '../desktop/desktop_floating_panel.dart';
 import '../desktop/desktop_hover_dropdown.dart';
 import '../services/fly_data/fly_account_controller.dart';
+import '../services/fly_data/fly_data_api.dart';
 import '../services/fly_data/fly_login_history_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_info_popover.dart';
@@ -19,8 +20,19 @@ import '../widgets/common/login_components.dart';
 import '../widgets/common/app_ambient_page.dart';
 import '../widgets/common/app_option_list.dart';
 import '../widgets/common/track_option_sheet.dart';
+import '../widgets/common/desktop_login_dialog.dart';
+import 'emby_fn_entry_login_page.dart';
 
 part 'fly_account_widgets.dart';
+
+Future<String?> _authorizeFlyFn(BuildContext context, String serverUrl) =>
+    showDesktopLoginDialog<String>(
+      context,
+      child: EmbyFnEntryLoginPage(
+        serverUrl: serverUrl,
+        requireTargetPath: true,
+      ),
+    );
 
 bool _bindingStillCurrent(
   FlyAccountController account,
@@ -275,20 +287,44 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
       return;
     }
     _historyEpoch++;
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _historyMessage = null;
+    });
+    var accountLoginStarted = false;
     try {
+      final serverUrl = normalizeServerUrl(url.text);
+      var entryToken = '';
+      if (isFlyFnApplicationUrl(serverUrl)) {
+        final result = await _authorizeFlyFn(context, serverUrl);
+        if (!mounted) return;
+        if (result == null || result.isEmpty) {
+          setState(() => _historyMessage = 'FN 访问授权未完成，可重新点击登录。');
+          return;
+        }
+        if (account.session != null || account.legacyMode) return;
+        entryToken = result;
+      }
+      accountLoginStarted = true;
       await account.login(
-        url: url.text,
+        url: serverUrl,
         username: username.text,
         password: password.text,
         deviceName: device.text,
+        fnEntryToken: entryToken,
         rememberPassword: _rememberPassword,
         expectedInstanceId: _selectedHistory?.serviceInstanceId.isEmpty == true
             ? null
             : _selectedHistory?.serviceInstanceId,
       );
-    } catch (_) {
-      // The controller publishes the error below the form.
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _historyMessage = accountLoginStarted
+              ? account.message ?? FlyAccountController.safeMessage(error)
+              : FlyAccountController.safeMessage(error),
+        );
+      }
     } finally {
       if (mounted) {
         password.clear();
@@ -367,7 +403,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
             _loginField(
               url,
               AppLocalizations.of(context).flyAccountServiceAddress,
-              hint: AppLocalizations.of(context).flyAccountServiceAddressHelp,
+              hint: '服务根地址或 https://…fnos.net/app/fly-data-service',
               enabled: !blocked,
               keyboard: TextInputType.url,
             ),
@@ -463,8 +499,8 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               onPressed: blocked ? null : () => _login(account),
               label: AppLocalizations.of(context).flyAccountLogin,
             ),
-            if (account.message != null) _FlyMessage(account.message!),
-            if (_historyMessage != null) _FlyMessage(_historyMessage!),
+            if (_historyMessage != null || account.message != null)
+              _FlyMessage(_historyMessage ?? account.message!),
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: blocked ? null : () => _enterMediaMode(account),
@@ -484,6 +520,31 @@ class FlyBindingsScreen extends StatelessWidget {
     try {
       await action();
     } catch (_) {}
+  }
+
+  Future<void> _renewFn(
+    BuildContext context,
+    FlyAccountController account,
+  ) async {
+    final session = account.session;
+    final epoch = account.accountEpoch;
+    if (account.busy || session == null) return;
+    final token = await _authorizeFlyFn(context, session.serverUrl);
+    if (!context.mounted ||
+        !identical(session, account.session) ||
+        epoch != account.accountEpoch ||
+        account.legacyMode) {
+      return;
+    }
+    if (token == null || token.isEmpty) {
+      AppTopTip().show(
+        context,
+        message: 'FN 访问授权未完成，可重新授权。',
+        color: context.appColors.surfaceStrong,
+      );
+      return;
+    }
+    await _run(() => account.renewFnAccess(token));
   }
 
   void _returnToMedia(BuildContext context) {
@@ -599,6 +660,12 @@ class FlyBindingsScreen extends StatelessWidget {
           child: LinearProgressIndicator(),
         ),
       if (account.message != null) _FlyMessage(account.message!),
+      if (isFlyFnApplicationUrl(session.serverUrl))
+        TextButton.icon(
+          onPressed: account.busy ? null : () => _renewFn(context, account),
+          icon: const Icon(Icons.vpn_key_outlined),
+          label: const Text('重新授权 FN 访问'),
+        ),
     ]);
   }
 }
