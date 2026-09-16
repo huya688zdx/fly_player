@@ -5818,7 +5818,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 subtitle = localizedString(R.string.player_text_0022),
                 trailing = currentQualitySummary(),
             ) {
-                pushPanel(PanelPage(localizedString(R.string.player_text_0021)) { buildQualityPanelPage() })
+                pushPanel(qualityPanelPage())
             },
         )
         addPanelRow(
@@ -6287,8 +6287,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showQualityPanel() {
-        togglePanel(PanelPage(localizedString(R.string.player_text_0021)) { buildQualityPanelPage() })
+        togglePanel(qualityPanelPage())
     }
+
+    private fun qualityPanelPage(): PanelPage = PanelPage(
+        title = localizedString(R.string.player_text_0021),
+        headerActions = {
+            if (isLiveChannel() || visibleQualityEntries().isEmpty()) emptyList()
+            else listOf(buildQualityCustomButton())
+        },
+    ) { buildQualityPanelPage() }
 
     private fun buildQualityPanelPage() {
         val visible = visibleQualityEntries()
@@ -6299,7 +6307,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (isLiveChannel()) {
             val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
             addPanelRow(
-                buildQualityGrid(
+                buildQualityList(
                     visible,
                     selectedOf = {
                         currentMediaGuid.isNotEmpty() &&
@@ -6311,13 +6319,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        // 主面板按档位合并：4k 与 4K HDR 同档收成一张卡（对齐官方，4K HDR 仅在自定义里）。
+        // 主面板按档位合并：4k 与 4K HDR 同档收成一行，4K HDR 仅在自定义里。
         val entries = qualityMainTierEntries(visible)
-        if (visible.size > entries.size) {
-            addPanelRow(buildQualityCustomEntryRow())
-        }
         addPanelRow(
-            buildQualityGrid(
+            buildQualityList(
                 entries,
                 selectedOf = { qualityTierMatchesCurrent(it.quality, currentRes) },
                 titleOf = { qualityTierCardTitle(it.quality) },
@@ -6380,28 +6385,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return best.values.toList()
     }
 
-    private fun buildQualityCustomEntryRow(): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(18))
-            addView(TextView(context).apply {
-                text = localizedString(R.string.player_text_0054)
-                setTextColor(ACCENT)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setPadding(dp(12), dp(7), dp(12), dp(7))
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(10).toFloat()
-                    setColor(0x143A82F7)
-                    setStroke(dp(1), 0x443A82F7)
-                }
-                isClickable = true
-                setOnClickListener {
-                    customQualityTabTitle = ""
-                    pushPanel(PanelPage(localizedString(R.string.player_text_0021)) { buildCustomQualityPanelPage() })
-                }
-            })
+    private fun buildQualityCustomButton(): View {
+        val label = localizedString(R.string.player_text_0054).replace("⚙", "").trim()
+        return TextView(this).apply {
+            text = "$label ›"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+            minHeight = dp(48)
+            setPadding(dp(8), 0, dp(8), 0)
+            background = itemRippleBackground()
+            setOnClickListener {
+                customQualityTabTitle = ""
+                pushPanel(PanelPage("$label${localizedString(R.string.player_text_0021)}") {
+                    buildCustomQualityPanelPage()
+                })
+            }
         }
     }
 
@@ -6429,75 +6428,41 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             } ?: resTitles.first()
         }
         val selectedTitle = customQualityTabTitle
-        addPanelRow(buildQualityTabRow(resTitles, selectedTitle))
-        addPanelRow(panelSpacer(42))
-        // 同码率去重后按码率降序：原画(最高码率)在前，去掉重复的同码率卡。
+        // 同码率去重后按码率降序：原画(最高码率)在前。
         val selectedEntries = dedupQualityEntriesByBitrate(byRes[selectedTitle].orEmpty())
             .sortedByDescending { qualityBitrateValue(it.quality) }
-        addPanelRow(
-            buildQualityGrid(
-                selectedEntries,
-                // 精确定位当前档：同分辨率/同码率有多档（原画直链 vs 转码），只比 resolution 会多张高亮。
-                selectedOf = { qualityMatchesCurrentPlayback(it.quality) },
-                // 卡片标题用归一化档位键，同一档内多码率卡靠副标题（X Mbps）区分，避免 "1080p" 大小写不一致。
-                titleOf = { qualityTabKey(it.quality) },
-            ),
-        )
-    }
-
-    private fun buildQualityTabRow(
-        resTitles: List<String>,
-        selectedTitle: String,
-    ): View {
-        val scrollView = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            clipToPadding = false
-            setPadding(0, 0, dp(6), 0)
-        }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        for ((index, title) in resTitles.withIndex()) {
-            row.addView(
-                qualityTabButton(title, title == selectedTitle) {
+        // 对齐 Flutter：左侧分辨率、右侧码率，保留移动端至少 48dp 的点击高度。
+        val columns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val tiers = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            for (title in resTitles) {
+                addView(qualityOptionRow(title, "›", title == selectedTitle, filled = true) {
                     customQualityTabTitle = title
                     renderTopPanel()
-                },
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    if (index < resTitles.lastIndex) rightMargin = dp(24)
-                },
-            )
-        }
-        scrollView.addView(row)
-        return scrollView
-    }
-
-    private fun qualityTabButton(
-        title: String,
-        selected: Boolean,
-        onClick: () -> Unit,
-    ): TextView {
-        return TextView(this).apply {
-            text = title
-            setTextColor(if (selected) Color.WHITE else TEXT_DIM)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            typeface = if (selected) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
-            gravity = Gravity.CENTER
-            minHeight = dp(50)
-            minWidth = dp(116)
-            setPadding(dp(22), dp(12), dp(22), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(14).toFloat()
-                setColor(if (selected) ACCENT else 0x22FFFFFF)
-                setStroke(dp(1), if (selected) 0x663A82F7 else 0x1FFFFFFF)
+                })
+                if (title != resTitles.last()) addView(panelSpacer(6))
             }
-            isClickable = true
-            setOnClickListener { onClick() }
         }
+        val bitrates = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            for (entry in selectedEntries) {
+                val selected = qualityMatchesCurrentPlayback(entry.quality)
+                val label = listOf(
+                    qualityDisplaySubtitle(entry.quality),
+                    if (entry.quality["isDefault"] == true) localizedString(R.string.player_text_0055) else "",
+                ).filter { it.isNotEmpty() }.joinToString(" · ")
+                addView(qualityOptionRow(label, if (selected) "✓" else "", selected, filled = true) {
+                    hidePanel()
+                    if (!selected) requestQuality(entry.sourceIndex)
+                })
+                addView(panelSpacer(4))
+            }
+        }
+        columns.addView(tiers, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        columns.addView(bitrates, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            leftMargin = dp(8)
+        })
+        addPanelRow(columns)
     }
 
     /** 主面板条目：按档位（竖直分辨率）合并，每档取原画/最高码率那一档，并按档位降序（4k 最前）。 */
@@ -6535,138 +6500,74 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return qualityBitrateValue(candidate) > qualityBitrateValue(current)
     }
 
-    private fun buildQualityGrid(
+    private fun buildQualityList(
         entries: List<QualityPanelEntry>,
         selectedOf: (QualityPanelEntry) -> Boolean,
         titleOf: (QualityPanelEntry) -> String,
     ): View {
-        val rows = entries.chunked(2)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            for ((rowIndex, rowEntries) in rows.withIndex()) {
-                val row = LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                }
-                for ((index, entry) in rowEntries.withIndex()) {
-                    row.addView(
-                        qualityGridCard(
-                            entry = entry,
-                            selected = selectedOf(entry),
-                            title = titleOf(entry),
-                        ),
-                        LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            if (index % 2 == 1) leftMargin = dp(24)
-                        },
-                    )
-                }
-                if (rowEntries.size == 1) {
-                    row.addView(
-                        View(context),
-                        LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            leftMargin = dp(24)
-                        },
-                    )
-                }
-                addView(
-                    row,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply {
-                        // 行间距比列间距略大，避免上下两行卡片贴太紧；最后一行不留尾部空白。
-                        if (rowIndex < rows.lastIndex) bottomMargin = dp(30)
-                    },
-                )
+            for (entry in entries) {
+                val selected = selectedOf(entry)
+                val original = !isLiveChannel() && entry.quality["isDefault"] == true
+                val title = if (original) localizedString(R.string.player_text_0055) else titleOf(entry)
+                val detail = if (selected) {
+                    listOf(
+                        if (original) titleOf(entry) else "",
+                        qualityDisplaySubtitle(entry.quality),
+                    ).filter { it.isNotEmpty() }.joinToString(" ")
+                } else ""
+                addView(qualityOptionRow(title, detail, selected) {
+                    hidePanel()
+                    // 点当前档只关面板，切换仍使用原始 sourceIndex。
+                    if (!selected) requestQuality(entry.sourceIndex)
+                })
             }
         }
     }
 
-    private fun qualityGridCard(
-        entry: QualityPanelEntry,
-        selected: Boolean,
+    private fun qualityOptionRow(
         title: String,
+        detail: String,
+        selected: Boolean,
+        filled: Boolean = false,
+        onClick: () -> Unit,
     ): View {
-        val quality = entry.quality
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = qualityCardBackground(selected)
-            minimumHeight = dp(104)
-            setPadding(dp(20), dp(22), dp(20), dp(22))
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+            val shape = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(if (selected && filled) 0x243A82F7 else Color.TRANSPARENT)
+            }
+            background = android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x143A82F7),
+                shape,
+                GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(Color.WHITE)
+                },
+            )
+            isSelected = selected
             addView(TextView(context).apply {
                 text = title
-                setTextColor(if (selected) ACCENT else Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-            })
-            addView(TextView(context).apply {
-                text = qualityDisplaySubtitle(quality)
-                setTextColor(if (selected) 0xFF8EB7FF.toInt() else TEXT_DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                gravity = Gravity.CENTER
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(9), 0, 0)
-            })
-        }
-        // 整卡套一层 FrameLayout：点击挂在外层，「原画」浮标 isClickable=false 不抢事件，
-        // 确保每张卡（含原画 4k）都能稳定点中——修原 4k 卡点击无反应。
-        return FrameLayout(this).apply {
-            isClickable = true
-            addView(
-                content,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                ),
-            )
-            if (quality["isDefault"] == true) {
-                addView(
-                    qualityOriginalBadge(),
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply {
-                        gravity = Gravity.TOP or Gravity.END
-                        topMargin = dp(8)
-                        rightMargin = dp(8)
-                    },
-                )
+                setTextColor(if (selected) ACCENT else if (filled) TEXT_DIM else Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                typeface = if (selected) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            if (detail.isNotEmpty()) {
+                addView(TextView(context).apply {
+                    text = detail
+                    setTextColor(if (selected) ACCENT else TEXT_DIM)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    gravity = Gravity.END
+                    maxWidth = (panelWidthPx() * 0.45f).toInt()
+                    setPadding(dp(8), 0, 0, 0)
+                })
             }
-            setOnClickListener {
-                hidePanel()
-                // 点当前档只关面板（对齐官方），切换才走重载。
-                if (!selected) requestQuality(entry.sourceIndex)
-            }
-        }
-    }
-
-    /** 画质卡背景：比通用 tile 更圆润(10dp)，选中时蓝色填充 + 2dp 强调描边。 */
-    private fun qualityCardBackground(selected: Boolean): GradientDrawable {
-        return GradientDrawable().apply {
-            cornerRadius = dp(16).toFloat()
-            setColor(if (selected) 0x243A82F7 else 0x18FFFFFF)
-            setStroke(dp(if (selected) 2 else 1), if (selected) ACCENT else 0x22FFFFFF)
-        }
-    }
-
-    /** 「原画」浮标徽章：卡片右上角小圆角标签，不参与点击。 */
-    private fun qualityOriginalBadge(): View {
-        return TextView(this).apply {
-            text = localizedString(R.string.player_text_0055)
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-            gravity = Gravity.CENTER
-            isClickable = false
-            setPadding(dp(7), dp(3), dp(7), dp(3))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(0xD9141414.toInt())
-                setStroke(dp(1), 0x2AFFFFFF)
-            }
+            setOnClickListener { onClick() }
         }
     }
 
@@ -6724,7 +6625,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return quality["resolution"]?.toString()?.trim().orEmpty()
                 .ifEmpty { localizedString(R.string.player_quality_generic) }
         }
-        // 「原画」已移到浮标徽章，副标题只保留码率。
+        // 原画标记由列表行展示，这里只保留码率。
         val bitrate = qualityBitrateValue(quality)
         if (bitrate > 0) {
             return nativePanelBitrateLabel(bitrate.toLong())
