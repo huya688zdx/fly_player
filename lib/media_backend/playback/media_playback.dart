@@ -3,7 +3,7 @@
 /// 这些模型表达「播放所需的后端中立事实」——播放源、画质候选、音轨/字幕候选、
 /// 默认选择、续播位置、后端会话句柄、所需 headers——而不是播放器最终 load 参数。
 ///
-/// 约束（见 `docs/superpowers/specs/2026-06-21-public-media-playback-design.md`）：
+/// 约束：
 /// - 字段名一律中立，禁止出现 `mediaGuid` / `videoGuid` / `audioGuid` /
 ///   `subtitleGuid` / `Feiniu` / `Emby`。飞牛的 media guid 在适配层映射进 `id` /
 ///   `sourceId` / `videoTrackId` 等中立字段。
