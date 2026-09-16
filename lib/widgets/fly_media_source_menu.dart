@@ -40,6 +40,31 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
   bool switching = false;
   bool menuOpen = false;
 
+  String _sourceSubtitle(Map<String, dynamic> binding) {
+    final l10n = AppLocalizations.of(context);
+    final server = binding['server'] as Map?;
+    final backend = switch (server?['kind']) {
+      'feiniu' => l10n.connectionFeiniuMedia,
+      'emby' => 'Emby',
+      'jellyfin' => 'Jellyfin',
+      _ => l10n.flyAccountMediaService,
+    };
+    final serverName = (server?['name'] as String?)?.trim() ?? '';
+    final username = (binding['remote_username'] as String?)?.trim() ?? '';
+    final status = switch (binding['status']) {
+      'reauth_required' => l10n.flySourceReauthorizationRequired,
+      'offline' => l10n.flyAccountStatusOffline,
+      'active' => '',
+      _ => l10n.flyAccountStatusUnavailable,
+    };
+    if (status.isNotEmpty) return status;
+    return [
+      backend,
+      if (serverName.isNotEmpty && serverName != binding['label']) serverName,
+      if (username.isNotEmpty) username,
+    ].join(' · ');
+  }
+
   void _toggleDesktopMenu() {
     final account = context.read<FlyAccountController>();
     if (switching || account.busy) return;
@@ -59,6 +84,8 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
         .toList();
     return DesktopHoverDropdownSpec(
       title: AppLocalizations.of(context).flySourceMediaSources,
+      width: 360,
+      maxHeight: 460,
       groups: [
         if (bindings.isNotEmpty)
           DesktopDropdownOptionGroup(
@@ -69,11 +96,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
                   title:
                       binding['label'] as String? ??
                       AppLocalizations.of(context).flySourceMediaSources,
-                  subtitle: binding['status'] == 'reauth_required'
-                      ? AppLocalizations.of(
-                          context,
-                        ).flySourceReauthorizationRequired
-                      : '',
+                  subtitle: _sourceSubtitle(binding),
                 ),
             ],
             selectedId: account.activeBindingId,
@@ -216,9 +239,7 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
                 ? binding['label'] as String? ??
                       AppLocalizations.of(context).flySourceMediaSources
                 : action!.$3,
-            subtitle: binding?['status'] == 'reauth_required'
-                ? AppLocalizations.of(context).flySourceReauthorizationRequired
-                : '',
+            subtitle: binding == null ? '' : _sourceSubtitle(binding),
             selected:
                 binding != null && binding['id'] == account.activeBindingId,
             showIndicator: binding != null,
@@ -300,11 +321,11 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
                   ? _toggleDesktopMenu
                   : () => unawaited(_openMenu())
             : null,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 250),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -337,10 +358,16 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
                   ),
                 ),
                 const SizedBox(width: 4),
-                Icon(
-                  Icons.expand_more_rounded,
-                  size: 20,
-                  color: colors.textSecondary,
+                AnimatedRotation(
+                  turns: desktop && menuOpen ? .5 : 0,
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 160),
+                  child: Icon(
+                    Icons.expand_more_rounded,
+                    size: 20,
+                    color: colors.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -354,8 +381,10 @@ class _FlyMediaSourceMenuState extends State<FlyMediaSourceMenu> {
       activation: DesktopDropdownActivation.tap,
       spec: _desktopSpec(account),
       onOpenChanged: (open) {
-        menuOpen = open;
-        if (!open) _desktopOpenedAccountKey = null;
+        setState(() {
+          menuOpen = open;
+          if (!open) _desktopOpenedAccountKey = null;
+        });
       },
       child: trigger,
     );
