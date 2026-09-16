@@ -130,7 +130,6 @@ class ItemPlaybackLauncher {
           final danmakuFile = source.isDownloadedFile
               ? null
               : await NativeDanmakuPrefetch.resolveToFile(
-                  statsScope: source.statsScope,
                   isCurrent: () => context.mounted,
                   seriesTitle: source.seriesTitle,
                   itemTitle: source.title,
@@ -252,7 +251,6 @@ class ItemPlaybackLauncher {
     // 弹幕预取（与 resolveForNative 内逻辑一致，resolveToFile 内部按 settings.enabled 判断）。
     final settings = await const DanmakuSettingsStore().load();
     final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-      statsScope: (loadArgs['statsScope'] ?? '').toString(),
       seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
       itemTitle: (loadArgs['title'] ?? '').toString(),
       seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
@@ -339,7 +337,6 @@ class ItemPlaybackLauncher {
               }
               final settings = await const DanmakuSettingsStore().load();
               final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-                statsScope: (loadArgs['statsScope'] ?? '').toString(),
                 seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
                 itemTitle: (loadArgs['title'] ?? '').toString(),
                 seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
@@ -379,7 +376,6 @@ class ItemPlaybackLauncher {
         };
         final settings = await const DanmakuSettingsStore().load();
         final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-          statsScope: (loadArgs['statsScope'] ?? '').toString(),
           seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
           itemTitle: (loadArgs['title'] ?? '').toString(),
           seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,

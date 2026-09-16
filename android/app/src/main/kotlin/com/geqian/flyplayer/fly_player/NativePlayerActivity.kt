@@ -59,13 +59,6 @@ import com.geqian.flyplayer.fly_player.mpv.MpvPlaybackPhase
 import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerSurface
-import com.geqian.flyplayer.fly_player.oped.FlyOpedPublication
-import com.geqian.flyplayer.fly_player.oped.FlyOpedSegment
-import com.geqian.flyplayer.fly_player.oped.FlyOpedPending
-import com.geqian.flyplayer.fly_player.oped.FlyOpedEntryPolicy
-import com.geqian.flyplayer.fly_player.oped.FlyOpedAccess
-import com.geqian.flyplayer.fly_player.oped.flyOpedTimelineSegments
-import com.geqian.flyplayer.fly_player.oped.flyOpedTimelineCaps
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
@@ -1340,29 +1333,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var outroMaxMin = 4
     private var skipCountdownSec = 5
     private var introSkipDismissed = false
-    private var flyOpedAccess = FlyOpedAccess()
-    private var flyAccountCheckMs = 0L
-    private var flyAccountRequestRevision = 0L
-    private var flyAccountRequestPending = false
-    private var flyOpedContext = UUID.randomUUID().toString()
-    private var flyOped: FlyOpedPublication? = null
-        set(value) {
-            if (field === value) return
-            field = value
-            // Publication changes also redraw while paused, without waiting for
-            // another position tick. Invalidated contexts cannot leave a band.
-            markerView?.invalidate()
-        }
-    private var flyOpedPending: FlyOpedPending? = null
-    private var flyOpedPolicy = FlyOpedEntryPolicy()
-    private var flyOpedResolveEpoch: Long? = null
-    private var flyOpedResolving = false
-    private var flyOpedScopeCheckMs = 0L
-    private var flyOpedAuthorizing = false
-    private var flyOpedStartedMs = 0L
-    private var flyOpedObservedEpoch: Long? = null
-    private var flyEdTailProtected = false
-    private var flyEdPausedBeforeEnd = false
     private var outroSkipDismissed = false
     private lateinit var skipCard: LinearLayout
     private lateinit var skipText: TextView
@@ -2721,12 +2691,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             isAntiAlias = true
             color = ACCENT
         }
-        private val opedPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-        private val opedLabelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = dp(10).toFloat()
-            textAlign = android.graphics.Paint.Align.CENTER
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
 
         override fun onDraw(canvas: android.graphics.Canvas) {
             val dur = lastDurationMs
@@ -2738,24 +2702,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val cy = height / 2f
             fun xFor(ms: Long): Float = left + span * (ms.coerceIn(0L, dur).toFloat() / dur)
 
-            for (segment in flyOpedTimelineSegments(flyOped, flyOpedAccess,
-                supportsVerifiedFileOped(), flyOpedContext, dur)) {
-                val startX = xFor(segment.startMs)
-                val endX = xFor(segment.endMs)
-                val color = if (segment.kind == "op") 0xFF67E8F9.toInt() else 0xFFFBBF24.toInt()
-                opedPaint.color = color
-                opedPaint.alpha = 170
-                canvas.drawRect(startX, cy - dp(3), endX, cy + dp(3), opedPaint)
-                opedPaint.alpha = 255
-                for ((capStart, capEnd) in flyOpedTimelineCaps(startX, endX, dp(1).coerceAtLeast(1).toFloat())) {
-                    canvas.drawRect(capStart, cy - dp(5), capEnd, cy + dp(5), opedPaint)
-                }
-                val label = if (segment.kind == "op") "OP" else "ED"
-                opedLabelPaint.color = color
-                if (endX - startX >= opedLabelPaint.measureText(label) + dp(4)) {
-                    canvas.drawText(label, (startX + endX) / 2f, cy + dp(15), opedLabelPaint)
-                }
-            }
             if (abRepeatMode == 2 && abLoopEndMs > abLoopStartMs) {
                 canvas.drawRect(xFor(abLoopStartMs), cy - dp(3), xFor(abLoopEndMs), cy + dp(3), abPaint)
             }
@@ -2797,9 +2743,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         mediaLoadPending = true
         mediaTitle = resolveTitle(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
-        invalidateServiceDanmakuRequest()
-        serviceDanmakuContextId = UUID.randomUUID().toString()
-        resetFlyOped()
         // 完整 loadArgs 进入（初始启动主链路）：安装 Flutter 下发的本地化文案表；
         // 失败静默，不影响播放主流程（缺失时后续 localizedString 自动回退 strings.xml）。
         runCatching {
@@ -2944,7 +2887,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 前台恢复（从设置页/Flutter 播放器等返回）时主动拉一次 Flutter 全局 MPV 设置，
         // 让「只在启动注入」之外的外部改动也即时生效。带 diff 守卫，无变化不重下发内核。
         pullGlobalMpvSettingsOnResume()
-        refreshFlyAccountState(force = true)
         // 前台期间每 3s 周期回写一次播放进度（飞牛/Emby 共用），退出时再补一次。
         startPeriodicReport()
     }
@@ -3047,10 +2989,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         mediaTitle = resolveTitle(effectiveLoadArgs)
         selectEpisodeCatalog(effectiveLoadArgs)
         loadArgsMap = effectiveLoadArgs
-        invalidateServiceDanmakuRequest()
-        serviceDanmakuContextId = UUID.randomUUID().toString()
-        resetFlyOped()
-        applyFlyOpedAccess(FlyOpedAccess.fromLoadArgs(effectiveLoadArgs, flyOpedAccess.enabled))
         refreshSeekThumbnails()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
         selectedAudioGuid = effectiveLoadArgs["audioTrackGuid"]?.toString().orEmpty()
@@ -7240,24 +7178,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         val pos = state.positionMs
-        val publication = flyOped.takeIf { canConsumeFlyOped() }
-        if (publication != null) {
-            val segment = publication.at(pos)
-            val dismissed = if (segment?.kind == "op") introSkipDismissed else outroSkipDismissed
-            if (segment == null || dismissed || flyOpedPending != null || abRepeatMode == 2) {
-                skipCard.visibility = View.GONE
-                return
-            }
-            skipText.text = "${if (segment.kind == "op") "跳过片头" else "跳过片尾"} · ${formatTime(segment.endMs)}"
-            skipAction = { skipFlyOped(publication, segment) }
-            skipCard.visibility = View.VISIBLE
-            return
-        }
-        if (!introOutroEnabled) {
-            skipCard.visibility = View.GONE
-            skipAction = null
-            return
-        }
         // 有章节推断到的片头/片尾区间则精确跳转（跳到章节边界）；否则退回按设置时长上限的窗口。
         val introEndMs = if (inferredIntroEndMs > 0) inferredIntroEndMs else introMaxMin * 60_000L
         val introShowFromMs = if (inferredIntroStartMs >= 0) maxOf(2_000L, inferredIntroStartMs) else 2_000L
@@ -7286,188 +7206,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             else -> if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
         }
-    }
-
-    private fun resetFlyOped(clearTail: Boolean = true) {
-        finishFlyOped("cancelled")
-        if (clearTail) {
-            flyEdTailProtected = false
-            flyEdPausedBeforeEnd = false
-            ++flyAccountRequestRevision
-            flyAccountRequestPending = false
-            flyAccountCheckMs = 0L
-        }
-        flyOpedContext = UUID.randomUUID().toString()
-        flyOped = null
-        flyOpedPolicy = FlyOpedEntryPolicy()
-        flyOpedResolveEpoch = null
-        flyOpedResolving = false
-        flyOpedAuthorizing = false
-        flyOpedScopeCheckMs = 0L
-        flyOpedObservedEpoch = null
-    }
-
-    private fun flyScopeArgs(): Map<String, Any?> = mapOf(
-        "statsScope" to loadArgsMap["statsScope"], "itemGuid" to loadArgsMap["itemGuid"], "mediaGuid" to loadArgsMap["mediaGuid"])
-
-    // A verifies the original NAS file, not transcodes, derivative direct links
-    // or local copies. Missing delivery facts are not original proof.
-    private fun supportsVerifiedFileOped(): Boolean =
-        loadArgsMap["playbackMode"] == "originalQuality" &&
-            loadArgsMap["isDownloadedFile"] == false && loadArgsMap["externalLocalSource"] == false
-
-    private fun canConsumeFlyOped(): Boolean = flyOpedAccess.canConsume(supportsVerifiedFileOped())
-
-    private fun refreshFlyOpedPanel() {
-        if (panelVisible && panelStack.lastOrNull()?.title == localizedString(R.string.player_text_0079)) renderTopPanel()
-    }
-
-    private fun applyFlyOpedAccess(next: FlyOpedAccess) {
-        if (next == flyOpedAccess) return
-        val accountChanged = next.signedIn != flyOpedAccess.signedIn ||
-            next.scopeIdentity != flyOpedAccess.scopeIdentity
-        if (accountChanged) {
-            invalidateServiceDanmakuRequest()
-            if (danmakuSettings["sourceKey"]?.toString()?.startsWith("nas:") == true) {
-                danmakuSettings["sourceKey"] = ""
-                danmakuSettings["sourceLabel"] = ""
-                if (this::playerSurface.isInitialized) playerSurface.clearDanmaku()
-            }
-        }
-        flyOpedAccess = next
-        // Logout/account changes invalidate in-flight resolves and seeks, but an
-        // already skipped ED still owns its remaining tail until the next load.
-        resetFlyOped(clearTail = false)
-        if (this::skipCard.isInitialized) {
-            skipCard.visibility = View.GONE
-            skipAction = null
-        }
-        if (this::settingsStore.isInitialized) persistIntroOutro()
-        refreshFlyOpedPanel()
-        if (accountChanged && panelVisible &&
-            panelStack.lastOrNull()?.title == localizedString(R.string.player_text_0076)) renderTopPanel()
-    }
-
-    private fun refreshFlyAccountState(force: Boolean = false, refreshPublication: Boolean = false,
-        onRefreshed: ((Boolean) -> Unit)? = null) {
-        if (activityDestroying || !this::playerSurface.isInitialized) return
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (!force && (flyAccountRequestPending || now - flyAccountCheckMs < 5000L)) return
-        flyAccountCheckMs = now
-        flyAccountRequestPending = true
-        val request = ++flyAccountRequestRevision
-        NativePlayerReverseBridge.dispatch("getFlyAccountState", emptyMap(),
-            onResult = { result -> runOnUiThread {
-                if (activityDestroying || request != flyAccountRequestRevision) {
-                    onRefreshed?.invoke(false)
-                    return@runOnUiThread
-                }
-                flyAccountRequestPending = false
-                applyFlyOpedAccess(FlyOpedAccess.fromAccountState(result, flyOpedAccess.enabled))
-                if (refreshPublication && canConsumeFlyOped()) {
-                    flyOpedResolveEpoch = null
-                    observeFlyOped(playerSurface.state)
-                }
-                onRefreshed?.invoke(true)
-            } }, onError = { runOnUiThread {
-                if (activityDestroying || request != flyAccountRequestRevision) {
-                    onRefreshed?.invoke(false)
-                    return@runOnUiThread
-                }
-                flyAccountRequestPending = false
-                applyFlyOpedAccess(FlyOpedAccess.fromAccountState(null, flyOpedAccess.enabled))
-                onRefreshed?.invoke(false)
-            } })
-    }
-
-    private fun observeFlyOped(state: MpvPlayerState) {
-        refreshFlyAccountState()
-        if (flyEdTailProtected && state.playbackPhase != MpvPlaybackPhase.ENDED.wireValue) {
-            flyEdPausedBeforeEnd = state.paused
-        }
-        if (!canConsumeFlyOped()) {
-            finishFlyOped("cancelled")
-            flyOped = null
-            return
-        }
-        if (state.loadNonce != (loadArgsMap["loadNonce"] as? Number)?.toInt()) return
-        val context = flyOpedContext
-        if (state.visualPlaybackReady && flyOped == null && !flyOpedResolving && flyOpedResolveEpoch != state.activeSeekEpoch) {
-            val epoch = state.activeSeekEpoch
-            flyOpedResolveEpoch = epoch
-            flyOpedResolving = true
-            NativePlayerReverseBridge.dispatch("resolveFlyOped", flyScopeArgs() + mapOf("playback_context_id" to context, "generation" to epoch),
-                onResult = { result -> runOnUiThread {
-                    if (activityDestroying || context != flyOpedContext) return@runOnUiThread
-                    flyOpedResolving = false
-                    if (!canConsumeFlyOped() || playerSurface.state.activeSeekEpoch != epoch) return@runOnUiThread
-                    flyOped = FlyOpedPublication.parse(result, context, epoch, loadArgsMap["itemGuid"]?.toString().orEmpty(), loadArgsMap["mediaGuid"]?.toString().orEmpty())
-                    refreshFlyOpedPanel()
-                } }, onError = { runOnUiThread { if (context == flyOpedContext) flyOpedResolving = false } })
-        }
-        val publication = flyOped ?: return
-        if (flyOpedObservedEpoch != null && flyOpedObservedEpoch != state.activeSeekEpoch && flyOpedPending?.seekEpoch != state.activeSeekEpoch) {
-            introSkipDismissed = false
-            outroSkipDismissed = false
-        }
-        flyOpedObservedEpoch = state.activeSeekEpoch
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (now - flyOpedScopeCheckMs > 5000L) {
-            flyOpedScopeCheckMs = now
-            NativePlayerReverseBridge.dispatch("validateFlyScope", flyScopeArgs(),
-                onResult = { result -> runOnUiThread { if (context == flyOpedContext && result != true) { finishFlyOped("cancelled"); flyOped = null } } },
-                onError = { runOnUiThread { if (context == flyOpedContext) { finishFlyOped("cancelled"); flyOped = null } } })
-        }
-        val pending = flyOpedPending
-        if (pending != null) {
-            val phase = pending.observe(state.activeSeekEpoch, state.completedSeekEpoch, state.positionMs)
-            if (phase != null) finishFlyOped(phase, alreadyFinished = true)
-            else if (now - flyOpedStartedMs > 12000L || state.error != null) finishFlyOped("failed")
-        }
-        if (flyAutomaticAllowed(state) && flyOpedPending == null) {
-            flyOpedPolicy.observe(publication, state.positionMs, state.activeSeekEpoch)?.let { skipFlyOped(publication, it, automatic = true) }
-        }
-    }
-
-    private fun flyAutomaticAllowed(state: MpvPlayerState): Boolean =
-        canConsumeFlyOped() && state.visualPlaybackReady && !state.paused && !state.buffering &&
-            state.error == null && !completionActive && abRepeatMode == 0
-
-    private fun skipFlyOped(publication: FlyOpedPublication, segment: FlyOpedSegment, automatic: Boolean = false) {
-        if (!canConsumeFlyOped() || flyOpedPending != null || flyOpedAuthorizing || flyOped !== publication || !segment.contains(playerSurface.state.positionMs)) return
-        val context = flyOpedContext
-        val generation = playerSurface.state.activeSeekEpoch
-        flyOpedAuthorizing = true
-        // Reauthorize the fixed publication using Fly only. A revoke/new revision
-        // never silently changes the visible target. No model is called here.
-        NativePlayerReverseBridge.dispatch("resolveFlyOped", flyScopeArgs() + mapOf("playback_context_id" to context, "generation" to generation), onResult = { result -> runOnUiThread {
-            if (activityDestroying || context != flyOpedContext) return@runOnUiThread
-            flyOpedAuthorizing = false
-            val authorized = FlyOpedPublication.parse(result, context, generation, loadArgsMap["itemGuid"]?.toString().orEmpty(), loadArgsMap["mediaGuid"]?.toString().orEmpty())
-            if (authorized != publication) { flyOped = null; return@runOnUiThread }
-            val state = playerSurface.state
-            if (!canConsumeFlyOped() || (automatic && !flyAutomaticAllowed(state)) || generation != state.activeSeekEpoch || flyOped !== publication || !segment.contains(state.positionMs)) return@runOnUiThread
-            val pending = FlyOpedPending(publication, segment, UUID.randomUUID().toString(), generation, state.positionMs)
-            if (segment.kind == "ed") {
-                flyEdTailProtected = true
-                flyEdPausedBeforeEnd = state.paused
-                cancelAutoNext()
-            }
-            flyOpedPending = pending
-            flyOpedStartedMs = android.os.SystemClock.elapsedRealtime()
-            NativePlayerReverseBridge.dispatch("recordFlyOpedAction", mapOf("statsScope" to loadArgsMap["statsScope"], "event" to pending.event("intent")))
-            if (segment.kind == "op") introSkipDismissed = true else outroSkipDismissed = true
-            skipCard.visibility = View.GONE
-            pending.seekEpoch = playerSurface.seek(segment.endMs)
-            if (pending.seekEpoch == 0L) finishFlyOped("failed")
-        } }, onError = { runOnUiThread { if (context == flyOpedContext) flyOpedAuthorizing = false } })
-    }
-
-    private fun finishFlyOped(phase: String, alreadyFinished: Boolean = false) {
-        val pending = flyOpedPending ?: return
-        val terminal = if (alreadyFinished) phase else pending.finish(phase)
-        flyOpedPending = null
-        if (terminal != null) NativePlayerReverseBridge.dispatch("recordFlyOpedAction", mapOf("statsScope" to loadArgsMap["statsScope"], "event" to pending.event(terminal)))
     }
 
     /** 续播提示：换源后若起播位置 > 3s 弹出，6 秒后自动消失。 */
@@ -7631,10 +7369,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
         val insideCompletionWindow = isInsideAutoNextPromptWindow(state)
         val shouldShowAutoNext =
-            shouldAutoNext && (insideCompletionWindow || playbackEnded) &&
-                (!flyEdTailProtected || (playbackEnded && !flyEdPausedBeforeEnd))
+            shouldAutoNext && (insideCompletionWindow || playbackEnded)
         val shouldShowCompleted =
-            (!flyEdTailProtected || playbackEnded) && nativePanelShouldShowCompletedOverlay(
+            nativePanelShouldShowCompletedOverlay(
                 autoPlayEnabled = autoPlayEnabled,
                 hasNextEpisode = hasNext,
                 playbackEnded = playbackEnded,
@@ -7927,7 +7664,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     pushPanel(PanelPage(localizedString(R.string.player_text_0006)) { buildDanmakuSettingsPage() })
                 },
                 panelNavRow(localizedString(R.string.player_text_0076)) {
-                    refreshFlyAccountState(force = true)
                     pushPanel(PanelPage(localizedString(R.string.player_text_0076)) { buildDanmakuSourcePage() })
                 },
             ),
@@ -7939,7 +7675,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     pushPanel(PanelPage(localizedString(R.string.player_text_0078)) { buildPlaybackBehaviorSettingsPage() })
                 },
                 panelNavRow(localizedString(R.string.player_text_0079)) {
-                    refreshFlyAccountState(force = true)
                     pushPanel(PanelPage(localizedString(R.string.player_text_0079)) { buildIntroOutroPage() })
                 },
                 panelNavRow(localizedString(R.string.player_text_0080)) {
@@ -8213,14 +7948,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerSettingsStore.KEY_INTRO_OUTRO,
             linkedMapOf(
                 "enabled" to false, "introMaxMin" to 2, "outroMaxMin" to 2, "skipCountdownSec" to 5,
-                "flyVerifiedEnabled" to true,
             ),
         )
         introOutroEnabled = (io["enabled"] as? Boolean) ?: false
         introMaxMin = (io["introMaxMin"] as? Number)?.toInt() ?: 2
         outroMaxMin = (io["outroMaxMin"] as? Number)?.toInt() ?: 2
         skipCountdownSec = (io["skipCountdownSec"] as? Number)?.toInt() ?: 5
-        flyOpedAccess = FlyOpedAccess.fromLoadArgs(loadArgsMap, (io["flyVerifiedEnabled"] as? Boolean) ?: true)
         // 截图设置与 Flutter 端共享同一份偏好（FlutterSharedPreferences），两端互通不漂移。
         screenshotIncludeSubtitles = loadSharedScreenshotIncludeSubtitles()
         screenshotSaveMode = loadSharedScreenshotSaveMode()
@@ -8464,7 +8197,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         linkedMapOf<String, Any?>(
             "enabled" to introOutroEnabled, "introMaxMin" to introMaxMin,
             "outroMaxMin" to outroMaxMin, "skipCountdownSec" to skipCountdownSec,
-            "flyVerifiedEnabled" to flyOpedAccess.enabled,
         ),
     )
 
@@ -8988,14 +8720,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildDanmakuSourcePage() {
-        refreshFlyAccountState()
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0239)))
         val sourceKey = danmakuSettings["sourceKey"]?.toString().orEmpty()
         val sourceLabel = danmakuSettings["sourceLabel"]?.toString()?.trim().orEmpty()
         addPanelRow(panelCardGroup(TextView(this).apply {
             text = when {
                 sourceLabel.isNotEmpty() -> sourceLabel
-                sourceKey.startsWith("nas:") -> "服务弹幕"
                 sourceKey.startsWith("dandan:") -> "弹弹play"
                 sourceKey.isNotEmpty() -> sourceKey
                 else -> localizedString(R.string.player_text_0240)
@@ -9004,12 +8734,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }))
-        if (flyOpedAccess.signedIn) {
-            addPanelRow(panelCardGroup(panelNavRow("服务弹幕",
-                if (sourceKey.startsWith("nas:")) "重新获取" else "获取") {
-                loadServiceDanmakuSource()
-            }))
-        }
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0241)))
         addPanelRow(panelCardGroup(
             panelNavRow(if (networkOffline) localizedString(R.string.player_text_0242) else localizedString(R.string.player_text_0243)) {
@@ -9094,7 +8818,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyFlutterDanmakuSource(sourceKey: String) {
         if (sourceKey.isEmpty()) return
-        invalidateServiceDanmakuRequest()
         showCenterHint(localizedString(R.string.player_text_0254))
         NativePlayerReverseBridge.dispatch(
             method = "loadSavedDanmakuSource",
@@ -9243,7 +8966,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 从文件导入弹幕：SAF 选文件 → 拷到可读缓存 → 反向通道交 Flutter 解析回 payload。 */
     private fun pickLocalDanmakuFile() {
-        invalidateServiceDanmakuRequest()
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
@@ -9290,7 +9012,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun importDanmakuFromUri(uri: android.net.Uri) {
-        invalidateServiceDanmakuRequest()
         showCenterHint(localizedString(R.string.player_text_0264))
         val mediaArgs = HashMap(danmakuMediaArgs()).apply {
             put("itemTitle", loadArgsMap["title"]?.toString().orEmpty())
@@ -9337,86 +9058,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var flutterDanmakuSources: List<Map<String, Any?>>? = null
     private var flutterDanmakuSourcesLoading = false
     private var flutterDanmakuSourcesGeneration = 0
-
-    private val serviceDanmakuRequests = NativeServiceDanmakuRequests()
-    private var serviceDanmakuContextId = UUID.randomUUID().toString()
-    private var serviceDanmakuTicket: NativeServiceDanmakuRequests.Ticket? = null
-
-    private fun serviceDanmakuContext() = NativeServiceDanmakuContext(
-        signedIn = flyOpedAccess.signedIn,
-        accountIdentity = flyOpedAccess.scopeIdentity,
-        statsScope = loadArgsMap["statsScope"]?.toString().orEmpty(),
-        playbackContextId = serviceDanmakuContextId,
-        seekEpoch = playerSurface.state.activeSeekEpoch,
-        mediaArgs = danmakuMediaArgs(),
-    )
-
-    private fun invalidateServiceDanmakuRequest() {
-        serviceDanmakuRequests.invalidate()
-        if (serviceDanmakuTicket != null) hideCenterHint()
-        serviceDanmakuTicket = null
-    }
-
-    private fun serviceDanmakuRequestIsCurrent(ticket: NativeServiceDanmakuRequests.Ticket): Boolean {
-        val current = serviceDanmakuRequests.accepts(ticket, serviceDanmakuContext(),
-            activityDestroying || playbackParked)
-        if (!current && serviceDanmakuTicket === ticket) invalidateServiceDanmakuRequest()
-        return current
-    }
-
-    private fun serviceDanmakuUnavailable(ticket: NativeServiceDanmakuRequests.Ticket,
-        message: String = "暂无服务弹幕") {
-        if (!serviceDanmakuRequestIsCurrent(ticket)) return
-        invalidateServiceDanmakuRequest()
-        showTransientHint(message)
-    }
-
-    private fun loadServiceDanmakuSource() {
-        if (!flyOpedAccess.signedIn || activityDestroying || playbackParked) return
-        val context = serviceDanmakuContext()
-        val ticket = serviceDanmakuRequests.begin(context)
-        serviceDanmakuTicket = ticket
-        if (!serviceDanmakuRequestIsCurrent(ticket)) return
-        pendingDanmakuSource = null
-        showCenterHint(localizedString(R.string.player_text_0254))
-        NativePlayerReverseBridge.dispatch("loadNasDanmakuSource",
-            context.mediaArgs + ("statsScope" to context.statsScope),
-            onResult = { result -> runOnUiThread {
-                if (!serviceDanmakuRequestIsCurrent(ticket)) return@runOnUiThread
-                val status = (result as? Map<*, *>)?.get("status")
-                if (status == "unavailable") {
-                    // A closed account gate is different from an empty cache.
-                    // Refreshing removes the service entry after logout.
-                    refreshFlyAccountState(force = true, onRefreshed = {
-                        serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
-                    })
-                    return@runOnUiThread
-                }
-                val reply = NativeServiceDanmakuPayload.fromReply(result)
-                if (reply == null) {
-                    serviceDanmakuUnavailable(ticket,
-                        if (status == "missing") "暂无服务弹幕" else "服务弹幕暂不可用")
-                    return@runOnUiThread
-                }
-                parseJsonFileAsync(reply.path) { payload ->
-                    if (!serviceDanmakuRequestIsCurrent(ticket)) return@parseJsonFileAsync
-                    if (payload == null || !reply.matches(payload)) {
-                        serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
-                        return@parseJsonFileAsync
-                    }
-                    // A logout can occur while the file is being read, before the
-                    // periodic account refresh. Recheck the live Flutter account.
-                    refreshFlyAccountState(force = true, onRefreshed = { refreshed ->
-                        if (serviceDanmakuRequestIsCurrent(ticket)) {
-                            if (refreshed) {
-                                invalidateServiceDanmakuRequest()
-                                applyLoadedDanmakuPayload(payload)
-                            } else serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用")
-                        }
-                    })
-                }
-            } }, onError = { runOnUiThread { serviceDanmakuUnavailable(ticket, "服务弹幕暂不可用") } })
-    }
 
     /** 透传给 Flutter 的媒体身份（让 Flutter 用自己的 _buildMediaKey 算 mediaKey）。 */
     private fun danmakuMediaArgs(): Map<String, Any?> = mapOf(
@@ -9551,7 +9192,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun reapplyDanmakuSource(rec: DanmakuSource) {
-        invalidateServiceDanmakuRequest()
         pendingDanmakuSource = rec.copy(updatedAt = System.currentTimeMillis())
         when (rec.type) {
             "dandan" -> {
@@ -9693,7 +9333,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun loadDanmakuFromResult(item: Map<String, Any?>) {
-        invalidateServiceDanmakuRequest()
         val episodeId = (item["episodeId"] as? Number)?.toLong() ?: 0L
         if (episodeId <= 0L) {
             showTransientHint(localizedString(R.string.player_text_0271))
@@ -9761,28 +9400,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildIntroOutroPage() {
-        refreshFlyAccountState()
-        if (flyOpedAccess.signedIn) {
-            addPanelRow(panelToggle("服务片头片尾", flyOpedAccess.enabled) { enabled ->
-                // Invalidate any older account refresh before saving this choice.
-                ++flyAccountRequestRevision
-                flyAccountRequestPending = false
-                applyFlyOpedAccess(flyOpedAccess.copy(enabled = enabled))
-                NativePlayerReverseBridge.dispatch("persistFlyOpedSettings",
-                    mapOf("enabled" to enabled, "statsScope" to loadArgsMap["statsScope"]),
-                    onResult = { _ -> runOnUiThread { refreshFlyAccountState(force = true, refreshPublication = true) } },
-                    onError = { runOnUiThread { refreshFlyAccountState(force = true) } })
-            })
-            val publication = flyOped.takeIf { canConsumeFlyOped() }
-            addPanelRow(TextView(this).apply {
-                text = if (publication == null) "当前视频暂无片头片尾信息" else publication.segments
-                    .filter { it.kind in listOf("op", "ed") && it.policy != "never" }
-                    .joinToString("\n") { "${if (it.kind == "op") "片头" else "片尾"} ${formatTime(it.startMs)} – ${formatTime(it.endMs)} · ${if (it.policy == "auto") "自动跳过" else "仅提示"}" }
-                setTextColor(TEXT_DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-            })
-        }
         addPanelRow(panelToggle(localizedString(R.string.player_text_0275), introOutroEnabled) { v ->
             introOutroEnabled = v; persistIntroOutro(); renderTopPanel()
         })
@@ -10035,7 +9652,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyState(state: MpvPlayerState) {
         if (!nativePanelShouldApplyPlaybackState(activityDestroying) || playbackParked) return
-        observeFlyOped(state)
         val ended = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
         if (state.loadNonce == (loadArgsMap["loadNonce"] as? Number)?.toInt()) {
             if ((!lastProgressPaused && state.paused) || (!lastProgressEnded && ended)) {
@@ -10356,14 +9972,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      */
     private fun showSeekPreview(targetMs: Long, durationMs: Long) {
         seekPreviewTime.text = "${formatTime(targetMs)} / ${formatTime(durationMs)}"
-        val nasFrame = seekThumbNasBifStore.frameFor(targetMs)
-        val usingNas = nasFrame != null
-        if (usingNas != seekThumbUsingNas) {
-            seekThumbUsingNas = usingNas
-            seekThumbLoadedBifIndex = -1
-            seekThumbBifBitmapCache.evictAll()
-        }
-        val bifFrame = nasFrame ?: seekThumbBifStore.frameFor(targetMs)
+        val bifFrame = seekThumbBifStore.frameFor(targetMs)
         if (bifFrame != null) {
             // BIF 帧是内存里的几 KB JPEG，主线程同步解码（1~2ms）+ LRU 直接上屏。
             // 不能走 Glide：into() 开新请求会先清空 ImageView，快速拖动时每换一帧
@@ -10445,43 +10054,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     // BIF 下载/解析/就绪态。磁盘缓存按 URL 哈希，同条目跨会话复用。
     private val seekThumbBifStore by lazy { SeekThumbnailBifStore(File(cacheDir, "seek_bif")) }
-    private val seekThumbNasBifStore by lazy { SeekThumbnailBifStore(File(cacheDir, "seek_bif")) }
-    private var seekThumbUsingNas = false
-    private var flyBifContext = ""
-
-    private fun stopFlyBifContext() {
-        val context = flyBifContext
-        flyBifContext = ""
-        seekThumbNasBifStore.prepare("", emptyMap())
-        if (context.isNotEmpty()) NativePlayerReverseBridge.dispatch("flyPlaybackActivity", mapOf("context_id" to context, "state" to "stopped"))
-    }
-
-    private fun resolveFlyBifContext() {
-        stopFlyBifContext()
-        val context = UUID.randomUUID().toString()
-        flyBifContext = context
-        NativePlayerReverseBridge.dispatch("resolveFlyBif", mapOf(
-            "context_id" to context,
-            "statsScope" to loadArgsMap["statsScope"],
-            "itemGuid" to loadArgsMap["itemGuid"],
-            "mediaGuid" to loadArgsMap["mediaGuid"],
-            "originalFile" to supportsVerifiedFileOped(),
-            "paused" to (loadArgsMap["startPaused"] == true),
-        ), onResult = { result -> runOnUiThread {
-            if (activityDestroying || context != flyBifContext || result !is String || result.isEmpty()) return@runOnUiThread
-            // Only paths in the private Fly cache may cross the reverse bridge.
-            // The authenticated Dart downloader has already checked SHA and identity.
-            try {
-                val file = File(result).canonicalFile
-                val root = File(cacheDir, "fly_bif").canonicalPath + File.separator
-                if (file.path.startsWith(root) && file.isFile) seekThumbNasBifStore.prepare("", emptyMap(), file)
-            } catch (_: Throwable) { /* Original Emby previews stay available. */ }
-        } }, onError = { /* Preview failure never changes playback. */ })
-    }
 
     /** 从当前 loadArgsMap 解析缩略图列表（换源后调用一次，避免每帧重解析），并触发 BIF 装载。 */
     private fun refreshSeekThumbnails() {
-        resolveFlyBifContext()
         val raw = loadArgsMap["seekThumbnails"] as? List<*>
         seekThumbnails = raw
             ?.mapNotNull { entry ->
@@ -10873,12 +10448,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (durationSec <= 0L) return
         val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
         val paused = playbackParked || state.paused
-        val bifContext = flyBifContext
-        if (bifContext.isNotEmpty()) NativePlayerReverseBridge.dispatch("flyPlaybackActivity", mapOf(
-            "context_id" to bifContext, "state" to if (paused) "paused" else "playing",
-        ), onResult = { valid -> runOnUiThread {
-            if (bifContext == flyBifContext && valid == false) seekThumbNasBifStore.prepare("", emptyMap())
-        } }, onError = { /* Lease expiration is handled by the service. */ })
         // 同秒去重只对播放态生效；暂停时放行为心跳，供 Flutter 统计端区分「暂停」与
         // 「已退出」。pausedHeartbeat 标记重复帧，服务端回写（飞牛/Emby）按它跳过。
         val pausedHeartbeat = !force && paused && ts == lastRecordedTs
@@ -10903,9 +10472,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
-        invalidateServiceDanmakuRequest()
-        stopFlyBifContext()
-        finishFlyOped("cancelled")
         if (retainedPlayer.get() === this) retainedPlayer.clear()
         val playLink = loadArgsMap["playLink"]?.toString().orEmpty()
         if (playLink.isNotEmpty()) {

@@ -1,6 +1,6 @@
 import '../../services/play_stats/play_stats_models.dart';
 import '../../services/play_stats/play_stats_repositories.dart';
-import 'fly_sync_identity.dart';
+import 'play_stats_record_id.dart';
 
 /// 定义片头片尾播放行为跟踪器的最小接口。
 abstract class OpEdTracker {
@@ -531,7 +531,7 @@ class _ActivePlayStatsSession {
         ? (startPositionMs / mediaDurationMs).clamp(0.0, 1.0)
         : 0.0;
     return _ActivePlayStatsSession(
-      historyId: newFlySyncId(),
+      historyId: newPlayStatsRecordId(),
       meta: context.meta,
       startSource: context.startSource,
       startedAtMs: context.startedAtMs,
