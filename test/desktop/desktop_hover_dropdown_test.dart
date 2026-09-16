@@ -7,6 +7,7 @@ import 'package:fly_player/desktop/desktop_floating_panel.dart';
 import 'package:fly_player/desktop/desktop_hover_dropdown.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/track_option_sheet.dart';
+import 'package:fly_player/widgets/detail/detail_selector_row.dart';
 
 void main() {
   Future<void> wheel(WidgetTester tester, Offset position, double dy) async {
@@ -78,6 +79,84 @@ void main() {
       ],
     );
   }
+
+  testWidgets('详情字幕与音轨共用浮层并连续移动，快速折返不重复入场', (tester) async {
+    final selected = <String>[];
+    final subtitleOpen = <bool>[];
+    final audioOpen = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Padding(
+            padding: const EdgeInsets.all(24),
+            child: DetailSelectorRow(
+              subtitleLabel: '字幕入口',
+              audioLabel: '音轨入口',
+              capabilityLabels: const ['1080'],
+              onSubtitleOpenChanged: subtitleOpen.add,
+              onAudioOpenChanged: audioOpen.add,
+              subtitleHoverPopup: buildSpec(),
+              audioHoverPopup: DesktopHoverDropdownSpec.single(
+                title: '选择音频',
+                items: const [TrackOptionSheetItem(id: 'audio', title: '测试音轨')],
+                selectedId: 'audio',
+                onSelected: selected.add,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final pointer = await hoverPointer(
+      tester,
+      tester.getCenter(find.text('字幕入口')),
+    );
+    await tester.pumpAndSettle();
+    final panelFinder = find.byType(DesktopFloatingPanel);
+    final panel = tester.element(panelFinder);
+    final start = tester.getRect(panelFinder);
+
+    await pointer.moveTo(tester.getCenter(find.text('音轨入口')));
+    await tester.pump();
+    expect(panelFinder, findsOneWidget);
+    expect(tester.element(panelFinder), same(panel));
+    expect(tester.getRect(panelFinder), start);
+    expect(find.text('选择字幕'), findsNothing);
+    expect(find.text('选择音频'), findsOneWidget);
+    expect(subtitleOpen, [true, false]);
+    expect(audioOpen, [true]);
+    expect(
+      tester
+          .widget<Opacity>(
+            find
+                .ancestor(of: panelFinder, matching: find.byType(Opacity))
+                .first,
+          )
+          .opacity,
+      1,
+    );
+    await tester.pump(const Duration(milliseconds: 80));
+    final middle = tester.getRect(panelFinder);
+    expect(middle.left, greaterThan(start.left));
+    expect(middle.height, lessThan(start.height));
+
+    await pointer.moveTo(tester.getCenter(find.text('字幕入口')));
+    await tester.pump();
+    expect(tester.element(panelFinder), same(panel));
+    expect(tester.getRect(panelFinder), middle);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(panelFinder), start);
+
+    await pointer.moveTo(tester.getCenter(find.text('音轨入口')));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(panelFinder).left, greaterThan(middle.left));
+    await tester.tap(find.text('测试音轨'));
+    await tester.pumpAndSettle();
+    expect(selected, ['audio']);
+    expect(panelFinder, findsNothing);
+    expect(subtitleOpen, [true, false, true, false]);
+    expect(audioOpen, [true, false, true, false]);
+  });
 
   testWidgets('悬停触发件弹出选项面板并高亮选中项', (tester) async {
     await pumpScaffold(tester, spec: buildSpec());
