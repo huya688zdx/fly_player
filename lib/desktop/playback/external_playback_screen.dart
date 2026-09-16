@@ -284,35 +284,57 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildIdle(BuildContext context) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final buttonShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    );
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: _Panel(
-          padding: const EdgeInsets.all(28),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.open_in_new_off_rounded,
-                size: 40,
-                color: colors.textMuted,
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: colors.accent.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: colors.accent.withValues(alpha: 0.12),
+                  ),
+                ),
+                child: Icon(
+                  Icons.open_in_new_rounded,
+                  size: 28,
+                  color: colors.accentStrong,
+                ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 20),
               Text(
                 '当前没有外部播放',
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   color: colors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 10),
-              Text(
-                '从媒体详情页选择 PotPlayer 播放后，这里会显示真实进度、弹幕、字幕和剧集控制。',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: colors.textSecondary, height: 1.6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 340),
+                child: Text(
+                  '从媒体详情页使用 PotPlayer 播放，\n即可在这里管理进度、弹幕、字幕与剧集。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: 13,
+                    height: 1.7,
+                  ),
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               Wrap(
                 alignment: WrapAlignment.center,
                 spacing: 10,
@@ -320,14 +342,35 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 children: [
                   FilledButton.icon(
                     onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back_rounded),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      textStyle: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      shape: buttonShape,
+                    ),
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
                     label: const Text('返回媒体库'),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => Navigator.of(
                       context,
                     ).pushNamed(SettingsDestinationRoutes.externalPlayer),
-                    icon: const Icon(Icons.tune_rounded),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: colors.textSecondary,
+                      backgroundColor: colors.surface.withValues(alpha: 0.24),
+                      side: BorderSide(color: colors.borderSubtle),
+                      minimumSize: const Size(0, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      textStyle: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      shape: buttonShape,
+                    ),
+                    icon: const Icon(Icons.tune_rounded, size: 18),
                     label: const Text('外部播放器设置'),
                   ),
                 ],
