@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../desktop/desktop_environment.dart';
+import '../desktop/playback/external_player_adapter.dart';
+import '../desktop/playback/external_player_adapters.dart';
 import '../desktop/playback/external_player_settings.dart';
 import '../desktop/playback/external_playback_host.dart';
 import '../desktop/playback/external_playback_mini_controller.dart';
@@ -23,7 +25,9 @@ class _ExternalPlayerSettingsScreenState
     extends State<ExternalPlayerSettingsScreen> {
   final _pathController = TextEditingController();
   final _danmakuSettingsStore = const DanmakuSettingsStore();
+  ExternalPlayerAdapter _player = ExternalPlayerAdapters.defaultPlayer;
   bool _enabled = false;
+  bool _playerChanged = false;
   bool? _danmakuEnabled;
   bool _busy = true;
   String? _message;
@@ -46,7 +50,10 @@ class _ExternalPlayerSettingsScreenState
       final settings = await ExternalPlayerSettings.load();
       if (!mounted) return;
       _pathController.text = settings.executablePath;
-      setState(() => _enabled = settings.enabled);
+      setState(() {
+        _player = settings.adapter;
+        _enabled = settings.enabled;
+      });
       await _loadDanmakuSettings();
     } catch (_) {
       _showMessage('读取外部播放器设置失败，请重新打开此页面。', error: true);
@@ -86,9 +93,7 @@ class _ExternalPlayerSettingsScreenState
     try {
       // 关闭始终可用，避免程序被移动后无法退出外部播放模式。
       if (enabled != false && (nextEnabled || executablePath.isNotEmpty)) {
-        final error = await ExternalPlayerSettings.validateExecutable(
-          executablePath,
-        );
+        final error = await _player.validateExecutable(executablePath);
         if (!mounted) return;
         if (error != null) {
           _showMessage(error, error: true);
@@ -98,10 +103,16 @@ class _ExternalPlayerSettingsScreenState
       await ExternalPlayerSettings(
         enabled: nextEnabled,
         executablePath: executablePath,
+        playerId: _player.id,
       ).save();
       if (!mounted) return;
-      setState(() => _enabled = nextEnabled);
-      _showMessage(nextEnabled ? '已启用 PotPlayer，下一次播放时生效。' : '设置已保存。');
+      setState(() {
+        _enabled = nextEnabled;
+        _playerChanged = false;
+      });
+      _showMessage(
+        nextEnabled ? '已启用 ${_player.displayName}，下一次播放时生效。' : '设置已保存。',
+      );
     } catch (error) {
       _showMessage(
         error is StateError ? error.message.toString() : '保存失败，请重试。',
@@ -116,9 +127,9 @@ class _ExternalPlayerSettingsScreenState
     setState(() => _busy = true);
     try {
       final result = await FilePicker.platform.pickFiles(
-        dialogTitle: '选择 PotPlayer 程序',
+        dialogTitle: '选择 ${_player.displayName} 程序',
         type: FileType.custom,
-        allowedExtensions: const <String>['exe'],
+        allowedExtensions: _player.fileExtensions,
       );
       if (!mounted) return;
       final selected = result?.files.single.path;
@@ -126,7 +137,7 @@ class _ExternalPlayerSettingsScreenState
       _pathController.text = selected;
       await _save();
     } catch (_) {
-      _showMessage('无法选择程序，请手动填写 PotPlayer 路径。', error: true);
+      _showMessage('无法选择程序，请手动填写 ${_player.displayName} 路径。', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -135,16 +146,16 @@ class _ExternalPlayerSettingsScreenState
   Future<void> _detectExecutable() async {
     setState(() => _busy = true);
     try {
-      final detected = await ExternalPlayerSettings.detectExecutable();
+      final detected = await _player.detectExecutable();
       if (!mounted) return;
       if (detected == null) {
-        _showMessage('未找到 PotPlayer，请选择程序或填写安装路径。', error: true);
+        _showMessage('未找到 ${_player.displayName}，请选择程序或填写安装路径。', error: true);
         return;
       }
       _pathController.text = detected;
       await _save();
     } catch (_) {
-      _showMessage('自动查找失败，请手动选择 PotPlayer 程序。', error: true);
+      _showMessage('自动查找失败，请手动选择 ${_player.displayName} 程序。', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -210,7 +221,7 @@ class _ExternalPlayerSettingsScreenState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'PotPlayer 接入',
+                              '${_player.displayName} 接入',
                               style: TextStyle(
                                 color: colors.textPrimary,
                                 fontSize: 18,
@@ -264,13 +275,47 @@ class _ExternalPlayerSettingsScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (ExternalPlayerAdapters.available.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                            child:
+                                DropdownButtonFormField<ExternalPlayerAdapter>(
+                                  key: ValueKey(_player.id),
+                                  initialValue: _player,
+                                  items: [
+                                    for (final player
+                                        in ExternalPlayerAdapters.available)
+                                      DropdownMenuItem(
+                                        value: player,
+                                        child: Text(player.displayName),
+                                      ),
+                                  ],
+                                  onChanged: _busy
+                                      ? null
+                                      : (player) {
+                                          if (player == null ||
+                                              identical(player, _player)) {
+                                            return;
+                                          }
+                                          setState(() {
+                                            _player = player;
+                                            _pathController.clear();
+                                            _enabled = false;
+                                            _playerChanged = true;
+                                          });
+                                        },
+                                  decoration: const InputDecoration(
+                                    labelText: '播放器',
+                                  ),
+                                ),
+                          ),
                         SwitchListTile(
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 8,
                           ),
                           title: Text(
-                            '使用 PotPlayer 播放',
+                            '使用 ${_player.displayName} 播放',
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 14,
@@ -278,7 +323,7 @@ class _ExternalPlayerSettingsScreenState
                             ),
                           ),
                           subtitle: Text(
-                            '启用后，此电脑上的视频将交给 PotPlayer。',
+                            '启用后，此电脑上的视频将交给 ${_player.displayName}。',
                             style: TextStyle(
                               color: colors.textSecondary,
                               fontSize: 12,
@@ -295,7 +340,7 @@ class _ExternalPlayerSettingsScreenState
                           trackOutlineColor: const WidgetStatePropertyAll(
                             Colors.transparent,
                           ),
-                          onChanged: _busy
+                          onChanged: _busy || _playerChanged
                               ? null
                               : (value) => _save(enabled: value),
                         ),
@@ -328,8 +373,7 @@ class _ExternalPlayerSettingsScreenState
                                 ),
                                 cursorColor: colors.accent,
                                 decoration: InputDecoration(
-                                  hintText:
-                                      r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
+                                  hintText: _player.executableHint,
                                   prefixIcon: Icon(
                                     Icons.folder_open_rounded,
                                     color: colors.textMuted,
@@ -474,7 +518,7 @@ class _ExternalPlayerSettingsScreenState
                             size: 21,
                           ),
                           title: Text(
-                            '弹幕设置',
+                            _player.supportsSubtitles ? '弹幕设置' : '弹幕设置不可用',
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 13,
@@ -482,11 +526,13 @@ class _ExternalPlayerSettingsScreenState
                             ),
                           ),
                           subtitle: Text(
-                            switch (_danmakuEnabled) {
-                              true => '已开启，匹配后会带入 PotPlayer',
-                              false => '已关闭，开启后才会显示弹幕',
-                              null => '暂未读取到弹幕状态',
-                            },
+                            _player.supportsSubtitles
+                                ? switch (_danmakuEnabled) {
+                                    true => '已开启，匹配后会带入 ${_player.displayName}',
+                                    false => '已关闭，开启后才会显示弹幕',
+                                    null => '暂未读取到弹幕状态',
+                                  }
+                                : '${_player.displayName} 不支持由 Fly Player 注入弹幕',
                             style: TextStyle(
                               color: colors.textSecondary,
                               fontSize: 12,
@@ -497,7 +543,9 @@ class _ExternalPlayerSettingsScreenState
                             color: colors.textMuted,
                             size: 18,
                           ),
-                          onTap: _busy ? null : _openDanmakuSettings,
+                          onTap: _busy || !_player.supportsSubtitles
+                              ? null
+                              : _openDanmakuSettings,
                         ),
                         Divider(
                           height: 1,
@@ -554,9 +602,7 @@ class _ExternalPlayerSettingsScreenState
                         ),
                         children: [
                           Text(
-                            '播放时请保持 Fly Player 运行，用于向 NAS 回报进度。影片详情页和外部播放控制页可暂停、跳转、更换片源、搜索弹幕和选择外挂字幕。\n\n'
-                            '飞牛原画剧集会带入各季播放列表；切集时会同步对应字幕、弹幕和进度。连续播放由 PotPlayer 的播放列表设置控制。\n\n'
-                            '弹幕与外挂 ASS、SRT、VTT 会合成为临时 ASS。音轨、内封字幕和位图字幕请在 PotPlayer 菜单中切换；AI 人物遮挡暂不支持。',
+                            _player.usageNotes,
                             style: TextStyle(
                               color: colors.textSecondary,
                               height: 1.55,
@@ -593,10 +639,14 @@ class _ExternalPlayerSettingsScreenState
               horizontal: 16,
               vertical: 4,
             ),
-            enabled: available && status != null,
+            enabled:
+                available && status != null && status.player.supportsMiniPlayer,
             leading: Icon(
               active ? Icons.picture_in_picture_alt : Icons.push_pin_outlined,
-              color: available && status != null
+              color:
+                  available &&
+                      status != null &&
+                      status.player.supportsMiniPlayer
                   ? colors.accentStrong
                   : colors.textMuted,
               size: 21,
@@ -604,7 +654,10 @@ class _ExternalPlayerSettingsScreenState
             title: Text(
               active ? '极简模式已开启' : '打开极简模式',
               style: TextStyle(
-                color: available && status != null
+                color:
+                    available &&
+                        status != null &&
+                        status.player.supportsMiniPlayer
                     ? colors.textPrimary
                     : colors.textMuted,
                 fontSize: 13,
@@ -615,7 +668,9 @@ class _ExternalPlayerSettingsScreenState
               status == null
                   ? '开始外部播放后可用'
                   : available
-                  ? '顶部居中显示，可拖动并保持置顶'
+                  ? status.player.supportsMiniPlayer
+                        ? '顶部居中显示，可拖动并保持置顶'
+                        : '${status.player.displayName} 不支持极简模式'
                   : '当前窗口暂不可用',
               style: TextStyle(color: colors.textMuted, fontSize: 12),
             ),
@@ -624,7 +679,8 @@ class _ExternalPlayerSettingsScreenState
               size: 18,
               color: colors.textSecondary,
             ),
-            onTap: available && status != null
+            onTap:
+                available && status != null && status.player.supportsMiniPlayer
                 ? () async {
                     try {
                       await ExternalPlaybackMiniController.enter();

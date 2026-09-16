@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../desktop/desktop.dart';
+import '../desktop/playback/external_player_adapters.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../playback/settings/mpv_settings_l10n.dart';
 import '../playback/settings/mpv_settings_store.dart';
@@ -215,9 +216,17 @@ class AppSettingsScreen extends StatelessWidget {
         SettingsSearchEntry(
           id: 'external_player_settings',
           title: '外部播放器接入',
-          subtitle: '使用 PotPlayer 播放并回报播放进度',
+          subtitle: '使用外部播放器播放并回报进度',
           location: l10n.settingsLocationRoot,
-          keywords: const <String>['PotPlayer', '外部播放器', '字幕', '弹幕', '进度回报'],
+          keywords: <String>[
+            ...ExternalPlayerAdapters.available.map(
+              (player) => player.displayName,
+            ),
+            '外部播放器',
+            '字幕',
+            '弹幕',
+            '进度回报',
+          ],
           onSelect: () => _openSettingsDestination(
             context,
             SettingsDestinationRoutes.externalPlayer,
@@ -600,8 +609,7 @@ class AppSettingsScreen extends StatelessWidget {
             _DesktopRowData(
               icon: Icons.launch_rounded,
               title: '外部播放器接入',
-              subtitle: '使用 PotPlayer 播放并回报播放进度',
-              value: 'PotPlayer',
+              subtitle: '使用外部播放器播放并回报进度',
               onTap: () => _openSettingsDestination(
                 context,
                 SettingsDestinationRoutes.externalPlayer,
