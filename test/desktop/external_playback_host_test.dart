@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/danmaku/models/danmaku_settings.dart';
 import 'package:fly_player/desktop/playback/external_playback_host.dart';
+import 'package:fly_player/desktop/playback/external_playback_mini_player.dart';
 import 'package:fly_player/desktop/playback/potplayer_session.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/playback/playback_source.dart';
@@ -44,10 +46,10 @@ void main() {
     var rejectWithError = false;
     var delayControl = false;
     var controlSamples = 0;
-    void Function()? pendingControl;
+    void Function()? pendingSnapshotControl;
     void applyControl(void Function() update) {
       if (delayControl) {
-        pendingControl = update;
+        pendingSnapshotControl = update;
         controlSamples = 0;
       } else {
         update();
@@ -55,6 +57,7 @@ void main() {
     }
 
     final subtitles = <String>[];
+    Completer<void>? miniControlCompletion;
     final state = <String, Object>{
       'alive': true,
       'file': video.path,
@@ -76,13 +79,14 @@ void main() {
         if (call.method == 'launch') return 71;
         expect(arguments['pid'], 71);
         if (call.method == 'snapshot') {
-          if (pendingControl != null && ++controlSamples >= 3) {
-            pendingControl!();
-            pendingControl = null;
+          if (pendingSnapshotControl != null && ++controlSamples >= 3) {
+            pendingSnapshotControl!();
+            pendingSnapshotControl = null;
           }
           return Map.of(state);
         }
         if (call.method == 'configure') {
+          await miniControlCompletion?.future;
           if (arguments.containsKey('mediaUrl')) {
             expect(arguments['mediaUrl'], video.path);
           }
@@ -127,7 +131,18 @@ void main() {
           home: Builder(
             builder: (context) {
               hostContext = context;
-              return const Scaffold();
+              return Scaffold(
+                body: ValueListenableBuilder<ExternalPlaybackStatus?>(
+                  valueListenable: ExternalPlaybackHost.status,
+                  builder: (_, status, _) => status == null
+                      ? const SizedBox.shrink()
+                      : ExternalPlaybackMiniPlayer(
+                          expanded: true,
+                          onToggleExpanded: () async {},
+                          onRestore: () async {},
+                        ),
+                ),
+              );
             },
           ),
         ),
@@ -194,6 +209,7 @@ void main() {
         isTrue,
       );
       expect(ExternalPlaybackHost.status.value!.position.inSeconds, 32);
+      delayControl = false;
       expect(
         await ExternalPlaybackHost.applyDanmaku(
           itemGuid: 'local-probe',
@@ -234,10 +250,40 @@ void main() {
       );
       expect(subtitles, hasLength(3));
       expect(ExternalPlaybackHost.status.value!.danmakuLabel, '手动匹配');
+    });
+    await tester.pump();
+    miniControlCompletion = Completer<void>();
+    final button = find.byKey(const ValueKey('external-mini-play-pause'));
+    await tester.tap(button);
+    await tester.pump();
+    // 等待播放器回报期间仍使用正常按钮样式，不整组变灰或闪现忙碌文字。
+    expect(tester.widget<IconButton>(button).onPressed, isNotNull);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('external-mini-前进 10 秒')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(find.text('正在处理…'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(ExternalPlaybackMiniPlayer),
+        matching: find.byType(Tooltip),
+      ),
+      findsNothing,
+    );
+    miniControlCompletion.complete();
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
       await ExternalPlaybackHost.stop();
       expect(ExternalPlaybackHost.status.value, isNull);
       expect(calls.last.method, 'close');
     });
+    // 会话结束后推进一次采样等待，让在途控制回调正常退出。
+    await tester.pump(const Duration(seconds: 1));
     await tester.pumpWidget(const SizedBox.shrink());
   }, skip: !Platform.isWindows);
 }

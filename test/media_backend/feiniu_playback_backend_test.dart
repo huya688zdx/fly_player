@@ -1,32 +1,103 @@
+import 'dart:convert';
+
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/feiniu_api.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/feiniu/feiniu_media_backend.dart';
 import 'package:fly_player/media_backend/feiniu/feiniu_playback_context.dart';
+import 'package:fly_player/media_backend/filter/media_catalog_filter.dart';
 import 'package:fly_player/media_backend/playback/media_playback.dart';
+import 'package:fly_player/media_backend/playback/media_session_reload.dart';
+import 'package:fly_player/models/media_item.dart';
+import 'package:fly_player/models/media_library_item.dart';
 import 'package:fly_player/models/play_info.dart';
 import 'package:fly_player/models/playback_stream.dart';
 import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/providers/nas_provider.dart';
+import 'package:fly_player/services/server_reentry_support.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 覆写播放编排所需的 API 方法，使 [FeiniuMediaBackend.getPlayback] 可在无网络下测试。
 class _FakePlaybackApi extends FeiniuApi {
-  _FakePlaybackApi(super.nas, {this.failTrackData = false});
+  _FakePlaybackApi(
+    super.nas, {
+    this.failTrackData = false,
+    this.liveChannel = false,
+  });
 
   final bool failTrackData;
+  final bool liveChannel;
 
   bool trackDataCalled = false;
   String? playbackStreamMediaGuid;
   String? resetItemGuid;
   String? resetMediaGuid;
+  final List<Map<String, dynamic>> itemListPayloads = <Map<String, dynamic>>[];
 
   int playInfoTs = 600;
   int itemWatchedTs = 120;
   int itemDuration = 3000;
 
   @override
+  Future<List<MediaItem>> getMediaList() async {
+    return <MediaItem>[MediaItem(id: 'iptv-1', name: '电视直播', type: 'IPTV')];
+  }
+
+  @override
+  Future<ItemListPage> getItemsPage(Map<String, dynamic> payload) async {
+    itemListPayloads.add(Map<String, dynamic>.from(payload));
+    return ItemListPage(
+      total: 1,
+      items: <MediaLibraryItem>[
+        MediaLibraryItem.fromJson(<String, dynamic>{
+          'guid': 'live-1',
+          'type': 'LiveChannel',
+          'title': 'CCTV1',
+        }),
+      ],
+    );
+  }
+
+  @override
   Future<PlayInfoData> getPlayInfo(String itemGuid) async {
+    if (liveChannel) {
+      return PlayInfoData.fromJson(<String, dynamic>{
+        'type': 'LiveChannel',
+        'media_guid': 'line-b',
+        'item': <String, dynamic>{
+          'guid': itemGuid,
+          'type': 'LiveChannel',
+          'title': 'CCTV1',
+          'posters': '/live-poster.jpg',
+        },
+        'live_channels': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'guid': 'line-b',
+            'path': 'http://source.test/live-b.m3u8?from=source',
+            'file_name': '线路2',
+            'sort_num': 2,
+            'can_play': 1,
+          },
+          <String, dynamic>{
+            'guid': 'line-a',
+            'path': 'http://source.test/live-a.m3u8',
+            'file_name': '线路1',
+            'sort_num': 0,
+            'can_play': 1,
+          },
+          <String, dynamic>{
+            'guid': 'line-disabled',
+            'path': 'http://source.test/disabled.m3u8',
+            'file_name': '线路3',
+            'sort_num': 3,
+            'can_play': 0,
+            'play_error': '源不可用',
+          },
+        ],
+      });
+    }
     return PlayInfoData.fromJson(<String, dynamic>{
       'grand_guid': 'series-1',
       'type': 'Episode',
@@ -63,6 +134,9 @@ class _FakePlaybackApi extends FeiniuApi {
   @override
   Future<StreamTrackData> getStreamTrackData(String itemGuid) async {
     trackDataCalled = true;
+    if (liveChannel) {
+      throw StateError('直播没有点播轨道接口');
+    }
     if (failTrackData) {
       throw Exception('track data boom');
     }
@@ -175,6 +249,113 @@ void main() {
   }
 
   group('FeiniuMediaBackend.getPlayback', () {
+    test('直播按指定线路直出原始 URL，并绕过点播流与轨道接口', () async {
+      final teardown = <Object>[];
+      final nas = buildNas(teardown);
+      addTearDown(() {
+        for (final n in teardown) {
+          (n as NasProvider).dispose();
+        }
+      });
+      final api = _FakePlaybackApi(nas, liveChannel: true);
+      final backend = FeiniuMediaBackend(api);
+
+      final preview = await backend.getCatalogPreviewItems(
+        'iptv-1',
+        page: 2,
+        limit: 7,
+      );
+      final page = await backend.queryCatalogItems(
+        const MediaCatalogQuery(
+          catalogId: 'iptv-1',
+          page: 3,
+          pageSize: 9,
+          sortField: 'sort_num',
+          sortType: 'ASC',
+        ),
+      );
+      expect(preview.single.type, 'LiveChannel');
+      expect(page.items.single.type, 'LiveChannel');
+      expect(api.itemListPayloads, hasLength(2));
+      expect(api.itemListPayloads[0], <String, dynamic>{
+        'type': 'LIVE_CHANNEL',
+        'ancestor_guid': 'iptv-1',
+        'page': 2,
+        'num': 7,
+      });
+      expect(api.itemListPayloads[1], <String, dynamic>{
+        'type': 'LIVE_CHANNEL',
+        'ancestor_guid': 'iptv-1',
+        'page': 3,
+        'num': 9,
+        'sort_column': 'sort_num',
+        'sort_type': 'ASC',
+      });
+
+      final versions = await backend.getItemSourceVersions(
+        'live-1',
+        isLive: true,
+      );
+      expect(versions.map((version) => version.id), <String>[
+        'line-b',
+        'line-a',
+        'line-disabled',
+      ]);
+      expect(api.trackDataCalled, isFalse);
+
+      final resolution = await backend.getPlayback(
+        const MediaPlaybackRequest(itemId: 'live-1', qualityId: 'line-a'),
+      );
+      final bundle = resolution.bundle;
+
+      expect(api.trackDataCalled, isFalse);
+      expect(api.playbackStreamMediaGuid, isNull);
+      expect(bundle.itemType, 'LiveChannel');
+      expect(bundle.selectedSource.id, 'line-a');
+      expect(bundle.selectedSource.url, 'http://source.test/live-a.m3u8');
+      expect(bundle.selectedSource.headers, isEmpty);
+      expect(bundle.startPosition, Duration.zero);
+      expect(bundle.durationSeconds, 0);
+      expect(bundle.selectedSource.reliableSeek, isFalse);
+      expect(bundle.qualities.map((quality) => quality.id), <String>[
+        'line-b',
+        'line-a',
+        'line-disabled',
+      ]);
+
+      final l10n = lookupAppLocalizations(const Locale('zh', 'CN'));
+      final result = await backend.playbackSourceBridge.assemblePlaybackSource(
+        request: const MediaPlaybackRequest(
+          itemId: 'live-1',
+          qualityId: 'line-a',
+        ),
+        bundle: bundle,
+        context: resolution.backendContext,
+        l10n: l10n,
+      );
+      final source = result.source;
+      expect(source.mediaType, 'LiveChannel');
+      expect(source.url, 'http://source.test/live-a.m3u8');
+      expect(source.url, isNot(contains('token=')));
+      expect(source.headers, isEmpty);
+      expect(source.startPosition, Duration.zero);
+      expect(source.durationSeconds, 0);
+      expect(source.reliableSeek, isFalse);
+      expect(source.qualities, hasLength(3));
+
+      final reloaded = await ServerReentrySupport.reloadServerSession(
+        backend,
+        currentLoadArgs: jsonEncode(source.toMap()),
+        intent: const MediaSessionReloadIntent(),
+        l10n: l10n,
+      );
+      final reloadedArgs =
+          jsonDecode(reloaded!['loadArgs']! as String) as Map<String, dynamic>;
+      expect(reloadedArgs['mediaGuid'], 'line-a');
+      expect(reloadedArgs['url'], 'http://source.test/live-a.m3u8');
+      expect(reloadedArgs['startPositionMs'], 0);
+    });
+
     test(
       '编排 getPlayInfo + getStreamTrackData + getPlaybackStream，装配中立 bundle',
       () async {

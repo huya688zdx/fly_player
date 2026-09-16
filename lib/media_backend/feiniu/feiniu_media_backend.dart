@@ -37,6 +37,8 @@ class FeiniuMediaBackend implements MediaBackend {
       <String, Map<String, dynamic>>{};
   final Map<String, Future<Map<String, dynamic>>> _seasonDetailInFlight =
       <String, Future<Map<String, dynamic>>>{};
+  final Map<String, String> _catalogTypes = <String, String>{};
+  bool _catalogTypesLoaded = false;
 
   FeiniuMediaBackend(this.api);
 
@@ -51,7 +53,18 @@ class FeiniuMediaBackend implements MediaBackend {
   @override
   Future<List<MediaCatalog>> getCatalogs() async {
     final items = await api.getMediaList();
+    _catalogTypes
+      ..clear()
+      ..addEntries(items.map((item) => MapEntry(item.id, item.type ?? '')));
+    _catalogTypesLoaded = true;
     return items.map(mapFeiniuCatalog).toList(growable: false);
+  }
+
+  Future<bool> _isIptvCatalog(String catalogId) async {
+    if (!_catalogTypesLoaded) {
+      await getCatalogs();
+    }
+    return _catalogTypes[catalogId]?.trim().toUpperCase() == 'IPTV';
   }
 
   @override
@@ -75,6 +88,15 @@ class FeiniuMediaBackend implements MediaBackend {
     int page = 1,
     int limit = 30,
   }) async {
+    if (await _isIptvCatalog(catalogId)) {
+      final pageData = await api.getItemsPage(<String, dynamic>{
+        'type': 'LIVE_CHANNEL',
+        'ancestor_guid': catalogId,
+        'page': page,
+        'num': limit,
+      });
+      return pageData.items.map(mapFeiniuItemCard).toList(growable: false);
+    }
     final items = await api.getItemsByCategoryGuid(
       catalogId,
       page: page,
@@ -135,6 +157,20 @@ class FeiniuMediaBackend implements MediaBackend {
 
   @override
   Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query) async {
+    if (await _isIptvCatalog(query.catalogId)) {
+      final page = await api.getItemsPage(<String, dynamic>{
+        'type': 'LIVE_CHANNEL',
+        'ancestor_guid': query.catalogId,
+        'page': query.page,
+        'num': query.pageSize,
+        'sort_column': query.sortField,
+        'sort_type': query.sortType,
+      });
+      return MediaItemCardPage(
+        items: page.items.map(mapFeiniuItemCard).toList(growable: false),
+        total: page.total,
+      );
+    }
     final request = mapMediaQueryToItemListRequest(query);
     final page = await api.getItemsPageByRequest(request);
     return MediaItemCardPage(
@@ -284,6 +320,17 @@ class FeiniuMediaBackend implements MediaBackend {
   Future<MediaDetail> getItemDetail(String itemId) async {
     final rawDetail = await api.getItemDetail(itemId);
     final rawItem = extractFeiniuDetailPlayItem(rawDetail);
+    if (rawItem?.type == 'LiveChannel') {
+      return mapFeiniuPlayItemDetail(
+        rawItem!,
+        seriesId: '',
+        resumePositionSeconds: 0,
+        genresMap: const <int, String>{},
+        regionNames: const <String, String>{},
+        credits: const <PersonCredit>[],
+        imdbId: '',
+      );
+    }
     PlayInfoData? info;
     Object? playInfoError;
     StackTrace? playInfoStackTrace;
@@ -377,7 +424,19 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) async {
+  Future<List<MediaSourceVersion>> getItemSourceVersions(
+    String itemId, {
+    bool isLive = false,
+  }) async {
+    if (isLive) {
+      final playInfo = await api.getPlayInfo(itemId);
+      return playInfo.liveChannels
+          .map(
+            (channel) =>
+                MediaSourceVersion(id: channel.guid, label: channel.fileName),
+          )
+          .toList(growable: false);
+    }
     final trackData = await api.getStreamTrackData(itemId);
     return mapFeiniuSourceVersions(trackData);
   }
@@ -437,6 +496,11 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<void> releasePlaybackSession(String sessionId) async {
+    // 飞牛直播和点播会话仍由现有原生回调管理，此公共钩子无需处理。
+  }
+
+  @override
   Future<String> resolveSeriesPlaybackTarget(String seriesId) async {
     // 飞牛 launcher/NAS 自行把系列 guid 解析成续看单集，故原样返回。
     return seriesId;
@@ -467,6 +531,9 @@ class FeiniuMediaBackend implements MediaBackend {
     MediaPlaybackRequest request,
   ) async {
     final playInfo = await api.getPlayInfo(request.itemId);
+    if (playInfo.isLiveChannel) {
+      return _getLivePlayback(request, playInfo);
+    }
     // 多版本切换：带 qualityId 时按该版本媒体取流，否则用条目默认媒体 mediaGuid。
     // 复刻 ItemPlaybackLauncher 的 effectiveMediaGuid 口径。
     final qualityId = request.qualityId?.trim() ?? '';
@@ -617,6 +684,89 @@ class FeiniuMediaBackend implements MediaBackend {
     );
 
     return MediaPlaybackResolution(bundle: bundle, backendContext: context);
+  }
+
+  MediaPlaybackResolution _getLivePlayback(
+    MediaPlaybackRequest request,
+    PlayInfoData playInfo,
+  ) {
+    final channels = playInfo.liveChannels;
+    LiveChannelData selected;
+    final qualityId = request.qualityId?.trim() ?? '';
+    if (qualityId.isNotEmpty) {
+      final index = channels.indexWhere((channel) => channel.guid == qualityId);
+      if (index < 0) throw StateError('指定的直播线路不存在');
+      selected = channels[index];
+      if (!selected.isPlayable) throw StateError('指定的直播线路不可用');
+    } else if (request.qualityIndex != null) {
+      final index = request.qualityIndex!;
+      if (index < 0 || index >= channels.length) {
+        throw StateError('指定的直播线路不存在');
+      }
+      selected = channels[index];
+      if (!selected.isPlayable) throw StateError('指定的直播线路不可用');
+    } else {
+      final mediaIndex = channels.indexWhere(
+        (channel) => channel.guid == playInfo.mediaGuid && channel.isPlayable,
+      );
+      final playable =
+          channels
+              .where((channel) => channel.isPlayable)
+              .toList(growable: false)
+            ..sort((left, right) => left.sortNum.compareTo(right.sortNum));
+      if (mediaIndex >= 0) {
+        selected = channels[mediaIndex];
+      } else if (playable.isNotEmpty) {
+        selected = playable.first;
+      } else {
+        throw StateError('没有可用的直播线路');
+      }
+    }
+
+    final qualities = channels
+        .map(
+          (channel) => MediaPlaybackQuality(
+            id: channel.guid,
+            sourceId: channel.guid,
+            videoTrackId: '',
+            label: channel.fileName,
+            isDefault: channel.guid == selected.guid,
+            delivery: MediaPlaybackDeliveryKind.original,
+          ),
+        )
+        .toList(growable: false);
+    final selectedQuality = qualities.firstWhere(
+      (quality) => quality.id == selected.guid,
+    );
+    final item = playInfo.item;
+    final source = MediaPlaybackSource(
+      id: selected.guid,
+      videoTrackId: '',
+      delivery: MediaPlaybackDeliveryKind.original,
+      url: selected.path,
+      headers: const <String, String>{},
+      reliableSeek: false,
+    );
+    final bundle = MediaPlaybackBundle(
+      itemId: item.guid,
+      title: item.title.trim().isNotEmpty ? item.title : request.fallbackTitle,
+      itemType: 'LiveChannel',
+      posterUrl: item.posters,
+      durationSeconds: 0,
+      startPosition: Duration.zero,
+      selectedSource: source,
+      selectedQuality: selectedQuality,
+      qualities: qualities,
+      session: const MediaPlaybackSession(),
+    );
+    return MediaPlaybackResolution(
+      bundle: bundle,
+      backendContext: FeiniuLivePlaybackContext(
+        playInfo: playInfo,
+        selectedChannel: selected,
+        channels: channels,
+      ),
+    );
   }
 
   /// 回找公共画质对应的飞牛原始档（按 mediaGuid + directLinkQualityIndex 匹配）。

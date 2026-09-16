@@ -33,6 +33,7 @@ class ImmersiveDetailBackground extends StatefulWidget {
   final double parallaxFactor;
   final double overlayOpacity;
   final double maxScrollZoom;
+  final bool useDesktopReadingScrim;
 
   const ImmersiveDetailBackground({
     super.key,
@@ -50,6 +51,7 @@ class ImmersiveDetailBackground extends StatefulWidget {
     this.parallaxFactor = 0.40,
     this.overlayOpacity = 1.0,
     this.maxScrollZoom = 1.24,
+    this.useDesktopReadingScrim = false,
   });
 
   @override
@@ -220,10 +222,14 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
         ambientTint ??
         (isLightSurface ? colors.backgroundElevated : colors.overlayScrim);
     final transitionSurfaceTint = ambientTint ?? transitionTint;
-    final transitionSurface = Color.alphaBlend(
-      transitionSurfaceTint.withValues(alpha: isLightSurface ? 0.10 : 0.17),
-      transitionBody,
-    );
+    final transitionSurface = widget.useDesktopReadingScrim
+        ? transitionBody
+        : Color.alphaBlend(
+            transitionSurfaceTint.withValues(
+              alpha: isLightSurface ? 0.10 : 0.17,
+            ),
+            transitionBody,
+          );
     // 交接层必须是海报裁切区域的一部分，不能作为普通兄弟层静止悬挂；
     // 这样滚动时烟雾遮罩始终附着在图片上。裁切线之下的色差由「接续带」
     // （与裁切层共用同一滚动位移的兄弟层）缓释，见 Stack 尾部的
@@ -318,6 +324,26 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                         ),
                       ),
                     ),
+                    if (widget.useDesktopReadingScrim)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              // 阅读底色集中在左侧，画面主体不再蒙上整幅灰幕。
+                              gradient: LinearGradient(
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                colors: [
+                                  transitionBody.withValues(alpha: 0.80),
+                                  transitionBody.withValues(alpha: 0.42),
+                                  transitionBody.withValues(alpha: 0),
+                                ],
+                                stops: const [0, 0.36, 0.85],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     Positioned(
                       key: const ValueKey<String>('detail-hero-transition'),
                       left: 0,
@@ -329,27 +355,28 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              DecoratedBox(
-                                key: const ValueKey<String>(
-                                  'detail-hero-transition-veil',
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: <Color>[
-                                      Colors.transparent,
-                                      transitionSurfaceTint.withValues(
-                                        alpha: isLightSurface ? 0.025 : 0.04,
-                                      ),
-                                      transitionSurfaceTint.withValues(
-                                        alpha: isLightSurface ? 0.07 : 0.10,
-                                      ),
-                                    ],
-                                    stops: const <double>[0.0, 0.42, 1.0],
+                              if (!widget.useDesktopReadingScrim)
+                                DecoratedBox(
+                                  key: const ValueKey<String>(
+                                    'detail-hero-transition-veil',
+                                  ),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: <Color>[
+                                        Colors.transparent,
+                                        transitionSurfaceTint.withValues(
+                                          alpha: isLightSurface ? 0.025 : 0.04,
+                                        ),
+                                        transitionSurfaceTint.withValues(
+                                          alpha: isLightSurface ? 0.07 : 0.10,
+                                        ),
+                                      ],
+                                      stops: const <double>[0.0, 0.42, 1.0],
+                                    ),
                                   ),
                                 ),
-                              ),
                               DecoratedBox(
                                 key: const ValueKey<String>(
                                   'detail-hero-transition-gradient',
@@ -358,26 +385,49 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                                   gradient: LinearGradient(
                                     begin: Alignment.topCenter,
                                     end: Alignment.bottomCenter,
-                                    colors: <Color>[
-                                      Colors.transparent,
-                                      colors.overlayScrim.withValues(
-                                        alpha: isLightSurface ? 0.015 : 0.03,
-                                      ),
-                                      transitionSurface.withValues(
-                                        alpha: isLightSurface ? 0.09 : 0.12,
-                                      ),
-                                      transitionSurface.withValues(
-                                        alpha: isLightSurface ? 0.32 : 0.40,
-                                      ),
-                                      transitionSurface,
-                                    ],
-                                    stops: const <double>[
-                                      0.0,
-                                      0.30,
-                                      0.60,
-                                      0.88,
-                                      1.0,
-                                    ],
+                                    // 桌面在整段内平滑淡出，避免最后一小段突然压暗。
+                                    colors: widget.useDesktopReadingScrim
+                                        ? <Color>[
+                                            transitionBody.withValues(alpha: 0),
+                                            transitionBody.withValues(
+                                              alpha: 0.16,
+                                            ),
+                                            transitionBody.withValues(
+                                              alpha: 0.50,
+                                            ),
+                                            transitionBody.withValues(
+                                              alpha: 0.84,
+                                            ),
+                                            transitionBody,
+                                          ]
+                                        : <Color>[
+                                            Colors.transparent,
+                                            colors.overlayScrim.withValues(
+                                              alpha: isLightSurface
+                                                  ? 0.015
+                                                  : 0.03,
+                                            ),
+                                            transitionSurface.withValues(
+                                              alpha: isLightSurface
+                                                  ? 0.09
+                                                  : 0.12,
+                                            ),
+                                            transitionSurface.withValues(
+                                              alpha: isLightSurface
+                                                  ? 0.32
+                                                  : 0.40,
+                                            ),
+                                            transitionSurface,
+                                          ],
+                                    stops: widget.useDesktopReadingScrim
+                                        ? const <double>[0, 0.25, 0.50, 0.75, 1]
+                                        : const <double>[
+                                            0.0,
+                                            0.30,
+                                            0.60,
+                                            0.88,
+                                            1.0,
+                                          ],
                                   ),
                                 ),
                               ),

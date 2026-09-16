@@ -23,6 +23,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_exception.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/app_ambient_page.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
@@ -439,7 +440,10 @@ class _SearchScreenState extends State<SearchScreen> {
                       vertical: 10,
                     ),
                     decoration: BoxDecoration(
-                      color: colors.surface,
+                      color: AppAmbientPage.cardColorOf(
+                        context,
+                        colors.surface,
+                      ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -490,7 +494,7 @@ class _SearchScreenState extends State<SearchScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: colors.surface,
+            color: AppAmbientPage.cardColorOf(context, colors.surface),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
@@ -566,12 +570,17 @@ class _SearchScreenState extends State<SearchScreen> {
     final provider = context.read<NasProvider>();
     final layout = MediaLayoutProfile.of(context);
     final colors = context.appColors;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
+    final page = Scaffold(
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 12, 10, 0),
+          padding: EdgeInsets.fromLTRB(
+            layout.isDesktopTier ? layout.pageHorizontalPadding : 10,
+            12,
+            layout.isDesktopTier ? layout.pageHorizontalPadding : 10,
+            0,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -581,9 +590,14 @@ class _SearchScreenState extends State<SearchScreen> {
                     child: Container(
                       height: 48,
                       decoration: BoxDecoration(
-                        color: colors.backgroundElevated,
+                        color: AppAmbientPage.cardColorOf(
+                          context,
+                          colors.backgroundElevated,
+                        ),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: colors.accent, width: 1.2),
+                        border: Border.all(
+                          color: colors.textSecondary.withValues(alpha: 0.28),
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -661,5 +675,6 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ),
     );
+    return AppAmbientPage(shareBackground: true, child: page);
   }
 }

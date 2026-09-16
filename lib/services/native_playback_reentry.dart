@@ -10,6 +10,7 @@ import '../media_backend/media_backend.dart';
 import '../providers/nas_provider.dart';
 import 'native_player_bridge.dart';
 import 'native_reentry_support.dart';
+import 'play_stats/play_stats_service.dart';
 import 'playback_progress_offline_queue.dart';
 import 'server_native_picker_support.dart';
 import 'server_reentry_support.dart';
@@ -62,25 +63,47 @@ class NativePlaybackReentry {
   }) {
     if (backend.capabilities.usesLegacyFeiniuFlow) {
       final subtitles = FeiniuSegmentedSubtitle(FeiniuApi(nas));
+      final boundScope = 'feiniu:${nas.baseUrl}:${nas.userName}';
+      final boundStatsScope = PlayStatsService.instance.currentScope;
+      final releaseSession = FeiniuApi(nas).captureServerSessionRelease();
       return NativePlayerBridge.bindReentry(
         onUnbind: subtitles.dispose,
         onResolveSegmentedSubtitle: (raw, positionMs) => subtitles.resolve(
           MpvMediaSource.fromMap(jsonDecode(raw) as Map<String, dynamic>),
           Duration(milliseconds: positionMs),
         ),
-        onReleaseServerSession: (link) =>
-            NativeReentrySupport.releaseServerSession(nas, link),
+        onReleaseServerSession: (link, {scope}) async {
+          if (scope != null && scope != boundScope) return;
+          try {
+            if (boundScope == 'feiniu:${nas.baseUrl}:${nas.userName}' &&
+                boundStatsScope == PlayStatsService.instance.currentScope) {
+              await PlaybackProgressOfflineQueue.flush(nas);
+            }
+            await releaseSession(link);
+          } catch (_) {
+            // 回收失败不影响当前播放，服务端仍可通过超时回收。
+          }
+        },
         onResolvePlayback: onResolvePlayback,
         onRecordProgress: (progress) =>
             NativeReentrySupport.recordProgress(nas, progress),
         onResolveSubtitleFile: (guid, {format}) =>
             NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
         onReloadServerSession: (currentLoadArgs, intent) =>
-            NativeReentrySupport.reloadServerSession(
-              nas,
-              currentLoadArgs: currentLoadArgs,
-              intent: intent,
-            ),
+            MpvMediaSource.fromMap(
+              jsonDecode(currentLoadArgs) as Map<String, dynamic>,
+            ).isLive
+            ? ServerReentrySupport.reloadServerSession(
+                backend,
+                currentLoadArgs: currentLoadArgs,
+                intent: intent,
+                l10n: l10n,
+              )
+            : NativeReentrySupport.reloadServerSession(
+                nas,
+                currentLoadArgs: currentLoadArgs,
+                intent: intent,
+              ),
         onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
             NativeReentrySupport.loadEpisodePickerData(
               nas,
@@ -105,6 +128,8 @@ class NativePlaybackReentry {
     // 故首帧进度先开会话；切集时停旧会话 + 开新会话。状态随 bind 闭包（每次起播独立）。
     final reporter = ServerPlaybackReporter(backend);
     return NativePlayerBridge.bindReentry(
+      onReleaseServerSession: (link, {scope}) =>
+          backend.releasePlaybackSession(link),
       onResolvePlayback: onResolvePlayback,
       onRecordProgress: reporter.report,
       onResolveSubtitleFile: (guid, {format}) =>
@@ -176,7 +201,8 @@ class ServerPlaybackReporter {
     final ts = (progress['ts'] as num?)?.toInt() ?? 0;
     final isPaused = progress['isPaused'] == true;
     try {
-      if (itemGuid != _itemId) {
+      if (itemGuid != _itemId ||
+          (MpvMediaSource.fromMap(progress).isLive && mediaGuid != _mediaId)) {
         // 切到新条目：先停旧会话（落定旧条目最终位），再为新条目开会话。
         if (_itemId.isNotEmpty) {
           await backend.reportPlaybackStopped(

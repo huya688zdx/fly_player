@@ -29,12 +29,13 @@ class _Weak {void onPosition(Duration d) {} void markSeek() {}}
 class _Widget {Object? resolveEpisode=Object();}
 class _Harness {
  bool mounted=true, _isLoading=false, _isPlaying=true, _pausedByUser=false, _isBuffering=false, _playbackCompleted=false, _controlsVisible=false, _autoNextSuppressed=false, _autoPlayEnabled=true, _showResumePrompt=false;
- int _autoNextSeconds=0, opened=0, _sourceChangeGeneration=0;
+ int _autoNextSeconds=0, opened=0, _sourceChangeGeneration=0, _danmakuSeekRevision=0;
  double _playbackRate=1;
  Object? _errorMessage, _abLoopStart;
  Object? _nextEpisode=Object();
  final widget=_Widget(); final _player=_Player(); final _weakNetwork=_Weak();
  final _skipPromptKindNotifier=ValueNotifier<Object?>(null);
+ final _viewRevision=ValueNotifier<int>(0);
  Timer? _autoNextTimer, _progressTimer, _directLinkTimer, _controlsHideTimer, _resumePromptTimer;
  void _updateView(VoidCallback update)=>update();
  void _syncSystemMediaControls() {} Future<void> _refreshSegmentedSubtitle(Duration d) async {}
@@ -44,7 +45,7 @@ class _Harness {
  double _validPlaybackRate(double value)=>value.isFinite && value>0 ? value : 1;
  void position(int ms){_player.state.position=Duration(milliseconds:ms);_onPositionChanged(_player.state.position);}
  void eof(){_player.state.completed=true;_onCompletedChanged(true);}
- void close(){mounted=false;_autoNextTimer?.cancel();_skipPromptKindNotifier.dispose();}
+ void close(){mounted=false;_autoNextTimer?.cancel();_skipPromptKindNotifier.dispose();_viewRevision.dispose();}
 '''
 tests='''
 }

@@ -82,6 +82,7 @@ class PotPlayerSession with WidgetsBindingObserver {
     var waitingNotified = false;
     var configured = false;
     var sawPlayerWindow = false;
+    var targetPosition = initialPosition;
     while (!_finished && DateTime.now().isBefore(deadline)) {
       if (!isCurrentSession()) throw StateError('播放账号已切换，请重新播放');
       if (!waitingNotified &&
@@ -97,6 +98,25 @@ class PotPlayerSession with WidgetsBindingObserver {
         } else if (sawPlayerWindow) {
           throw StateError('PotPlayer 已关闭');
         }
+        final file = '${state['file'] ?? ''}';
+        if (state['alive'] == true &&
+            file.isNotEmpty &&
+            !sameMedia(file, mediaUrl) &&
+            {1, 2}.contains(state['state']) &&
+            ((state['durationMs'] as num?)?.toInt() ?? 0) > 0 &&
+            onMediaChanged != null) {
+          // 起播期间也可能在 PotPlayer 切集，先交接身份，不能一直等待原集。
+          final position = await onMediaChanged!(file);
+          _checkCurrent();
+          if (position == null) {
+            throw StateError('PotPlayer 已切换到列表外的媒体，请重新打开播放');
+          }
+          mediaUrl = file;
+          targetPosition = position < Duration.zero ? Duration.zero : position;
+          configured = false;
+          // 交接可能等待字幕和片源；重新采样后才配置、接受新集进度。
+          continue;
+        }
         if (_matches(state) && (state['state'] == 1 || state['state'] == 2)) {
           if (!configured) {
             await requireCommand('configure', {
@@ -107,10 +127,10 @@ class PotPlayerSession with WidgetsBindingObserver {
             });
             _checkCurrent();
             configured = true;
-            if (initialPosition > Duration.zero) {
+            if (targetPosition > Duration.zero) {
               await requireCommand('activate', {
                 'pid': pid,
-                'positionMs': initialPosition.inMilliseconds,
+                'positionMs': targetPosition.inMilliseconds,
                 'focus': false,
                 'mediaUrl': mediaUrl,
               });
@@ -126,7 +146,7 @@ class PotPlayerSession with WidgetsBindingObserver {
           }
           final positionMs = (state['positionMs'] as num?)?.toInt() ?? 0;
           // 续播命令是异步的，不能先把加载阶段的零位置回写到 NAS。
-          final targetMs = initialPosition.inMilliseconds;
+          final targetMs = targetPosition.inMilliseconds;
           final minimumPositionMs = math.max(
             math.min(targetMs, 1000),
             targetMs - 3000,

@@ -6,29 +6,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/screens/emby_fn_entry_login_page.dart';
 import 'package:fly_player/screens/fn_connect_web_login_page.dart';
 import 'package:fly_player/screens/fn_web_login_bridge_script.dart';
 import 'package:fly_player/utils/private_network_http_overrides.dart';
 
 void main() {
   testWidgets(
-    '关闭登录页后不再创建等待环境初始化的 Windows WebView',
+    '关闭登录页后不再导航等待初始化的 Windows WebView',
     (tester) async {
       const channel = MethodChannel('io.jns.webview.win');
-      final environmentReady = Completer<void>();
+      const view = MethodChannel('io.jns.webview.win/1');
+      const events = MethodChannel('io.jns.webview.win/1/events');
+      final controllerReady = Completer<Map<String, dynamic>>();
       final calls = <String>[];
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
         call,
       ) async {
         calls.add(call.method);
-        if (call.method == 'initializeEnvironment') {
-          await environmentReady.future;
+        if (call.method == 'initialize') {
+          return controllerReady.future;
         }
         return null;
       });
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(view, (
+        call,
+      ) async {
+        calls.add(call.method);
+        return null;
+      });
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        events,
+        (_) async => null,
+      );
       addTearDown(() {
         tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           channel,
+          null,
+        );
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          view,
+          null,
+        );
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          events,
           null,
         );
       });
@@ -44,11 +65,11 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
-      expect(calls, <String>['initializeEnvironment']);
+      expect(calls, <String>['initialize']);
       await tester.pumpWidget(const SizedBox.shrink());
-      environmentReady.complete();
+      controllerReady.complete({'textureId': 1});
       await tester.pump();
-      expect(calls, <String>['initializeEnvironment']);
+      expect(calls.where((call) => call == 'loadUrl'), isEmpty);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
@@ -207,6 +228,105 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
       });
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    '飞翔入口只接受同源应用主路径的 entry-token',
+    (tester) async {
+      final messenger = tester.binding.defaultBinaryMessenger;
+      const root = MethodChannel('io.jns.webview.win');
+      const view = MethodChannel('io.jns.webview.win/7');
+      const events = MethodChannel('io.jns.webview.win/7/events');
+      const target = 'https://geqian688.fnos.net/app/fly-data-service';
+      final loads = <String>[];
+      final result = Completer<String?>();
+      final navigatorKey = GlobalKey<NavigatorState>();
+
+      Future<void> emit(String type, Object value) async {
+        await messenger.handlePlatformMessage(
+          events.name,
+          const StandardMethodCodec().encodeSuccessEnvelope({
+            'type': type,
+            'value': value,
+          }),
+          (_) {},
+        );
+      }
+
+      messenger.setMockMethodCallHandler(root, (call) async {
+        if (call.method == 'initialize') return {'textureId': 7};
+        return null;
+      });
+      messenger.setMockMethodCallHandler(events, (_) async => null);
+      messenger.setMockMethodCallHandler(view, (call) async {
+        if (call.method == 'loadUrl') loads.add(call.arguments as String);
+        return null;
+      });
+      addTearDown(() {
+        for (final channel in [root, view, events]) {
+          messenger.setMockMethodCallHandler(channel, null);
+        }
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigatorKey,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const SizedBox.shrink(),
+        ),
+      );
+      navigatorKey.currentState!
+          .push<String>(
+            MaterialPageRoute(
+              builder: (_) => const EmbyFnEntryLoginPage(
+                serverUrl: target,
+                requireTargetPath: true,
+              ),
+            ),
+          )
+          .then(result.complete);
+      await tester.pump();
+
+      // NAS 桌面即使已有 cookie 也只能触发一次精确目标跳转，不能提前交付令牌。
+      await emit(
+        'webMessageReceived',
+        jsonEncode({
+          'pageUrl': 'https://geqian688.fnos.net/desktop',
+          'cookie': 'entry-token=too-early',
+        }),
+      );
+      await tester.pump();
+      expect(loads, <String>[target, target]);
+      expect(result.isCompleted, isFalse);
+
+      await emit(
+        'webMessageReceived',
+        jsonEncode({
+          'pageUrl': 'https://other.geqian688.fnos.net/app/fly-data-service',
+          'cookie': 'entry-token=cross-origin',
+        }),
+      );
+      await emit(
+        'webMessageReceived',
+        jsonEncode({
+          'pageUrl': 'https://geqian688.fnos.net/',
+          'cookie': 'entry-token=wrong-path',
+        }),
+      );
+      await tester.pump();
+      expect(result.isCompleted, isFalse);
+
+      await emit(
+        'webMessageReceived',
+        jsonEncode({
+          'pageUrl': '$target/session',
+          'cookie': 'entry-token=accepted',
+        }),
+      );
+      expect(await result.future, 'accepted');
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );

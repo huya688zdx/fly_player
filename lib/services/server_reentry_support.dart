@@ -38,7 +38,9 @@ class ServerReentrySupport {
       return null;
     }
     // 切画质任意模式都走这里；「非服务端托管的纯切音轨/字幕」由 mpv 本地切轨，不该来。
-    if (intent.qualityIndex == null && !source.playbackMode.isServerManaged) {
+    if (intent.qualityIndex == null &&
+        !source.playbackMode.isServerManaged &&
+        !source.isLive) {
       return null;
     }
 
@@ -85,7 +87,9 @@ class ServerReentrySupport {
       resumePosition: startPos,
       qualityIndex: qualityIndex,
       // 版本锚：裸 MediaSource 版本 id，只锁定当前版本、不参与画质选档（后端约定）。
-      qualityId: source.mediaGuid,
+      qualityId: source.isLive && qualityIndex != null
+          ? source.qualities[qualityIndex].mediaGuid
+          : source.mediaGuid,
       audioTrackId: audioTrackId,
       subtitleTrackId: subtitleTrackId,
       subtitleTrackExplicitlyDisabled: subtitleDisabled,
@@ -115,6 +119,7 @@ class ServerReentrySupport {
     final newSource = source.copyWith(
       loadNonce: assembled.loadNonce,
       url: assembled.url,
+      playLink: assembled.playLink,
       headers: assembled.headers,
       mediaGuid: assembled.mediaGuid,
       videoGuid: assembled.videoGuid,
@@ -158,6 +163,12 @@ class ServerReentrySupport {
   /// 原画态取原画档下标；转码态按 分辨率+码率 精确对位，码率缺失退分辨率首档。
   /// 找不到返回 null（由 preferredQualityResolution 兜底）。纯函数，便于单测。
   static int? currentQualityIndex(MpvMediaSource source) {
+    if (source.isLive) {
+      final index = source.qualities.indexWhere(
+        (q) => q.mediaGuid == source.mediaGuid,
+      );
+      return index < 0 ? null : index;
+    }
     final qualities = source.qualities;
     if (qualities.isEmpty) return null;
     if (!source.playbackMode.isServerManaged) {
