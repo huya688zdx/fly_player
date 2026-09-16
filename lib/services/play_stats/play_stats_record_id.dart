@@ -1,7 +1,7 @@
 import 'dart:math';
 
 /// Cryptographically random UUID v4. Never derives identity from wall time.
-String newFlySyncId() {
+String newPlayStatsRecordId() {
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;

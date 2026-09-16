@@ -1312,7 +1312,6 @@ final class ExternalPlaybackHost implements PlaybackHost {
         !offline &&
         source.danmakuAutoSearchAllowed) {
       payload = await NativeDanmakuPrefetch.resolveToFile(
-        statsScope: source.statsScope,
         isCurrent: () =>
             identical(sourceAtStart, _source) &&
             identical(sessionAtStart, _session),

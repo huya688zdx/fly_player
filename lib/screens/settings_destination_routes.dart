@@ -10,9 +10,6 @@ import 'language_settings_screen.dart';
 import 'mpv_player_settings_screen.dart';
 import 'parallel_window_settings_screen.dart';
 import 'play_stats_report_screen.dart';
-import 'fly_data_settings_screen.dart';
-import 'fly_account_screen.dart';
-import 'fly_catalog_screen.dart';
 import 'screenshot_settings_screen.dart';
 import 'storage_management_screen.dart';
 import 'theme_custom_recipe_screen.dart';
@@ -30,9 +27,6 @@ class SettingsDestinationRoutes {
   static const String downloads = '/screen/settings/downloads';
   static const String storage = '/screen/settings/storage';
   static const String playStats = '/screen/settings/play-stats';
-  static const String flyData = '/screen/settings/fly-data';
-  static const String flyAccount = '/screen/settings/fly-account';
-  static const String flyCatalog = '/screen/settings/fly-catalog';
   static const String other = '/screen/settings/other';
   static const String logs = '/screen/settings/logs';
   static const String bookmarks = '/screen/settings/bookmarks';
@@ -99,12 +93,6 @@ class SettingsDestinationRoutes {
         return const <String>[home, storage];
       case playStats:
         return const <String>[home, playStats];
-      case flyData:
-        return const <String>[home, flyData];
-      case flyAccount:
-        return const <String>[home, flyAccount];
-      case flyCatalog:
-        return const <String>[home, flyCatalog];
       case other:
         return const <String>[home, other];
       case logs:
@@ -164,12 +152,6 @@ class SettingsDestinationRoutes {
         return StorageManagementScreen(key: key);
       case playStats:
         return PlayStatsReportScreen(key: key);
-      case flyData:
-        return FlyDataSettingsScreen(key: key);
-      case flyAccount:
-        return FlyBindingsScreen(key: key);
-      case flyCatalog:
-        return FlyCatalogScreen(key: key);
       case other:
         return OtherSettingsScreen(key: key);
       case logs:

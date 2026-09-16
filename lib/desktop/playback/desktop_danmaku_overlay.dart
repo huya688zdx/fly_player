@@ -102,7 +102,6 @@ class DesktopDanmakuPayload {
     final label = '${payload['sourceLabel'] ?? ''}'.trim();
     if (label.isNotEmpty) return label;
     final key = '${payload['sourceKey'] ?? ''}';
-    if (key.startsWith('nas:')) return '服务弹幕';
     if (key.startsWith('dandan:')) return '弹弹play';
     return key.isEmpty ? fallback : key;
   }

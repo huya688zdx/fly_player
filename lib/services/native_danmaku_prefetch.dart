@@ -15,10 +15,6 @@ import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/models/danmaku_settings.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
-import 'fly_data/fly_nas_danmaku_cache.dart';
-import 'fly_data/fly_data_service.dart';
-import 'fly_data/fly_playback_service_client.dart';
-import 'play_stats/play_stats_service.dart';
 
 /// 为原生播放壳预取/检索弹幕。
 ///
@@ -53,93 +49,17 @@ class NativeDanmakuPrefetch {
   @visibleForTesting
   static Future<bool> Function()? originalConfiguredOverrideForTest;
 
-  static bool _hasActiveFlyBinding({String? statsScope}) =>
-      FlyPlaybackServiceClient.instance.hasActiveAccountBinding(
-        statsScope: statsScope ?? PlayStatsService.instance.currentScope,
-      );
-
-  // A saved service preference remains available for the next Fly login, but
-  // cannot disable normal sources while a legacy NAS or Emby login is active.
-  static DanmakuSourceStrategy _effectiveSourceStrategy(
-    DanmakuSettings settings,
-  ) => _hasActiveFlyBinding()
-      ? settings.sourceStrategy
-      : DanmakuSourceStrategy.original;
-
-  static Future<bool> _originalConfigured() async {
-    if (_effectiveSourceStrategy(await const DanmakuSettingsStore().load()) ==
-        DanmakuSourceStrategy.nasOnly) {
-      return false;
-    }
-    return await (originalConfiguredOverrideForTest?.call() ??
-        DanDanPlayConfig.ensureConfigured());
-  }
+  static Future<bool> _originalConfigured() async =>
+      await (originalConfiguredOverrideForTest?.call() ??
+          DanDanPlayConfig.ensureConfigured());
 
   static String get _cacheRoot =>
       cacheRootOverrideForTest ?? Directory.systemTemp.path;
 
   static DateTime? _lastTempCleanupAt;
   static Future<void>? _tempCleanupFuture;
-  static int _nasGeneration = 0;
   static int _payloadSequence = 0;
 
-  /// Explicit source selection only reads the service's current-file cache.
-  /// It preserves display preferences and never starts matching or collection.
-  static Future<String?> resolveNasToFile({
-    required String seriesTitle,
-    String itemTitle = '',
-    required int seasonNumber,
-    required int episodeNumber,
-    required String tmdbId,
-    required DanmakuSettings settings,
-    String itemGuid = '',
-    String mediaGuid = '',
-    String seasonGuid = '',
-    String statsScope = '',
-    bool Function()? isCurrent,
-    FlyNasDanmakuCache? nasCache,
-  }) async {
-    if (statsScope.isEmpty ||
-        itemGuid.isEmpty ||
-        !_hasActiveFlyBinding(statsScope: statsScope)) {
-      return null;
-    }
-    final generation = ++_nasGeneration;
-    final service = FlyDataService.instance;
-    final session = service.session;
-    final epoch = service.scopeIdentity;
-    bool current() =>
-        generation == _nasGeneration &&
-        _hasActiveFlyBinding(statsScope: statsScope) &&
-        (isCurrent?.call() ?? true) &&
-        identical(session, service.session) &&
-        epoch == service.scopeIdentity &&
-        (session == null || statsScope == service.currentScope);
-    try {
-      if (!current()) return null;
-      // Explicit reads can wait for a remote NAS; startup keeps its short budget.
-      final cache =
-          nasCache ?? FlyNasDanmakuCache(budget: const Duration(seconds: 12));
-      final result = await cache.resolve(
-        statsScope: statsScope,
-        itemGuid: itemGuid,
-        mediaGuid: mediaGuid,
-        isCurrent: current,
-      );
-      if (!current() || result == null || !result.isCurrent()) return null;
-      return await _writePayloadFile({
-        ...buildPayload(settings, result.comments, sourceKey: result.sourceKey),
-        'sourceLabel': result.sourceLabel,
-      }, isCurrent: () => current() && result.isCurrent());
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// 按持久策略解析弹幕：手动导入文件优先；NAS 优先仅在缓存预算结束后
-  /// 回退原有来源，仅 NAS 不触碰弹弹play（包括旧 active 缓存），原有来源不查询 NAS。
-  /// 每次绑定播放捕获账号、会话及统计范围，失效后不交付迟到结果。
-  /// [store] 仅供测试注入独立存储目录。
   static Future<String?> resolveToFile({
     required String seriesTitle,
     String itemTitle = '',
@@ -150,128 +70,8 @@ class NativeDanmakuPrefetch {
     String itemGuid = '',
     String mediaGuid = '',
     String seasonGuid = '',
-    String statsScope = '',
-    bool Function()? isCurrent,
-    FlyNasDanmakuCache? nasCache,
-    DanmakuSavedSourceStore? store,
-  }) async {
-    try {
-      final generation = statsScope.isEmpty ? _nasGeneration : ++_nasGeneration;
-      final service = FlyDataService.instance;
-      final session = service.session;
-      final scopeIdentity = service.scopeIdentity;
-      final flyBindingActive = _hasActiveFlyBinding();
-      final sourceStrategy = _effectiveSourceStrategy(settings);
-      bool current() =>
-          (statsScope.isEmpty || generation == _nasGeneration) &&
-          (isCurrent?.call() ?? true) &&
-          identical(session, service.session) &&
-          scopeIdentity == service.scopeIdentity &&
-          flyBindingActive == _hasActiveFlyBinding() &&
-          (session == null ||
-              statsScope.isEmpty ||
-              statsScope == service.currentScope);
-      if (!settings.enabled || !current()) return null;
-      final resolvedStore = store ?? const DanmakuSavedSourceStore();
-      if (sourceStrategy != DanmakuSourceStrategy.original) {
-        // Only an explicitly imported local file precedes NAS. A legacy active
-        // DanDanPlay entry may have been saved by automatic matching.
-        final mediaKey = _buildMediaKey(
-          itemGuid: itemGuid,
-          mediaGuid: mediaGuid,
-          seasonGuid: seasonGuid,
-          seasonNumber: seasonNumber,
-          episodeNumber: episodeNumber,
-          seriesTitle: seriesTitle,
-        );
-        if (mediaKey.isNotEmpty) {
-          final active = await resolvedStore.loadActiveSourceKey(mediaKey);
-          final saved = await resolvedStore.loadForMedia(mediaKey);
-          if (!current()) return null;
-          final local = saved.where((source) => source.isLocalFile).toList();
-          local.sort(
-            (a, b) => a.sourceKey == active
-                ? -1
-                : b.sourceKey == active
-                ? 1
-                : 0,
-          );
-          for (final source in local) {
-            final path = await _loadSavedSourceToFile(source);
-            if (!current()) return null;
-            if (path != null) return path;
-          }
-        }
-        if (statsScope.isNotEmpty) {
-          final result = await (nasCache ?? FlyNasDanmakuCache.instance)
-              .resolve(
-                statsScope: statsScope,
-                itemGuid: itemGuid,
-                mediaGuid: mediaGuid,
-                isCurrent: current,
-              )
-              .catchError((Object _) => null);
-          if (!current()) return null;
-          if (result != null) {
-            return writeNasPayloadToFile(
-              result: result,
-              settings: settings,
-              isCurrent: current,
-            );
-          }
-        }
-        if (sourceStrategy == DanmakuSourceStrategy.nasOnly) {
-          return null;
-        }
-      }
-      if (!current()) return null;
-      final path = await _resolveOriginalToFile(
-        seriesTitle: seriesTitle,
-        itemTitle: itemTitle,
-        seasonNumber: seasonNumber,
-        episodeNumber: episodeNumber,
-        tmdbId: tmdbId,
-        settings: settings,
-        itemGuid: itemGuid,
-        mediaGuid: mediaGuid,
-        seasonGuid: seasonGuid,
-        isCurrent: current,
-        store: resolvedStore,
-        allowSavedOnlineSources:
-            sourceStrategy == DanmakuSourceStrategy.original ||
-            statsScope.isEmpty,
-      );
-      return current() ? path : null;
-    } catch (_) {
-      // Danmaku is optional: settings, storage or network failure cannot stop playback.
-      return null;
-    }
-  }
-
-  /// Automatic and explicit NAS reads share the native/desktop payload format.
-  /// A manual retry never registers a global source or claims another binding.
-  static Future<String?> writeNasPayloadToFile({
-    required FlyNasDanmakuResult result,
-    required DanmakuSettings settings,
-    required bool Function() isCurrent,
-  }) => _writePayloadFile({
-    ...buildPayload(settings, result.comments, sourceKey: result.sourceKey),
-    'sourceLabel': result.sourceLabel,
-  }, isCurrent: () => isCurrent() && result.isCurrent());
-
-  static Future<String?> _resolveOriginalToFile({
-    required String seriesTitle,
-    String itemTitle = '',
-    required int seasonNumber,
-    required int episodeNumber,
-    required String tmdbId,
-    required DanmakuSettings settings,
-    String itemGuid = '',
-    String mediaGuid = '',
-    String seasonGuid = '',
     bool Function()? isCurrent,
     DanmakuSavedSourceStore? store,
-    bool allowSavedOnlineSources = true,
   }) async {
     bool current() => isCurrent?.call() ?? true;
     final resolvedStore = store ?? const DanmakuSavedSourceStore();
@@ -304,7 +104,6 @@ class NativeDanmakuPrefetch {
         if (activeKey != null && activeKey.trim().isNotEmpty) {
           for (final source in savedAll) {
             if (source.sourceKey == activeKey) {
-              if (source.isDanDanPlay && !allowSavedOnlineSources) break;
               // 随片下载缓存不算「手动选择」，即便历史数据把它误设成 active 也不当最高优先，
               // 让它落到网络之后的兜底（修复旧版强制激活下载源的遗留数据）。
               if (source.isDownloadedFile) break;
@@ -554,10 +353,6 @@ class NativeDanmakuPrefetch {
     DanmakuSavedSource source,
   ) async {
     if (source.isDanDanPlay) {
-      if (_effectiveSourceStrategy(await const DanmakuSettingsStore().load()) ==
-          DanmakuSourceStrategy.nasOnly) {
-        return null;
-      }
       final raw = source.sourceKey;
       final episodeId =
           int.tryParse(raw.startsWith('dandan:') ? raw.substring(7) : raw) ?? 0;
