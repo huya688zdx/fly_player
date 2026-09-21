@@ -13,6 +13,7 @@ import '../../playback/settings/mpv_settings_l10n.dart';
 import '../../playback/settings/mpv_settings_store.dart';
 import 'desktop_semantics_safe_slider.dart';
 import 'desktop_playback_chapters.dart';
+import 'desktop_danmaku_segmenter.dart';
 
 export 'desktop_playback_chapters.dart' show DesktopPlayerChapter;
 
@@ -549,15 +550,17 @@ class _DesktopDanmakuSettingsPanelState
                         _update(_settings.copyWith(avoidSubtitleArea: value)),
                   ),
                   const SizedBox(height: 10),
-                  _SettingsSwitchTile(
-                    title: Platform.isWindows ? '主体穿透遮挡' : '避让画面中心',
-                    subtitle: Platform.isWindows
-                        ? '用本地 AI 蒙版扣除人物区域内的弹幕'
-                        : '优先把弹幕限制在画面上部',
-                    value: _settings.avoidCenterArea,
-                    onChanged: (value) =>
-                        _update(_settings.copyWith(avoidCenterArea: value)),
-                  ),
+                  if (!Platform.isWindows ||
+                      DesktopDanmakuSegmenter.isSupported)
+                    _SettingsSwitchTile(
+                      title: Platform.isWindows ? '主体穿透遮挡' : '避让画面中心',
+                      subtitle: Platform.isWindows
+                          ? '用本地 AI 蒙版扣除人物区域内的弹幕'
+                          : '优先把弹幕限制在画面上部',
+                      value: _settings.avoidCenterArea,
+                      onChanged: (value) =>
+                          _update(_settings.copyWith(avoidCenterArea: value)),
+                    ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
                     title: '不透明度',
