@@ -49,11 +49,19 @@ class NativePlayerActivityPanelModelsTest {
             R.string.player_version_number -> "版本 ${formatArgs[0]}"
             R.string.player_current_speed -> "当前网速 ${formatArgs[0]}"
             R.string.player_current_speed_resume -> "当前网速 ${formatArgs[0]} · 预计恢复 ${formatArgs[1]}秒"
+            R.string.player_quality_switching -> "正在为您切换至 ${formatArgs[0]}${formatArgs[1]} 画质，请稍等..."
                 else -> getString(resId)
             }
         }
 
         override fun getResources(): Resources = testResources
+    }
+
+    @Test
+    fun qualitySwitchHintShowsRequestedResolutionAndBitrate() {
+        val quality = mapOf("resolution" to "720", "bitrate" to 4_000_000)
+        assertEquals("正在为您切换至 720P（4 Mbps） 画质，请稍等...", nativePanelQualitySwitchingHint(testContext, quality))
+        assertEquals("正在为您切换至 720P 画质，请稍等...", nativePanelQualitySwitchingHint(testContext, quality - "bitrate"))
     }
 
     @Test

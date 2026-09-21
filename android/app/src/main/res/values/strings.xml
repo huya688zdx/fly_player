@@ -77,6 +77,7 @@
     <string name="player_quality_generic">画质</string>
     <string name="player_quality_default_suffix">%1$s  (默认)</string>
     <string name="player_switch_quality_loading">正在切换画质…</string>
+    <string name="player_quality_switching">正在为您切换至 %1$s%2$s 画质，请稍等...</string>
     <string name="player_switch_quality_unavailable">无法切换画质</string>
     <string name="player_switch_unavailable">无法切换</string>
     <string name="player_weak_network_loading">网络较慢，仍在加载…</string>

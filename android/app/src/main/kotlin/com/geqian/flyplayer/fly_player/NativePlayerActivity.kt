@@ -475,6 +475,19 @@ internal fun nativePanelBitrateLabel(bitrateBitsPerSecond: Long): String {
     return "${if (mbps == "0") "<0.01" else mbps} Mbps"
 }
 
+/** 与 Flutter 切画质提示同源，只显示本次档位中确实提供的分辨率和码率。 */
+internal fun nativePanelQualitySwitchingHint(context: Context, quality: Map<String, Any?>): String {
+    val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+    val tier = nativePanelQualityTierLabel(nativePanelQualityTierRank(resolution)).ifEmpty { resolution }
+    if (tier.isEmpty()) return context.nativePanelString(R.string.player_switch_quality_loading)
+    val label = if (nativePanelQualityIsOriginal(quality)) {
+        "$tier ${context.nativePanelString(R.string.player_original_quality)}"
+    } else tier
+    val bitrate = nativePanelBitrateLabel(nativePanelQualityBitrate(quality))
+    val suffix = if (bitrate.isEmpty()) "" else "（$bitrate）"
+    return context.nativePanelString(R.string.player_quality_switching, label, suffix)
+}
+
 /** 版本卡副标题：分辨率 · 视频时长 · 码率（不再写来源「转码/原画」）。 */
 internal fun nativePanelEpisodeVersionSummary(
     context: Context,
@@ -6979,7 +6992,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             selectedAudioGuid,
             selectedSubtitleGuid,
             qualityIndex,
-            hint ?: localizedString(R.string.player_switch_quality_loading),
+            hint ?: nativePanelQualitySwitchingHint(this, qualityList().getOrNull(qualityIndex).orEmpty()),
         )
     }
 
@@ -9785,19 +9798,25 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
         }
         // statusLabel 始终可见，显隐交由父层 loadingSpinner 控制（与原版一致）；文本为空即无字。
+        // 新转码源首帧前沿用实际目标档位，避免中心提示隐藏后又退回笼统的“准备中”。
+        val qualityLoadingHint = if (isServerManagedPlayback() && !state.visualPlaybackReady && !playbackProgressing) {
+            nativePanelQualitySwitchingHint(this, loadArgsMap)
+        } else null
         statusLabel.text = when {
             state.error != null -> localizedString(R.string.player_status_error, state.error)
             !state.nativeLibLoaded -> state.statusText
             state.buffering -> {
                 val speed = formatSpeed(state.networkSpeedBytesPerSecond)
-                if (speed.isNotEmpty()) {
+                if (qualityLoadingHint != null) {
+                    listOf(qualityLoadingHint, speed).filter { it.isNotEmpty() }.joinToString("  ")
+                } else if (speed.isNotEmpty()) {
                     localizedString(R.string.player_status_buffering_with_speed, speed)
                 } else {
                     localizedString(R.string.player_status_buffering)
                 }
             }
             nativePanelShouldShowPlaybackLoading(state, playbackProgressing) -> listOf(
-                localizedString(R.string.player_text_0001),
+                qualityLoadingHint ?: localizedString(R.string.player_text_0001),
                 formatSpeed(state.networkSpeedBytesPerSecond),
             ).filter { it.isNotEmpty() }.joinToString("  ")
             else -> ""

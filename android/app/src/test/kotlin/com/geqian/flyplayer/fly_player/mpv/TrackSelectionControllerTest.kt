@@ -9,6 +9,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TrackSelectionControllerTest {
+    @Test
+    fun newTranscodedSourceClearsOriginalAudioSelection() {
+        val fake = FakeTrackListFacade(0L, emptyMap())
+        val controller = TrackSelectionController(fake)
+        controller.onLoadRequested(MpvSource.fromMap(mapOf("audioTrackIndex" to 2)))
+        controller.onFileLoaded()
+        assertEquals("2", fake.audioSelection)
+
+        controller.reset()
+        controller.onLoadRequested(MpvSource.fromMap(emptyMap()))
+        controller.onFileLoaded()
+
+        assertEquals("新转码流应重新选择默认音轨，不能继续要求不存在的第 2 轨", "auto", fake.audioSelection)
+    }
+
     /**
      * 复刻 error.log 7678-7689 的脏读现场：外挂字幕轨真实存在（第 3 条字幕），但
      * `track-list/count` 被读成垃圾大值、`track-list/$index/id` 读出越界垃圾 481040129029。
@@ -170,6 +185,7 @@ class TrackSelectionControllerTest {
     ) : MpvFacade {
         val setIntCalls = mutableListOf<Pair<String, Long>>()
         val commands = mutableListOf<List<String>>()
+        var audioSelection = "auto"
 
         private val propRegex = Regex("""track-list/(\d+)/(.+)""")
 
@@ -192,6 +208,7 @@ class TrackSelectionControllerTest {
 
         override fun setPropertyInt(name: String, value: Long): Boolean {
             setIntCalls += name to value
+            if (name == "aid") audioSelection = value.toString()
             if (name in falseSetIntProperties) return false
             // 模拟 mpv 对不存在轨道号的拒绝（error -4）。
             if (name == "sid" && value > 256L) return false
@@ -229,7 +246,10 @@ class TrackSelectionControllerTest {
 
         override fun setOptionString(name: String, value: String): Boolean = true
 
-        override fun setPropertyString(name: String, value: String): Boolean = true
+        override fun setPropertyString(name: String, value: String): Boolean {
+            if (name == "aid") audioSelection = value
+            return true
+        }
 
         override fun setPropertyDouble(name: String, value: Double): Boolean = true
 
