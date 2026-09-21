@@ -877,6 +877,16 @@ internal fun nativePanelShouldRestoreControlsAfterPipExit(
 internal fun nativePanelShouldApplyPlaybackState(activityDestroying: Boolean): Boolean =
     !activityDestroying
 
+internal fun nativePanelHasPlaybackProgress(state: MpvPlayerState, previousPositionMs: Long): Boolean =
+    state.ready && state.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue &&
+        !state.paused && !state.buffering && state.error == null &&
+        previousPositionMs in 0 until state.positionMs
+
+internal fun nativePanelShouldShowPlaybackLoading(state: MpvPlayerState, playbackProgressing: Boolean): Boolean =
+    !state.nativeLibLoaded || state.buffering ||
+        state.playbackPhase == MpvPlaybackPhase.PREPARING.wireValue ||
+        !(state.visualPlaybackReady || playbackProgressing) || state.error != null
+
 internal fun nativePanelShouldCancelControlsAutoHide(bottomBarInitialized: Boolean): Boolean =
     bottomBarInitialized
 
@@ -3336,7 +3346,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(24), dp(20), dp(24), dp(20))
-            visibility = View.GONE
+            // 首次播放器状态回调前也要显示准备提示。
+            visibility = View.VISIBLE
             addView(
                 customSpinner,
                 LinearLayout.LayoutParams(dp(36), dp(36)).apply { bottomMargin = dp(12) },
@@ -7373,19 +7384,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 由 [applyState] 驱动：加载转圈 / 自动连播·完成 / 弱网建议。 */
     private fun updateOverlays(state: MpvPlayerState) {
-        // 蠢措施：位置推进且未暂停未缓冲=画面真的在走，据此认定已开播。配合 visualPlaybackReady 一起收 loading，
-        // 避免切集原地换源时内核漏报首帧导致中间转圈卡死、episodeSwitchInFlight 永不复位。
-        if (!state.paused && !state.buffering && state.error == null &&
-            lastProgressPositionMs in 0 until state.positionMs
-        ) {
+        // 只在播放阶段使用进度兜底，准备/定位时注入的续播起点不能算已开播。
+        // 纯听模式没有视频首帧，仍保留实际播放进度兜底。
+        if (nativePanelHasPlaybackProgress(state, lastProgressPositionMs)) {
             playbackProgressing = true
         }
         lastProgressPositionMs = state.positionMs
         val effectivelyReady = state.visualPlaybackReady || playbackProgressing
-        val showLoading = !state.nativeLibLoaded ||
-            state.buffering ||
-            (!effectivelyReady && state.error == null) ||
-            state.error != null
+        val showLoading = nativePanelShouldShowPlaybackLoading(state, playbackProgressing)
         loadingSpinner.visibility = if (showLoading && !completionActive) View.VISIBLE else View.GONE
         val playbackEnded = !isLiveChannel() &&
             state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
@@ -9754,6 +9760,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     localizedString(R.string.player_status_buffering)
                 }
             }
+            nativePanelShouldShowPlaybackLoading(state, playbackProgressing) -> listOf(
+                localizedString(R.string.player_text_0001),
+                formatSpeed(state.networkSpeedBytesPerSecond),
+            ).filter { it.isNotEmpty() }.joinToString("  ")
             else -> ""
         }
         if (state.visualPlaybackReady && pendingInitialSubtitle) {
