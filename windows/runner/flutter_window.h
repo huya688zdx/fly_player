@@ -7,7 +7,9 @@
 
 #include <memory>
 
+#ifdef FLY_WINDOWS_AI_MASK
 #include "desktop_danmaku_segmenter.h"
+#endif
 #include "potplayer_bridge.h"
 #include "system_media_controls.h"
 #include "win32_window.h"
@@ -32,7 +34,9 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+#ifdef FLY_WINDOWS_AI_MASK
   std::unique_ptr<DesktopDanmakuSegmenter> desktop_danmaku_segmenter_;
+#endif
   std::unique_ptr<PotPlayerBridge> potplayer_bridge_;
   std::unique_ptr<SystemMediaControls> system_media_controls_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> display_channel_;

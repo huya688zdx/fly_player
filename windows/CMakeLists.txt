@@ -50,6 +50,13 @@ set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
 # Application build; see runner/CMakeLists.txt.
+# 同一个 Dart 构建参数同时控制原生依赖，避免 lite 仍链接 MNN。
+file(READ "${FLUTTER_MANAGED_DIR}/ephemeral/generated_config.cmake" _flutter_config)
+set(FLY_WINDOWS_AI_MASK ON)
+# FLY_WINDOWS_AI_MASK=false 的 Flutter Base64 编码。
+if(_flutter_config MATCHES "RkxZX1dJTkRPV1NfQUlfTUFTSz1mYWxzZQ==")
+  set(FLY_WINDOWS_AI_MASK OFF)
+endif()
 add_subdirectory("runner")
 
 
@@ -77,11 +84,13 @@ install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 # 桌面 AI 弹幕遮罩复用 Android 同一份固定 512 MNN 模型，避免仓库重复存放。
+if(FLY_WINDOWS_AI_MASK)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mnn/bin/MNN.dll"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}" COMPONENT Runtime)
 install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/../android/app/src/full/assets/models/mnn_seg/isnet-anime-512-fp16.mnn"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/models" COMPONENT Runtime)
+endif()
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)

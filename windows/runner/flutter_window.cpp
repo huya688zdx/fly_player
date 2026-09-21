@@ -81,8 +81,10 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+#ifdef FLY_WINDOWS_AI_MASK
   desktop_danmaku_segmenter_ = std::make_unique<DesktopDanmakuSegmenter>(
       flutter_controller_->engine()->messenger());
+#endif
   potplayer_bridge_ = std::make_unique<PotPlayerBridge>(
       GetHandle(), flutter_controller_->engine()->messenger());
   system_media_controls_ = std::make_unique<SystemMediaControls>(
@@ -118,7 +120,9 @@ void FlutterWindow::OnDestroy() {
   display_channel_ = nullptr;
   system_media_controls_ = nullptr;
   potplayer_bridge_ = nullptr;
+#ifdef FLY_WINDOWS_AI_MASK
   desktop_danmaku_segmenter_ = nullptr;
+#endif
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
