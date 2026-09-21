@@ -997,6 +997,18 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun sameItemSourceReloadDoesNotOfferResumeAgain() {
+        assertFalse(nativePanelShouldOfferResumeOnLoad("item", "item", isInSessionSwitch = true))
+    }
+
+    @Test
+    fun openingVideoOrSwitchingEpisodeStillOffersResume() {
+        assertTrue(nativePanelShouldOfferResumeOnLoad("", "item", isInSessionSwitch = false))
+        assertTrue(nativePanelShouldOfferResumeOnLoad("item", "item", isInSessionSwitch = false))
+        assertTrue(nativePanelShouldOfferResumeOnLoad("item", "next-item", isInSessionSwitch = true))
+    }
+
+    @Test
     fun autoEpisodeSwitchForcesPlaybackToStart() {
         val original = linkedMapOf<String, Any?>(
             "url" to "https://example.invalid/video.mp4",

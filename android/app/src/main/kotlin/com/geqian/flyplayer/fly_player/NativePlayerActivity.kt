@@ -528,6 +528,12 @@ internal fun nativePanelLoadArgsForEpisodeSwitch(
     }
 }
 
+internal fun nativePanelShouldOfferResumeOnLoad(
+    previousItemGuid: String,
+    nextItemGuid: String,
+    isInSessionSwitch: Boolean,
+): Boolean = !isInSessionSwitch || previousItemGuid.isEmpty() || previousItemGuid != nextItemGuid
+
 private fun nativePanelBestWeakNetworkTarget(
     sorted: List<IndexedValue<Map<String, Any?>>>,
     currentQuality: Map<String, Any?>,
@@ -3047,7 +3053,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     /** onCreate 与 onNewIntent 共用：装载（或换）一路 source + 弹幕，并刷新标题/上下文。 */
-    private fun applyLoadArgs(loadArgs: Map<String, Any?>, danmakuPayload: Map<String, Any?>?) {
+    private fun applyLoadArgs(
+        loadArgs: Map<String, Any?>,
+        danmakuPayload: Map<String, Any?>?,
+        isInSessionSwitch: Boolean = false,
+    ) {
         mediaLoadPending = false
         val restoredLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
         val effectiveLoadArgs = if (isLiveChannel(restoredLoadArgs)) {
@@ -3144,7 +3154,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             playerSurface.clearDanmaku()
         }
-        // 换源后复位叠层/循环态/章节缓存，并按起播位置弹续播提示。
+        // 换源后复位叠层/循环态/章节缓存。
         abRepeatMode = 0
         abLoopStartMs = 0L
         abLoopEndMs = 0L
@@ -3168,7 +3178,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         introSkipDismissed = false
         outroSkipDismissed = false
         clearCompletion()
-        maybeShowResumePrompt(effectiveLoadArgs)
+        // 同一会话内换源的起播位置是当前进度，不是重新打开时的历史续播位。
+        if (nativePanelShouldOfferResumeOnLoad(previousItemGuid, nextItemGuid, isInSessionSwitch)) {
+            maybeShowResumePrompt(effectiveLoadArgs)
+        } else {
+            hideResumePrompt()
+        }
         // 清掉切集时的「正在切换…」提示（换源已完成）。
         if (this::centerHint.isInitialized) hideCenterHint()
         hideSeekPreview()
@@ -6838,7 +6853,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     "compact=${compactCount ?: -1} comments=${verboseCount ?: -1} sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
             )
             val effectiveLoadArgs = nativePanelLoadArgsForEpisodeSwitch(scopedLoadArgs, autoPlayAfterLoad)
-            applyLoadArgs(effectiveLoadArgs, danmakuPayload)
+            applyLoadArgs(effectiveLoadArgs, danmakuPayload, isInSessionSwitch = true)
             if (autoPlayAfterLoad) playWithFocus()
             setControlsVisible(true)
         }
@@ -7257,7 +7272,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    /** 续播提示：换源后若起播位置 > 3s 弹出，6 秒后自动消失。 */
+    /** 续播提示：打开视频时若起播位置 > 3s 弹出，6 秒后自动消失。 */
     private fun maybeShowResumePrompt(loadArgs: Map<String, Any?>) {
         if (!this::resumeCard.isInitialized) return
         if (isLiveChannel(loadArgs)) {
