@@ -907,6 +907,31 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun initialResumeWaitsForPlaybackBeforeHidingLoading() {
+        var previousPositionMs = -1L
+        var progressing = false
+        fun showLoading(state: MpvPlayerState): Boolean {
+            progressing = progressing || nativePanelHasPlaybackProgress(state, previousPositionMs)
+            previousPositionMs = state.positionMs
+            return nativePanelShouldShowPlaybackLoading(state, progressing)
+        }
+        val preparing = MpvPlayerState(nativeLibLoaded = true, playbackPhase = "preparing")
+        assertTrue(showLoading(preparing))
+        val resumed = preparing.copy(positionMs = 90_000L, paused = false)
+        assertTrue(showLoading(resumed))
+        assertFalse(progressing)
+        val playing = resumed.copy(ready = true, visualPlaybackReady = true, playbackPhase = "playing", positionMs = 90_250L)
+        assertFalse(showLoading(playing))
+        assertTrue(showLoading(playing.copy(buffering = true, playbackPhase = "buffering")))
+        // 换源准备不能沿用上一源的已开播状态。
+        assertTrue(showLoading(resumed.copy(ready = true)))
+        val listening = playing.copy(visualPlaybackReady = false, listenVideoModeEnabled = true)
+        val listenProgressing = nativePanelHasPlaybackProgress(listening, 90_000L)
+        assertTrue(listenProgressing)
+        assertFalse(nativePanelShouldShowPlaybackLoading(listening, listenProgressing))
+    }
+
+    @Test
     fun systemMediaCardDoesNotReportFailedPlaybackAsPlaying() {
         val failed = MpvPlayerState(
             ready = true, paused = false, playbackPhase = "error", error = "媒体加载失败",
