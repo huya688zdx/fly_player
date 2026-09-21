@@ -73,6 +73,7 @@ Map<String, String> buildNativePlayerLocalizedStrings(
   'player_quality_generic': l10n.nativePlayerQualityGeneric,
   'player_quality_default_suffix': l10n.nativePlayerQualityDefaultSuffix,
   'player_switch_quality_loading': l10n.nativePlayerSwitchQualityLoading,
+  'player_quality_switching': l10n.playerQualitySwitching(r'%1$s', r'%2$s'),
   'player_switch_quality_unavailable':
       l10n.nativePlayerSwitchQualityUnavailable,
   'player_switch_unavailable': l10n.nativePlayerSwitchUnavailable,
