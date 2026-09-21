@@ -480,6 +480,36 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun qualityMenuKeepsOriginalAndSelectsCurrentBitrateAfterSwitch() {
+        val original = mapOf<String, Any?>(
+            "mediaGuid" to "media-1", "videoGuid" to "video-1", "resolution" to "1080P",
+            "bitrate" to 8_000_000, "isDefault" to 1, "source" to "originalProxy",
+        )
+        val high = original + mapOf("source" to "serverSession", "isDefault" to 0, "bitrate" to 4_000_000)
+        val low = high + mapOf("bitrate" to 2_000_000)
+        val sd = low + mapOf("resolution" to "720P")
+        val qualities = listOf(original, high, low, sd)
+        val current = low + mapOf("playbackMode" to "serverSession")
+        assertTrue(nativePanelQualityIsOriginal(original))
+        assertEquals(listOf(0, 2, 3), nativePanelQualityMainIndices(qualities, current))
+        assertFalse(nativePanelQualityMatchesPlayback(original, current))
+        assertFalse(nativePanelQualityMatchesPlayback(high, current))
+        assertTrue(nativePanelQualityMatchesPlayback(low, current))
+        val downscaled = current + mapOf("resolution" to "720P")
+        assertEquals(0, nativePanelQualityMainIndices(qualities, downscaled).first())
+        assertTrue(nativePanelQualityMatchesPlayback(sd, downscaled))
+        assertFalse(nativePanelQualityMatchesPlayback(low, downscaled))
+        assertTrue(nativePanelQualityMatchesPlayback(original, original + mapOf("playbackMode" to "originalQuality")))
+    }
+
+    @Test
+    fun originalFlagUsesSerializedIntegerOrOriginalSource() {
+        assertTrue(nativePanelQualityIsOriginal(mapOf("isDefault" to 1, "source" to "directLink")))
+        assertTrue(nativePanelQualityIsOriginal(mapOf("isDefault" to 0, "source" to "originalProxy")))
+        assertFalse(nativePanelQualityIsOriginal(mapOf("isDefault" to 0, "source" to "serverSession")))
+    }
+
+    @Test
     fun weakNetworkRecommendationChoosesHighestSafeDowngrade() {
         val qualities = listOf(
             mapOf<String, Any?>(

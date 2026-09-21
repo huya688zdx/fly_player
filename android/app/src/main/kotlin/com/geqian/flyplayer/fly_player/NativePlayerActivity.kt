@@ -385,6 +385,56 @@ internal fun nativePanelQualityTierLabel(rank: Int): String {
     }
 }
 
+internal fun nativePanelQualityIsOriginal(quality: Map<String, Any?>): Boolean =
+    quality["source"]?.toString() == "originalProxy" || nativePanelTruthy(quality["isDefault"])
+
+internal fun nativePanelQualityMatchesPlayback(
+    quality: Map<String, Any?>,
+    current: Map<String, Any?>,
+): Boolean {
+    for (key in listOf("mediaGuid", "videoGuid")) {
+        val candidate = quality[key]?.toString()?.trim().orEmpty()
+        val active = current[key]?.toString()?.trim().orEmpty()
+        if (candidate.isNotEmpty() && active.isNotEmpty() && candidate != active) return false
+    }
+    if (current["playbackMode"] == "originalQuality") return nativePanelQualityIsOriginal(quality)
+    val directMode = current["playbackMode"] == "directLinkQuality"
+    if ((quality["source"] == "directLink") != directMode) return false
+    val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+    val currentResolution = current["resolution"]?.toString()?.trim().orEmpty()
+    if (resolution.isEmpty() || currentResolution.isEmpty()) return false
+    val rank = nativePanelQualityTierRank(resolution)
+    val sameResolution = if (rank > 0) rank == nativePanelQualityTierRank(currentResolution)
+        else resolution.equals(currentResolution, ignoreCase = true)
+    // 同一文件的各转码档共用 GUID；实际分辨率和码率才标识当前画质。
+    return sameResolution && (nativePanelQualityBitrate(current) <= 0L ||
+        nativePanelQualityBitrate(quality) == nativePanelQualityBitrate(current))
+}
+
+internal fun nativePanelQualityMainIndices(
+    qualities: List<Map<String, Any?>>,
+    current: Map<String, Any?>,
+): List<Int> {
+    val bestByTier = LinkedHashMap<Int, Int>()
+    var original: Int? = null
+    fun prefer(candidate: Int, existing: Int): Boolean {
+        val candidateSelected = nativePanelQualityMatchesPlayback(qualities[candidate], current)
+        val existingSelected = nativePanelQualityMatchesPlayback(qualities[existing], current)
+        return if (candidateSelected != existingSelected) candidateSelected
+        else nativePanelPreferEpisodeVersionQuality(qualities[candidate], qualities[existing])
+    }
+    for ((index, quality) in qualities.withIndex()) {
+        if (nativePanelQualityIsOriginal(quality)) {
+            if (original == null || prefer(index, original)) original = index
+        } else {
+            val rank = nativePanelQualityTierRank(quality["resolution"]?.toString())
+            val existing = bestByTier[rank]
+            if (existing == null || prefer(index, existing)) bestByTier[rank] = index
+        }
+    }
+    return listOfNotNull(original) + bestByTier.entries.sortedByDescending { it.key }.map { it.value }
+}
+
 internal data class NativeEpisodeVersionEntry(
     val sourceIndex: Int,
     val mediaGuid: String,
@@ -5703,11 +5753,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun currentQualitySummary(): String {
-        return nativePanelQualitySummary(
+        val label = nativePanelQualitySummary(
             context = this,
             playbackMode = loadArgsMap["playbackMode"]?.toString(),
             currentResolution = loadArgsMap["resolution"]?.toString(),
         )
+        return listOf(
+            label,
+            if (loadArgsMap["playbackMode"] == "originalQuality") qualityTierCardTitle(loadArgsMap) else "",
+            nativePanelBitrateLabel(nativePanelQualityBitrate(loadArgsMap)),
+        ).filter { it.isNotEmpty() }.joinToString(" · ")
     }
 
     private fun currentQualityForWeakNetwork(): Map<String, Any?> {
@@ -5722,30 +5777,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun qualityMatchesCurrentPlayback(quality: Map<String, Any?>): Boolean {
-        val qualityDirectIndex = nativePanelNullableInt(quality["directLinkQualityIndex"])
-        val currentDirectIndex = nativePanelNullableInt(loadArgsMap["directLinkQualityIndex"])
-        if (qualityDirectIndex != null && currentDirectIndex != null) {
-            return qualityDirectIndex == currentDirectIndex
-        }
-
-        val qualityMediaGuid = quality["mediaGuid"]?.toString()?.trim().orEmpty()
-        val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
-        val qualityVideoGuid = quality["videoGuid"]?.toString()?.trim().orEmpty()
-        val currentVideoGuid = loadArgsMap["videoGuid"]?.toString()?.trim().orEmpty()
-        if (qualityMediaGuid.isNotEmpty() && currentMediaGuid.isNotEmpty() &&
-            qualityVideoGuid.isNotEmpty() && currentVideoGuid.isNotEmpty()
-        ) {
-            return qualityMediaGuid == currentMediaGuid && qualityVideoGuid == currentVideoGuid
-        }
-
-        val qualityResolution = quality["resolution"]?.toString()?.trim().orEmpty()
-        val currentResolution = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        if (qualityResolution.isEmpty() || currentResolution.isEmpty()) return false
-        val sameResolution =
-            nativePanelQualityTierRank(qualityResolution) == nativePanelQualityTierRank(currentResolution)
-        if (!sameResolution) return false
-        val currentBitrate = nativePanelQualityBitrate(loadArgsMap)
-        return currentBitrate <= 0L || nativePanelQualityBitrate(quality) == currentBitrate
+        return nativePanelQualityMatchesPlayback(quality, loadArgsMap)
     }
 
     private fun showPlaybackControlPanel() {
@@ -6278,13 +6310,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             return
         }
-        val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        // 主面板按档位合并：4k 与 4K HDR 同档收成一行，4K HDR 仅在自定义里。
+        addPanelRow(panelSectionHeader("✓  ${currentQualitySummary()}").apply {
+            setPadding(dp(10), 0, dp(10), dp(8))
+        })
         val entries = qualityMainTierEntries(visible)
         addPanelRow(
             buildQualityList(
                 entries,
-                selectedOf = { qualityTierMatchesCurrent(it.quality, currentRes) },
+                selectedOf = { qualityMatchesCurrentPlayback(it.quality) },
                 titleOf = { qualityTierCardTitle(it.quality) },
             ),
         )
@@ -6370,6 +6403,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             addPanelRow(panelEmptyState(localizedString(R.string.player_text_0053)))
             return
         }
+        addPanelRow(panelSectionHeader("✓  ${currentQualitySummary()}").apply {
+            setPadding(dp(10), 0, dp(10), dp(8))
+        })
         // 自定义页按归一化档位分标签（4k 与 4K HDR 仍是两个独立 tab，但同档 SDR 变体合一），按真实档位降序（4k 最前）。
         val byRes = visible.groupBy { qualityTabKey(it.quality) }
         val resTitles = byRes.keys.sortedWith(
@@ -6409,7 +6445,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 val selected = qualityMatchesCurrentPlayback(entry.quality)
                 val label = listOf(
                     qualityDisplaySubtitle(entry.quality),
-                    if (entry.quality["isDefault"] == true) localizedString(R.string.player_text_0055) else "",
+                    if (nativePanelQualityIsOriginal(entry.quality)) localizedString(R.string.player_text_0055) else "",
                 ).filter { it.isNotEmpty() }.joinToString(" · ")
                 addView(qualityOptionRow(label, if (selected) "✓" else "", selected, filled = true) {
                     hidePanel()
@@ -6425,19 +6461,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(columns)
     }
 
-    /** 主面板条目：按档位（竖直分辨率）合并，每档取原画/最高码率那一档，并按档位降序（4k 最前）。 */
+    /** 原画独立保留，其余按分辨率合并并优先显示当前实际码率。 */
     private fun qualityMainTierEntries(entries: List<QualityPanelEntry>): List<QualityPanelEntry> {
-        val bestByTier = LinkedHashMap<Int, QualityPanelEntry>()
-        for (entry in entries) {
-            val rank = nativePanelQualityTierRank(entry.quality["resolution"]?.toString())
-            val existing = bestByTier[rank]
-            if (existing == null || shouldPreferQualityCard(entry.quality, existing.quality)) {
-                bestByTier[rank] = entry
-            }
-        }
-        return bestByTier.values.sortedByDescending {
-            nativePanelQualityTierRank(it.quality["resolution"]?.toString())
-        }
+        return nativePanelQualityMainIndices(entries.map { it.quality }, loadArgsMap).map { entries[it] }
     }
 
     /** 主面板卡片标题：档位名（2160→"4k"），无法识别时回退到原始分辨率标签。 */
@@ -6451,8 +6477,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         current: Map<String, Any?>,
     ): Boolean {
         // 原画(isDefault) > 原画代理(originalProxy) > 高码率，保证同码率去重时留下「原画」那一档。
-        val candDefault = candidate["isDefault"] == true
-        val curDefault = current["isDefault"] == true
+        val candDefault = nativePanelTruthy(candidate["isDefault"])
+        val curDefault = nativePanelTruthy(current["isDefault"])
         if (candDefault != curDefault) return candDefault
         val candOriginal = candidate["source"]?.toString() == "originalProxy"
         val curOriginal = current["source"]?.toString() == "originalProxy"
@@ -6469,7 +6495,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             orientation = LinearLayout.VERTICAL
             for (entry in entries) {
                 val selected = selectedOf(entry)
-                val original = !isLiveChannel() && entry.quality["isDefault"] == true
+                val original = !isLiveChannel() && nativePanelQualityIsOriginal(entry.quality)
                 val title = if (original) localizedString(R.string.player_text_0055) else titleOf(entry)
                 val detail = if (selected) {
                     listOf(
@@ -6529,14 +6555,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             setOnClickListener { onClick() }
         }
-    }
-
-    /** 主面板高亮：按档位（竖直分辨率）匹配当前播放分辨率，"3840x2160"/"4k" 都归到 2160 档。 */
-    private fun qualityTierMatchesCurrent(quality: Map<String, Any?>, currentRes: String): Boolean {
-        if (currentRes.isEmpty()) return false
-        val curRank = nativePanelQualityTierRank(currentRes)
-        val qRank = nativePanelQualityTierRank(quality["resolution"]?.toString())
-        return curRank > 0 && curRank == qRank
     }
 
     /**
@@ -6913,7 +6931,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun qualityLabel(quality: Map<String, Any?>): String {
         val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
-        val isDefault = quality["isDefault"] == true
+        val isDefault = nativePanelQualityIsOriginal(quality)
         val base = resolution.ifEmpty { localizedString(R.string.player_quality_generic) }
         return if (isDefault) localizedString(R.string.player_quality_default_suffix, base) else base
     }
