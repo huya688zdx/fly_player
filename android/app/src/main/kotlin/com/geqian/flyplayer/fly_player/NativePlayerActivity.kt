@@ -393,7 +393,10 @@ internal fun nativePanelQualityMatchesPlayback(
     current: Map<String, Any?>,
 ): Boolean {
     for (key in listOf("mediaGuid", "videoGuid")) {
-        val candidate = quality[key]?.toString()?.trim().orEmpty()
+        val rawCandidate = quality[key]?.toString()?.trim().orEmpty()
+        // Emby/Jellyfin 的候选 ID 包含版本与档位，当前媒体 ID 只有版本部分。
+        val candidate = if (key == "mediaGuid" && rawCandidate.startsWith("emby:q:"))
+            rawCandidate.removePrefix("emby:q:").substringBefore(':') else rawCandidate
         val active = current[key]?.toString()?.trim().orEmpty()
         if (candidate.isNotEmpty() && active.isNotEmpty() && candidate != active) return false
     }

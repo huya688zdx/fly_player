@@ -510,6 +510,20 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun embyQualityCandidateMatchesItsMediaSourceAndCurrentBitrate() {
+        val current = mapOf<String, Any?>(
+            "mediaGuid" to "ms1", "videoGuid" to "0", "resolution" to "720P",
+            "bitrate" to 2_000_000, "playbackMode" to "serverSession",
+        )
+        val quality = current + mapOf("mediaGuid" to "emby:q:ms1:720:2000000", "source" to "serverSession")
+        assertTrue(nativePanelQualityMatchesPlayback(quality, current))
+        assertFalse(nativePanelQualityMatchesPlayback(quality, current + mapOf("mediaGuid" to "ms2")))
+        assertFalse(nativePanelQualityMatchesPlayback(quality, current + mapOf("bitrate" to 4_000_000)))
+        val original = quality + mapOf("mediaGuid" to "emby:q:ms1:original", "source" to "originalProxy")
+        assertTrue(nativePanelQualityMatchesPlayback(original, current + mapOf("playbackMode" to "originalQuality")))
+    }
+
+    @Test
     fun weakNetworkRecommendationChoosesHighestSafeDowngrade() {
         val qualities = listOf(
             mapOf<String, Any?>(
