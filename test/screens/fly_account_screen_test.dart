@@ -18,6 +18,7 @@ import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
 import 'package:fly_player/providers/backend_session_provider.dart';
 import 'package:fly_player/providers/nas_provider.dart';
+import 'package:fly_player/screens/emby_fn_entry_login_page.dart';
 import 'package:fly_player/screens/fly_account_screen.dart';
 import 'package:fly_player/services/fly_data/fly_account_controller.dart';
 import 'package:fly_player/services/fly_data/fly_data_service.dart';
@@ -178,9 +179,13 @@ void main() {
       await tester.tap(find.text('登录飞翔'));
       await tester.pump();
 
-      expect(loads, <String>[
+      expect(loads, <String>['https://geqian688.fnos.net/']);
+      expect(
+        tester
+            .widget<EmbyFnEntryLoginPage>(find.byType(EmbyFnEntryLoginPage))
+            .serverUrl,
         'https://geqian688.fnos.net/app/fly-data-service/',
-      ]);
+      );
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );

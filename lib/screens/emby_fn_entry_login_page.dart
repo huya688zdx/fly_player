@@ -130,7 +130,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
           },
         ),
       );
-      await controller.loadRequest(Uri.parse(widget.serverUrl));
+      await controller.loadRequest(Uri.parse(_initialUrl));
     } catch (error) {
       _completeInitializationFailure(l10n, error);
     }
@@ -183,7 +183,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       _windowsErrorSubscription = controller.onLoadError.listen((error) {
         if (mounted && !_isClosing) setState(() => _statusText = error.name);
       });
-      await controller.loadUrl(widget.serverUrl);
+      await controller.loadUrl(_initialUrl);
     } catch (error) {
       _completeInitializationFailure(l10n, error);
     }
@@ -294,6 +294,10 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   }
 
   bool get _requiresSecureTarget => widget.requireTargetPath;
+
+  String get _initialUrl => _requiresSecureTarget && _targetOrigin.isNotEmpty
+      ? '$_targetOrigin/'
+      : widget.serverUrl;
 
   bool _allowsTargetToken(Uri? page, bool isAuthPage, bool blocked) {
     if (!_requiresSecureTarget) return true;
