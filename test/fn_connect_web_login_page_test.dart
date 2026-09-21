@@ -239,7 +239,8 @@ void main() {
       const root = MethodChannel('io.jns.webview.win');
       const view = MethodChannel('io.jns.webview.win/7');
       const events = MethodChannel('io.jns.webview.win/7/events');
-      const target = 'https://geqian688.fnos.net/app/fly-data-service';
+      const rootUrl = 'https://geqian688.fnos.net/';
+      const target = 'https://geqian688.fnos.net/app/fly-data-service/';
       final loads = <String>[];
       final result = Completer<String?>();
       final navigatorKey = GlobalKey<NavigatorState>();
@@ -290,7 +291,19 @@ void main() {
           .then(result.complete);
       await tester.pump();
 
-      // NAS 桌面即使已有 cookie 也只能触发一次精确目标跳转，不能提前交付令牌。
+      // NAS 登录页不会提前跳转或交付令牌。
+      await emit(
+        'webMessageReceived',
+        jsonEncode({
+          'pageUrl': 'https://geqian688.fnos.net/login',
+          'cookie': 'entry-token=too-early',
+        }),
+      );
+      await tester.pump();
+      expect(loads, <String>[rootUrl]);
+      expect(result.isCompleted, isFalse);
+
+      // 已登录 NAS 桌面只会触发一次精确目标跳转，不能提前交付令牌。
       await emit(
         'webMessageReceived',
         jsonEncode({
@@ -299,7 +312,7 @@ void main() {
         }),
       );
       await tester.pump();
-      expect(loads, <String>[target, target]);
+      expect(loads, <String>[rootUrl, target]);
       expect(result.isCompleted, isFalse);
 
       await emit(
@@ -322,7 +335,7 @@ void main() {
       await emit(
         'webMessageReceived',
         jsonEncode({
-          'pageUrl': '$target/session',
+          'pageUrl': '${target}session',
           'cookie': 'entry-token=accepted',
         }),
       );
