@@ -2448,6 +2448,22 @@
   "themeRecipeSelectionLabel": "选中色",
   "themeRecipeLinkLabel": "链接色",
   "themeRecipeCurrentTitle": "当前配方",
+  "themeVisualPerformanceTitle": "页面表现",
+  "themeVisualPerformanceSubtitle": "按设备能力减少持续动效和实时模糊，页面内容、主图与取色强度保持不变。",
+  "themeVisualPerformanceCurrent": "当前使用：{tier}",
+  "@themeVisualPerformanceCurrent": {
+    "placeholders": {
+      "tier": {"type": "String"}
+    }
+  },
+  "themeVisualPerformanceAutomatic": "自动（推荐）",
+  "themeVisualPerformanceAutomaticDescription": "普通设备使用均衡档，Android 低内存设备使用流畅档。",
+  "themeVisualPerformanceSmooth": "流畅",
+  "themeVisualPerformanceSmoothDescription": "保留完整页面质感，减少视差、放大和实时背景模糊。",
+  "themeVisualPerformanceBalanced": "均衡",
+  "themeVisualPerformanceBalancedDescription": "保留轻量层次感，以较低成本呈现氛围效果。",
+  "themeVisualPerformanceFull": "完整",
+  "themeVisualPerformanceFullDescription": "启用完整动效、全局配色联动和桌面实时模糊。",
   "themeDynamicTitle": "动态取色主题",
   "themeDynamicSubtitle": "详情页和人物页可基于海报临时取色，退出后恢复当前主题。",
   "themeDynamicScopeDetailsAndPeople": "当前范围: 详情页和人物页",
