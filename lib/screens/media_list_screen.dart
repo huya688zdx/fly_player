@@ -22,6 +22,7 @@ import '../media_backend/media_image_ref.dart';
 import '../media_backend/media_item_card.dart';
 import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
+import '../providers/app_theme_provider.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
@@ -30,6 +31,7 @@ import '../services/home_data_cache.dart';
 import '../services/session_exit_bridge.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
+import '../theme/visual_performance.dart';
 import '../ui/app_transitions.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_hero_image.dart';
@@ -1089,6 +1091,11 @@ class _MediaListScreenState extends State<MediaListScreen>
       width: size.width,
       height: size.height,
     );
+    final prewarmLimit = context
+        .read<AppThemeProvider>()
+        .visualPerformanceTier
+        .posterBrowseHomePrewarmLimit(visibleCount);
+    if (prewarmLimit == 0) return;
     final centerIndex = PosterBrowseInitialArtworkPolicy.centerIndexFor(
       width: size.width,
       height: size.height,
@@ -1114,7 +1121,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       sessionKey: sessionKey,
       items: cards,
       centerIndex: centerIndex,
-      limit: visibleCount,
+      limit: prewarmLimit,
       maxConcurrent: 1,
       load: enricher.enrich,
       isActive: () => mounted && generation == _posterBrowsePrewarmGeneration,
