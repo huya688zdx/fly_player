@@ -325,7 +325,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                       const SizedBox(height: 18),
                       const _DanmakuSectionTitle(
                         title: '自动弹幕',
-                        subtitle: '播放后准备当前集，完成后自动加载；浏览详情不会触发查找。',
+                        subtitle: '播放后优先准备当前集并自动加载，同季其余集在后台补齐；浏览详情不会触发查找。',
                       ),
                       const SizedBox(height: 10),
                       _DanmakuCard(
