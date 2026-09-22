@@ -1,8 +1,11 @@
 package com.geqian.flyplayer.fly_player
 
 import com.geqian.flyplayer.fly_player.mpv.NativeMpvProxyServer
+import io.flutter.embedding.android.RenderMode
 
 class MainActivity : FlutterHostActivity() {
+    override fun getRenderMode(): RenderMode = RenderMode.surface
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         ParallelWindowCoordinator.attachMainHost(this)
