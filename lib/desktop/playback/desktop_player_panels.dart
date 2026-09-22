@@ -707,12 +707,15 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final Object? serviceSourceIdentity;
   final String serviceStatus;
   final Future<bool> Function({void Function(String)? onStatus})?
-      onRefreshServiceSource;
+  onRefreshServiceSource;
   final Future<List<Map<String, dynamic>>> Function() onLoadSavedSources;
   final Future<List<Map<String, dynamic>>> Function(String keyword) onSearch;
-  final Future<List<Map<String, dynamic>>> Function(String keyword)? onSearchFly;
-  final Future<List<Map<String, dynamic>>> Function(Map<String, dynamic> result)?
-      onExpandSearchResult;
+  final Future<List<Map<String, dynamic>>> Function(String keyword)?
+  onSearchFly;
+  final Future<List<Map<String, dynamic>>> Function(
+    Map<String, dynamic> result,
+  )?
+  onExpandSearchResult;
   final Future<bool> Function(Map<String, dynamic> source) onSelectSavedSource;
   final Future<bool> Function(Map<String, dynamic> result) onSelectSearchResult;
   final Future<void> Function(Map<String, dynamic> source) onDeleteSavedSource;
@@ -775,12 +778,15 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     });
     var applied = false;
     try {
-      applied = await refresh(onStatus: (message) {
-        if (mounted && generation == _serviceRefreshGeneration &&
-            widget.flyAccountSignedIn) {
-          setState(() => _serviceStatus = message);
-        }
-      });
+      applied = await refresh(
+        onStatus: (message) {
+          if (mounted &&
+              generation == _serviceRefreshGeneration &&
+              widget.flyAccountSignedIn) {
+            setState(() => _serviceStatus = message);
+          }
+        },
+      );
     } catch (_) {
       // Keep the existing source available when the service cannot be read.
     }
@@ -791,8 +797,10 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     }
     setState(() {
       _refreshingService = false;
-      _serviceStatus = applied ? '已加载飞翔后端弹幕'
-          : _serviceStatus.isNotEmpty ? _serviceStatus
+      _serviceStatus = applied
+          ? '已加载飞翔后端弹幕'
+          : _serviceStatus.isNotEmpty
+          ? _serviceStatus
           : '暂无可自动使用的弹幕，可点“查找来源”选择';
     });
   }
@@ -942,9 +950,12 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                     const SizedBox(height: 10),
                     _SettingsStatusCard(
                       title: '飞翔后端弹幕',
-                      value: widget.serviceStatus.isNotEmpty ? widget.serviceStatus
-                          : _serviceStatus.isNotEmpty ? _serviceStatus
-                          : _refreshingService ? '正在获取'
+                      value: widget.serviceStatus.isNotEmpty
+                          ? widget.serviceStatus
+                          : _serviceStatus.isNotEmpty
+                          ? _serviceStatus
+                          : _refreshingService
+                          ? '正在获取'
                           : '通过飞翔后端查找并获取弹幕',
                       description: '',
                     ),
@@ -952,7 +963,8 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: _searching || _applying || _refreshingService
+                          onPressed:
+                              _searching || _applying || _refreshingService
                               ? null
                               : () => unawaited(_search(flyOnly: true)),
                           child: const Text('查找来源'),
@@ -969,7 +981,14 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                             ? null
                             : () => unawaited(_refreshServiceSource()),
                         icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('重新获取'),
+                        label: Text(
+                          (widget.serviceStatus.isNotEmpty
+                                      ? widget.serviceStatus
+                                      : _serviceStatus)
+                                  .startsWith('暂时无法读取进度')
+                              ? '重新读取进度'
+                              : '重新获取',
+                        ),
                       ),
                     ),
                   ],

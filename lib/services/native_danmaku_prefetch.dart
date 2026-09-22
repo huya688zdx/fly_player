@@ -88,6 +88,7 @@ class NativeDanmakuPrefetch {
   static DateTime? _lastTempCleanupAt;
   static Future<void>? _tempCleanupFuture;
   static int _nasGeneration = 0;
+  static FlyNasDanmakuTask? _interruptedDanmakuTask;
   static int _payloadSequence = 0;
 
   /// Explicit source selection only reads the service's current-file cache.
@@ -285,10 +286,14 @@ class NativeDanmakuPrefetch {
         identical(session, service.session) &&
         epoch == service.scopeIdentity &&
         _hasActiveFlyBinding(statsScope: statsScope);
-    final cache = nasCache ?? FlyNasDanmakuCache(
-      budget: const Duration(seconds: 12),
-      onStatus: (status) { if (current()) onStatus?.call(status.message); },
-    );
+    final cache =
+        nasCache ??
+        FlyNasDanmakuCache(
+          budget: const Duration(seconds: 12),
+          onStatus: (status) {
+            if (current()) onStatus?.call(status.message);
+          },
+        );
     try {
       if (!current()) return null;
       final ready = await cache.prepareOnPlayback(
@@ -296,9 +301,11 @@ class NativeDanmakuPrefetch {
         itemGuid: itemGuid,
         mediaGuid: mediaGuid,
         refreshExisting: allowDisabled,
+        resumeTask: _interruptedDanmakuTask,
         isCurrent: current,
       );
       if (!current()) return null;
+      _interruptedDanmakuTask = cache.interruptedTask;
       if (ready) {
         final result = await cache.resolve(
           statsScope: statsScope,

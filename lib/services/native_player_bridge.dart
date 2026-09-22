@@ -317,7 +317,20 @@ class NativePlayerBridge {
                   ),
             allowDisabled: !automatic,
             isCurrent: current,
-            onStatus: (message) => preparationStatus = message,
+            onStatus: (message) {
+              if (!current()) return;
+              preparationStatus = message;
+              unawaited(
+                _channel
+                    .invokeMethod<void>('updateNasDanmakuProgress', {
+                      'request_revision': args['request_revision'],
+                      'playback_context_id': args['playback_context_id'],
+                      'automatic': automatic,
+                      'message': message,
+                    })
+                    .catchError((Object _) {}),
+              );
+            },
           );
           if (!current()) return {'status': 'unavailable'};
           if (path == null) {
