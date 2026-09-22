@@ -268,6 +268,7 @@ class NativeDanmakuPrefetch {
     String statsScope = '',
     bool Function()? isCurrent,
     bool allowDisabled = false,
+    bool prepareSeasonOnly = false,
     void Function(String)? onStatus,
     FlyNasDanmakuCache? nasCache,
     DanmakuSavedSourceStore? store,
@@ -306,6 +307,8 @@ class NativeDanmakuPrefetch {
       );
       if (!current()) return null;
       _interruptedDanmakuTask = cache.interruptedTask;
+      // 已有弹幕只通知后台补齐同季，不生成替换文件或回退到另一来源。
+      if (prepareSeasonOnly) return null;
       if (ready) {
         final result = await cache.resolve(
           statsScope: statsScope,
