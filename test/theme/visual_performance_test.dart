@@ -17,7 +17,7 @@ void main() {
     );
   });
 
-  test('三档只削减装饰纹理、持续动效、全局联动和实时模糊', () {
+  test('三档分配装饰纹理、动效、缩略图和首页预取成本', () {
     expect(AppVisualPerformanceTier.smooth.atmosphereTextureMaxDimension, 768);
     expect(
       AppVisualPerformanceTier.balanced.atmosphereTextureMaxDimension,
@@ -31,6 +31,21 @@ void main() {
       false,
     );
     expect(AppVisualPerformanceTier.full.allowsGlobalRuntimeThemeSync, true);
+
+    expect(AppVisualPerformanceTier.smooth.homeThumbnailDecodeWidth(520), 384);
+    expect(AppVisualPerformanceTier.smooth.homeThumbnailDecodeWidth(440), 320);
+    expect(AppVisualPerformanceTier.smooth.homeThumbnailDecodeWidth(352), 256);
+    expect(
+      AppVisualPerformanceTier.balanced.homeThumbnailDecodeWidth(520),
+      520,
+    );
+    expect(AppVisualPerformanceTier.full.homeThumbnailDecodeWidth(520), 520);
+    expect(AppVisualPerformanceTier.smooth.posterBrowseHomePrewarmLimit(8), 0);
+    expect(
+      AppVisualPerformanceTier.balanced.posterBrowseHomePrewarmLimit(8),
+      2,
+    );
+    expect(AppVisualPerformanceTier.full.posterBrowseHomePrewarmLimit(8), 8);
 
     expect(AppVisualPerformanceTier.smooth.detailParallaxFactor(.4), 1);
     expect(AppVisualPerformanceTier.balanced.detailParallaxFactor(.4), .72);

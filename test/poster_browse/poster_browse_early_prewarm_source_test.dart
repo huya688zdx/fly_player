@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('首页数据就绪后仅旁路预热少量继续观看素材', () {
+  test('首页数据就绪后按页面表现档位旁路预热继续观看素材', () {
     final source = File(
       'lib/screens/media_list_screen.dart',
     ).readAsStringSync();
@@ -13,7 +13,9 @@ void main() {
       source,
       contains('PosterBrowseArtworkPrewarmCache.shared.warmFirst('),
     );
-    expect(source, contains('limit: visibleCount'));
+    expect(source, contains('posterBrowseHomePrewarmLimit(visibleCount)'));
+    expect(source, contains('if (prewarmLimit == 0) return;'));
+    expect(source, contains('limit: prewarmLimit'));
     expect(source, contains('maxConcurrent: 1'));
     expect(source, contains('onCardsLoaded:'));
     expect(source, contains('cards: cards'));
