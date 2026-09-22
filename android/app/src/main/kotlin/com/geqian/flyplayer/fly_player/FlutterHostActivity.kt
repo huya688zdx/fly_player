@@ -268,6 +268,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
                             result.success(null)
                         }
                     }
+                    "updateNasDanmakuProgress" -> {
+                        NativePlayerActivity.updateDanmakuProgress(call.arguments as? Map<*, *>)
+                        result.success(null)
+                    }
                     "bindReentryHost" -> {
                         com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
                             .attach(channel)

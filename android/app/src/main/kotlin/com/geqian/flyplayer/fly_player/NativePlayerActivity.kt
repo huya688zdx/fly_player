@@ -1024,6 +1024,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     companion object {
         private var retainedPlayer = WeakReference<NativePlayerActivity>(null)
 
+        fun updateDanmakuProgress(args: Map<*, *>?) {
+            if (args == null) return
+            val player = retainedPlayer.get() ?: return
+            player.runOnUiThread {
+                val ticket = player.serviceDanmakuProgressTicket ?: return@runOnUiThread
+                if ((args["request_revision"] as? Number)?.toLong() != ticket.revision ||
+                    args["playback_context_id"] != ticket.context.playbackContextId ||
+                    !player.serviceDanmakuRequestIsCurrent(ticket) ||
+                    args["automatic"] == true && (!player.danmakuEnabled ||
+                        !player.danmakuSettings["sourceKey"]?.toString().isNullOrEmpty())) return@runOnUiThread
+                val message = args["message"] as? String ?: return@runOnUiThread
+                player.updateServiceDanmakuMessage(message)
+            }
+        }
+
         fun resumeRetained(scope: String, itemGuid: String, mediaGuid: String?, audioGuid: String?, subtitleGuid: String?, positionMs: Long?): Boolean {
             val player = retainedPlayer.get() ?: return false
             if (!player.playbackParked || player.isFinishing || player.isDestroyed ||
@@ -9056,7 +9071,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }))
         if (flyOpedAccess.signedIn) {
             addPanelRow(panelCardGroup(
-                panelNavRow("飞翔后端弹幕", if (sourceKey.startsWith("nas:")) "重新获取" else "获取") {
+                panelNavRow("飞翔后端弹幕", if (serviceDanmakuMessage.startsWith("暂时无法读取进度")) "重新读取进度" else if (sourceKey.startsWith("nas:")) "重新获取" else "获取") {
                     loadServiceDanmakuSource()
                 },
                 panelNavRow("搜索飞翔后端弹幕", "选择作品与分集") { openDanmakuSearch(forceFly = true) },
@@ -9407,6 +9422,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private val serviceDanmakuRequests = NativeServiceDanmakuRequests()
     private var serviceDanmakuContextId = UUID.randomUUID().toString()
     private var serviceDanmakuTicket: NativeServiceDanmakuRequests.Ticket? = null
+    private var serviceDanmakuProgressTicket: NativeServiceDanmakuRequests.Ticket? = null
     private var automaticDanmakuContextId = ""
     private var serviceDanmakuMessage = ""
 
@@ -9426,6 +9442,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun invalidateServiceDanmakuRequest() {
         serviceDanmakuRequests.invalidate()
+        serviceDanmakuProgressTicket = null
         if (serviceDanmakuTicket != null) hideCenterHint()
         serviceDanmakuTicket = null
     }
@@ -9448,12 +9465,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (!flyOpedAccess.signedIn || activityDestroying || playbackParked) return
         val context = serviceDanmakuContext()
         val ticket = serviceDanmakuRequests.begin(context)
+        serviceDanmakuProgressTicket = ticket
         serviceDanmakuTicket = ticket
         if (!serviceDanmakuRequestIsCurrent(ticket)) return
         pendingDanmakuSource = null
         showCenterHint(localizedString(R.string.player_text_0254))
         NativePlayerReverseBridge.dispatch(if (candidate == null) "loadNasDanmakuSource" else "loadFlyDanmakuCandidate",
-            context.mediaArgs + ("statsScope" to context.statsScope) +
+            context.mediaArgs + mapOf("statsScope" to context.statsScope,
+                "request_revision" to ticket.revision, "playback_context_id" to context.playbackContextId) +
                 (candidate?.let { mapOf("candidate" to it) } ?: emptyMap()),
             onResult = { result -> runOnUiThread {
                 if (!serviceDanmakuRequestIsCurrent(ticket)) return@runOnUiThread
@@ -9506,13 +9525,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             automaticDanmakuContextId == serviceDanmakuContextId) return
         val context = serviceDanmakuContext()
         val ticket = serviceDanmakuRequests.begin(context)
+        serviceDanmakuProgressTicket = ticket
         if (!serviceDanmakuRequestIsCurrent(ticket)) return
         automaticDanmakuContextId = serviceDanmakuContextId
         updateServiceDanmakuMessage("正在检查这集的后台弹幕任务，完成后自动加载")
         fun current() = danmakuEnabled && serviceDanmakuRequestIsCurrent(ticket) &&
             danmakuSettings["sourceKey"]?.toString().orEmpty().isEmpty()
         NativePlayerReverseBridge.dispatch("prepareNasDanmakuSource",
-            context.mediaArgs + mapOf("statsScope" to context.statsScope, "context_id" to flyBifContext),
+            context.mediaArgs + mapOf("statsScope" to context.statsScope, "context_id" to flyBifContext,
+                "request_revision" to ticket.revision, "playback_context_id" to context.playbackContextId),
             onResult = { result -> runOnUiThread {
                 if (!current()) return@runOnUiThread
                 val reply = NativeServiceDanmakuPayload.fromReply(result, allowOriginal = true)

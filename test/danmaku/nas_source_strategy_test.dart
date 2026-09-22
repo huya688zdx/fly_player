@@ -284,19 +284,36 @@ void main() {
     cache.prepareGate = Completer<void>();
     final scope = PlayStatsService.instance.currentScope;
     final current = NativeDanmakuPrefetch.resolveOnPlaybackToFile(
-      seriesTitle: '作品', seasonNumber: 1, episodeNumber: 1, tmdbId: '',
-      itemGuid: 'item', mediaGuid: 'file', statsScope: scope,
-      settings: DanmakuSettings.defaults, nasCache: cache, store: store,
+      seriesTitle: '作品',
+      seasonNumber: 1,
+      episodeNumber: 1,
+      tmdbId: '',
+      itemGuid: 'item',
+      mediaGuid: 'file',
+      statsScope: scope,
+      settings: DanmakuSettings.defaults,
+      nasCache: cache,
+      store: store,
       isCurrent: () => true,
     );
     expect(cache.prepares, 1);
     final nextCache = _Cache()..miss = true;
-    expect(await NativeDanmakuPrefetch.resolveToFile(
-      seriesTitle: '作品', seasonNumber: 1, episodeNumber: 2, tmdbId: '',
-      itemGuid: 'next-item', mediaGuid: 'next-file', statsScope: scope,
-      settings: DanmakuSettings.defaults, nasCache: nextCache, store: store,
-      isCurrent: () => true,
-    ), isNull);
+    expect(
+      await NativeDanmakuPrefetch.resolveToFile(
+        seriesTitle: '作品',
+        seasonNumber: 1,
+        episodeNumber: 2,
+        tmdbId: '',
+        itemGuid: 'next-item',
+        mediaGuid: 'next-file',
+        statsScope: scope,
+        settings: DanmakuSettings.defaults,
+        nasCache: nextCache,
+        store: store,
+        isCurrent: () => true,
+      ),
+      isNull,
+    );
     cache.prepareGate!.complete();
     final path = await current;
     expect(path, isNotNull);
@@ -352,6 +369,7 @@ class _Cache extends FlyNasDanmakuCache {
     required String itemGuid,
     String mediaGuid = '',
     bool refreshExisting = false,
+    FlyNasDanmakuTask? resumeTask,
     required bool Function() isCurrent,
   }) async {
     prepares++;
