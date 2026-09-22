@@ -288,6 +288,8 @@ class NativePlayerBridge {
         case 'prepareNasDanmakuSource':
           final args = (call.arguments as Map?) ?? const {};
           final automatic = call.method == 'prepareNasDanmakuSource';
+          final prepareSeasonOnly =
+              automatic && args['prepare_season_only'] == true;
           final acceptsRequest = captureDanmakuRequest(args, requireFly: true);
           bool current() =>
               acceptsRequest() &&
@@ -316,9 +318,10 @@ class NativePlayerBridge {
                     sourceStrategy: DanmakuSourceStrategy.nasOnly,
                   ),
             allowDisabled: !automatic,
+            prepareSeasonOnly: prepareSeasonOnly,
             isCurrent: current,
             onStatus: (message) {
-              if (!current()) return;
+              if (!current() || prepareSeasonOnly) return;
               preparationStatus = message;
               unawaited(
                 _channel
@@ -333,6 +336,7 @@ class NativePlayerBridge {
             },
           );
           if (!current()) return {'status': 'unavailable'};
+          if (prepareSeasonOnly) return {'status': 'season_notified'};
           if (path == null) {
             return {'status': 'missing', 'message': preparationStatus};
           }

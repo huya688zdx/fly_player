@@ -88,6 +88,28 @@ void main() {
     expect(directory.listSync().whereType<File>(), isEmpty);
   });
 
+  test('已有弹幕只通知后台准备同季，不生成替换文件', () async {
+    expect(
+      await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
+        seriesTitle: '',
+        seasonNumber: 1,
+        episodeNumber: 2,
+        tmdbId: '',
+        itemGuid: 'item',
+        mediaGuid: 'file',
+        statsScope: PlayStatsService.instance.currentScope,
+        settings: DanmakuSettings.defaults.copyWith(enabled: true),
+        nasCache: cache,
+        prepareSeasonOnly: true,
+        isCurrent: () => true,
+      ),
+      isNull,
+    );
+    expect(cache.preparations, 1);
+    expect(cache.calls, 0);
+    expect(directory.listSync().whereType<File>(), isEmpty);
+  });
+
   test('手动 NAS 结果沿用播放器格式并拒绝失效结果', () async {
     final result = (await cache.resolve(
       statsScope: 'captured',
@@ -123,6 +145,20 @@ void main() {
 
 class _Cache extends FlyNasDanmakuCache {
   int calls = 0;
+  int preparations = 0;
+  @override
+  Future<bool> prepareOnPlayback({
+    required String statsScope,
+    required String itemGuid,
+    String mediaGuid = '',
+    bool refreshExisting = false,
+    FlyNasDanmakuTask? resumeTask,
+    required bool Function() isCurrent,
+  }) async {
+    preparations++;
+    return isCurrent();
+  }
+
   bool miss = false;
   (String, String, String)? source;
   @override

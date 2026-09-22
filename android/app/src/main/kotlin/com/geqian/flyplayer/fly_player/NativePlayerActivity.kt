@@ -9516,26 +9516,27 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             } })
     }
 
-    /** 已开始播放且没有弹幕时后台准备；手选来源会使现有票据失效。 */
+    /** 实际播放后补齐同季；已有弹幕保持不变，手选来源会使现有票据失效。 */
     private fun prepareAutomaticServiceDanmaku() {
         if (!danmakuEnabled || !flyOpedAccess.signedIn || activityDestroying || playbackParked ||
             loadArgsMap["danmakuAutoSearchAllowed"] == false ||
             flyBifContext.isEmpty() || serviceDanmakuTicket != null || pendingDanmakuSource != null ||
-            danmakuSettings["sourceKey"]?.toString().orEmpty().isNotEmpty() ||
             automaticDanmakuContextId == serviceDanmakuContextId) return
+        val prepareSeasonOnly = danmakuSettings["sourceKey"]?.toString().orEmpty().isNotEmpty()
         val context = serviceDanmakuContext()
         val ticket = serviceDanmakuRequests.begin(context)
         serviceDanmakuProgressTicket = ticket
         if (!serviceDanmakuRequestIsCurrent(ticket)) return
         automaticDanmakuContextId = serviceDanmakuContextId
-        updateServiceDanmakuMessage("正在检查这集的后台弹幕任务，完成后自动加载")
+        if (!prepareSeasonOnly) updateServiceDanmakuMessage("正在检查这集的后台弹幕任务，完成后自动加载")
         fun current() = danmakuEnabled && serviceDanmakuRequestIsCurrent(ticket) &&
-            danmakuSettings["sourceKey"]?.toString().orEmpty().isEmpty()
+            (prepareSeasonOnly || danmakuSettings["sourceKey"]?.toString().orEmpty().isEmpty())
         NativePlayerReverseBridge.dispatch("prepareNasDanmakuSource",
             context.mediaArgs + mapOf("statsScope" to context.statsScope, "context_id" to flyBifContext,
-                "request_revision" to ticket.revision, "playback_context_id" to context.playbackContextId),
+                "request_revision" to ticket.revision, "playback_context_id" to context.playbackContextId,
+                "prepare_season_only" to prepareSeasonOnly),
             onResult = { result -> runOnUiThread {
-                if (!current()) return@runOnUiThread
+                if (!current() || prepareSeasonOnly) return@runOnUiThread
                 val reply = NativeServiceDanmakuPayload.fromReply(result, allowOriginal = true)
                 if (reply == null) {
                     val message = (result as? Map<*, *>)?.get("message")?.toString().orEmpty()
@@ -9554,7 +9555,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     })
                 }
             } }, onError = { runOnUiThread {
-                if (current()) updateServiceDanmakuMessage("无法连接弹幕处理服务，可查看后台任务状态")
+                if (current() && !prepareSeasonOnly) updateServiceDanmakuMessage("无法连接弹幕处理服务，可查看后台任务状态")
             } })
     }
 
