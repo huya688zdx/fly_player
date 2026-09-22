@@ -41,6 +41,26 @@ extension AppVisualPerformanceTierX on AppVisualPerformanceTier {
 
   bool get allowsPullDownZoom => this == AppVisualPerformanceTier.full;
 
+  /// 首页缩略图在流畅档降低解码尺寸，减少首次滚入新内容时的图片上传量。
+  /// 均衡和完整档保持现有清晰度；详情主图不走此策略。
+  int homeThumbnailDecodeWidth(int requested) {
+    if (this != AppVisualPerformanceTier.smooth || requested <= 0) {
+      return requested;
+    }
+    return ((requested * .72 / 32).round() * 32).clamp(64, requested).toInt();
+  }
+
+  /// 首页只为随后可能进入的海报浏览页预取素材；降低档位时压缩这批推测性请求，
+  /// 避免详情、演职员和季列表解析与启动及首次交互争用资源。
+  int posterBrowseHomePrewarmLimit(int requested) {
+    if (requested <= 0) return 0;
+    return switch (this) {
+      AppVisualPerformanceTier.smooth => 0,
+      AppVisualPerformanceTier.balanced => requested.clamp(0, 2),
+      AppVisualPerformanceTier.full => requested,
+    };
+  }
+
   double detailParallaxFactor(double requested) {
     final normalized = requested.clamp(0.0, 1.0).toDouble();
     return switch (this) {

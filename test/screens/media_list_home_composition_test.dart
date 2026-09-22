@@ -150,18 +150,17 @@ void main() {
     expect(widgetsSource, contains('subtitleFontWeight: FontWeight.w400'));
     expect(
       widgetsSource,
-      contains('stableImageCacheWidth: layout.continueDecodeWidth'),
+      contains('stableImageCacheWidth: continueDecodeWidth'),
     );
     expect(
-      'stableImageCacheWidth: layout.continueDecodeWidth'.allMatches(
-        widgetsSource,
-      ),
+      'stableImageCacheWidth: continueDecodeWidth'.allMatches(widgetsSource),
       hasLength(2),
     );
     expect(
       widgetsSource,
-      contains('stableImageCacheWidth: layout.homeCatalogDecodeWidth'),
+      contains('stableImageCacheWidth: catalogDecodeWidth'),
     );
+    expect('homeThumbnailDecodeWidth('.allMatches(widgetsSource), hasLength(4));
     expect(
       widgetsSource,
       contains('requestWidth: layout.homeCatalogRequestWidth'),
