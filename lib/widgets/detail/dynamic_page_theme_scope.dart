@@ -124,7 +124,8 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _themeProvider = context.read<AppThemeProvider>();
+    // 监听表现档位：切到完整档时让当前页立即补上全局主题联动。
+    _themeProvider = context.watch<AppThemeProvider>();
     _syncGlobalRuntimeTheme(_resolvedSeed ?? _seed);
   }
 

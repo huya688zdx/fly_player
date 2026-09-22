@@ -1,8 +1,10 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../playback/playback_platform.dart';
+import '../../providers/app_theme_provider.dart';
+import '../../theme/visual_performance.dart';
+import '../../widgets/common/app_performance_backdrop.dart';
 
 /// 播放器内浮层面板的呈现样式。
 enum PlayerOverlayPanelStyle {
@@ -154,12 +156,20 @@ class _FloatCardPanel extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final width = (size.width * 0.30).clamp(340.0, 430.0).toDouble();
     final bottomGap = (size.height * 0.16).clamp(112.0, 160.0).toDouble();
+    final visualTier = context
+        .select<AppThemeProvider?, AppVisualPerformanceTier>(
+          (provider) =>
+              provider?.visualPerformanceTier ?? AppVisualPerformanceTier.full,
+        );
+    final hasLiveBlur = visualTier.desktopBlurSigma(18, overVideo: true) > 0;
     return Padding(
       padding: EdgeInsets.only(top: 72, right: 24, bottom: bottomGap),
       child: Align(
         alignment: Alignment.topRight,
         child: Material(
-          color: const Color(0x990B111C),
+          color: hasLiveBlur
+              ? const Color(0x990B111C)
+              : const Color(0xF20B111C),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
@@ -169,8 +179,9 @@ class _FloatCardPanel extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: AppPerformanceBackdrop(
+              sigma: 18,
+              overVideo: true,
               child: SizedBox(
                 width: width,
                 height: double.infinity,
@@ -202,12 +213,20 @@ class _CenteredDialogPanel extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final width = (size.width * 0.42).clamp(420.0, 560.0).toDouble();
     final height = (size.height * 0.84).clamp(480.0, 780.0).toDouble();
+    final visualTier = context
+        .select<AppThemeProvider?, AppVisualPerformanceTier>(
+          (provider) =>
+              provider?.visualPerformanceTier ?? AppVisualPerformanceTier.full,
+        );
+    final hasLiveBlur = visualTier.desktopBlurSigma(20, overVideo: true) > 0;
     return Align(
       alignment: Alignment.center,
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Material(
-          color: const Color(0x990B111C),
+          color: hasLiveBlur
+              ? const Color(0x990B111C)
+              : const Color(0xF20B111C),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
@@ -217,8 +236,9 @@ class _CenteredDialogPanel extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: AppPerformanceBackdrop(
+              sigma: 20,
+              overVideo: true,
               child: SizedBox(
                 width: width,
                 height: height,
@@ -269,16 +289,23 @@ class _SideDrawerPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final width = (size.width * 0.30).clamp(340.0, 400.0).toDouble();
+    final visualTier = context
+        .select<AppThemeProvider?, AppVisualPerformanceTier>(
+          (provider) =>
+              provider?.visualPerformanceTier ?? AppVisualPerformanceTier.full,
+        );
+    final hasLiveBlur = visualTier.desktopBlurSigma(20, overVideo: true) > 0;
     return Align(
       alignment: Alignment.centerRight,
       child: Material(
-        color: const Color(0x990B111C),
+        color: hasLiveBlur ? const Color(0x990B111C) : const Color(0xF20B111C),
         elevation: 28,
         shadowColor: Colors.black,
         shape: const Border(left: BorderSide(color: Color(0x1AFFFFFF))),
         child: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: AppPerformanceBackdrop(
+            sigma: 20,
+            overVideo: true,
             child: SizedBox(
               width: width,
               height: double.infinity,
