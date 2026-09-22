@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -70,6 +71,10 @@ class AppAtmosphericBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final isLight = palette.base.computeLuminance() >= .58;
     final iconBrightness = isLight ? Brightness.dark : Brightness.light;
+    final style = context.select<AppThemeProvider?, AppBackgroundStyle>(
+      (provider) => provider?.backgroundStyle ?? AppBackgroundStyle.softMist,
+    );
+    final background = AppAtmosphereSurface(palette: palette, style: style);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       key: const ValueKey<String>('app-atmosphere-system-ui'),
       value: SystemUiOverlayStyle(
@@ -88,13 +93,21 @@ class AppAtmosphericBackground extends StatelessWidget {
           Positioned.fill(
             child: RepaintBoundary(
               key: const ValueKey<String>('app-atmosphere-static-layer'),
-              child: AppAtmosphereSurface(
-                palette: palette,
-                style: context.select<AppThemeProvider?, AppBackgroundStyle>(
-                  (provider) =>
-                      provider?.backgroundStyle ?? AppBackgroundStyle.softMist,
-                ),
-              ),
+              child:
+                  !kIsWeb &&
+                      defaultTargetPlatform == TargetPlatform.android &&
+                      style == AppBackgroundStyle.softMist
+                  ? _AppAtmosphereSnapshot(
+                      // 颜色变化时重建快照；尺寸与像素比由 SnapshotWidget 更新。
+                      key: ValueKey((
+                        palette.base,
+                        palette.accentGlow,
+                        palette.selectionGlow,
+                        palette.linkGlow,
+                      )),
+                      child: background,
+                    )
+                  : background,
             ),
           ),
           child,
@@ -102,6 +115,33 @@ class AppAtmosphericBackground extends StatelessWidget {
       ),
     );
   }
+}
+
+// 仅缓存静态背景，避免 Android Vulkan 每帧重复绘制全屏渐变。
+class _AppAtmosphereSnapshot extends StatefulWidget {
+  const _AppAtmosphereSnapshot({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_AppAtmosphereSnapshot> createState() => _AppAtmosphereSnapshotState();
+}
+
+class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
+  final _controller = SnapshotController(allowSnapshotting: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SnapshotWidget(
+    controller: _controller,
+    autoresize: true,
+    child: widget.child,
+  );
 }
 
 /// 页面与设置缩略图共用的静态背景，不修改系统栏或读取全局样式。
