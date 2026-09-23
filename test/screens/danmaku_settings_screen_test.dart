@@ -38,6 +38,12 @@ void main() {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: DanmakuSettingsScreen(
+          flyReadinessLoader: () async => {
+            'available': true,
+            'source_ready': true,
+            'auto_danmaku_enabled': false,
+            'workflow_enabled': true,
+          },
           saveSettings: (value) async {
             saved = value;
           },
@@ -52,7 +58,7 @@ void main() {
     sources.complete(const <DanmakuSavedSource>[]);
     await tester.pumpAndSettle();
     final dandan = find.text(DanmakuSourceStrategy.original.label);
-    await tester.ensureVisible(dandan);
+    await tester.scrollUntilVisible(dandan, 180);
     await tester.pumpAndSettle();
     await tester.tap(dandan);
     await tester.pumpAndSettle();

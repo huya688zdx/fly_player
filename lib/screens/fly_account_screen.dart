@@ -29,7 +29,7 @@ Future<String?> _authorizeFlyFn(BuildContext context, String serverUrl) =>
     showDesktopLoginDialog<String>(
       context,
       child: EmbyFnEntryLoginPage(
-        serverUrl: serverUrl,
+        serverUrl: '${serverUrl.replaceFirst(RegExp(r'/+$'), '')}/',
         requireTargetPath: true,
       ),
     );
@@ -345,6 +345,59 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     }
   }
 
+  Future<void> _editDeviceName(FlyAccountController account) async {
+    if (!_canUseForm(account) || _historyBusy) return;
+    _formRevision++;
+    final form = GlobalKey<FormState>();
+    final l10n = AppLocalizations.of(context);
+    var name = device.text;
+    final value = await _showFlyDesktopPanel<String>(
+      context,
+      title: l10n.flyAccountCurrentDeviceName,
+      builder: (context) {
+        void save() {
+          if (form.currentState!.validate()) {
+            AppSheetTransitions.close(context, name.trim());
+          }
+        }
+
+        return _FlyDesktopPanel(
+          title: l10n.flyAccountCurrentDeviceName,
+          child: SingleChildScrollView(
+            child: Form(
+              key: form,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextFormField(
+                    initialValue: name,
+                    autofocus: true,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: l10n.flyAccountCurrentDeviceName,
+                    ),
+                    onChanged: (value) => name = value,
+                    onFieldSubmitted: (_) => save(),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? l10n.flyAccountFieldRequired(
+                            l10n.flyAccountCurrentDeviceName,
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton(onPressed: save, child: Text(l10n.commonSave)),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (value != null && _canUseForm(account)) device.text = value;
+  }
+
   Widget _loginField(
     TextEditingController controller,
     String label, {
@@ -354,39 +407,66 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     TextInputType? keyboard,
     ValueChanged<String>? onSubmitted,
   }) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: LoginField(
+    padding: const EdgeInsets.only(bottom: 20),
+    child: TextFormField(
       controller: controller,
-      labelText: label,
-      hintText: hint ?? label,
       enabled: enabled,
-      leadingIcon: controller == url
-          ? Icons.dns_outlined
-          : secret
-          ? Icons.lock_outline_rounded
-          : Icons.person_outline_rounded,
       keyboardType: keyboard,
       textInputAction: onSubmitted == null
           ? TextInputAction.next
           : TextInputAction.done,
       obscureText: secret && _obscurePassword,
-      onSubmitted: onSubmitted,
+      autocorrect: false,
+      enableSuggestions: !(secret && _obscurePassword),
+      onFieldSubmitted: onSubmitted,
+      style: TextStyle(color: context.appColors.textPrimary, fontSize: 15),
       validator: (value) => value == null || value.trim().isEmpty
           ? AppLocalizations.of(context).flyAccountFieldRequired(label)
           : null,
-      suffix: secret
-          ? IconButton(
-              tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
-              onPressed: enabled
-                  ? () => setState(() => _obscurePassword = !_obscurePassword)
-                  : null,
-              icon: Icon(
-                _obscurePassword
-                    ? Icons.visibility_off_outlined
-                    : Icons.visibility_outlined,
-              ),
-            )
-          : null,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint ?? label,
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        labelStyle: TextStyle(
+          color: context.appColors.textSecondary,
+          fontSize: 14,
+        ),
+        hintStyle: TextStyle(color: context.appColors.textMuted, fontSize: 13),
+        filled: true,
+        fillColor: context.appColors.surfaceSubtle.withValues(alpha: 0.65),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 17,
+        ),
+        border: UnderlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: UnderlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: UnderlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: context.appColors.selectionStrong,
+            width: 1.5,
+          ),
+        ),
+        suffixIcon: secret
+            ? IconButton(
+                tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                onPressed: enabled
+                    ? () => setState(() => _obscurePassword = !_obscurePassword)
+                    : null,
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                ),
+              )
+            : null,
+      ),
     ),
   );
 
@@ -395,6 +475,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     final account = context.watch<FlyAccountController>();
     final blocked = account.busy || _historyBusy || _submitting || _leaving;
     return _FlyLoginPage(
+      onEditDeviceName: blocked ? null : () => _editDeviceName(account),
       child: Form(
         key: _form,
         child: Column(
@@ -476,24 +557,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                 ),
               ],
             ),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: EdgeInsets.zero,
-              title: Text(
-                AppLocalizations.of(
-                  context,
-                ).flyAccountDeviceNameSummary(device.text),
-                style: const TextStyle(fontSize: 13),
-              ),
-              children: [
-                _loginField(
-                  device,
-                  AppLocalizations.of(context).flyAccountCurrentDeviceName,
-                  enabled: !blocked,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             LoginSubmitButton(
               isSubmitting: account.busy || _submitting,
               onPressed: blocked ? null : () => _login(account),
@@ -501,11 +565,19 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
             ),
             if (_historyMessage != null || account.message != null)
               _FlyMessage(_historyMessage ?? account.message!),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
+            const SizedBox(height: 12),
+            TextButton.icon(
               onPressed: blocked ? null : () => _enterMediaMode(account),
               icon: const Icon(Icons.lan_outlined, size: 18),
               label: Text(AppLocalizations.of(context).flyAccountMediaLogin),
+              style: TextButton.styleFrom(
+                foregroundColor: context.appColors.textSecondary,
+                minimumSize: const Size(0, 44),
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ],
         ),

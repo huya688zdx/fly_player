@@ -2,6 +2,7 @@ import '../../services/fly_data/fly_data_api.dart';
 import '../../services/fly_data/fly_data_service.dart';
 import '../../services/fly_data/fly_nas_danmaku_cache.dart';
 import '../../services/fly_data/fly_playback_service_client.dart';
+import '../settings/danmaku_settings_store.dart';
 
 /// 飞翔后端的正式查询、选集和获取接口；只向当前服务发送公开来源标识。
 class FlyDanmakuApi {
@@ -11,6 +12,7 @@ class FlyDanmakuApi {
     required this.scopeIdentity,
     required this.sessionIdentity,
     required this.isCurrent,
+    this.accountKey = '',
   });
 
   final FlyDataApi api;
@@ -18,6 +20,7 @@ class FlyDanmakuApi {
   final String scopeIdentity;
   final int sessionIdentity;
   final bool Function() isCurrent;
+  final String accountKey;
 
   static FlyDanmakuApi? capture({
     required String statsScope,
@@ -43,6 +46,7 @@ class FlyDanmakuApi {
       sourceQuery: source.toJson(),
       scopeIdentity: epoch,
       sessionIdentity: identityHashCode(session),
+      accountKey: session.accountKey,
       isCurrent: () =>
           isCurrent() &&
           identical(session, service.session) &&
@@ -145,10 +149,13 @@ class FlyDanmakuApi {
         .whereType<String>()
         .toList();
     if (ids.isEmpty) return [];
+    final assist = await const DanmakuSettingsStore()
+        .loadFlyAiConsent(accountKey)
+        .catchError((Object _) => false);
     final response = await _post('/danmaku/search', {
       'media_id': context['media_id'],
       'query': keyword.trim(),
-      'assist': true,
+      'assist': assist,
       'provider_ids': ids,
     }, timeout: const Duration(seconds: 150));
     return _candidates(response, context);

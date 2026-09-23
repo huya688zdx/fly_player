@@ -178,19 +178,32 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final sourceGeneration = _sourceChangeGeneration;
     final source = _source;
     final identity = FlyBifPlaybackIdentity(source);
-    final access = FlyBifAccess.capture(statsScope: source.statsScope,
-      itemGuid: source.itemGuid, mediaGuid: source.mediaGuid,
-      isCurrent: () => mounted && sourceGeneration == _sourceChangeGeneration && generation == _flyBifGeneration && identity.matches(_source));
+    final access = FlyBifAccess.capture(
+      statsScope: source.statsScope,
+      itemGuid: source.itemGuid,
+      mediaGuid: source.mediaGuid,
+      isCurrent: () =>
+          mounted &&
+          sourceGeneration == _sourceChangeGeneration &&
+          generation == _flyBifGeneration &&
+          identity.matches(_source),
+    );
     _flyBifAccess = access;
     if (access == null || source.externalLocalSource) return;
-    _flyActivity = FlyPlaybackActivity.forAccess(access)..start(paused: source.startPaused);
+    _flyActivity = FlyPlaybackActivity.forAccess(access)
+      ..start(paused: source.startPaused);
     if (!source.supportsVerifiedFileOped) return;
-    unawaited(FlyBifService.instance.resolve(access).then((path) {
-      if (!access.isCurrent() || path == null) return;
-      setState(() { _nasBifLocalPath = path; });
-      _viewRevision.value++;
-    }));
+    unawaited(
+      FlyBifService.instance.resolve(access).then((path) {
+        if (!access.isCurrent() || path == null) return;
+        setState(() {
+          _nasBifLocalPath = path;
+        });
+        _viewRevision.value++;
+      }),
+    );
   }
+
   String _flyContextId = '', _flyScopeEpoch = '';
   FlyOpedSet? _flyOped;
   FlyOpedAction? _flyAction;
@@ -269,11 +282,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   bool _flyOpedEnabled = true;
   bool get _flyAccountSignedIn =>
       _flyClient.hasActiveAccountBinding(statsScope: _source.statsScope);
-  Object get _flyAccountIdentity => (
-    _flyClient.epoch,
-    _flyAccountSignedIn,
-    FlyDataService.instance.session,
-  );
+  Object get _flyAccountIdentity =>
+      (_flyClient.epoch, _flyAccountSignedIn, FlyDataService.instance.session);
   bool get _flyOpedAllowed => _flyAccountSignedIn && _flyOpedEnabled;
   int _introMaxMinutes = 2;
   int _outroMaxMinutes = 2;
@@ -326,16 +336,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       releaseServerSession: widget.releaseServerSession,
     );
     // 本地统计需要连续采样；服务端每 15 秒回写不足以计算实际观看时长。
-    _localStatsTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) {
-        // Legacy login can retain the Fly session while replacing its binding.
-        if (_observedFlyAccountIdentity != _flyAccountIdentity) {
-          _onFlyAccountChanged();
-        }
-        _recordLocalStats();
-      },
-    );
+    _localStatsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      // Legacy login can retain the Fly session while replacing its binding.
+      if (_observedFlyAccountIdentity != _flyAccountIdentity) {
+        _onFlyAccountChanged();
+      }
+      _recordLocalStats();
+    });
     _pausedByUser = _source.startPaused;
     MediaKit.ensureInitialized();
     _player = widget.session.player;
@@ -864,7 +871,6 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!_isPlaying ||
         !_danmakuSettings.enabled ||
         _danmakuLoading ||
-        _danmakuComments.isNotEmpty ||
         !_flyAccountSignedIn ||
         _danmakuResolvedSourceGeneration != _sourceChangeGeneration ||
         _autoDanmakuGeneration == _sourceChangeGeneration) {
@@ -878,14 +884,17 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       return;
     }
     final source = _source;
+    final prepareSeasonOnly = _danmakuComments.isNotEmpty;
     _autoDanmakuGeneration = _sourceChangeGeneration;
     final generation = _danmakuLoadGeneration;
     bool current() =>
         access.isCurrent() &&
         generation == _danmakuLoadGeneration &&
         _danmakuSettings.enabled &&
-        _danmakuComments.isEmpty;
-    _updateView(() => _serviceDanmakuStatus = '正在后台查找这集弹幕，完成后自动加载');
+        (prepareSeasonOnly || _danmakuComments.isEmpty);
+    if (!prepareSeasonOnly) {
+      _updateView(() => _serviceDanmakuStatus = '正在后台查找这集弹幕，完成后自动加载');
+    }
     unawaited(() async {
       final path = await NativeDanmakuPrefetch.resolveOnPlaybackToFile(
         statsScope: source.statsScope,
@@ -898,14 +907,17 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         episodeNumber: source.episodeNumber,
         tmdbId: source.tmdbId,
         settings: _danmakuSettings,
+        prepareSeasonOnly: prepareSeasonOnly,
         isCurrent: current,
         onStatus: (message) {
-          if (current() && _serviceDanmakuStatus != message) {
+          if (!prepareSeasonOnly &&
+              current() &&
+              _serviceDanmakuStatus != message) {
             _updateView(() => _serviceDanmakuStatus = message);
           }
         },
       );
-      if (path == null || !current()) return;
+      if (prepareSeasonOnly || path == null || !current()) return;
       // 后台成果不能覆盖这段时间内用户手动选择的来源。
       await _loadDanmakuForSource(
         path,
@@ -1298,7 +1310,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   _SkipPromptKind? _computeSkipPromptKind(Duration position) {
     if (_source.isLive) return null;
-    if ((!_introOutroEnabled && !_fixedDurationSkipEnabled && !_flyOpedAllowed) ||
+    if ((!_introOutroEnabled &&
+            !_fixedDurationSkipEnabled &&
+            !_flyOpedAllowed) ||
         _playbackCompleted ||
         _isLoading ||
         _abLoopStart != null) {
@@ -1308,10 +1322,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (duration <= Duration.zero) return null;
     final published = _currentFlyOped;
     if (published != null) {
-      final segment = published.at(position.inMilliseconds, enabled: _flyOpedAllowed);
+      final segment = published.at(
+        position.inMilliseconds,
+        enabled: _flyOpedAllowed,
+      );
       if (segment == null || _flyAction != null) return null;
-      if (segment.kind == 'op' && !_introSkipDismissed) return _SkipPromptKind.intro;
-      if (segment.kind == 'ed' && !_outroSkipDismissed) return _SkipPromptKind.outro;
+      if (segment.kind == 'op' && !_introSkipDismissed)
+        return _SkipPromptKind.intro;
+      if (segment.kind == 'ed' && !_outroSkipDismissed)
+        return _SkipPromptKind.outro;
       return null;
     }
     final bounds = _skipBounds;
@@ -1400,7 +1419,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         widget.session.danmakuFilePath = null;
       }
       _resetFlyOped(preserveTail: true);
-      _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
+      _skipPromptKindNotifier.value = _computeSkipPromptKind(
+        _player.state.position,
+      );
     });
   }
 
@@ -1411,7 +1432,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _resetFlyOped(preserveTail: true);
       _introSkipDismissed = false;
       _outroSkipDismissed = false;
-      _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
+      _skipPromptKindNotifier.value = _computeSkipPromptKind(
+        _player.state.position,
+      );
     });
     await FlyOpedSettings.save(enabled);
   }
@@ -1797,7 +1820,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _flyActivity = null;
       _flyBifAccess = null;
       if (_nasBifLocalPath.isNotEmpty) {
-        setState(() { _nasBifLocalPath = ''; });
+        setState(() {
+          _nasBifLocalPath = '';
+        });
         _viewRevision.value++;
       }
     }
@@ -2202,8 +2227,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   FlyOpedSet? get _currentFlyOped {
-    if (!_flyOpedAllowed || !_source.supportsVerifiedFileOped || _flyScopeEpoch != _flyClient.epoch ||
-        _flyClient.sourceRef(statsScope: _source.statsScope, itemGuid: _source.itemGuid, mediaGuid: _source.mediaGuid) == null) {
+    if (!_flyOpedAllowed ||
+        !_source.supportsVerifiedFileOped ||
+        _flyScopeEpoch != _flyClient.epoch ||
+        _flyClient.sourceRef(
+              statsScope: _source.statsScope,
+              itemGuid: _source.itemGuid,
+              mediaGuid: _source.mediaGuid,
+            ) ==
+            null) {
       return null;
     }
     return _flyOped;
@@ -2216,7 +2248,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _flyOped = null;
     _flyAuthorizing = false;
     _flySkipPolicy = FlyOpedPlaybackPolicy();
-    _flyContextId = 'desktop-${_source.loadNonce}-${FlyPlaybackServiceClient.newId()}';
+    _flyContextId =
+        'desktop-${_source.loadNonce}-${FlyPlaybackServiceClient.newId()}';
     _flyScopeEpoch = _flyClient.epoch;
     unawaited(_resolveFlyOped());
   }
@@ -2224,48 +2257,96 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   Future<void> _resolveFlyOped() async {
     final contextId = _flyContextId, source = _source;
     if (!_flyOpedAllowed || !source.supportsVerifiedFileOped) return;
-    final generation = _danmakuSeekRevision, sourceGeneration = _sourceChangeGeneration;
-    final result = await _flyClient.resolve(statsScope: source.statsScope, itemGuid: source.itemGuid,
-      mediaGuid: source.mediaGuid, contextId: contextId, generation: generation);
-    if (!mounted || contextId != _flyContextId || sourceGeneration != _sourceChangeGeneration ||
-        !_flyOpedAllowed || generation != _danmakuSeekRevision || !identical(source, _source) || _flyScopeEpoch != _flyClient.epoch) {
+    final generation = _danmakuSeekRevision,
+        sourceGeneration = _sourceChangeGeneration;
+    final result = await _flyClient.resolve(
+      statsScope: source.statsScope,
+      itemGuid: source.itemGuid,
+      mediaGuid: source.mediaGuid,
+      contextId: contextId,
+      generation: generation,
+    );
+    if (!mounted ||
+        contextId != _flyContextId ||
+        sourceGeneration != _sourceChangeGeneration ||
+        !_flyOpedAllowed ||
+        generation != _danmakuSeekRevision ||
+        !identical(source, _source) ||
+        _flyScopeEpoch != _flyClient.epoch) {
       return;
     }
     _updateView(() {
       _flyOped = result;
-      _skipPromptKindNotifier.value = _computeSkipPromptKind(_player.state.position);
+      _skipPromptKindNotifier.value = _computeSkipPromptKind(
+        _player.state.position,
+      );
     });
   }
 
-  Future<void> _skipPublished(FlyOpedSet set, FlyOpedSegment segment, {bool automatic = false}) async {
-    if (!_flyOpedAllowed || _flyAction != null || _flyAuthorizing || !identical(set, _currentFlyOped) || !segment.contains(_player.state.position.inMilliseconds)) return;
-    final generation = _danmakuSeekRevision, contextId = _flyContextId, source = _source;
+  Future<void> _skipPublished(
+    FlyOpedSet set,
+    FlyOpedSegment segment, {
+    bool automatic = false,
+  }) async {
+    if (!_flyOpedAllowed ||
+        _flyAction != null ||
+        _flyAuthorizing ||
+        !identical(set, _currentFlyOped) ||
+        !segment.contains(_player.state.position.inMilliseconds))
+      return;
+    final generation = _danmakuSeekRevision,
+        contextId = _flyContextId,
+        source = _source;
     _flyAuthorizing = true;
-    final authorized = await _flyClient.resolve(statsScope: source.statsScope, itemGuid: source.itemGuid,
-      mediaGuid: source.mediaGuid, contextId: contextId, generation: generation);
+    final authorized = await _flyClient.resolve(
+      statsScope: source.statsScope,
+      itemGuid: source.itemGuid,
+      mediaGuid: source.mediaGuid,
+      contextId: contextId,
+      generation: generation,
+    );
     if (!mounted || contextId != _flyContextId) return;
     _flyAuthorizing = false;
-    if (generation != _danmakuSeekRevision || !identical(source, _source) || !identical(set, _currentFlyOped)) return;
+    if (generation != _danmakuSeekRevision ||
+        !identical(source, _source) ||
+        !identical(set, _currentFlyOped))
+      return;
     if (authorized == null || !set.samePublication(authorized)) {
       _flyOped = null;
       _skipPromptKindNotifier.value = null;
       _showPlayerMessage('该跳过区间已失效或暂不可用，请重新加载节目资料。');
       return;
     }
-    if (!_flyOpedAllowed || (automatic && !_flyAutomaticAllowed) || !segment.contains(_player.state.position.inMilliseconds)) return;
-    final action = FlyOpedAction(set: set, segment: segment, generation: _danmakuSeekRevision,
-      positionMs: _player.state.position.inMilliseconds, actionId: FlyPlaybackServiceClient.newId());
+    if (!_flyOpedAllowed ||
+        (automatic && !_flyAutomaticAllowed) ||
+        !segment.contains(_player.state.position.inMilliseconds))
+      return;
+    final action = FlyOpedAction(
+      set: set,
+      segment: segment,
+      generation: _danmakuSeekRevision,
+      positionMs: _player.state.position.inMilliseconds,
+      actionId: FlyPlaybackServiceClient.newId(),
+    );
     if (segment.kind == 'ed') {
       _flyEdTailProtected = true;
       _cancelAutoNext(suppress: false);
     }
     _flyAction = action;
     _flySeekCommandAccepted = false;
-    unawaited(_flyClient.record(action.event('intent'), statsScope: _source.statsScope));
+    unawaited(
+      _flyClient.record(action.event('intent'), statsScope: _source.statsScope),
+    );
     _dismissSkipPrompt();
-    _flyActionTimeout = Timer(const Duration(seconds: 12), () => _finishFlyAction('failed'));
+    _flyActionTimeout = Timer(
+      const Duration(seconds: 12),
+      () => _finishFlyAction('failed'),
+    );
     try {
-      final command = _seekTo(Duration(milliseconds: segment.endMs), publishedAction: true);
+      final command = _seekTo(
+        Duration(milliseconds: segment.endMs),
+        publishedAction: true,
+      );
       action.expectedGeneration = _danmakuSeekRevision;
       await command;
       if (identical(action, _flyAction)) {
@@ -2273,14 +2354,22 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         // Paused playback may emit its sole position event before command ack.
         // Read actual engine properties now and retry only while this action lives.
         _sampleFlyOpedAction();
-        _flyObservationTimer = Timer.periodic(const Duration(milliseconds: 250), (_) => _sampleFlyOpedAction());
+        _flyObservationTimer = Timer.periodic(
+          const Duration(milliseconds: 250),
+          (_) => _sampleFlyOpedAction(),
+        );
       }
-    } catch (_) { if (identical(action, _flyAction)) _finishFlyAction('failed'); }
+    } catch (_) {
+      if (identical(action, _flyAction)) _finishFlyAction('failed');
+    }
   }
 
   void _observeFlyOped(Duration position) {
     final set = _currentFlyOped;
-    if (set == null) { _finishFlyAction('cancelled'); return; }
+    if (set == null) {
+      _finishFlyAction('cancelled');
+      return;
+    }
     _sampleFlyOpedAction();
     if (_flyAutomaticAllowed && _flyAction == null) {
       final auto = _flySkipPolicy.observe(set, position.inMilliseconds);
@@ -2288,12 +2377,20 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
   }
 
-  bool get _flyAutomaticAllowed => !_isLoading && !_isBuffering && _isPlaying &&
-      !_player.state.completed && _flyOpedAllowed && _abLoopStart == null;
+  bool get _flyAutomaticAllowed =>
+      !_isLoading &&
+      !_isBuffering &&
+      _isPlaying &&
+      !_player.state.completed &&
+      _flyOpedAllowed &&
+      _abLoopStart == null;
 
   void _sampleFlyOpedAction() {
     final set = _currentFlyOped;
-    if (set == null) { _finishFlyAction('cancelled'); return; }
+    if (set == null) {
+      _finishFlyAction('cancelled');
+      return;
+    }
     final action = _flyAction;
     if (action != null && !_flySamplePending && _flySeekCommandAccepted) {
       _flySamplePending = true;
@@ -2305,12 +2402,27 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         if (platform is! NativePlayer) return;
         final seeking = await platform.getProperty('seeking');
         final seconds = double.tryParse(await platform.getProperty('time-pos'));
-        if (!mounted || epoch != _danmakuSeekRevision || !identical(action, _flyAction) || !identical(set, _currentFlyOped) || seconds == null || !seconds.isFinite) return;
-        final phase = action.sample(positionMs: (seconds * 1000).round(),
-          engineAccepted: seeking == 'no' || seeking == 'false', generation: epoch);
+        if (!mounted ||
+            epoch != _danmakuSeekRevision ||
+            !identical(action, _flyAction) ||
+            !identical(set, _currentFlyOped) ||
+            seconds == null ||
+            !seconds.isFinite)
+          return;
+        final phase = action.sample(
+          positionMs: (seconds * 1000).round(),
+          engineAccepted: seeking == 'no' || seeking == 'false',
+          generation: epoch,
+        );
         if (phase != null) _finishFlyAction(phase, alreadyFinished: true);
       }
-      unawaited(observe().timeout(const Duration(seconds: 1)).catchError((Object _) {}).whenComplete(() => _flySamplePending = false));
+
+      unawaited(
+        observe()
+            .timeout(const Duration(seconds: 1))
+            .catchError((Object _) {})
+            .whenComplete(() => _flySamplePending = false),
+      );
     }
   }
 
@@ -2323,7 +2435,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _flyActionTimeout = null;
     _flyObservationTimer?.cancel();
     _flyObservationTimer = null;
-    if (terminal != null) unawaited(_flyClient.record(action.event(terminal), statsScope: _source.statsScope));
+    if (terminal != null)
+      unawaited(
+        _flyClient.record(
+          action.event(terminal),
+          statsScope: _source.statsScope,
+        ),
+      );
   }
 
   Future<void> _setVolume(double value) async {
@@ -3637,7 +3755,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         onRefreshServiceSource: _refreshServiceDanmaku,
         onLoadSavedSources: _loadSavedDanmakuSources,
         onSearch: _searchDanmakuSources,
-        onSearchFly: (keyword) => _searchDanmakuSources(keyword, forceFly: true),
+        onSearchFly: (keyword) =>
+            _searchDanmakuSources(keyword, forceFly: true),
         onExpandSearchResult: _expandFlyDanmakuCandidate,
         onSelectSavedSource: _selectSavedDanmakuSource,
         onSelectSearchResult: _selectDanmakuSearchResult,
@@ -4286,7 +4405,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                               >(
                                 valueListenable: _hoverOverlayNotifier,
                                 builder: (context, hover, _) => DesktopPlayerControls(
-                                    isLive: _source.isLive,
+                                  isLive: _source.isLive,
                                   activeMenu: hover.visible
                                       ? hover.kind?.name
                                       : null,
@@ -4727,7 +4846,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             final fromChapter = kind == _SkipPromptKind.intro
                 ? bounds.introFromChapter
                 : bounds.outroFromChapter;
-            final basis = _currentFlyOped != null ? '服务' : fromChapter ? '章节识别' : '固定时长';
+            final basis = _currentFlyOped != null
+                ? '服务'
+                : fromChapter
+                ? '章节识别'
+                : '固定时长';
             final message = kind == _SkipPromptKind.intro
                 ? '片头 · $basis'
                 : kind == null
@@ -4774,7 +4897,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                               minimumSize: const Size(0, 30),
                             ),
                             child: Text(
-                              _currentFlyOped?.at(_player.state.position.inMilliseconds) != null
+                              _currentFlyOped?.at(
+                                        _player.state.position.inMilliseconds,
+                                      ) !=
+                                      null
                                   ? '跳到 ${_formatDuration(Duration(milliseconds: _currentFlyOped!.at(_player.state.position.inMilliseconds)!.endMs))}'
                                   : kind == _SkipPromptKind.intro
                                   ? '跳到 ${_formatDuration(bounds.introEnd ?? Duration.zero)}'

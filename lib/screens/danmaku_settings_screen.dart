@@ -9,6 +9,7 @@ import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/fly_data/fly_account_controller.dart';
+import '../services/fly_data/fly_data_api.dart';
 import '../services/fly_data/fly_data_service.dart';
 import '../services/fly_data/fly_playback_service_client.dart';
 import '../services/play_stats/play_stats_service.dart';
@@ -25,12 +26,14 @@ class DanmakuSettingsScreen extends StatefulWidget {
   final Future<void> Function(DanmakuSettings settings)? saveSettings;
   final Future<DanmakuSettings> Function()? settingsLoader;
   final Future<List<DanmakuSavedSource>> Function()? savedSourceLoader;
+  final Future<Map<String, dynamic>> Function()? flyReadinessLoader;
 
   const DanmakuSettingsScreen({
     super.key,
     this.saveSettings,
     this.settingsLoader,
     this.savedSourceLoader,
+    this.flyReadinessLoader,
   });
 
   @override
@@ -45,6 +48,10 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   int? _savedSourceCount;
   int _savedSourceLoadVersion = 0;
   bool _loading = true;
+  bool _flyAiAllowed = false, _flyConsentLoading = true;
+  String _flyReadiness = '正在读取自动弹幕就绪情况…';
+  int _flyReadGeneration = 0;
+  FlyDataApi? _readinessApi;
 
   @override
   void initState() {
@@ -52,10 +59,12 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
     _savedSourceStore.changes.addListener(_handleSavedSourceChanged);
     FlyDataService.instance.accountChanges.addListener(_handleAccountChanged);
     _load();
+    unawaited(_loadFlyReadiness());
   }
 
   @override
   void dispose() {
+    _readinessApi?.close();
     _savedSourceStore.changes.removeListener(_handleSavedSourceChanged);
     FlyDataService.instance.accountChanges.removeListener(
       _handleAccountChanged,
@@ -68,7 +77,94 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   }
 
   void _handleAccountChanged() {
-    if (mounted) setState(() {});
+    unawaited(_loadFlyReadiness());
+  }
+
+  Future<void> _loadFlyReadiness() async {
+    _readinessApi?.close();
+    _readinessApi = null;
+    final generation = ++_flyReadGeneration;
+    final service = FlyDataService.instance;
+    final session = service.session;
+    final epoch = service.scopeIdentity;
+    bool current() =>
+        mounted &&
+        generation == _flyReadGeneration &&
+        identical(session, service.session) &&
+        epoch == service.scopeIdentity;
+    if (!mounted) return;
+    setState(() {
+      _flyAiAllowed = false;
+      _flyConsentLoading = true;
+      _flyReadiness = '正在读取自动弹幕就绪情况…';
+    });
+    if (session == null ||
+        context.read<FlyAccountController?>()?.legacyMode == true ||
+        !FlyPlaybackServiceClient.instance.hasActiveAccountBinding(
+          statsScope: PlayStatsService.instance.currentScope,
+        )) {
+      return;
+    }
+    try {
+      final allowed = await _store.loadFlyAiConsent(session.accountKey);
+      if (!current()) return;
+      setState(() {
+        _flyAiAllowed = allowed;
+        _flyConsentLoading = false;
+      });
+      final api = session.createApi(
+        receiveTimeout: const Duration(seconds: 12),
+      );
+      _readinessApi = api;
+      try {
+        final state =
+            await (widget.flyReadinessLoader?.call() ??
+                api.get('/danmaku/ai/status'));
+        if (!current()) return;
+        final reason = switch (state['reason']) {
+          'PUBLIC_METADATA_DISABLED' => '尚未允许使用公开作品资料',
+          'LLM_BUDGET_EXHAUSTED' => '调用额度不足',
+          'LLM_DISABLED' => '尚未启用',
+          'WAITING_RESOURCE_CONTROLLER' => '等待服务恢复',
+          _ => '尚未配置就绪',
+        };
+        setState(
+          () => _flyReadiness =
+              '自动寻找：${state['auto_danmaku_enabled'] == true ? '已开启' : '未开启'} · '
+              '来源：${state['source_ready'] == true ? '已配置' : '未配置'}\n'
+              'AI：${state['available'] == true ? '已就绪' : reason}'
+              '${state['workflow_enabled'] == false ? ' · 资源准备服务未启用' : ''}',
+        );
+      } finally {
+        api.close();
+        if (identical(_readinessApi, api)) _readinessApi = null;
+      }
+    } catch (_) {
+      if (current()) setState(() => _flyReadiness = '暂时无法读取后台就绪情况，可稍后重新读取。');
+    }
+  }
+
+  Future<void> _saveFlyConsent(bool allowed) async {
+    final service = FlyDataService.instance;
+    final session = service.session;
+    if (session == null || _flyConsentLoading) return;
+    setState(() => _flyConsentLoading = true);
+    try {
+      await _store.saveFlyAiConsent(session.accountKey, allowed);
+      if (mounted && identical(session, service.session)) {
+        setState(() => _flyAiAllowed = allowed);
+      }
+    } catch (_) {
+      if (mounted && identical(session, service.session)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('未能保存 AI 使用选择，请重试。')));
+      }
+    } finally {
+      if (mounted && identical(session, service.session)) {
+        setState(() => _flyConsentLoading = false);
+      }
+    }
   }
 
   Future<void> _load() async {
@@ -238,6 +334,49 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                       ),
                     ),
                     if (flyAccountSignedIn) ...[
+                      const SizedBox(height: 18),
+                      const _DanmakuSectionTitle(
+                        title: '自动弹幕',
+                        subtitle: '播放后优先准备当前集并自动加载，同季其余集在后台补齐；浏览详情不会触发查找。',
+                      ),
+                      const SizedBox(height: 10),
+                      _DanmakuCard(
+                        child: Column(
+                          children: [
+                            SwitchListTile(
+                              title: const Text('允许当前飞翔账号使用 AI 查找'),
+                              subtitle: const Text(
+                                '本播放器保存此账号选择。仅发送公开作品资料；已有缓存和确认过的来源无需重新调用 AI。',
+                              ),
+                              value: _flyAiAllowed,
+                              onChanged: _flyConsentLoading
+                                  ? null
+                                  : _saveFlyConsent,
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _flyReadiness,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        height: 1.6,
+                                        color: context.appColors.textSecondary,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: _loadFlyReadiness,
+                                    child: const Text('重新读取'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 18),
                       const _DanmakuSectionTitle(
                         title: '弹幕来源优先顺序',

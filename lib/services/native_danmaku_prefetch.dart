@@ -88,6 +88,7 @@ class NativeDanmakuPrefetch {
   static DateTime? _lastTempCleanupAt;
   static Future<void>? _tempCleanupFuture;
   static int _nasGeneration = 0;
+  static FlyNasDanmakuTask? _interruptedDanmakuTask;
   static int _payloadSequence = 0;
 
   /// Explicit source selection only reads the service's current-file cache.
@@ -267,6 +268,7 @@ class NativeDanmakuPrefetch {
     String statsScope = '',
     bool Function()? isCurrent,
     bool allowDisabled = false,
+    bool prepareSeasonOnly = false,
     void Function(String)? onStatus,
     FlyNasDanmakuCache? nasCache,
     DanmakuSavedSourceStore? store,
@@ -285,10 +287,14 @@ class NativeDanmakuPrefetch {
         identical(session, service.session) &&
         epoch == service.scopeIdentity &&
         _hasActiveFlyBinding(statsScope: statsScope);
-    final cache = nasCache ?? FlyNasDanmakuCache(
-      budget: const Duration(seconds: 12),
-      onStatus: (status) { if (current()) onStatus?.call(status.message); },
-    );
+    final cache =
+        nasCache ??
+        FlyNasDanmakuCache(
+          budget: const Duration(seconds: 12),
+          onStatus: (status) {
+            if (current()) onStatus?.call(status.message);
+          },
+        );
     try {
       if (!current()) return null;
       final ready = await cache.prepareOnPlayback(
@@ -296,9 +302,13 @@ class NativeDanmakuPrefetch {
         itemGuid: itemGuid,
         mediaGuid: mediaGuid,
         refreshExisting: allowDisabled,
+        resumeTask: _interruptedDanmakuTask,
         isCurrent: current,
       );
       if (!current()) return null;
+      _interruptedDanmakuTask = cache.interruptedTask;
+      // 已有弹幕只通知后台补齐同季，不生成替换文件或回退到另一来源。
+      if (prepareSeasonOnly) return null;
       if (ready) {
         final result = await cache.resolve(
           statsScope: statsScope,
