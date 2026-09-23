@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/gestures.dart';
@@ -122,10 +121,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _obscurePassword = true;
   bool _obscureAccessCode = true;
   bool _isSubmitting = false;
+  bool _resettingFnLogin = false;
   bool _showFeiniuAdvanced = false;
   String? _inlineError;
   bool _switchingToFly = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
+
+  bool get _formBusy => _isSubmitting || _switchingToFly;
 
   @override
   void initState() {
@@ -193,7 +195,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   Future<void> _loadStoredBackendConnection() async {
     final snapshot = await MediaBackendConnectionStore.load();
-    if (!mounted) return;
+    if (!mounted || _formBusy) return;
     setState(() {
       if (_serverForms.containsKey(snapshot.activeKind)) {
         _selectedBackend = snapshot.activeKind;
@@ -253,7 +255,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _submit() async {
-    if (_switchingToFly) return;
+    if (_formBusy) return;
     if (_selectedBackend.isServerFamily) {
       await _verifyServerConnection(
         MediaBackendRegistry.requireDescriptor(_selectedBackend),
@@ -590,13 +592,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _openLoginHistory() async {
-    if (_switchingToFly) return;
+    if (_formBusy) return;
     FocusScope.of(context).unfocus();
     // 进入历史页前先刷新一次，确保拿到最新（含其它后端）的登录历史。
     final latest = await LoginHistoryStore.load();
-    if (!mounted ||
-        _switchingToFly ||
-        ModalRoute.of(context)?.isCurrent != true) {
+    if (!mounted || _formBusy || ModalRoute.of(context)?.isCurrent != true) {
       return;
     }
     setState(() {
@@ -609,10 +609,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       maxHeight: 600,
     );
     // 历史页内可能删除/清空，回来时同步最新列表。
+    if (!mounted || _formBusy || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     final refreshed = await LoginHistoryStore.load();
-    if (!mounted ||
-        _switchingToFly ||
-        ModalRoute.of(context)?.isCurrent != true) {
+    if (!mounted || _formBusy || ModalRoute.of(context)?.isCurrent != true) {
       return;
     }
     setState(() {
@@ -624,6 +625,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   /// 把历史记录回填到对应后端表单，并切换到该后端 Tab。
   void _applyHistorySelection(LoginHistoryEntry entry) {
+    if (_formBusy) return;
     final form = _serverForms[entry.kind];
     if (form != null) {
       form.baseUrl.text = entry.baseUrl;
@@ -650,6 +652,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   /// 切换选中后端，表单在原位淡入淡出。
   void _selectBackend(MediaBackendKind next) {
+    if (_formBusy) return;
     if (next == _selectedBackend) {
       if (_inlineError != null) {
         setState(() {
@@ -671,7 +674,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _resetFnConnectWebLoginState() async {
-    if (_isSubmitting || _switchingToFly) return;
+    if (_formBusy) return;
     final l10n = AppLocalizations.of(context);
     final confirmed = await showAppConfirmDialog(
       context,
@@ -682,13 +685,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       confirmColor: context.appColors.warning,
     );
     if (!mounted ||
-        _switchingToFly ||
+        _formBusy ||
         !confirmed ||
         ModalRoute.of(context)?.isCurrent != true) {
       return;
     }
     setState(() {
       _isSubmitting = true;
+      _resettingFnLogin = true;
     });
     try {
       await FnConnectWebSessionService.clearLoginState();
@@ -711,13 +715,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       if (mounted) {
         setState(() {
           _isSubmitting = false;
+          _resettingFnLogin = false;
         });
       }
     }
   }
 
   Future<void> _openDownloadedData() async {
-    if (_switchingToFly) return;
+    if (_formBusy) return;
     await Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
         const DownloadListScreen(offline: true),
@@ -866,10 +871,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _returnToFlyAccount(FlyAccountController account) async {
-    if (_switchingToFly || _isSubmitting || account.busy) return;
+    if (_formBusy || account.busy) return;
     setState(() => _switchingToFly = true);
     FocusScope.of(context).unfocus();
-    // Capture the current route before the provider gate can rebuild this page.
+    // 在 Provider Gate 重建页面之前保存当前路由。
     final navigator = Navigator.of(context);
     final route = ModalRoute.of(context);
     try {
@@ -878,34 +883,26 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       if (route?.isCurrent == true && route?.isFirst == false) {
         navigator.popUntil((route) => route.isFirst);
       }
-      // Keep navigation blocked until the gate replaces this page or its exit
-      // animation disposes it; mounted/isCurrent may still be true this frame.
+      // 保持导航锁定，直到 Gate 替换页面或退场动画销毁页面。
     } catch (_) {
       if (mounted) {
         setState(() => _switchingToFly = false);
-        _showValidationError(account.message ?? '切换未完成，请稍后重试。');
+        _showValidationError(
+          account.message ??
+              AppLocalizations.of(context).connectionSwitchToFlyFailed,
+        );
       }
     }
   }
 
   Widget _buildFlyAccountEntry() {
     final account = context.watch<FlyAccountController?>();
-    if (account == null || !account.legacyMode) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          OutlinedButton.icon(
-            key: const Key('connectionSwitchToFlyAccount'),
-            onPressed: _isSubmitting || _switchingToFly || account.busy
-                ? null
-                : () => _returnToFlyAccount(account),
-            icon: const Icon(Icons.manage_accounts_outlined, size: 20),
-            label: const Text('切换到飞翔账号'),
-          ),
-        ],
-      ),
+    return LoginConnectionModeBar(
+      flyMode: false,
+      onSwitch:
+          account == null || !account.legacyMode || _formBusy || account.busy
+          ? null
+          : () => _returnToFlyAccount(account),
     );
   }
 
@@ -914,64 +911,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     ThemeData theme,
     AppLocalizations l10n,
   ) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 840;
-        final minHeight = math.max(0.0, constraints.maxHeight - 48);
-        final formColumn = Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [_buildFlyAccountEntry(), _buildForm(theme, l10n)],
-        );
-
-        final content = isWide
-            ? Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    key: const Key('connectionWideBrandPane'),
-                    width: 280,
-                    child: LoginLogoHeader(title: l10n.connectionAppName),
-                  ),
-                  const SizedBox(width: 32),
-                  SizedBox(
-                    key: const Key('connectionWideFormPane'),
-                    width: 460,
-                    child: formColumn,
-                  ),
-                ],
-              )
-            : Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 500),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      LoginLogoHeader(title: l10n.connectionAppName),
-                      const SizedBox(height: 18),
-                      formColumn,
-                    ],
-                  ),
-                ),
-              );
-
-        return SingleChildScrollView(
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: minHeight),
-            child: Center(child: content),
-          ),
-        );
-      },
+    return LoginPageShell(
+      flyMode: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildFlyAccountEntry(),
+          const SizedBox(height: 26),
+          _buildForm(theme, l10n),
+        ],
+      ),
     );
   }
 
   void _handleSwipePointerDown(PointerDownEvent event) {
-    if (event.kind != PointerDeviceKind.touch) return;
+    if (_formBusy || event.kind != PointerDeviceKind.touch) return;
     _swipeStartX = event.position.dx;
     _swipeStartY = event.position.dy;
     _swipeLastX = event.position.dx;
@@ -979,13 +934,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   void _handleSwipePointerMove(PointerMoveEvent event) {
-    if (event.kind != PointerDeviceKind.touch) return;
+    if (_formBusy || event.kind != PointerDeviceKind.touch) return;
     _swipeLastX = event.position.dx;
     _swipeLastY = event.position.dy;
   }
 
   void _handleSwipePointerUp(PointerUpEvent event) {
-    if (event.kind != PointerDeviceKind.touch) return;
+    if (_formBusy || event.kind != PointerDeviceKind.touch) return;
     final dx = _swipeLastX - _swipeStartX;
     final dy = _swipeLastY - _swipeStartY;
     if (dx.abs() < 80 || dx.abs() < dy.abs() * 1.4) return;
@@ -997,168 +952,200 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   Widget _buildForm(ThemeData theme, AppLocalizations l10n) {
     final isFeiniu = _selectedBackend == MediaBackendKind.feiniu;
+    final serviceName = isFeiniu
+        ? l10n.connectionFeiniuMedia
+        : MediaBackendRegistry.requireDescriptor(_selectedBackend).displayName;
     final animationsDisabled = MediaQuery.disableAnimationsOf(context);
     final switchDuration = animationsDisabled
         ? Duration.zero
         : const Duration(milliseconds: 180);
     return Column(
+      key: const Key('connectionLoginFormPanel'),
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        LoginFormPanel(
-          key: const Key('connectionLoginFormPanel'),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+        _buildConnectionCardHeader(l10n),
+        const SizedBox(height: 10),
+        Text(
+          l10n.connectionDirectSubtitle,
+          style: TextStyle(
+            color: context.appColors.textMuted,
+            fontSize: 13,
+            height: 1.6,
+          ),
+        ),
+        const SizedBox(height: 20),
+        _BackendSelector(
+          key: const Key('connectionBackendSelector'),
+          l10n: l10n,
+          selected: _selectedBackend,
+          onChanged: _formBusy ? null : _selectBackend,
+        ),
+        const SizedBox(height: 24),
+        AnimatedSize(
+          duration: switchDuration,
+          curve: Curves.easeOutCubic,
+          child: AnimatedSwitcher(
+            duration: switchDuration,
+            switchInCurve: Curves.easeInOut,
+            switchOutCurve: Curves.easeInOut,
+            layoutBuilder: (currentChild, previousChildren) => Stack(
+              alignment: Alignment.topCenter,
+              children: <Widget>[
+                ...previousChildren,
+                if (currentChild != null) currentChild,
+              ],
+            ),
+            child: KeyedSubtree(
+              key: ValueKey<MediaBackendKind>(_selectedBackend),
+              child: _buildFormFields(theme, l10n, backend: _selectedBackend),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (isFeiniu) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('feiniuAdvancedOptionsButton'),
+              onPressed: _formBusy
+                  ? null
+                  : () {
+                      setState(
+                        () => _showFeiniuAdvanced = !_showFeiniuAdvanced,
+                      );
+                    },
+              style: _footerButtonStyle(
+                theme,
+                foregroundColor: context.appColors.textMuted,
+              ),
+              icon: Icon(
+                _showFeiniuAdvanced ? Icons.expand_less : Icons.expand_more,
+                size: 18,
+              ),
+              label: Text(
+                _showFeiniuAdvanced
+                    ? l10n.connectionCollapseOptions
+                    : l10n.connectionMoreOptions,
+              ),
+            ),
+          ),
+          if (_showFeiniuAdvanced) ...[
+            _buildFeiniuAdvanced(l10n, theme),
+            const SizedBox(height: 12),
+          ],
+        ],
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(
             children: [
-              _BackendSelector(
-                key: const Key('connectionBackendSelector'),
-                l10n: l10n,
-                selected: _selectedBackend,
-                onChanged: _selectBackend,
+              Expanded(
+                child: _buildRememberRow(
+                  theme,
+                  l10n,
+                  value: isFeiniu
+                      ? _rememberPassword
+                      : _serverForms[_selectedBackend]!.rememberPassword,
+                  onChanged: (value) {
+                    if (_formBusy) return;
+                    setState(() {
+                      if (isFeiniu) {
+                        _rememberPassword = value;
+                      } else {
+                        _serverForms[_selectedBackend]!.rememberPassword =
+                            value;
+                      }
+                    });
+                  },
+                ),
               ),
-              const SizedBox(height: 10),
-              _buildConnectionCardHeader(l10n),
-              const SizedBox(height: 10),
-              AnimatedSize(
-                duration: switchDuration,
-                curve: Curves.easeOutCubic,
-                child: AnimatedSwitcher(
-                  duration: switchDuration,
-                  switchInCurve: Curves.easeInOut,
-                  switchOutCurve: Curves.easeInOut,
-                  layoutBuilder: (currentChild, previousChildren) => Stack(
-                    alignment: Alignment.topCenter,
-                    children: <Widget>[
-                      ...previousChildren,
-                      if (currentChild != null) currentChild,
-                    ],
-                  ),
-                  child: KeyedSubtree(
-                    key: ValueKey<MediaBackendKind>(_selectedBackend),
-                    child: _buildFormFields(
+              Flexible(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    key: const Key('connectionLoginHistory'),
+                    onPressed: _formBusy ? null : _openLoginHistory,
+                    style: _footerButtonStyle(
                       theme,
-                      l10n,
-                      backend: _selectedBackend,
+                      foregroundColor: context.appColors.accentStrong,
                     ),
+                    icon: const Icon(Icons.history_rounded, size: 17),
+                    label: Text(l10n.flyAccountHistory),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 48,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _buildRememberRow(
-                        theme,
-                        l10n,
-                        value: isFeiniu
-                            ? _rememberPassword
-                            : _serverForms[_selectedBackend]!.rememberPassword,
-                        onChanged: (value) {
-                          setState(() {
-                            if (isFeiniu) {
-                              _rememberPassword = value;
-                            } else {
-                              _serverForms[_selectedBackend]!.rememberPassword =
-                                  value;
-                            }
-                          });
-                        },
-                      ),
-                    ),
-                    if (isFeiniu)
-                      TextButton(
-                        key: const Key('feiniuAdvancedOptionsButton'),
-                        onPressed: () {
-                          setState(() {
-                            _showFeiniuAdvanced = !_showFeiniuAdvanced;
-                          });
-                        },
-                        style: _footerButtonStyle(
-                          theme,
-                          foregroundColor: context.appColors.textMuted,
-                        ),
-                        child: Text(
-                          _showFeiniuAdvanced
-                              ? l10n.connectionCollapseOptions
-                              : l10n.connectionMoreOptions,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              AnimatedSize(
-                duration: switchDuration,
-                curve: Curves.easeOutCubic,
-                child: _inlineError == null
-                    ? const SizedBox.shrink()
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            key: const Key('connectionInlineErrorText'),
-                            _inlineError!,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: context.appColors.danger,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-              ),
-              const SizedBox(height: 9),
-              LoginSubmitButton(
-                key: const Key('connectionSubmitButton'),
-                isSubmitting: _isSubmitting,
-                label: l10n.connectionLogin,
-                onPressed: _isSubmitting || _switchingToFly ? null : _submit,
               ),
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: 36,
-          child: isFeiniu ? _buildFeiniuFooter(theme, l10n) : null,
+        AnimatedSize(
+          duration: switchDuration,
+          curve: Curves.easeOutCubic,
+          child: _inlineError == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      key: const Key('connectionInlineErrorText'),
+                      _inlineError!,
+                      style: TextStyle(
+                        color: context.appColors.danger,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
         ),
+        const SizedBox(height: 16),
+        LoginSubmitButton(
+          key: const Key('connectionSubmitButton'),
+          isSubmitting: _formBusy,
+          label: l10n.connectionLoginAndEnter,
+          busyLabel: _resettingFnLogin || _switchingToFly
+              ? l10n.accountProcessing
+              : l10n.connectionLoggingIn,
+          accountStyle: true,
+          onPressed: _formBusy ? null : _submit,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 15,
+              color: context.appColors.textMuted,
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                l10n.connectionDirectLoginNote(serviceName),
+                style: TextStyle(
+                  color: context.appColors.textMuted,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (isFeiniu) ...[
+          const SizedBox(height: 8),
+          _buildFeiniuFooter(theme, l10n),
+        ],
       ],
     );
   }
 
   Widget _buildConnectionCardHeader(AppLocalizations l10n) {
-    final colors = context.appColors;
-    final descriptor = _selectedBackend.isServerFamily
-        ? MediaBackendRegistry.requireDescriptor(_selectedBackend)
-        : null;
-    final serviceName = descriptor?.displayName ?? l10n.connectionFeiniuMedia;
-    return Row(
-      children: [
-        Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(
-            color: colors.accentStrong,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Text(
-            '${l10n.connectionLogin} $serviceName',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
+    return Text(
+      l10n.connectionDirectTitle,
+      style: TextStyle(
+        color: context.appColors.textPrimary,
+        fontSize: 25,
+        fontWeight: FontWeight.w700,
+      ),
     );
   }
 
@@ -1188,10 +1175,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final fields = <Widget>[
       LoginField(
         controller: baseController,
+        enabled: !_formBusy,
+        externalLabel: true,
         textFieldKey: serverKey,
         labelText: descriptor != null
             ? l10n.connectionServerAddressLabel(descriptor.displayName)
-            : l10n.connectionServerLabel,
+            : l10n.connectionFeiniuAddressLabel,
         hintText: descriptor != null
             ? l10n.connectionServerAddressExample(descriptor.serverUrlExample)
             : l10n.connectionServerExample,
@@ -1199,30 +1188,33 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         keyboardType: TextInputType.url,
         textInputAction: TextInputAction.next,
         autofillHints: const <String>[AutofillHints.url],
-        suffix: IconButton(
-          tooltip: l10n.connectionLoginHistory,
-          onPressed: _switchingToFly ? null : _openLoginHistory,
-          icon: Icon(
-            Icons.history_rounded,
-            color: _historyEntries.isEmpty
-                ? colors.textMuted.withValues(alpha: 0.55)
-                : colors.textMuted,
-          ),
-        ),
       ),
-      const SizedBox(height: 12),
+      if (form == null) ...[
+        const SizedBox(height: 6),
+        Text(
+          l10n.connectionFeiniuAddressHelp,
+          style: TextStyle(color: colors.textMuted, fontSize: 12, height: 1.5),
+        ),
+      ],
+      const SizedBox(height: 18),
       LoginField(
         controller: userController,
+        enabled: !_formBusy,
+        externalLabel: true,
         textFieldKey: userKey,
-        labelText: l10n.connectionAccountLabel,
+        labelText: l10n.connectionAccountForBackendLabel(
+          descriptor?.displayName ?? l10n.connectionFeiniuMedia,
+        ),
         hintText: l10n.connectionUserNameHint,
         leadingIcon: Icons.person_outline_rounded,
         textInputAction: TextInputAction.next,
         autofillHints: const <String>[AutofillHints.username],
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 18),
       LoginField(
         controller: passwordController,
+        enabled: !_formBusy,
+        externalLabel: true,
         textFieldKey: passwordKey,
         labelText: l10n.connectionPasswordHint,
         hintText: '',
@@ -1232,16 +1224,20 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         autofillHints: const <String>[AutofillHints.password],
         onSubmitted: (_) => _submit(),
         suffix: IconButton(
-          tooltip: l10n.connectionPasswordHint,
-          onPressed: () {
-            setState(() {
-              if (form != null) {
-                form.obscurePassword = !form.obscurePassword;
-              } else {
-                _obscurePassword = !_obscurePassword;
-              }
-            });
-          },
+          tooltip: obscure
+              ? l10n.connectionShowPassword
+              : l10n.connectionHidePassword,
+          onPressed: _formBusy
+              ? null
+              : () {
+                  setState(() {
+                    if (form != null) {
+                      form.obscurePassword = !form.obscurePassword;
+                    } else {
+                      _obscurePassword = !_obscurePassword;
+                    }
+                  });
+                },
           icon: Icon(
             obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
             color: colors.textMuted,
@@ -1250,38 +1246,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       ),
     ];
 
-    if (form == null && _showFeiniuAdvanced) {
-      fields
-        ..add(const SizedBox(height: 12))
-        ..add(
-          LoginField(
-            key: const Key('feiniuAccessCodeFieldContainer'),
-            textFieldKey: const Key('feiniuAccessCodeField'),
-            controller: _accessCodeController,
-            labelText: l10n.connectionAccessCodeOptional,
-            hintText: '',
-            leadingIcon: Icons.key_rounded,
-            obscureText: _obscureAccessCode,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _submit(),
-            suffix: IconButton(
-              tooltip: l10n.connectionAccessCodeOptional,
-              onPressed: () {
-                setState(() {
-                  _obscureAccessCode = !_obscureAccessCode;
-                });
-              },
-              icon: Icon(
-                _obscureAccessCode
-                    ? Icons.visibility_off_outlined
-                    : Icons.visibility_outlined,
-                color: colors.textMuted,
-              ),
-            ),
-          ),
-        );
-    }
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1289,33 +1253,60 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  Widget _buildFeiniuFooter(ThemeData theme, AppLocalizations l10n) {
+  Widget _buildFeiniuAdvanced(AppLocalizations l10n, ThemeData theme) {
     final colors = context.appColors;
-    return Center(
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 10,
-        runSpacing: 2,
-        children: [
-          TextButton(
-            onPressed: _switchingToFly ? null : _openDownloadedData,
-            style: _footerButtonStyle(theme, foregroundColor: colors.textMuted),
-            child: Text(l10n.connectionOpenDownloads),
-          ),
-          TextButton(
-            onPressed: _isSubmitting || _switchingToFly
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        LoginField(
+          key: const Key('feiniuAccessCodeFieldContainer'),
+          textFieldKey: const Key('feiniuAccessCodeField'),
+          controller: _accessCodeController,
+          enabled: !_formBusy,
+          externalLabel: true,
+          labelText: l10n.connectionAccessCodeOptional,
+          hintText: '',
+          leadingIcon: Icons.key_rounded,
+          obscureText: _obscureAccessCode,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _submit(),
+          suffix: IconButton(
+            tooltip: l10n.connectionAccessCodeOptional,
+            onPressed: _formBusy
                 ? null
-                : _resetFnConnectWebLoginState,
-            style: _footerButtonStyle(
-              theme,
-              foregroundColor: colors.textMuted,
-              disabledForegroundColor: colors.textMuted.withValues(alpha: 0.5),
-              fontWeight: FontWeight.w600,
+                : () {
+                    setState(() {
+                      _obscureAccessCode = !_obscureAccessCode;
+                    });
+                  },
+            icon: Icon(
+              _obscureAccessCode
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+              color: colors.textMuted,
             ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: _formBusy ? null : _resetFnConnectWebLoginState,
+            style: _footerButtonStyle(theme, foregroundColor: colors.textMuted),
             child: Text(l10n.fnConnectReloginTitle),
           ),
-        ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeiniuFooter(ThemeData theme, AppLocalizations l10n) {
+    final colors = context.appColors;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        onPressed: _formBusy ? null : _openDownloadedData,
+        style: _footerButtonStyle(theme, foregroundColor: colors.textMuted),
+        child: Text(l10n.connectionOpenDownloads),
       ),
     );
   }
@@ -1329,40 +1320,42 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final colors = context.appColors;
     return Row(
       children: [
-        // Expanded 提供有界宽度：英/日文案比中文长得多，内层 Text 需要
-        // 在固定宽度内折行（maxLines 2）而不是横向溢出。
         Expanded(
           child: InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: () => onChanged(!value),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: Checkbox(
-                    value: value,
-                    onChanged: (next) => onChanged(next ?? false),
-                    side: BorderSide(color: colors.borderStrong),
-                    fillColor: WidgetStateProperty.resolveWith(
-                      (states) => states.contains(WidgetState.selected)
-                          ? colors.selection
-                          : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            onTap: _formBusy ? null : () => onChanged(!value),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: Checkbox(
+                      value: value,
+                      onChanged: _formBusy
+                          ? null
+                          : (next) => onChanged(next ?? false),
+                      side: BorderSide(color: colors.borderStrong),
+                      fillColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
+                            ? colors.selection
+                            : Colors.transparent,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    l10n.connectionRememberLogin,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colors.textSecondary,
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      l10n.flyAccountRememberPassword,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colors.textSecondary,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1379,7 +1372,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return TextButton.styleFrom(
       foregroundColor: foregroundColor,
       disabledForegroundColor: disabledForegroundColor,
-      minimumSize: Size.zero,
+      minimumSize: const Size(44, 48),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       textStyle: theme.textTheme.bodySmall?.copyWith(
@@ -1400,15 +1393,10 @@ class _BackendSelector extends StatelessWidget {
 
   final AppLocalizations l10n;
   final MediaBackendKind selected;
-  final ValueChanged<MediaBackendKind> onChanged;
+  final ValueChanged<MediaBackendKind>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final selectionColor = loginAccentColor(context);
-    final animationDuration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 180);
     // 选项 = 飞牛（遗留族）+ 注册表登记的服务器族后端，新增后端自动出现。
     final legacyBackend = MediaBackendKind.values.firstWhere(
       (kind) => !kind.isServerFamily,
@@ -1426,58 +1414,22 @@ class _BackendSelector extends StatelessWidget {
           asset: descriptor.logoAsset,
         ),
     ];
-    final count = options.length;
-    final selectedIndex = options.indexWhere(
-      (option) => option.kind == selected,
-    );
-    final alignmentX = count <= 1
-        ? 0.0
-        : -1 + 2 * (selectedIndex < 0 ? 0 : selectedIndex) / (count - 1);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surfaceSubtle,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(2),
-        child: Stack(
-          children: [
-            // 滑动高亮：跟随选中项在各分区间平滑移动。
-            AnimatedAlign(
-              duration: animationDuration,
-              curve: Curves.easeOutCubic,
-              alignment: Alignment(alignmentX, 0),
-              child: FractionallySizedBox(
-                widthFactor: 1 / count,
-                child: Container(
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: selectionColor.withValues(alpha: 0.20),
-                    borderRadius: BorderRadius.circular(11),
-                    border: Border.all(
-                      color: selectionColor.withValues(alpha: 0.38),
-                    ),
-                  ),
-                ),
-              ),
+    return Row(
+      children: [
+        for (var index = 0; index < options.length; index++) ...[
+          if (index != 0) const SizedBox(width: 8),
+          Expanded(
+            child: _BackendSelectorButton(
+              label: options[index].label,
+              assetName: options[index].asset,
+              selected: options[index].kind == selected,
+              onTap: onChanged == null
+                  ? null
+                  : () => onChanged!(options[index].kind),
             ),
-            Row(
-              children: [
-                for (final option in options)
-                  Expanded(
-                    child: _BackendSelectorButton(
-                      label: option.label,
-                      assetName: option.asset,
-                      selected: option.kind == selected,
-                      onTap: () => onChanged(option.kind),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1493,45 +1445,50 @@ class _BackendSelectorButton extends StatelessWidget {
   final String label;
   final bool selected;
   final String assetName;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(10),
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
-        child: AnimatedDefaultTextStyle(
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : const Duration(milliseconds: 120),
-          curve: Curves.easeOutCubic,
-          style: TextStyle(
-            color: selected
-                ? context.appColors.textPrimary
-                : context.appColors.textSecondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
+      child: AnimatedContainer(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 120),
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.accent.withValues(alpha: 0.18)
+              : colors.surfaceSubtle,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? colors.accentStrong : colors.borderSubtle,
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Image.asset(
-                assetName,
-                width: 19,
-                height: 19,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(width: 5),
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(label, maxLines: 1, textAlign: TextAlign.center),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset(assetName, width: 19, height: 19, fit: BoxFit.contain),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: onTap == null
+                      ? colors.textMuted
+                      : selected
+                      ? colors.textPrimary
+                      : colors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

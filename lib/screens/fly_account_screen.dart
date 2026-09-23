@@ -17,7 +17,7 @@ import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
 import '../widgets/common/login_components.dart';
 import '../widgets/common/app_ambient_page.dart';
-import '../widgets/common/app_option_list.dart';
+import '../widgets/common/bird_loader.dart';
 import '../widgets/common/track_option_sheet.dart';
 
 part 'fly_account_widgets.dart';
@@ -322,6 +322,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     child: LoginField(
       controller: controller,
       labelText: label,
+      externalLabel: true,
       hintText: hint ?? label,
       enabled: enabled,
       leadingIcon: controller == url
@@ -340,7 +341,9 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
           : null,
       suffix: secret
           ? IconButton(
-              tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+              tooltip: _obscurePassword
+                  ? AppLocalizations.of(context).connectionShowPassword
+                  : AppLocalizations.of(context).connectionHidePassword,
               onPressed: enabled
                   ? () => setState(() => _obscurePassword = !_obscurePassword)
                   : null,
@@ -359,6 +362,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     final account = context.watch<FlyAccountController>();
     final blocked = account.busy || _historyBusy || _submitting || _leaving;
     return _FlyLoginPage(
+      onSwitch: blocked ? null : () => _enterMediaMode(account),
       child: Form(
         key: _form,
         child: Column(
@@ -367,9 +371,22 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
             _loginField(
               url,
               AppLocalizations.of(context).flyAccountServiceAddress,
-              hint: AppLocalizations.of(context).flyAccountServiceAddressHelp,
+              hint: AppLocalizations.of(context).flyAccountServiceAddressHint,
               enabled: !blocked,
               keyboard: TextInputType.url,
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: Text(
+                AppLocalizations.of(
+                  context,
+                ).flyAccountServiceAddressExplanation,
+                style: TextStyle(
+                  color: context.appColors.textMuted,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
             ),
             _loginField(
               username,
@@ -394,53 +411,65 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
                         ? null
                         : () =>
                               _setRememberPassword(account, !_rememberPassword),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: Checkbox(
-                            value: _rememberPassword,
-                            onChanged: blocked
-                                ? null
-                                : (value) => _setRememberPassword(
-                                    account,
-                                    value ?? false,
-                                  ),
-                            side: BorderSide(
-                              color: context.appColors.borderStrong,
-                            ),
-                            fillColor: WidgetStateProperty.resolveWith(
-                              (states) => states.contains(WidgetState.selected)
-                                  ? context.appColors.selection
-                                  : Colors.transparent,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            AppLocalizations.of(
-                              context,
-                            ).flyAccountRememberPassword,
-                            style: TextStyle(
-                              color: context.appColors.textSecondary,
-                              fontSize: 13,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: Checkbox(
+                              value: _rememberPassword,
+                              onChanged: blocked
+                                  ? null
+                                  : (value) => _setRememberPassword(
+                                      account,
+                                      value ?? false,
+                                    ),
+                              side: BorderSide(
+                                color: context.appColors.borderStrong,
+                              ),
+                              fillColor: WidgetStateProperty.resolveWith(
+                                (states) =>
+                                    states.contains(WidgetState.selected)
+                                    ? context.appColors.selection
+                                    : Colors.transparent,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              AppLocalizations.of(
+                                context,
+                              ).flyAccountRememberPassword,
+                              style: TextStyle(
+                                color: context.appColors.textSecondary,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-                TextButton.icon(
-                  onPressed: blocked ? null : () => _openHistory(account),
-                  icon: const Icon(Icons.history_rounded, size: 18),
-                  label: Text(AppLocalizations.of(context).flyAccountHistory),
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: blocked ? null : () => _openHistory(account),
+                      icon: const Icon(Icons.history_rounded, size: 18),
+                      label: Text(
+                        AppLocalizations.of(context).flyAccountHistory,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
             ExpansionTile(
+              enabled: !blocked,
               tilePadding: EdgeInsets.zero,
               childrenPadding: EdgeInsets.zero,
               title: Text(
@@ -458,18 +487,29 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            if (account.message != null) ...[
+              _FlyMessage(account.message!),
+              const SizedBox(height: 12),
+            ],
             LoginSubmitButton(
               isSubmitting: account.busy || _submitting,
+              accountStyle: true,
+              busyLabel: _submitting
+                  ? AppLocalizations.of(context).connectionLoggingIn
+                  : AppLocalizations.of(context).accountProcessing,
               onPressed: blocked ? null : () => _login(account),
-              label: AppLocalizations.of(context).flyAccountLogin,
+              label: AppLocalizations.of(context).flyAccountLoginSelectSource,
             ),
-            if (account.message != null) _FlyMessage(account.message!),
             if (_historyMessage != null) _FlyMessage(_historyMessage!),
             const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: blocked ? null : () => _enterMediaMode(account),
-              icon: const Icon(Icons.lan_outlined, size: 18),
-              label: Text(AppLocalizations.of(context).flyAccountMediaLogin),
+            Text(
+              AppLocalizations.of(context).flyAccountIndependentCredentials,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: context.appColors.textMuted,
+                fontSize: 12,
+                height: 1.5,
+              ),
             ),
           ],
         ),
@@ -478,29 +518,89 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
   }
 }
 
-class FlyBindingsScreen extends StatelessWidget {
+class FlyBindingsScreen extends StatefulWidget {
   const FlyBindingsScreen({super.key});
-  Future<void> _run(Future<void> Function() action) async {
-    try {
-      await action();
-    } catch (_) {}
-  }
 
-  void _returnToMedia(BuildContext context) {
+  @override
+  State<FlyBindingsScreen> createState() => _FlyBindingsScreenState();
+}
+
+class _FlyBindingsScreenState extends State<FlyBindingsScreen> {
+  bool _confirmingLogout = false, _refreshing = false;
+  Object? _activatingBindingId;
+
+  bool _blocked(FlyAccountController account) =>
+      account.busy ||
+      _confirmingLogout ||
+      _refreshing ||
+      _activatingBindingId != null;
+
+  void _returnToMedia() {
     final route = ModalRoute.of(context);
     if (route != null && route.isCurrent && !route.isFirst) {
       Navigator.of(context).pop();
     }
   }
 
+  Future<void> _refresh(FlyAccountController account) async {
+    if (_blocked(account)) return;
+    setState(() => _refreshing = true);
+    try {
+      await account.refresh();
+    } catch (_) {
+      // 控制器保留安全化错误和现有来源，页面只结束局部忙碌反馈。
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _logout(FlyAccountController account) async {
+    final session = account.session;
+    if (_blocked(account) || session == null) return;
+    final epoch = account.accountEpoch;
+    setState(() => _confirmingLogout = true);
+    try {
+      final l10n = AppLocalizations.of(context);
+      final confirmed = await showAppConfirmDialog(
+        context,
+        title: l10n.flyAccountLogoutConfirmTitle,
+        content: l10n.flyAccountLogoutConfirmMessage,
+        cancelText: l10n.commonCancel,
+        confirmText: l10n.flyAccountLogoutConfirmAction,
+      );
+      if (!confirmed || !mounted || account.busy) return;
+      final current = account.session;
+      if (current == null ||
+          current.accountKey != session.accountKey ||
+          current.token != session.token ||
+          current.deviceId != session.deviceId ||
+          account.accountEpoch != epoch) {
+        return;
+      }
+      await account.logout();
+    } catch (_) {
+      // 退出失败信息由控制器显示，不把关闭确认弹窗当作退出。
+    } finally {
+      if (mounted) setState(() => _confirmingLogout = false);
+    }
+  }
+
   Future<void> _enterSource(
-    BuildContext context,
     FlyAccountController account,
     Map<String, dynamic> binding,
   ) async {
-    final current = account.activeBindingId == binding['id'];
-    if (current || await activateFlyBinding(context, account, binding)) {
-      if (context.mounted) _returnToMedia(context);
+    if (_blocked(account)) return;
+    if (account.activeBindingId == binding['id']) {
+      _returnToMedia();
+      return;
+    }
+    setState(() => _activatingBindingId = binding['id']);
+    try {
+      if (await activateFlyBinding(context, account, binding) && mounted) {
+        _returnToMedia();
+      }
+    } finally {
+      if (mounted) setState(() => _activatingBindingId = null);
     }
   }
 
@@ -512,99 +612,110 @@ class FlyBindingsScreen extends StatelessWidget {
     final bindings = account.bindings
         .where((binding) => binding['status'] != 'unbound')
         .toList();
-    final colors = context.appColors;
-    return _page(AppLocalizations.of(context).flyAccountTitle, [
-      LoginFormPanel(
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: colors.accentSoft,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(Icons.person_outline_rounded, color: colors.accent),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
+    final currentIndex = bindings.indexWhere(
+      (binding) => binding['id'] == account.activeBindingId,
+    );
+    final current = currentIndex < 0 ? null : bindings[currentIndex];
+    final otherBindings = bindings
+        .where((binding) => binding['id'] != current?['id'])
+        .toList();
+    final blocked = _blocked(account);
+    final l10n = AppLocalizations.of(context);
+
+    Widget sourceCard(Map<String, dynamic> binding) => _FlySourceCard(
+      binding: binding,
+      current: binding['id'] == current?['id'],
+      hasCurrentSource: current != null,
+      busy: blocked,
+      connecting: _activatingBindingId == binding['id'],
+      onEnter: () => _enterSource(account, binding),
+    );
+
+    return _FlyAccountPage(
+      title: l10n.flyAccountTitle,
+      identityBuilder: (desktop) => _FlyAccountIdentity(
+        desktop: desktop,
+        username: session.username,
+        serverUrl: session.serverUrl,
+        deviceName: session.deviceName,
+        onLogout: blocked ? null : () => _logout(account),
+      ),
+      children: [
+        _FlySectionTitle(
+          title: l10n.flyAccountMySources,
+          subtitle: l10n.flyAccountSourceCount(bindings.length.toString()),
+          action: IconButton(
+            tooltip: l10n.flyAccountRefreshSources,
+            onPressed: blocked ? null : () => _refresh(account),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ),
+        const SizedBox(height: 18),
+        if (bindings.isEmpty &&
+            !account.busy &&
+            !_refreshing &&
+            account.message == null)
+          LoginFormPanel(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Icon(Icons.video_library_outlined, size: 36),
+                  const SizedBox(height: 12),
+                  Text(l10n.flyAccountAddFirstSource),
+                  const SizedBox(height: 8),
                   Text(
-                    session.username,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    AppLocalizations.of(context).flyAccountAdminSharedSubtitle,
-                    style: TextStyle(color: colors.textMuted, fontSize: 12),
+                    l10n.flyAccountAddFirstSourceSubtitle,
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
             ),
-            TextButton(
-              onPressed: account.busy ? null : () => _run(account.logout),
-              child: Text(AppLocalizations.of(context).flyAccountLogout),
+          ),
+        if (current != null) ...[
+          sourceCard(current),
+          if (otherBindings.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            Text(
+              l10n.flyAccountOtherSources,
+              style: TextStyle(
+                color: context.appColors.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
             ),
+            const SizedBox(height: 14),
           ],
-        ),
-      ),
-      const SizedBox(height: 20),
-      _FlySectionTitle(
-        title: AppLocalizations.of(context).flyAccountMySources,
-        subtitle: AppLocalizations.of(
-          context,
-        ).flyAccountSourceCount(bindings.length.toString()),
-        action: IconButton(
-          tooltip: AppLocalizations.of(context).flyAccountRefreshSources,
-          onPressed: account.busy ? null : () => _run(account.refresh),
-          icon: const Icon(Icons.refresh_rounded),
-        ),
-      ),
-      const SizedBox(height: 12),
-      if (bindings.isEmpty && !account.busy && account.message == null)
-        LoginFormPanel(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              children: [
-                const Icon(Icons.video_library_outlined, size: 36),
-                const SizedBox(height: 12),
-                Text(AppLocalizations.of(context).flyAccountAddFirstSource),
-                const SizedBox(height: 6),
-                Text(
-                  AppLocalizations.of(context).flyAccountAddFirstSourceSubtitle,
-                  textAlign: TextAlign.center,
-                ),
-              ],
+        ],
+        for (final binding in otherBindings) ...[
+          sourceCard(binding),
+          const SizedBox(height: 12),
+        ],
+        if (_refreshing || account.busy && _activatingBindingId == null) ...[
+          const SizedBox(height: 12),
+          const Center(child: BirdLoader()),
+          Center(
+            child: _FlyMessage(
+              _refreshing ? l10n.flyAccountRefreshing : l10n.accountProcessing,
             ),
           ),
-        ),
-      for (final binding in bindings) ...[
-        _FlySourceCard(
-          binding: binding,
-          current: account.activeBindingId == binding['id'],
-          busy: account.busy,
-          onEnter: () => _enterSource(context, account, binding),
-        ),
-        const SizedBox(height: 12),
+        ],
+        if (account.message != null) _FlyMessage(account.message!),
+        if (bindings.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Text(
+            l10n.flyAccountSourceHelpDetail,
+            style: TextStyle(
+              color: context.appColors.textMuted,
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+        ],
       ],
-      if (account.busy)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 16),
-          child: LinearProgressIndicator(),
-        ),
-      if (account.message != null) _FlyMessage(account.message!),
-    ]);
+    );
   }
 }
-
-Widget _page(String title, List<Widget> children) =>
-    _FlyAccountPage(title: title, children: children);
 
 Future<String?> _showFlyOptions(
   BuildContext context, {

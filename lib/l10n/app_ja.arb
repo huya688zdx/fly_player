@@ -213,8 +213,8 @@
   "connectionFeiniuMedia": "fnOSメディア",
   "connectionFeiniuNas": "fnOS NAS",
   "connectionTagline": "メディアサービスに接続して、映像の世界をお楽しみください",
-  "connectionMoreOptions": "その他のオプション",
-  "connectionCollapseOptions": "その他のオプションを折りたたむ",
+  "connectionMoreOptions": "Feiniu詳細設定",
+  "connectionCollapseOptions": "詳細設定を閉じる",
   "loginErrorGenericFailure": "ログインに失敗しました。もう一度お試しください",
   "loginErrorInvalidServerAddress": "サーバーアドレスの形式が正しくありません",
   "loginErrorInvalidCredentials": "ユーザー名またはパスワードが違います",
@@ -2461,7 +2461,7 @@
   "flyAccountRemove": "削除",
   "flyAccountTitle": "アカウントとメディアソース",
   "flyAccountSharedAccountSubtitle": "Fly アカウント · アプリと NAS で共通",
-  "flyAccountLogout": "アカウントを切り替え",
+  "flyAccountLogout": "ログアウトしてアカウントを切り替え",
   "flyAccountMySources": "自分のメディアソース",
   "flyAccountChooseSourceSubtitle": "ソースを選択して、いつものメディアライブラリで視聴を続けましょう。",
   "flyAccountRefreshSources": "メディアソースを更新",
@@ -2519,10 +2519,10 @@
   "flyAccountBrand": "Fly",
   "flyAccountTagline": "メディアにつないで、視聴の続きを",
   "flyAccountLoginTitle": "Fly アカウントにログイン",
-  "flyAccountLoginSubtitle": "アプリと NAS で共通のアカウントを使って、メディアソースと視聴履歴を管理できます。",
+  "flyAccountLoginSubtitle": "Flyアカウントで連携済みのメディアソースにアクセスします。",
   "flyAccountStatusConnectable": "接続可能",
-  "flyAccountStatusOffline": "一時的にオフラインです。接続を試すことができます",
-  "flyAccountStatusReauthRequired": "メディアアカウントへの再ログインが必要です",
+  "flyAccountStatusOffline": "サーバー側でオフラインと表示",
+  "flyAccountStatusReauthRequired": "再認証が必要",
   "flyAccountStatusUnbound": "削除済み。再生履歴は保持されています",
   "flyAccountStatusUnavailable": "現在利用できません",
   "flyAccountSourceSettings": "ソースの設定",
@@ -2833,5 +2833,52 @@
   "flyCatalogSyncedInfoConnectionHint": "同期済みの情報があっても、現在のアドレスに接続できるとは限りません。接続に問題がある場合は、「アカウントとメディアソース」で再試行するか、接続設定を開いてください。",
   "flyCatalogSyncedInfoTooltip": "同期済み作品について",
   "flyCatalogLoadTitlesAction": "同期済みの作品を読み込む",
-  "flyCatalogCurrentTitleAssistant": "情報アシスタント · 現在の作品"
+  "flyCatalogCurrentTitleAssistant": "情報アシスタント · 現在の作品",
+  "accountConnectionFlyMode": "Flyアカウント",
+  "accountConnectionDirectMode": "直接接続",
+  "accountProcessing": "処理中…",
+  "accountBrandFlyTitle": "ひとつのアカウントでメディアへ",
+  "accountBrandFlyDescription": "Flyアカウントでログインし、連携済みのメディアソースを選択します。",
+  "accountBrandDirectTitle": "メディアライブラリに直接接続",
+  "accountBrandDirectDescription": "メディアサービスのアドレスとアカウントでライブラリに接続します。",
+  "accountBrandFlyPath": "Flyアカウント → ソースを選択 → ライブラリ",
+  "accountBrandDirectPath": "サービスを選択 → ログイン → ライブラリ",
+  "connectionDirectTitle": "メディアサービスに直接接続",
+  "connectionDirectSubtitle": "Flyアカウントを介さず、メディアサービスのアカウントでログインします。",
+  "connectionAccountForBackendLabel": "{backend}アカウント",
+  "@connectionAccountForBackendLabel": {
+    "placeholders": {
+      "backend": {
+        "type": "String"
+      }
+    }
+  },
+  "connectionLoginAndEnter": "ログインしてライブラリへ",
+  "connectionLoggingIn": "ログイン中…",
+  "connectionFeiniuAddressLabel": "Feiniuアドレス / FN Connect ID",
+  "connectionFeiniuAddressHelp": "FeiniuサーバーアドレスまたはFN Connect IDを入力します。",
+  "connectionDirectLoginNote": "このログインは{backend}専用です。Flyへの連携は自動追加されません。",
+  "@connectionDirectLoginNote": {
+    "placeholders": {
+      "backend": {
+        "type": "String"
+      }
+    }
+  },
+  "connectionSwitchToFlyFailed": "切り替えできませんでした。もう一度お試しください。",
+  "flyAccountServiceAddressExplanation": "FeiniuやEmbyのメディアサーバーではなく、Flyサービスのアドレスを入力してください。",
+  "flyAccountLoginSelectSource": "ログインしてソースを選択",
+  "flyAccountLoggedIn": "ログイン済み",
+  "flyAccountOtherSources": "別のソースに切り替え",
+  "flyAccountSwitchAndEnter": "切り替えて開く",
+  "flyAccountTryConnect": "接続を試す",
+  "flyAccountConnecting": "接続中",
+  "flyAccountRefreshing": "更新中",
+  "flyAccountLogoutConfirmTitle": "ログアウトしてアカウントを切り替えますか？",
+  "flyAccountLogoutConfirmMessage": "現在のFlyアカウントからログアウトし、この端末で使用中のメディアソースを切断します。ログイン履歴は保持され、保存済みのアカウントを選ぶか、別のアカウントでログインできます。サーバー側の連携は解除されません。",
+  "flyAccountLogoutConfirmAction": "ログアウトして続行",
+  "flyAccountReuseAuthorization": "Flyの既存の連携認証を使用するため、メディアサービスへの再ログインは不要です。",
+  "flyAccountIndependentCredentials": "Flyとメディアサービスのアカウントは別です。それぞれのパスワードを使用してください。",
+  "connectionShowPassword": "パスワードを表示",
+  "connectionHidePassword": "パスワードを隠す"
 }
