@@ -46,6 +46,22 @@ void main() {
     );
     expect(selected, remote);
     expect(probes, [remote]);
+    probes.clear();
+    const fn = 'https://media.example.fnos.net';
+    final fnSelected = await selectFlyMediaAddress(
+      addresses: [
+        address(lan),
+        address(remote, purpose: 'client_remote', priority: 10),
+        address(fn, purpose: 'client_remote', priority: 20),
+      ],
+      kind: 'emby',
+      expectedId: 'instance-a',
+      preferredAddress: remote,
+      preferFnRelay: true,
+      verify: verify,
+    );
+    expect(fnSelected, fn);
+    expect(probes, [fn]);
   });
 
   test('failed LAN falls back to verified remote', () async {

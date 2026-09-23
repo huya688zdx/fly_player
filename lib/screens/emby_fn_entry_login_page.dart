@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_windows/webview_windows.dart' as windows_webview;
 
@@ -15,6 +16,20 @@ typedef FlyFnAuthorization = ({
   String entryToken,
   Map<String, String> gatewayCookies,
 });
+
+/// 从 Android CookieManager 为精确身份接口返回的 Cookie 请求头中筛选授权项。
+Map<String, String> _parseFlyGatewayCookieHeader(String rawCookies) {
+  final selected = <String, String>{};
+  for (final raw in rawCookies.split(';')) {
+    final separator = raw.indexOf('=');
+    if (separator <= 0) continue;
+    final name = raw.substring(0, separator).trim();
+    if (const {'entry-token', 'mode', 'ost'}.contains(name)) {
+      selected.putIfAbsent(name, () => raw.substring(separator + 1).trim());
+    }
+  }
+  return selected;
+}
 
 /// 在真实 FN 登录流程中取得所选服务的入口凭据。
 /// 飞翔应用还需交接飞牛网关的 HttpOnly Cookie，由账号登录流程验证应用身份。
@@ -43,6 +58,9 @@ class EmbyFnEntryLoginPage extends StatefulWidget {
 
 class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   static const String _bridgeName = 'FnEntryBridge';
+  static const MethodChannel _androidFlyGatewayCookieChannel = MethodChannel(
+    'fly_player/fn_web_cookies',
+  );
 
   WebViewController? _controller;
   windows_webview.WebviewController? _windowsController;
@@ -61,7 +79,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   bool _isReady = false;
   bool _isClosing = false;
   bool _flyAuthorizationStarted = false;
-  bool _autoRedirectedToTarget = false;
+  bool _openedFnDesktop = false;
   int _progress = 0;
   String _statusText = '';
 
@@ -230,24 +248,14 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
           pageHost == 'fnos.net' ||
           pageHost == 'www.fnos.net' ||
           pageHost == '5ddd.com';
-      final lower = pageUrl.toLowerCase();
+      // Emby 的 #!/login.html 是应用内路由；网关已放行时可交接入口令牌。
+      final lower = (page?.path ?? '').toLowerCase();
       final isAuthPage =
           lower.contains('/login') ||
           lower.contains('/signin') ||
           lower.contains('/oauth') ||
           lower.contains('/authorize');
       if (isEntryDomain || isAuthPage) return;
-
-      final names = cookie
-          .split(';')
-          .map((e) => e.split('=').first.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-      if (!_requiresSecureTarget) {
-        debugPrint(
-          '[EmbyEntry] host=$pageHost blocked=$blocked cookies=$names url=$pageUrl',
-        );
-      }
 
       // 只在真正落到目标 Emby 主机、且不是被拦截页时抓取——此时的 entry-token 才是对
       // Emby 服务已生效的那个（桌面/同域页上的可能对该子服务无效）。
@@ -257,6 +265,13 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
             setState(() {
               _statusText = AppLocalizations.of(context).fnConnectEntryBlocked;
             });
+          }
+          // FN 发布应用需要从 NAS 桌面启动才能签发该应用的入口令牌。
+          if (!_requiresSecureTarget &&
+              !_openedFnDesktop &&
+              _fnIdFamily.isNotEmpty) {
+            _openedFnDesktop = true;
+            unawaited(_openFnDesktop());
           }
           return;
         }
@@ -272,22 +287,31 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         // 飞翔的 NAS 桌面可能与应用入口同主机，但仍需转到精确应用路径。
         if (!_requiresSecureTarget) return;
       }
-
-      // 普通 Emby 的已登录同域页自动跳一次目标地址；飞翔由用户手动继续。
-      if (!_requiresSecureTarget &&
-          _isSameFnIdFamily(pageHost) &&
-          !blocked &&
-          !_autoRedirectedToTarget) {
-        _autoRedirectedToTarget = true;
-        debugPrint('[EmbyEntry] redirect → ${widget.serverUrl}');
-        final windowsController = _windowsController;
-        if (windowsController != null) {
-          unawaited(windowsController.loadUrl(widget.serverUrl));
-        } else {
-          unawaited(_controller?.loadRequest(Uri.parse(widget.serverUrl)));
-        }
-      }
     } catch (_) {}
+  }
+
+  Future<void> _openFnDesktop() async {
+    final desktopUrl = 'https://$_fnIdFamily/';
+    final controller = _windowsController;
+    if (controller != null) {
+      // 当前页面是该 NAS 的应用子域，先为同一 NAS 选择中继再进入桌面。
+      await controller.executeScript(
+        'document.cookie=${jsonEncode('mode=relay; domain=$_fnIdFamily; path=/; Secure')};',
+      );
+      if (!mounted || _isClosing) return;
+      await controller.loadUrl(desktopUrl);
+    } else {
+      await WebViewCookieManager().setCookie(
+        WebViewCookie(
+          name: 'mode',
+          value: 'relay',
+          domain: _fnIdFamily,
+          path: '/',
+        ),
+      );
+      if (!mounted || _isClosing) return;
+      await _controller?.loadRequest(Uri.parse(desktopUrl));
+    }
   }
 
   static String _extractEntryToken(String cookie) {
@@ -331,6 +355,26 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
           }
           gatewayCookies[name] = value;
         }
+      } else if (defaultTargetPlatform == TargetPlatform.android) {
+        // Android 的 document.cookie 读不到 HttpOnly 网关 Cookie，必须从同一
+        // WebView CookieManager 按精确身份接口 URL 读取浏览器实际会发送的值。
+        final rawCookies =
+            await _androidFlyGatewayCookieChannel.invokeMethod<
+              String
+            >('getFlyGatewayCookies', <String, String>{
+              'url':
+                  '$_targetOrigin/app/fly-data-service/api/v1/system/identity',
+            }) ??
+            '';
+        final selected = _parseFlyGatewayCookieHeader(rawCookies);
+        entryToken = selected['entry-token'] ?? entryToken;
+        for (final name in const ['mode', 'ost']) {
+          final value = selected[name];
+          if (value == null || value.isEmpty) {
+            throw StateError('飞牛网关授权尚未完成。');
+          }
+          gatewayCookies[name] = value;
+        }
       }
       _completeSuccess((
         entryToken: entryToken,
@@ -358,12 +402,6 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
     return _originOf(page) == _targetOrigin &&
         (path == '/app/fly-data-service' ||
             path.startsWith('/app/fly-data-service/'));
-  }
-
-  bool _isSameFnIdFamily(String host) {
-    if (!_requiresSecureTarget) return host.endsWith('.fnos.net');
-    return _fnIdFamily.isNotEmpty &&
-        (host == _fnIdFamily || host.endsWith('.$_fnIdFamily'));
   }
 
   static String _originOf(Uri? uri) {

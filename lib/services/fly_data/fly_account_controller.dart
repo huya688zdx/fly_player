@@ -10,7 +10,9 @@ import '../../providers/nas_provider.dart';
 import '../media_backend_connection_store.dart';
 import '../play_stats/play_stats_service.dart';
 import 'fly_data_service.dart';
+import 'fly_data_api.dart';
 import 'fly_media_address_selector.dart';
+import 'fly_media_identity.dart';
 import 'fly_data_sync_store.dart';
 
 /// Account, binding and address operations are serialized. Playback uses only
@@ -295,9 +297,13 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> activate(
     Map<String, dynamic> binding, {
     String? address,
+    String fnEntryToken = '',
   }) => _run(() async {
     if (!['active', 'offline'].contains(binding['status'])) {
       throw StateError('此绑定需要重新授权。');
+    }
+    if (fnEntryToken.isNotEmpty && address == null) {
+      throw StateError('FN 入口授权必须对应明确的媒体地址。');
     }
     final access = await service.request(
       '/bindings/${binding['id']}/device-access',
@@ -308,6 +314,9 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
       throw StateError('绑定版本已改变，请刷新。');
     }
     final server = Map<String, dynamic>.from(access['server'] as Map);
+    if (fnEntryToken.isNotEmpty && server['kind'] == 'feiniu') {
+      throw StateError('飞牛影视使用 NAS 授权，无需应用入口令牌。');
+    }
     final addresses = (server['addresses'] as List)
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
@@ -323,6 +332,21 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         'fly.address.$accountKey.${binding['id']}',
       ),
       explicitAddress: address,
+      preferFnRelay: isFlyFnApplicationUrl(session?.serverUrl ?? ''),
+      verify: fnEntryToken.isEmpty
+          ? null
+          : ({
+              required address,
+              required kind,
+              required expectedId,
+              required timeout,
+            }) => verifyFlyMediaAddress(
+              address: address,
+              kind: kind,
+              expectedId: expectedId,
+              timeout: timeout,
+              fnEntryToken: fnEntryToken,
+            ),
     );
     final connection = MediaBackendConnection.fromJson({
       'kind': server['kind'],
@@ -331,6 +355,7 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
       'userName': access['remote_username'],
       'userId': access['remote_user_id'],
       'accessToken': access['access_token'],
+      'entryToken': fnEntryToken,
       'bindingId': binding['id'],
       'bindingRevision': access['binding_revision'],
       'accountKey': accountKey,

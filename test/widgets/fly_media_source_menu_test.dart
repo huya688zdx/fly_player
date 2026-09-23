@@ -66,7 +66,11 @@ class _MenuAccount extends FlyAccountController {
   final activationAddresses = <String?>[];
   bool fail = false;
   @override
-  Future<void> activate(Map<String, dynamic> binding, {String? address}) async {
+  Future<void> activate(
+    Map<String, dynamic> binding, {
+    String? address,
+    String fnEntryToken = '',
+  }) async {
     activations.add(binding['id'] as String);
     activationAddresses.add(address);
     if (fail) throw StateError('媒体服务器暂时无法连接');

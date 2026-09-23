@@ -18,6 +18,7 @@ Future<String> selectFlyMediaAddress({
   required String expectedId,
   String? preferredAddress,
   String? explicitAddress,
+  bool preferFnRelay = false,
   FlyMediaAddressVerifier? verify,
 }) async {
   if (expectedId.trim().isEmpty) {
@@ -63,6 +64,16 @@ Future<String> selectFlyMediaAddress({
     final preferred = _safeBaseUrl(preferredAddress);
     if (preferred != null && ordered.remove(preferred)) {
       ordered.insert(0, preferred);
+    }
+    // FN 账号优先使用管理员明确登记的 FN 媒体入口，不由账号域名推测地址。
+    if (preferFnRelay) {
+      final relay = ordered.where((address) {
+        final uri = Uri.parse(address);
+        return uri.scheme == 'https' && uri.host.endsWith('.fnos.net');
+      }).toList();
+      ordered
+        ..removeWhere(relay.contains)
+        ..insertAll(0, relay);
     }
   }
   final probe = verify ?? verifyFlyMediaAddress;
