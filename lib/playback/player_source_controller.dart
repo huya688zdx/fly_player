@@ -423,11 +423,15 @@ class PlayerSourceController {
         : (targetVideoInfo?.guid.trim().isNotEmpty == true
               ? targetVideoInfo!.guid.trim()
               : snapshot.videoGuid);
-    if (selectedQuality != null && selectedQuality.isDirectLink) {
-      final directLinkQualityIndex = selectedQuality.directLinkQualityIndex;
-      final directLinkTarget = targetPlaybackStream?.buildDirectLinkTarget(
-        directLinkQualityIndex,
-      );
+    if (selectedQuality != null &&
+        (selectedQuality.isDirectLink || selectedQuality.isOriginalProxy)) {
+      final directLinkQualityIndex = selectedQuality.isDirectLink
+          ? selectedQuality.directLinkQualityIndex
+          : null;
+      // 原画使用文件原始流，不能套用转码或网盘清晰度直链。
+      final directLinkTarget = selectedQuality.isDirectLink
+          ? targetPlaybackStream?.buildDirectLinkTarget(directLinkQualityIndex)
+          : null;
       final playUrl =
           directLinkTarget?.url ??
           api.getStreamUrl(
@@ -479,7 +483,7 @@ class PlayerSourceController {
           selectedSubtitleTrack,
           snapshot.serverFallbackSubtitleGuids,
         ),
-        playbackMode: PlayerPlaybackMode.directLinkQuality,
+        playbackMode: playbackModeForQuality(selectedQuality),
         oldSessionId: snapshot.activeProxySessionId,
         oldSubtitleSessionId: snapshot.activeSubtitleProxySessionId,
       );

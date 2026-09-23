@@ -392,6 +392,59 @@ internal fun nativePanelQualityTierLabel(rank: Int): String {
     }
 }
 
+internal fun nativePanelQualityIsOriginal(quality: Map<String, Any?>): Boolean =
+    quality["source"]?.toString() == "originalProxy" || nativePanelTruthy(quality["isDefault"])
+
+internal fun nativePanelQualityMatchesPlayback(
+    quality: Map<String, Any?>,
+    current: Map<String, Any?>,
+): Boolean {
+    for (key in listOf("mediaGuid", "videoGuid")) {
+        val rawCandidate = quality[key]?.toString()?.trim().orEmpty()
+        // Emby/Jellyfin 的候选 ID 包含版本与档位，当前媒体 ID 只有版本部分。
+        val candidate = if (key == "mediaGuid" && rawCandidate.startsWith("emby:q:"))
+            rawCandidate.removePrefix("emby:q:").substringBefore(':') else rawCandidate
+        val active = current[key]?.toString()?.trim().orEmpty()
+        if (candidate.isNotEmpty() && active.isNotEmpty() && candidate != active) return false
+    }
+    if (current["playbackMode"] == "originalQuality") return nativePanelQualityIsOriginal(quality)
+    val directMode = current["playbackMode"] == "directLinkQuality"
+    if ((quality["source"] == "directLink") != directMode) return false
+    val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+    val currentResolution = current["resolution"]?.toString()?.trim().orEmpty()
+    if (resolution.isEmpty() || currentResolution.isEmpty()) return false
+    val rank = nativePanelQualityTierRank(resolution)
+    val sameResolution = if (rank > 0) rank == nativePanelQualityTierRank(currentResolution)
+        else resolution.equals(currentResolution, ignoreCase = true)
+    // 同一文件的各转码档共用 GUID；实际分辨率和码率才标识当前画质。
+    return sameResolution && (nativePanelQualityBitrate(current) <= 0L ||
+        nativePanelQualityBitrate(quality) == nativePanelQualityBitrate(current))
+}
+
+internal fun nativePanelQualityMainIndices(
+    qualities: List<Map<String, Any?>>,
+    current: Map<String, Any?>,
+): List<Int> {
+    val bestByTier = LinkedHashMap<Int, Int>()
+    var original: Int? = null
+    fun prefer(candidate: Int, existing: Int): Boolean {
+        val candidateSelected = nativePanelQualityMatchesPlayback(qualities[candidate], current)
+        val existingSelected = nativePanelQualityMatchesPlayback(qualities[existing], current)
+        return if (candidateSelected != existingSelected) candidateSelected
+        else nativePanelPreferEpisodeVersionQuality(qualities[candidate], qualities[existing])
+    }
+    for ((index, quality) in qualities.withIndex()) {
+        if (nativePanelQualityIsOriginal(quality)) {
+            if (original == null || prefer(index, original)) original = index
+        } else {
+            val rank = nativePanelQualityTierRank(quality["resolution"]?.toString())
+            val existing = bestByTier[rank]
+            if (existing == null || prefer(index, existing)) bestByTier[rank] = index
+        }
+    }
+    return listOfNotNull(original) + bestByTier.entries.sortedByDescending { it.key }.map { it.value }
+}
+
 internal data class NativeEpisodeVersionEntry(
     val sourceIndex: Int,
     val mediaGuid: String,
@@ -427,6 +480,19 @@ internal fun nativePanelBitrateLabel(bitrateBitsPerSecond: Long): String {
         .stripTrailingZeros()
         .toPlainString()
     return "${if (mbps == "0") "<0.01" else mbps} Mbps"
+}
+
+/** 与 Flutter 切画质提示同源，只显示本次档位中确实提供的分辨率和码率。 */
+internal fun nativePanelQualitySwitchingHint(context: Context, quality: Map<String, Any?>): String {
+    val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+    val tier = nativePanelQualityTierLabel(nativePanelQualityTierRank(resolution)).ifEmpty { resolution }
+    if (tier.isEmpty()) return context.nativePanelString(R.string.player_switch_quality_loading)
+    val label = if (nativePanelQualityIsOriginal(quality)) {
+        "$tier ${context.nativePanelString(R.string.player_original_quality)}"
+    } else tier
+    val bitrate = nativePanelBitrateLabel(nativePanelQualityBitrate(quality))
+    val suffix = if (bitrate.isEmpty()) "" else "（$bitrate）"
+    return context.nativePanelString(R.string.player_quality_switching, label, suffix)
 }
 
 /** 版本卡副标题：分辨率 · 视频时长 · 码率（不再写来源「转码/原画」）。 */
@@ -534,6 +600,12 @@ internal fun nativePanelLoadArgsForEpisodeSwitch(
         this["startPaused"] = false
     }
 }
+
+internal fun nativePanelShouldOfferResumeOnLoad(
+    previousItemGuid: String,
+    nextItemGuid: String,
+    isInSessionSwitch: Boolean,
+): Boolean = !isInSessionSwitch || previousItemGuid.isEmpty() || previousItemGuid != nextItemGuid
 
 private fun nativePanelBestWeakNetworkTarget(
     sorted: List<IndexedValue<Map<String, Any?>>>,
@@ -883,6 +955,16 @@ internal fun nativePanelShouldRestoreControlsAfterPipExit(
 
 internal fun nativePanelShouldApplyPlaybackState(activityDestroying: Boolean): Boolean =
     !activityDestroying
+
+internal fun nativePanelHasPlaybackProgress(state: MpvPlayerState, previousPositionMs: Long): Boolean =
+    state.ready && state.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue &&
+        !state.paused && !state.buffering && state.error == null &&
+        previousPositionMs in 0 until state.positionMs
+
+internal fun nativePanelShouldShowPlaybackLoading(state: MpvPlayerState, playbackProgressing: Boolean): Boolean =
+    !state.nativeLibLoaded || state.buffering ||
+        state.playbackPhase == MpvPlaybackPhase.PREPARING.wireValue ||
+        !(state.visualPlaybackReady || playbackProgressing) || state.error != null
 
 internal fun nativePanelShouldCancelControlsAutoHide(bottomBarInitialized: Boolean): Boolean =
     bottomBarInitialized
@@ -3097,7 +3179,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     /** onCreate 与 onNewIntent 共用：装载（或换）一路 source + 弹幕，并刷新标题/上下文。 */
-    private fun applyLoadArgs(loadArgs: Map<String, Any?>, danmakuPayload: Map<String, Any?>?) {
+    private fun applyLoadArgs(
+        loadArgs: Map<String, Any?>,
+        danmakuPayload: Map<String, Any?>?,
+        isInSessionSwitch: Boolean = false,
+    ) {
         mediaLoadPending = false
         val restoredLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
         val effectiveLoadArgs = if (isLiveChannel(restoredLoadArgs)) {
@@ -3198,7 +3284,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             playerSurface.clearDanmaku()
         }
-        // 换源后复位叠层/循环态/章节缓存，并按起播位置弹续播提示。
+        // 换源后复位叠层/循环态/章节缓存。
         abRepeatMode = 0
         abLoopStartMs = 0L
         abLoopEndMs = 0L
@@ -3222,7 +3308,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         introSkipDismissed = false
         outroSkipDismissed = false
         clearCompletion()
-        maybeShowResumePrompt(effectiveLoadArgs)
+        // 同一会话内换源的起播位置是当前进度，不是重新打开时的历史续播位。
+        if (nativePanelShouldOfferResumeOnLoad(previousItemGuid, nextItemGuid, isInSessionSwitch)) {
+            maybeShowResumePrompt(effectiveLoadArgs)
+        } else {
+            hideResumePrompt()
+        }
         // 清掉切集时的「正在切换…」提示（换源已完成）。
         if (this::centerHint.isInitialized) hideCenterHint()
         hideSeekPreview()
@@ -3400,7 +3491,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(dp(24), dp(20), dp(24), dp(20))
-            visibility = View.GONE
+            // 首次播放器状态回调前也要显示准备提示。
+            visibility = View.VISIBLE
             addView(
                 customSpinner,
                 LinearLayout.LayoutParams(dp(36), dp(36)).apply { bottomMargin = dp(12) },
@@ -5741,11 +5833,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun currentQualitySummary(): String {
-        return nativePanelQualitySummary(
+        val label = nativePanelQualitySummary(
             context = this,
             playbackMode = loadArgsMap["playbackMode"]?.toString(),
             currentResolution = loadArgsMap["resolution"]?.toString(),
         )
+        return listOf(
+            label,
+            if (loadArgsMap["playbackMode"] == "originalQuality") qualityTierCardTitle(loadArgsMap) else "",
+            nativePanelBitrateLabel(nativePanelQualityBitrate(loadArgsMap)),
+        ).filter { it.isNotEmpty() }.joinToString(" · ")
     }
 
     private fun currentQualityForWeakNetwork(): Map<String, Any?> {
@@ -5760,30 +5857,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun qualityMatchesCurrentPlayback(quality: Map<String, Any?>): Boolean {
-        val qualityDirectIndex = nativePanelNullableInt(quality["directLinkQualityIndex"])
-        val currentDirectIndex = nativePanelNullableInt(loadArgsMap["directLinkQualityIndex"])
-        if (qualityDirectIndex != null && currentDirectIndex != null) {
-            return qualityDirectIndex == currentDirectIndex
-        }
-
-        val qualityMediaGuid = quality["mediaGuid"]?.toString()?.trim().orEmpty()
-        val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
-        val qualityVideoGuid = quality["videoGuid"]?.toString()?.trim().orEmpty()
-        val currentVideoGuid = loadArgsMap["videoGuid"]?.toString()?.trim().orEmpty()
-        if (qualityMediaGuid.isNotEmpty() && currentMediaGuid.isNotEmpty() &&
-            qualityVideoGuid.isNotEmpty() && currentVideoGuid.isNotEmpty()
-        ) {
-            return qualityMediaGuid == currentMediaGuid && qualityVideoGuid == currentVideoGuid
-        }
-
-        val qualityResolution = quality["resolution"]?.toString()?.trim().orEmpty()
-        val currentResolution = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        if (qualityResolution.isEmpty() || currentResolution.isEmpty()) return false
-        val sameResolution =
-            nativePanelQualityTierRank(qualityResolution) == nativePanelQualityTierRank(currentResolution)
-        if (!sameResolution) return false
-        val currentBitrate = nativePanelQualityBitrate(loadArgsMap)
-        return currentBitrate <= 0L || nativePanelQualityBitrate(quality) == currentBitrate
+        return nativePanelQualityMatchesPlayback(quality, loadArgsMap)
     }
 
     private fun showPlaybackControlPanel() {
@@ -6316,13 +6390,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             return
         }
-        val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        // 主面板按档位合并：4k 与 4K HDR 同档收成一行，4K HDR 仅在自定义里。
+        addPanelRow(panelSectionHeader("✓  ${currentQualitySummary()}").apply {
+            setPadding(dp(10), 0, dp(10), dp(8))
+        })
         val entries = qualityMainTierEntries(visible)
         addPanelRow(
             buildQualityList(
                 entries,
-                selectedOf = { qualityTierMatchesCurrent(it.quality, currentRes) },
+                selectedOf = { qualityMatchesCurrentPlayback(it.quality) },
                 titleOf = { qualityTierCardTitle(it.quality) },
             ),
         )
@@ -6408,6 +6483,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             addPanelRow(panelEmptyState(localizedString(R.string.player_text_0053)))
             return
         }
+        addPanelRow(panelSectionHeader("✓  ${currentQualitySummary()}").apply {
+            setPadding(dp(10), 0, dp(10), dp(8))
+        })
         // 自定义页按归一化档位分标签（4k 与 4K HDR 仍是两个独立 tab，但同档 SDR 变体合一），按真实档位降序（4k 最前）。
         val byRes = visible.groupBy { qualityTabKey(it.quality) }
         val resTitles = byRes.keys.sortedWith(
@@ -6447,7 +6525,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 val selected = qualityMatchesCurrentPlayback(entry.quality)
                 val label = listOf(
                     qualityDisplaySubtitle(entry.quality),
-                    if (entry.quality["isDefault"] == true) localizedString(R.string.player_text_0055) else "",
+                    if (nativePanelQualityIsOriginal(entry.quality)) localizedString(R.string.player_text_0055) else "",
                 ).filter { it.isNotEmpty() }.joinToString(" · ")
                 addView(qualityOptionRow(label, if (selected) "✓" else "", selected, filled = true) {
                     hidePanel()
@@ -6463,19 +6541,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(columns)
     }
 
-    /** 主面板条目：按档位（竖直分辨率）合并，每档取原画/最高码率那一档，并按档位降序（4k 最前）。 */
+    /** 原画独立保留，其余按分辨率合并并优先显示当前实际码率。 */
     private fun qualityMainTierEntries(entries: List<QualityPanelEntry>): List<QualityPanelEntry> {
-        val bestByTier = LinkedHashMap<Int, QualityPanelEntry>()
-        for (entry in entries) {
-            val rank = nativePanelQualityTierRank(entry.quality["resolution"]?.toString())
-            val existing = bestByTier[rank]
-            if (existing == null || shouldPreferQualityCard(entry.quality, existing.quality)) {
-                bestByTier[rank] = entry
-            }
-        }
-        return bestByTier.values.sortedByDescending {
-            nativePanelQualityTierRank(it.quality["resolution"]?.toString())
-        }
+        return nativePanelQualityMainIndices(entries.map { it.quality }, loadArgsMap).map { entries[it] }
     }
 
     /** 主面板卡片标题：档位名（2160→"4k"），无法识别时回退到原始分辨率标签。 */
@@ -6489,8 +6557,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         current: Map<String, Any?>,
     ): Boolean {
         // 原画(isDefault) > 原画代理(originalProxy) > 高码率，保证同码率去重时留下「原画」那一档。
-        val candDefault = candidate["isDefault"] == true
-        val curDefault = current["isDefault"] == true
+        val candDefault = nativePanelTruthy(candidate["isDefault"])
+        val curDefault = nativePanelTruthy(current["isDefault"])
         if (candDefault != curDefault) return candDefault
         val candOriginal = candidate["source"]?.toString() == "originalProxy"
         val curOriginal = current["source"]?.toString() == "originalProxy"
@@ -6507,7 +6575,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             orientation = LinearLayout.VERTICAL
             for (entry in entries) {
                 val selected = selectedOf(entry)
-                val original = !isLiveChannel() && entry.quality["isDefault"] == true
+                val original = !isLiveChannel() && nativePanelQualityIsOriginal(entry.quality)
                 val title = if (original) localizedString(R.string.player_text_0055) else titleOf(entry)
                 val detail = if (selected) {
                     listOf(
@@ -6567,14 +6635,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             setOnClickListener { onClick() }
         }
-    }
-
-    /** 主面板高亮：按档位（竖直分辨率）匹配当前播放分辨率，"3840x2160"/"4k" 都归到 2160 档。 */
-    private fun qualityTierMatchesCurrent(quality: Map<String, Any?>, currentRes: String): Boolean {
-        if (currentRes.isEmpty()) return false
-        val curRank = nativePanelQualityTierRank(currentRes)
-        val qRank = nativePanelQualityTierRank(quality["resolution"]?.toString())
-        return curRank > 0 && curRank == qRank
     }
 
     /**
@@ -6891,7 +6951,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     "compact=${compactCount ?: -1} comments=${verboseCount ?: -1} sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
             )
             val effectiveLoadArgs = nativePanelLoadArgsForEpisodeSwitch(scopedLoadArgs, autoPlayAfterLoad)
-            applyLoadArgs(effectiveLoadArgs, danmakuPayload)
+            applyLoadArgs(effectiveLoadArgs, danmakuPayload, isInSessionSwitch = true)
             if (autoPlayAfterLoad) playWithFocus()
             setControlsVisible(true)
         }
@@ -6951,7 +7011,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun qualityLabel(quality: Map<String, Any?>): String {
         val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
-        val isDefault = quality["isDefault"] == true
+        val isDefault = nativePanelQualityIsOriginal(quality)
         val base = resolution.ifEmpty { localizedString(R.string.player_quality_generic) }
         return if (isDefault) localizedString(R.string.player_quality_default_suffix, base) else base
     }
@@ -6996,7 +7056,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             selectedAudioGuid,
             selectedSubtitleGuid,
             qualityIndex,
-            hint ?: localizedString(R.string.player_switch_quality_loading),
+            hint ?: nativePanelQualitySwitchingHint(this, qualityList().getOrNull(qualityIndex).orEmpty()),
         )
     }
 
@@ -7510,7 +7570,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (terminal != null) NativePlayerReverseBridge.dispatch("recordFlyOpedAction", mapOf("statsScope" to loadArgsMap["statsScope"], "event" to pending.event(terminal)))
     }
 
-    /** 续播提示：换源后若起播位置 > 3s 弹出，6 秒后自动消失。 */
+    /** 续播提示：打开视频时若起播位置 > 3s 弹出，6 秒后自动消失。 */
     private fun maybeShowResumePrompt(loadArgs: Map<String, Any?>) {
         if (!this::resumeCard.isInitialized) return
         if (isLiveChannel(loadArgs)) {
@@ -7637,19 +7697,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 由 [applyState] 驱动：加载转圈 / 自动连播·完成 / 弱网建议。 */
     private fun updateOverlays(state: MpvPlayerState) {
-        // 蠢措施：位置推进且未暂停未缓冲=画面真的在走，据此认定已开播。配合 visualPlaybackReady 一起收 loading，
-        // 避免切集原地换源时内核漏报首帧导致中间转圈卡死、episodeSwitchInFlight 永不复位。
-        if (!state.paused && !state.buffering && state.error == null &&
-            lastProgressPositionMs in 0 until state.positionMs
-        ) {
+        // 只在播放阶段使用进度兜底，准备/定位时注入的续播起点不能算已开播。
+        // 纯听模式没有视频首帧，仍保留实际播放进度兜底。
+        if (nativePanelHasPlaybackProgress(state, lastProgressPositionMs)) {
             playbackProgressing = true
         }
         lastProgressPositionMs = state.positionMs
         val effectivelyReady = state.visualPlaybackReady || playbackProgressing
-        val showLoading = !state.nativeLibLoaded ||
-            state.buffering ||
-            (!effectivelyReady && state.error == null) ||
-            state.error != null
+        val showLoading = nativePanelShouldShowPlaybackLoading(state, playbackProgressing)
         loadingSpinner.visibility = if (showLoading && !completionActive) View.VISIBLE else View.GONE
         val playbackEnded = !isLiveChannel() &&
             state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
@@ -10209,17 +10264,27 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
         }
         // statusLabel 始终可见，显隐交由父层 loadingSpinner 控制（与原版一致）；文本为空即无字。
+        // 新转码源首帧前沿用实际目标档位，避免中心提示隐藏后又退回笼统的“准备中”。
+        val qualityLoadingHint = if (isServerManagedPlayback() && !state.visualPlaybackReady && !playbackProgressing) {
+            nativePanelQualitySwitchingHint(this, loadArgsMap)
+        } else null
         statusLabel.text = when {
             state.error != null -> localizedString(R.string.player_status_error, state.error)
             !state.nativeLibLoaded -> state.statusText
             state.buffering -> {
                 val speed = formatSpeed(state.networkSpeedBytesPerSecond)
-                if (speed.isNotEmpty()) {
+                if (qualityLoadingHint != null) {
+                    listOf(qualityLoadingHint, speed).filter { it.isNotEmpty() }.joinToString("  ")
+                } else if (speed.isNotEmpty()) {
                     localizedString(R.string.player_status_buffering_with_speed, speed)
                 } else {
                     localizedString(R.string.player_status_buffering)
                 }
             }
+            nativePanelShouldShowPlaybackLoading(state, playbackProgressing) -> listOf(
+                qualityLoadingHint ?: localizedString(R.string.player_text_0001),
+                formatSpeed(state.networkSpeedBytesPerSecond),
+            ).filter { it.isNotEmpty() }.joinToString("  ")
             else -> ""
         }
         if (state.visualPlaybackReady && pendingInitialSubtitle) {
