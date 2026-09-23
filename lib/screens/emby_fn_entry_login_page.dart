@@ -10,13 +10,14 @@ import '../l10n/generated/app_localizations.dart';
 import 'fn_web_login_bridge_script.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
 
-/// 抓取 FN Connect 入口令牌（cookie `entry-token`）的 WebView 页。
-///
-/// 藏在飞牛反向代理后面的 Emby 发布服务（`*.fnos.net`）受云端 FN Connect 边缘闸保护，
-/// 唯一被认的凭据是 `.<fnId>.fnos.net` 作用域的 `entry-token` cookie——它由真实入口流程
-/// （`fnos.net/<fnId>` SPA）登录后签发，无法用纯 API 复刻。本页用 WebView 跑真实流程：
-/// 加载目标地址 → 入口要求登录时用户在网页内登录（可选自动填充 FN 账号）→ 落回
-/// `*.fnos.net` 域后，`entry-token`（非 httpOnly）出现在 `document.cookie`，轮询抓出即返回。
+/// 飞翔授权结果；普通 Emby 仍返回裸入口令牌。
+typedef FlyFnAuthorization = ({
+  String entryToken,
+  Map<String, String> gatewayCookies,
+});
+
+/// 在真实 FN 登录流程中取得所选服务的入口凭据。
+/// 飞翔应用还需交接飞牛网关的 HttpOnly Cookie，由账号登录流程验证应用身份。
 class EmbyFnEntryLoginPage extends StatefulWidget {
   const EmbyFnEntryLoginPage({
     super.key,
@@ -59,6 +60,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
 
   bool _isReady = false;
   bool _isClosing = false;
+  bool _flyAuthorizationStarted = false;
   bool _autoRedirectedToTarget = false;
   int _progress = 0;
   String _statusText = '';
@@ -94,6 +96,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         NavigationDelegate(
           onPageStarted: (url) {
             if (!mounted || _isClosing) return;
+            _flyAuthorizationStarted = false;
             setState(() {
               _statusText = AppLocalizations.of(
                 context,
@@ -139,7 +142,6 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   Future<void> _initializeWindows() async {
     final l10n = AppLocalizations.of(context);
     try {
-      if (!mounted || _isClosing) return;
       final controller = windows_webview.WebviewController();
       await controller.initialize();
       if (!mounted || _isClosing) {
@@ -174,6 +176,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
           });
           unawaited(_injectBridgeScript());
         } else if (state == windows_webview.LoadingState.loading) {
+          _flyAuthorizationStarted = false;
           setState(() => _isReady = false);
         }
       });
@@ -259,7 +262,11 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         }
         final token = _extractEntryToken(cookie);
         if (token.isNotEmpty && _allowsTargetToken(page, isAuthPage, blocked)) {
-          _completeSuccess(token);
+          if (_requiresSecureTarget) {
+            unawaited(_completeFlyAuthorization(token));
+          } else {
+            _completeSuccess(token);
+          }
           return;
         }
         // 飞翔的 NAS 桌面可能与应用入口同主机，但仍需转到精确应用路径。
@@ -291,6 +298,49 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       }
     }
     return '';
+  }
+
+  Future<void> _completeFlyAuthorization(String entryToken) async {
+    if (_flyAuthorizationStarted || _isClosing) return;
+    _flyAuthorizationStarted = true;
+    final gatewayCookies = <String, String>{};
+    try {
+      final controller = _windowsController;
+      if (controller != null) {
+        final cookies = await controller.getCookies(
+          '$_targetOrigin/app/fly-data-service/api/v1/system/identity',
+        );
+        // 同名 Cookie 按浏览器发送顺序，优先使用路径更具体的值。
+        cookies.sort(
+          (a, b) => (b['path'] as String).length.compareTo(
+            (a['path'] as String).length,
+          ),
+        );
+        final selected = <String, String>{};
+        for (final cookie in cookies) {
+          final name = cookie['name'] as String;
+          if (const {'entry-token', 'mode', 'ost'}.contains(name)) {
+            selected.putIfAbsent(name, () => cookie['value'] as String);
+          }
+        }
+        entryToken = selected['entry-token'] ?? entryToken;
+        for (final name in const ['mode', 'ost']) {
+          final value = selected[name];
+          if (value == null || value.isEmpty) {
+            throw StateError('飞牛网关授权尚未完成。');
+          }
+          gatewayCookies[name] = value;
+        }
+      }
+      _completeSuccess((
+        entryToken: entryToken,
+        gatewayCookies: Map<String, String>.unmodifiable(gatewayCookies),
+      ));
+    } catch (_) {
+      if (mounted && !_isClosing) {
+        setState(() => _statusText = 'FN 访问授权尚未完成，请登录飞牛 OS 后点击“进入飞翔”，或刷新重试。');
+      }
+    }
   }
 
   bool get _requiresSecureTarget => widget.requireTargetPath;
@@ -331,10 +381,12 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
     return '${labels[labels.length - 3]}.fnos.net';
   }
 
-  void _completeSuccess(String entryToken) {
-    if (!mounted || _isClosing) return;
+  void _completeSuccess(Object result) {
+    if (!mounted || _isClosing || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     _isClosing = true;
-    Navigator.of(context).pop(entryToken);
+    Navigator.of(context).pop(result);
   }
 
   void _completeFailure(String message) {

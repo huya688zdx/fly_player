@@ -25,14 +25,16 @@ import 'emby_fn_entry_login_page.dart';
 
 part 'fly_account_widgets.dart';
 
-Future<String?> _authorizeFlyFn(BuildContext context, String serverUrl) =>
-    showDesktopLoginDialog<String>(
-      context,
-      child: EmbyFnEntryLoginPage(
-        serverUrl: '${serverUrl.replaceFirst(RegExp(r'/+$'), '')}/',
-        requireTargetPath: true,
-      ),
-    );
+Future<FlyFnAuthorization?> _authorizeFlyFn(
+  BuildContext context,
+  String serverUrl,
+) => showDesktopLoginDialog<FlyFnAuthorization>(
+  context,
+  child: EmbyFnEntryLoginPage(
+    serverUrl: '${serverUrl.replaceFirst(RegExp(r'/+$'), '')}/',
+    requireTargetPath: true,
+  ),
+);
 
 bool _bindingStillCurrent(
   FlyAccountController account,
@@ -295,15 +297,17 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
     try {
       final serverUrl = normalizeServerUrl(url.text);
       var entryToken = '';
+      var gatewayCookies = const <String, String>{};
       if (isFlyFnApplicationUrl(serverUrl)) {
         final result = await _authorizeFlyFn(context, serverUrl);
         if (!mounted) return;
-        if (result == null || result.isEmpty) {
+        if (result == null || result.entryToken.isEmpty) {
           setState(() => _historyMessage = 'FN 访问授权未完成，可重新点击登录。');
           return;
         }
         if (account.session != null || account.legacyMode) return;
-        entryToken = result;
+        entryToken = result.entryToken;
+        gatewayCookies = result.gatewayCookies;
       }
       accountLoginStarted = true;
       await account.login(
@@ -312,6 +316,7 @@ class _FlyLoginScreenState extends State<FlyLoginScreen> {
         password: password.text,
         deviceName: device.text,
         fnEntryToken: entryToken,
+        fnGatewayCookies: gatewayCookies,
         rememberPassword: _rememberPassword,
         expectedInstanceId: _selectedHistory?.serviceInstanceId.isEmpty == true
             ? null
@@ -620,7 +625,7 @@ class _FlyBindingsScreenState extends State<FlyBindingsScreen> {
           account.legacyMode) {
         return;
       }
-      if (token == null || token.isEmpty) {
+      if (token == null || token.entryToken.isEmpty) {
         AppTopTip().show(
           context,
           message: 'FN 访问授权未完成，可重新授权。',
@@ -628,7 +633,10 @@ class _FlyBindingsScreenState extends State<FlyBindingsScreen> {
         );
         return;
       }
-      await account.renewFnAccess(token);
+      await account.renewFnAccess(
+        token.entryToken,
+        fnGatewayCookies: token.gatewayCookies,
+      );
     } catch (_) {
       // 控制器保留授权失败提示，页面只结束局部忙碌反馈。
     } finally {

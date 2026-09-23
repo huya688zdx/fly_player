@@ -48,6 +48,7 @@ void main() {
       url,
       token: 'fly-token',
       fnEntryToken: 'entry-fixture',
+      fnGatewayCookies: const {'mode': 'relay', 'ost': 'os-fixture'},
       dio: dio,
     );
     final sent = <RequestOptions>[];
@@ -70,8 +71,12 @@ void main() {
     try {
       await api.get('/me');
       expect(sent.single.uri.toString(), '$url/api/v1/me');
-      expect(sent.single.headers['Cookie'], 'entry-token=entry-fixture');
-      expect(sent.single.headers['Authorization'], 'Bearer fly-token');
+      expect(
+        sent.single.headers['Cookie'],
+        'entry-token=entry-fixture; mode=relay; ost=os-fixture',
+      );
+      expect(sent.single.headers['Authorization'], isNull);
+      expect(sent.single.headers['X-Fly-Authorization'], 'Bearer fly-token');
       expect(sent.single.followRedirects, isFalse);
       await expectLater(
         api.get('/system/identity'),
