@@ -15,7 +15,7 @@ import 'playback_source.dart';
 /// + 轨道，**桥接器纯本地装配、无二次网络、无 `PlayerSourceController`**（飞牛要再解析代理/会话）。
 /// 故 [EmbyPlaybackContext] 仅作分发标记，assemble 不需要它。
 ///
-/// 直链直播口径（见 `docs/superpowers/specs/2026-06-25-emby-playback-design.md`）：mpv 直接吃
+/// 直链直播口径：mpv 直接吃
 /// 原始容器，音轨/字幕按 **mpv 轨道号**（1-based、同类型内序号）选择——原生
 /// `resolveRequestedTrackId` 在无 `mpv-*:` guid 时把 `trackIndex` 直接当 `aid`/`sid`，而 mpv
 /// 按容器内顺序给同类型轨道编号 1,2,…，与 Emby `MediaStreams` 的 Index 顺序一致，故取序号 +1。
