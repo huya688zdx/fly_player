@@ -4,12 +4,26 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../../utils/private_network_http_overrides.dart';
+
+/// NAS 内网和 VPN 地址直接连接，公网地址保留原代理策略。
+String flyServiceProxy(Uri uri) {
+  final address = InternetAddress.tryParse(uri.host);
+  if (uri.host.toLowerCase() == 'localhost' ||
+      (address != null &&
+          PrivateNetworkHttpOverrides.isPrivateAddress(address))) {
+    return 'DIRECT';
+  }
+  return HttpClient.findProxyFromEnvironment(uri);
+}
+
 /// Fly credentials must not inherit the legacy media client's permissive TLS
 /// override. Calling the base implementation creates a real, isolated client.
 class _StrictHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) =>
       super.createHttpClient(context)
+        ..findProxy = flyServiceProxy
         ..badCertificateCallback = (_, _, _) => false;
 }
 
