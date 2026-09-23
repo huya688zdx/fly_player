@@ -41,7 +41,8 @@ class DetailThemePrewarmer {
       return;
     }
     final themeProvider = context.read<AppThemeProvider>();
-    if (!themeProvider.dynamicThemeEnabled) {
+    if (!themeProvider.dynamicThemeEnabled ||
+        !themeProvider.allowsGlobalRuntimeThemeSync) {
       return;
     }
     final baseColors = context.baseAppColors;

@@ -197,7 +197,6 @@ class TvSeasonPlaybackLauncher {
               };
               final settings = await const DanmakuSettingsStore().load();
               final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-                statsScope: (loadArgs['statsScope'] ?? '').toString(),
                 isCurrent: () => context.mounted,
                 seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
                 itemTitle: (loadArgs['title'] ?? '').toString(),
@@ -253,7 +252,6 @@ class TvSeasonPlaybackLauncher {
         // 弹幕预取（与 maybeLaunch 内逻辑一致，resolveToFile 内部按 settings.enabled 判断）。
         final settings = await const DanmakuSettingsStore().load();
         final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-          statsScope: (loadArgs['statsScope'] ?? '').toString(),
           isCurrent: () => context.mounted,
           seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
           itemTitle: (loadArgs['title'] ?? '').toString(),

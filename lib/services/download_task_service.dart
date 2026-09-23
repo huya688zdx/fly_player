@@ -18,8 +18,6 @@ import '../danmaku/api/dandanplay_config.dart';
 import '../danmaku/api/dandanplay_resolver.dart';
 import '../danmaku/models/danmaku_import_result.dart';
 import '../danmaku/models/danmaku_saved_source.dart';
-import '../danmaku/models/danmaku_settings.dart';
-import '../danmaku/settings/danmaku_settings_store.dart';
 import '../danmaku/parser/danmaku_import_parser.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../models/download_task_record.dart';
@@ -5463,10 +5461,7 @@ class DownloadTaskService extends ChangeNotifier {
           );
         }
       }
-      if ((await const DanmakuSettingsStore().load()).sourceStrategy ==
-          DanmakuSourceStrategy.nasOnly) {
-        return;
-      }
+
       if (!await DanDanPlayConfig.ensureConfigured()) {
         await AppLogService.instance.recordWarning(
           error: '随片弹幕未下载：弹弹play凭据未配置',

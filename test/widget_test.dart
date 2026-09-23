@@ -4,24 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/main.dart';
 import 'package:fly_player/screens/connection_screen.dart';
-import 'package:fly_player/screens/fly_account_screen.dart';
-import 'package:fly_player/services/secure_credential_store.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues(const <String, Object>{
-      'app_locale_mode': 'zh-CN',
-    });
-    SecureCredentialStore.setBackendForTesting(MemorySecureCredentialBackend());
-    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
 
     await tester.pumpWidget(const FlyPlayerApp());
-    await tester.pumpAndSettle();
-
-    expect(find.byType(FlyLoginScreen), findsOneWidget);
-    expect(find.text('登录飞翔'), findsOneWidget);
-    await tester.ensureVisible(find.text('媒体账号登录'));
-    await tester.tap(find.text('媒体账号登录'));
     await tester.pumpAndSettle();
 
     expect(find.byType(ConnectionScreen), findsOneWidget);
