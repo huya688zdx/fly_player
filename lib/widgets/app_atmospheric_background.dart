@@ -11,6 +11,7 @@ import '../providers/app_theme_provider.dart';
 
 import '../theme/app_theme.dart';
 import '../theme/visual_performance.dart';
+import '../ui/route_transition_gate.dart';
 
 @immutable
 class AppAtmospherePalette {
@@ -197,16 +198,28 @@ class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
   }
 
   void _ensureSnapshot(Size size) {
+    _requestedSize = size;
     if (_captureFailed ||
         _captureScheduled ||
         (_image != null && _capturedSize == size)) {
       return;
     }
-    _requestedSize = size;
     _captureScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+      // 隐藏标签和转场首帧还没有可截图的绘制层，不算截图失败。
+      if (Visibility.of(context) &&
+          TickerMode.valuesOf(context).enabled &&
+          RouteTransitionGate.isTransitioning(context)) {
+        await RouteTransitionGate.of(context);
+        if (!mounted) return;
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+      }
       _captureScheduled = false;
+      if (!Visibility.of(context) || !TickerMode.valuesOf(context).enabled) {
+        return;
+      }
       if (_image != null) {
         setState(() {
           _image?.dispose();
@@ -215,7 +228,8 @@ class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
         });
         return;
       }
-      _capture(size, _captureRevision);
+      final requestedSize = _requestedSize;
+      if (requestedSize != null) _capture(requestedSize, _captureRevision);
     });
   }
 
@@ -223,7 +237,7 @@ class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
     final boundary =
         _boundaryKey.currentContext?.findRenderObject()
             as RenderRepaintBoundary?;
-    if (boundary == null || !boundary.hasSize) return;
+    if (boundary == null || !boundary.attached || !boundary.hasSize) return;
     final logicalMax = math.max(size.width, size.height);
     if (!logicalMax.isFinite || logicalMax <= 0) return;
     final deviceRatio = MediaQuery.devicePixelRatioOf(context);
@@ -266,7 +280,9 @@ class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
           size.height <= 0) {
         return widget.child;
       }
-      _ensureSnapshot(size);
+      if (Visibility.of(context) && TickerMode.valuesOf(context).enabled) {
+        _ensureSnapshot(size);
+      }
       return Stack(
         fit: StackFit.expand,
         children: <Widget>[

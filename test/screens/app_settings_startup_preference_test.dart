@@ -11,6 +11,8 @@ import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/providers/parallel_window_settings_provider.dart';
 import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/screens/app_settings_screen.dart';
+import 'package:fly_player/screens/detail_host_screen.dart';
+import 'package:fly_player/screens/settings_destination_routes.dart';
 
 void main() {
   const embeddingChannel = MethodChannel('fly_player/embedding');
@@ -37,6 +39,34 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(embeddingChannel, null);
+  });
+
+  testWidgets('设置副栏返回关闭子页，不重复显示主栏设置首页', (tester) async {
+    final hostKey = GlobalKey<DetailHostScreenState>();
+    await tester.pumpWidget(
+      _settingsApp(
+        StartupPreferencesProvider(autoLoad: false),
+        child: DetailHostScreen(
+          key: hostKey,
+          initialRouteName: SettingsDestinationRoutes.theme,
+          enablePlatformChannel: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(hostKey.currentState!.routeStackSnapshot, [
+      SettingsDestinationRoutes.theme,
+    ]);
+    expect(await hostKey.currentState!.handleBack(), isFalse);
+
+    hostKey.currentState!.openRouteInPlace(
+      SettingsDestinationRoutes.themeCustomRecipe,
+    );
+    await tester.pumpAndSettle();
+    expect(await hostKey.currentState!.handleBack(), isTrue);
+    await tester.pumpAndSettle();
+    expect(hostKey.currentState!.currentRoute, SettingsDestinationRoutes.theme);
+    expect(await hostKey.currentState!.handleBack(), isFalse);
   });
 
   testWidgets('设置首页显示启动直达海报首页开关并可立即保存', (tester) async {
@@ -113,7 +143,10 @@ void main() {
   );
 }
 
-Widget _settingsApp(StartupPreferencesProvider startupPreferences) {
+Widget _settingsApp(
+  StartupPreferencesProvider startupPreferences, {
+  Widget child = const AppSettingsScreen(),
+}) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider(create: (_) => AppLocaleProvider()),
@@ -123,11 +156,11 @@ Widget _settingsApp(StartupPreferencesProvider startupPreferences) {
         value: startupPreferences,
       ),
     ],
-    child: const MaterialApp(
-      locale: Locale('zh', 'CN'),
+    child: MaterialApp(
+      locale: const Locale('zh', 'CN'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: AppSettingsScreen(),
+      home: child,
     ),
   );
 }
