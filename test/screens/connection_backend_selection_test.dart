@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/connection_screen.dart';
 import 'package:fly_player/theme/app_theme.dart';
@@ -14,7 +15,10 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
+    DesktopEnvironment.debugOverridePlatform = false;
   });
+
+  tearDown(() => DesktopEnvironment.debugOverridePlatform = null);
 
   testWidgets('默认选中飞牛，切到 Emby 后显示独立连接表单', (tester) async {
     final semantics = tester.ensureSemantics();
@@ -23,10 +27,8 @@ void main() {
 
     expect(find.text('飞牛影视'), findsOneWidget);
     expect(find.text('Emby'), findsOneWidget);
-    expect(find.text('登录'), findsOneWidget);
-    final feiniuLoginButtonY = tester
-        .getTopLeft(find.byType(ElevatedButton))
-        .dy;
+    expect(find.text('登录并进入媒体库'), findsOneWidget);
+    expect(find.byType(ElevatedButton), findsOneWidget);
 
     final address = find.byKey(const Key('connectionServerAddressField'));
     await tester.enterText(address, 'https://nas.example.test:5667');
@@ -46,10 +48,10 @@ void main() {
 
     // Emby 表单已完善为正式登录：登录按钮、记住登录勾选，下载/FN Connect 仍是飞牛专属。
     expect(find.text('Emby 服务器地址'), findsOneWidget);
-    expect(find.text('用户名'), findsOneWidget);
+    expect(find.text('Emby 账号'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);
-    expect(find.text('登录'), findsOneWidget);
-    expect(find.text('保持登录'), findsOneWidget);
+    expect(find.text('登录并进入媒体库'), findsOneWidget);
+    expect(find.text('记住密码'), findsOneWidget);
     expect(find.text('重新登录 FN Connect').hitTestable(), findsNothing);
     final semanticsTree = tester
         .binding
@@ -62,38 +64,36 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(3));
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
     expect(find.byType(SegmentedButton<String>), findsNothing);
-    expect(
-      tester.getTopLeft(find.byType(ElevatedButton)).dy,
-      closeTo(feiniuLoginButtonY, 3),
-    );
+    await tester.ensureVisible(find.byType(ElevatedButton));
+    expect(find.byType(ElevatedButton).hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
 
     await tester.dragFrom(const Offset(400, 300), const Offset(360, 0));
     await tester.pumpAndSettle();
 
-    expect(find.text('登录'), findsOneWidget);
+    expect(find.text('登录并进入媒体库'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('feiniuAdvancedOptionsButton')));
+    await tester.pumpAndSettle();
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
     expect(find.byType(SegmentedButton<String>), findsNothing);
   });
 
-  testWidgets('高屏切换后端时登录按钮保持原位', (tester) async {
+  testWidgets('高屏切换后端后登录按钮可达', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(_connectionScreen());
     await tester.pumpAndSettle();
-    final feiniuLoginButtonY = tester
-        .getTopLeft(find.byType(ElevatedButton))
-        .dy;
+    expect(find.byType(ElevatedButton), findsOneWidget);
 
     await tester.tap(find.text('Emby').first);
     await tester.pumpAndSettle();
 
-    expect(
-      tester.getTopLeft(find.byType(ElevatedButton)).dy,
-      closeTo(feiniuLoginButtonY, 3),
-    );
+    await tester.ensureVisible(find.byType(ElevatedButton));
+    expect(find.byType(ElevatedButton).hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
-  testWidgets('三种服务完整显示且主按钮位置稳定', (tester) async {
+  testWidgets('三种服务完整显示且主按钮保持同宽', (tester) async {
     await tester.pumpWidget(_connectionScreen());
     await tester.pumpAndSettle();
 
@@ -112,29 +112,23 @@ void main() {
     await tester.pumpAndSettle();
     final jellyfinRect = tester.getRect(button);
 
-    expect(embyRect.top, closeTo(feiniuRect.top, 1));
-    expect(jellyfinRect.top, closeTo(feiniuRect.top, 1));
     expect(embyRect.left, closeTo(feiniuRect.left, 1));
     expect(jellyfinRect.left, closeTo(feiniuRect.left, 1));
     expect(embyRect.width, closeTo(feiniuRect.width, 1));
     expect(jellyfinRect.width, closeTo(feiniuRect.width, 1));
   });
 
-  testWidgets('窄屏连接内容在可用高度内保持上下空间接近平衡', (tester) async {
+  testWidgets('窄屏省去品牌区，方式条和下载入口可达', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(_connectionScreen());
     await tester.pumpAndSettle();
 
-    final viewport = tester.getSize(find.byType(Scaffold));
-    final contentTop = tester
-        .getTopLeft(find.byKey(const Key('connectionBrandTitle')))
-        .dy;
-    final contentBottom = tester.getBottomRight(find.text('查看已下载数据')).dy;
-    final topSpace = contentTop;
-    final bottomSpace = viewport.height - contentBottom;
-
-    expect((topSpace - bottomSpace).abs(), lessThan(48));
+    expect(find.byKey(const Key('connectionBrandTitle')), findsNothing);
+    expect(find.text('直接连接').hitTestable(), findsOneWidget);
+    await tester.ensureVisible(find.text('查看已下载数据'));
+    expect(find.text('查看已下载数据').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('无连接错误时错误区不占固定空槽，错误出现后平滑展开', (tester) async {
@@ -145,6 +139,7 @@ void main() {
     final heightWithoutError = tester.getRect(panel).height;
     expect(find.byKey(const Key('connectionInlineErrorText')), findsNothing);
 
+    await tester.ensureVisible(find.byKey(const Key('connectionSubmitButton')));
     await tester.tap(find.byKey(const Key('connectionSubmitButton')));
     await tester.pumpAndSettle();
 
@@ -152,15 +147,15 @@ void main() {
     expect(tester.getRect(panel).height, greaterThan(heightWithoutError + 1));
   });
 
-  testWidgets('选择器到连接标题仅保留紧凑间距', (tester) async {
+  testWidgets('连接标题在服务选择器上方', (tester) async {
     await tester.pumpWidget(_connectionScreen());
     await tester.pumpAndSettle();
 
     final selector = tester.getRect(
       find.byKey(const Key('connectionBackendSelector')),
     );
-    final title = tester.getRect(find.text('登录 飞牛影视'));
-    expect(title.top - selector.bottom, lessThanOrEqualTo(11));
+    final title = tester.getRect(find.text('直接连接媒体服务'));
+    expect(title.bottom, lessThan(selector.top));
   });
 
   testWidgets('服务切换使用原位淡入淡出，不横移表单', (tester) async {
@@ -253,12 +248,14 @@ void main() {
 
   testWidgets('手机与平板尺寸均无溢出', (tester) async {
     for (final size in const <Size>[
-      Size(360, 800),
+      Size(320, 800),
       Size(390, 844),
       Size(600, 900),
       Size(839, 1000),
       Size(840, 600),
-      Size(1200, 800),
+      Size(899, 720),
+      Size(900, 720),
+      Size(1280, 720),
     ]) {
       await tester.binding.setSurfaceSize(size);
       await tester.pumpWidget(_connectionScreen());
@@ -266,7 +263,7 @@ void main() {
 
       expect(tester.takeException(), isNull, reason: '尺寸 $size 溢出');
       expect(find.byKey(const Key('connectionSubmitButton')), findsOneWidget);
-      if (size.width >= 840) {
+      if (DesktopEnvironment.isDesktopPlatform && size.width >= 900) {
         expect(
           find.byKey(const Key('connectionWideBrandPane')),
           findsOneWidget,
@@ -290,13 +287,17 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('connectionSubmitButton')));
     expect(
-      tester.getRect(find.byKey(const Key('connectionBrandTitle'))).height,
-      greaterThan(24),
+      find.byKey(const Key('connectionSubmitButton')).hitTestable(),
+      findsOneWidget,
     );
   });
 
-  testWidgets('连接页使用统一产品名', (tester) async {
+  testWidgets('桌面连接页使用统一产品名', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    await tester.binding.setSurfaceSize(const Size(1280, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(_connectionScreen());
     await tester.pumpAndSettle();
 
@@ -325,7 +326,7 @@ void main() {
     );
   });
 
-  testWidgets('自定义绿色主题下连接主按钮仍使用雾蓝色', (tester) async {
+  testWidgets('连接主按钮采用当前主题强调色', (tester) async {
     final colors = AppThemePalette.colorsFor(
       AppThemePreset.forest,
       customAccentColor: Colors.green,
@@ -342,17 +343,18 @@ void main() {
       ),
     );
     final buttonColor = button.style!.backgroundColor!.resolve(<WidgetState>{});
-    expect(buttonColor, const Color(0xFF567A98));
-    expect(buttonColor, isNot(equals(Colors.green)));
+    expect(buttonColor, colors.accentStrong);
   });
 
   testWidgets('切换服务时清除连接错误提示', (tester) async {
     await tester.pumpWidget(_connectionScreen());
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('connectionSubmitButton')));
     await tester.tap(find.byKey(const Key('connectionSubmitButton')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('connectionInlineErrorText')), findsOneWidget);
+    await tester.ensureVisible(find.text('Emby'));
     await tester.tap(find.text('Emby'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('connectionInlineErrorText')), findsNothing);
