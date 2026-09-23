@@ -25,7 +25,8 @@ class FlyDataSession {
     this.role = 'user',
     this.addresses = const [],
     this.fnEntryToken = '',
-  });
+    Map<String, String> fnGatewayCookies = const {},
+  }) : fnGatewayCookies = Map.unmodifiable(fnGatewayCookies);
   final String serverUrl,
       userId,
       username,
@@ -37,6 +38,7 @@ class FlyDataSession {
   final String role;
   final List<String> addresses;
   final String fnEntryToken;
+  final Map<String, String> fnGatewayCookies;
   // 从捕获的会话创建客户端，避免并发切换账号时读取别的入口令牌。
   FlyDataApi createApi({
     int? maxResponseBytes,
@@ -45,6 +47,7 @@ class FlyDataSession {
     serverUrl,
     token: token,
     fnEntryToken: fnEntryToken,
+    fnGatewayCookies: fnGatewayCookies,
     maxResponseBytes: maxResponseBytes,
     receiveTimeout: receiveTimeout,
   );
@@ -63,6 +66,7 @@ class FlyDataSession {
     'role': role,
     'addresses': addresses,
     'fn_entry_token': fnEntryToken,
+    'fn_gateway_cookies': fnGatewayCookies,
   };
   factory FlyDataSession.fromJson(Map<String, dynamic> row) => FlyDataSession(
     serverUrl: row['server_url'] as String,
@@ -76,6 +80,9 @@ class FlyDataSession {
     role: row['role'] as String? ?? 'user',
     addresses: (row['addresses'] as List? ?? []).cast<String>(),
     fnEntryToken: row['fn_entry_token'] as String? ?? '',
+    fnGatewayCookies: Map<String, String>.from(
+      row['fn_gateway_cookies'] as Map? ?? const {},
+    ),
   );
 }
 
@@ -136,6 +143,7 @@ class FlyDataService {
     bool rememberPassword = true,
     String? expectedInstanceId,
     String fnEntryToken = '',
+    Map<String, String> fnGatewayCookies = const {},
   }) => _exclusive(() async {
     loginHistoryWarning = null;
     final url = normalizeServerUrl(serverUrl);
@@ -147,7 +155,11 @@ class FlyDataService {
       await SecureCredentialStore.write(_installationKey, newFlySyncId());
       install = await SecureCredentialStore.read(_installationKey);
     }
-    final api = FlyDataApi(url, fnEntryToken: fnEntryToken);
+    final api = FlyDataApi(
+      url,
+      fnEntryToken: fnEntryToken,
+      fnGatewayCookies: fnGatewayCookies,
+    );
     try {
       final identity = await api.get('/system/identity');
       final instanceId = identity['service_instance_id'] as String? ?? '';
@@ -180,6 +192,9 @@ class FlyDataService {
         role: user['role'] as String? ?? 'user',
         addresses: [url],
         fnEntryToken: isFlyFnApplicationUrl(url) ? fnEntryToken : '',
+        fnGatewayCookies: isFlyFnApplicationUrl(url)
+            ? fnGatewayCookies
+            : const <String, String>{},
       );
       await drainWrites();
       await _migrateAccountOwner('$url|${next.userId}', next.accountKey);
@@ -259,12 +274,19 @@ class FlyDataService {
   /// Probe with no bearer first. Aliases of one service share account identity.
   Future<void> switchAddress(String value) => _switchAddress(value);
 
-  Future<void> renewFnAccess(String entryToken) =>
-      _switchAddress(_requireSession().serverUrl, fnEntryToken: entryToken);
+  Future<void> renewFnAccess(
+    String entryToken, {
+    Map<String, String> fnGatewayCookies = const {},
+  }) => _switchAddress(
+    _requireSession().serverUrl,
+    fnEntryToken: entryToken,
+    fnGatewayCookies: fnGatewayCookies,
+  );
 
   Future<void> _switchAddress(
     String value, {
     String? fnEntryToken,
+    Map<String, String>? fnGatewayCookies,
   }) => _exclusive(() async {
     final previous = _requireSession();
     final url = normalizeServerUrl(value);
@@ -272,7 +294,17 @@ class FlyDataService {
         ? fnEntryToken ??
               (url == previous.serverUrl ? previous.fnEntryToken : '')
         : '';
-    final probe = FlyDataApi(url, fnEntryToken: entryToken);
+    final gatewayCookies = isFlyFnApplicationUrl(url)
+        ? fnGatewayCookies ??
+              (url == previous.serverUrl
+                  ? previous.fnGatewayCookies
+                  : const <String, String>{})
+        : const <String, String>{};
+    final probe = FlyDataApi(
+      url,
+      fnEntryToken: entryToken,
+      fnGatewayCookies: gatewayCookies,
+    );
     late final String instanceId;
     try {
       instanceId =
@@ -294,6 +326,7 @@ class FlyDataService {
       url,
       token: previous.token,
       fnEntryToken: entryToken,
+      fnGatewayCookies: gatewayCookies,
     );
     try {
       final me = await api.get('/me');
@@ -309,6 +342,7 @@ class FlyDataService {
     // verified them; only a changed address, instance or address set needs saving.
     if (previous.serverUrl == url &&
         previous.fnEntryToken == entryToken &&
+        _sameStringMap(previous.fnGatewayCookies, gatewayCookies) &&
         previous.serviceInstanceId == instanceId &&
         previous.addresses.contains(url)) {
       return;
@@ -317,6 +351,7 @@ class FlyDataService {
       ...previous.toJson(),
       'server_url': url,
       'fn_entry_token': entryToken,
+      'fn_gateway_cookies': gatewayCookies,
       'service_instance_id': instanceId,
       'addresses': {...previous.addresses, previous.serverUrl, url}.toList(),
     });
@@ -647,3 +682,7 @@ class FlyDataService {
     }
   }
 }
+
+bool _sameStringMap(Map<String, String> left, Map<String, String> right) =>
+    left.length == right.length &&
+    left.entries.every((entry) => right[entry.key] == entry.value);

@@ -46,7 +46,8 @@ dependencies:
   media_kit_libs_linux: 1.2.1
   # Linux 凭据使用桌面密钥环，保留 Android 原生通道和 Windows DPAPI。
   flutter_secure_storage_linux: 3.0.2
-  webview_windows: 0.4.0
+  webview_windows:
+    path: third_party/webview_windows
   window_manager: 0.5.2
 
 dev_dependencies:

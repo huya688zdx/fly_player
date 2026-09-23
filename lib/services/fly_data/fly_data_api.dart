@@ -38,20 +38,27 @@ class FlyDataApi {
     String serverUrl, {
     String? token,
     String fnEntryToken = '',
+    Map<String, String> fnGatewayCookies = const {},
     Dio? dio,
     this.maxResponseBytes,
     Duration receiveTimeout = const Duration(seconds: 60),
   }) : _dio = dio ?? createStrictFlyDio() {
+    _isFnApplication = isFlyFnApplicationUrl(serverUrl);
     _dio.options = BaseOptions(
       baseUrl: '${normalizeServerUrl(serverUrl)}/api/v1',
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: receiveTimeout,
       sendTimeout: const Duration(seconds: 60),
       followRedirects: false,
-      headers: {if (token != null) 'Authorization': 'Bearer $token'},
+      // FN 网关自行解释 Authorization，飞翔令牌使用独立请求头。
+      headers: {
+        if (token != null)
+          (_isFnApplication ? 'X-Fly-Authorization' : 'Authorization'):
+              'Bearer $token',
+      },
     );
     final base = Uri.parse(_dio.options.baseUrl);
-    _isFnApplication = isFlyFnApplicationUrl(serverUrl);
+    final gatewayCookies = Map<String, String>.unmodifiable(fnGatewayCookies);
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
@@ -70,14 +77,20 @@ class FlyDataApi {
             return;
           }
           options.followRedirects = false;
-          if (_isFnApplication && fnEntryToken.isNotEmpty) {
-            if (!RegExp(
-              r'^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$',
-            ).hasMatch(fnEntryToken)) {
+          if (_isFnApplication &&
+              (fnEntryToken.isNotEmpty || gatewayCookies.isNotEmpty)) {
+            if (!_isSafeCookieValue(fnEntryToken) ||
+                !_hasOnlyValidFnGatewayCookies(gatewayCookies)) {
               handler.reject(DioException(requestOptions: options));
               return;
             }
-            options.headers['Cookie'] = 'entry-token=$fnEntryToken';
+            options.headers['Cookie'] = [
+              'entry-token=$fnEntryToken',
+              if (gatewayCookies.isNotEmpty) ...[
+                'mode=${gatewayCookies['mode']}',
+                'ost=${gatewayCookies['ost']}',
+              ],
+            ].join('; ');
           }
           handler.next(options);
         },
@@ -86,6 +99,18 @@ class FlyDataApi {
   }
   final Dio _dio;
   late final bool _isFnApplication;
+
+  static bool _isSafeCookieValue(String value) =>
+      RegExp(r'^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$').hasMatch(value);
+
+  static bool _hasOnlyValidFnGatewayCookies(Map<String, String> cookies) {
+    if (cookies.isEmpty) return true;
+    return cookies.length == 2 &&
+        cookies.containsKey('mode') &&
+        cookies.containsKey('ost') &&
+        _isSafeCookieValue(cookies['mode']!) &&
+        _isSafeCookieValue(cookies['ost']!);
+  }
 
   /// Optional raw JSON limit for playback-side cache reads.
   final int? maxResponseBytes;

@@ -233,7 +233,7 @@ void main() {
   );
 
   testWidgets(
-    '飞翔入口只接受同源应用主路径的 entry-token',
+    '飞翔入口只在同源应用路径交接网关 Cookie',
     (tester) async {
       final messenger = tester.binding.defaultBinaryMessenger;
       const root = MethodChannel('io.jns.webview.win');
@@ -242,7 +242,7 @@ void main() {
       const rootUrl = 'https://geqian688.fnos.net/';
       const target = 'https://geqian688.fnos.net/app/fly-data-service/';
       final loads = <String>[];
-      final result = Completer<String?>();
+      final result = Completer<FlyFnAuthorization?>();
       final navigatorKey = GlobalKey<NavigatorState>();
 
       Future<void> emit(String type, Object value) async {
@@ -263,6 +263,18 @@ void main() {
       messenger.setMockMethodCallHandler(events, (_) async => null);
       messenger.setMockMethodCallHandler(view, (call) async {
         if (call.method == 'loadUrl') loads.add(call.arguments as String);
+        if (call.method == 'getCookies') {
+          expect(call.arguments, '${target}api/v1/system/identity');
+          return [
+            for (final entry in const {
+              'entry-token': 'accepted',
+              'mode': 'relay',
+              'ost': 'os-fixture',
+              'fly_session': 'web-only',
+            }.entries)
+              {'name': entry.key, 'value': entry.value, 'path': '/'},
+          ];
+        }
         return null;
       });
       addTearDown(() {
@@ -280,7 +292,7 @@ void main() {
         ),
       );
       navigatorKey.currentState!
-          .push<String>(
+          .push<FlyFnAuthorization>(
             MaterialPageRoute(
               builder: (_) => const EmbyFnEntryLoginPage(
                 serverUrl: target,
@@ -355,7 +367,12 @@ void main() {
           'cookie': 'entry-token=accepted',
         }),
       );
-      expect(await result.future, 'accepted');
+      final authorization = await result.future;
+      expect(authorization?.entryToken, 'accepted');
+      expect(authorization?.gatewayCookies, {
+        'mode': 'relay',
+        'ost': 'os-fixture',
+      });
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
