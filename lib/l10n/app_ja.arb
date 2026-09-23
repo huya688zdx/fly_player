@@ -1504,6 +1504,22 @@
   "themeRecipeSelectionLabel": "選択カラー",
   "themeRecipeLinkLabel": "リンクカラー",
   "themeRecipeCurrentTitle": "現在のレシピ",
+  "themeVisualPerformanceTitle": "画面効果",
+  "themeVisualPerformanceSubtitle": "ページ内容、メイン画像、色の強度を保ちながら、端末に合わせて継続的な動きとリアルタイムぼかしを調整します。",
+  "themeVisualPerformanceCurrent": "現在の設定：{tier}",
+  "@themeVisualPerformanceCurrent": {
+    "placeholders": {
+      "tier": {"type": "String"}
+    }
+  },
+  "themeVisualPerformanceAutomatic": "自動（推奨）",
+  "themeVisualPerformanceAutomaticDescription": "通常はバランス、Android の低メモリ端末ではスムーズを使用します。",
+  "themeVisualPerformanceSmooth": "スムーズ",
+  "themeVisualPerformanceSmoothDescription": "画面の質感を保ちつつ、視差、拡大、リアルタイム背景ぼかしを減らします。",
+  "themeVisualPerformanceBalanced": "バランス",
+  "themeVisualPerformanceBalancedDescription": "軽い奥行きと雰囲気を低い描画負荷で保ちます。",
+  "themeVisualPerformanceFull": "フル",
+  "themeVisualPerformanceFullDescription": "すべての動き、アプリ全体の配色連動、デスクトップのリアルタイムぼかしを有効にします。",
   "themeDynamicTitle": "ダイナミックカラーテーマ",
   "themeDynamicSubtitle": "詳細ページと人物ページではポスターを基に一時的に色を抽出し、離れると現在のテーマに戻ります。",
   "themeDynamicScopeDetailsAndPeople": "現在の範囲: 詳細ページと人物ページ",

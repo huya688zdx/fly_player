@@ -294,6 +294,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String accessCode,
     required MediaLayoutProfile layout,
   }) {
+    final catalogDecodeWidth = context
+        .select<AppThemeProvider, AppVisualPerformanceTier>(
+          (provider) => provider.visualPerformanceTier,
+        )
+        .homeThumbnailDecodeWidth(layout.homeCatalogDecodeWidth);
     final backendKind = context
         .read<MediaBackendProvider>()
         .backend
@@ -324,7 +329,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       title: AppLocalizations.of(context).posterBrowseRowCatalogs,
       presentation: catalogPresentation,
       items: items,
-      stableImageCacheWidth: layout.homeCatalogDecodeWidth,
+      stableImageCacheWidth: catalogDecodeWidth,
       onTap: (item) {
         final category = categoriesById[item.id];
         if (category != null) _openCategory(category);
@@ -404,6 +409,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String accessCode,
     required MediaLayoutProfile layout,
   }) {
+    final continueDecodeWidth = context
+        .select<AppThemeProvider, AppVisualPerformanceTier>(
+          (provider) => provider.visualPerformanceTier,
+        )
+        .homeThumbnailDecodeWidth(layout.continueDecodeWidth);
     return ListenableBuilder(
       listenable: DownloadTaskService.instance,
       builder: (context, _) {
@@ -433,7 +443,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         return HomeContinueWatchingSection(
           title: AppLocalizations.of(context).homeContinueWatching,
           items: cards,
-          stableImageCacheWidth: layout.continueDecodeWidth,
+          stableImageCacheWidth: continueDecodeWidth,
           onOpenDetail: (card) {
             final item = itemsById[card.id];
             if (item != null) unawaited(_openContinueWatchingDetail(item));
@@ -475,6 +485,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String accessCode,
     required MediaLayoutProfile layout,
   }) {
+    final continueDecodeWidth = context
+        .select<AppThemeProvider, AppVisualPerformanceTier>(
+          (provider) => provider.visualPerformanceTier,
+        )
+        .homeThumbnailDecodeWidth(layout.continueDecodeWidth);
     final itemsById = <String, MediaLibraryItem>{
       for (final item in items) item.guid: item,
     };
@@ -498,7 +513,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       title: title,
       storageKey: 'next-up',
       items: cards,
-      stableImageCacheWidth: layout.continueDecodeWidth,
+      stableImageCacheWidth: continueDecodeWidth,
       onOpenDetail: (card) {
         final item = itemsById[card.id];
         if (item != null) _openItemDetail(item);
@@ -755,6 +770,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String heroTagPrefix,
   }) {
     final colors = context.appColors;
+    final posterDecodeWidth = context
+        .select<AppThemeProvider, AppVisualPerformanceTier>(
+          (provider) => provider.visualPerformanceTier,
+        )
+        .homeThumbnailDecodeWidth(layout.homePosterDecodeWidth);
     if (items.isEmpty) {
       return SizedBox(
         height: 220,
@@ -822,7 +842,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                   resolutions: resolutions,
                   watched: item.watched == 1,
                   imageHeight: layout.homePosterImageHeight,
-                  decodeWidth: layout.homePosterDecodeWidth,
+                  decodeWidth: posterDecodeWidth,
                   titleFontSize: layout.homePosterTitleFontSize,
                   subtitleFontSize: layout.homePosterSubtitleFontSize,
                   titleFontWeight: FontWeight.w500,

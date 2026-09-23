@@ -226,7 +226,7 @@ class _DesktopDanmakuOverlayState extends State<DesktopDanmakuOverlay>
 
   void _updateMaskTimer() {
     final shouldRun =
-        Platform.isWindows &&
+        DesktopDanmakuSegmenter.isSupported &&
         widget.settings.enabled &&
         widget.settings.avoidCenterArea &&
         widget.comments.isNotEmpty;

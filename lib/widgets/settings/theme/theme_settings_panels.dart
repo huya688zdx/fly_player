@@ -4,6 +4,7 @@ import '../../../l10n/generated/app_localizations.dart';
 import '../../../providers/app_theme_provider.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/app_theme_l10n.dart';
+import '../../../theme/visual_performance.dart';
 import '../../../ui/adaptive_text.dart';
 import '../../common/app_ambient_page.dart';
 import 'theme_settings_helpers.dart';
@@ -376,6 +377,139 @@ class ThemeSettingsRecipePanel extends StatelessWidget {
                   height: 1.35,
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ThemeSettingsVisualPerformancePanel extends StatelessWidget {
+  const ThemeSettingsVisualPerformancePanel({
+    super.key,
+    required this.provider,
+  });
+
+  final AppThemeProvider provider;
+
+  String _modeTitle(
+    AppLocalizations l10n,
+    AppVisualPerformanceMode mode,
+  ) => switch (mode) {
+    AppVisualPerformanceMode.automatic => l10n.themeVisualPerformanceAutomatic,
+    AppVisualPerformanceMode.smooth => l10n.themeVisualPerformanceSmooth,
+    AppVisualPerformanceMode.balanced => l10n.themeVisualPerformanceBalanced,
+    AppVisualPerformanceMode.full => l10n.themeVisualPerformanceFull,
+  };
+
+  String _modeDescription(
+    AppLocalizations l10n,
+    AppVisualPerformanceMode mode,
+  ) => switch (mode) {
+    AppVisualPerformanceMode.automatic =>
+      l10n.themeVisualPerformanceAutomaticDescription,
+    AppVisualPerformanceMode.smooth =>
+      l10n.themeVisualPerformanceSmoothDescription,
+    AppVisualPerformanceMode.balanced =>
+      l10n.themeVisualPerformanceBalancedDescription,
+    AppVisualPerformanceMode.full => l10n.themeVisualPerformanceFullDescription,
+  };
+
+  String _tierTitle(AppLocalizations l10n, AppVisualPerformanceTier tier) =>
+      switch (tier) {
+        AppVisualPerformanceTier.smooth => l10n.themeVisualPerformanceSmooth,
+        AppVisualPerformanceTier.balanced =>
+          l10n.themeVisualPerformanceBalanced,
+        AppVisualPerformanceTier.full => l10n.themeVisualPerformanceFull,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
+    final selectedMode = provider.visualPerformanceMode;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppAmbientPage.cardColorOf(context, colors.surface),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            l10n.themeVisualPerformanceTitle,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(15.5),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            l10n.themeVisualPerformanceSubtitle,
+            style: TextStyle(
+              color: colors.textSecondary,
+              fontSize: AdaptiveText.roleSize(13.2),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: AppVisualPerformanceMode.values
+                .map(
+                  (mode) => ChoiceChip(
+                    key: ValueKey<String>('visual-performance-${mode.name}'),
+                    label: Text(_modeTitle(l10n, mode)),
+                    selected: selectedMode == mode,
+                    showCheckmark: false,
+                    backgroundColor: colors.surfaceSubtle,
+                    selectedColor: Color.alphaBlend(
+                      colors.selection.withValues(alpha: .18),
+                      colors.surface,
+                    ),
+                    side: BorderSide(
+                      color: selectedMode == mode
+                          ? colors.selection.withValues(alpha: .55)
+                          : colors.borderSubtle,
+                    ),
+                    labelStyle: TextStyle(
+                      color: selectedMode == mode
+                          ? colors.textPrimary
+                          : colors.textSecondary,
+                      fontWeight: selectedMode == mode
+                          ? FontWeight.w700
+                          : FontWeight.w600,
+                    ),
+                    onSelected: (_) => provider.setVisualPerformanceMode(mode),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            l10n.themeVisualPerformanceCurrent(
+              _tierTitle(l10n, provider.visualPerformanceTier),
+            ),
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: AdaptiveText.roleSize(13.5),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _modeDescription(l10n, selectedMode),
+            style: TextStyle(
+              color: colors.textMuted,
+              fontSize: AdaptiveText.roleSize(12.8),
+              height: 1.4,
             ),
           ),
         ],

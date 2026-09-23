@@ -137,7 +137,7 @@ class DetailActivity : FlutterHostActivity() {
         }
     }
 
-    override fun getRenderMode(): RenderMode = RenderMode.texture
+    override fun getRenderMode(): RenderMode = RenderMode.surface
 
     override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode =
         FlutterActivityLaunchConfigs.BackgroundMode.opaque
