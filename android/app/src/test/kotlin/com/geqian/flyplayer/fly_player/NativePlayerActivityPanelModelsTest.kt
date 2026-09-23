@@ -49,11 +49,19 @@ class NativePlayerActivityPanelModelsTest {
             R.string.player_version_number -> "版本 ${formatArgs[0]}"
             R.string.player_current_speed -> "当前网速 ${formatArgs[0]}"
             R.string.player_current_speed_resume -> "当前网速 ${formatArgs[0]} · 预计恢复 ${formatArgs[1]}秒"
+            R.string.player_quality_switching -> "正在为您切换至 ${formatArgs[0]}${formatArgs[1]} 画质，请稍等..."
                 else -> getString(resId)
             }
         }
 
         override fun getResources(): Resources = testResources
+    }
+
+    @Test
+    fun qualitySwitchHintShowsRequestedResolutionAndBitrate() {
+        val quality = mapOf("resolution" to "720", "bitrate" to 4_000_000)
+        assertEquals("正在为您切换至 720P（4 Mbps） 画质，请稍等...", nativePanelQualitySwitchingHint(testContext, quality))
+        assertEquals("正在为您切换至 720P 画质，请稍等...", nativePanelQualitySwitchingHint(testContext, quality - "bitrate"))
     }
 
     @Test
@@ -477,6 +485,50 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals("8k", nativePanelQualityTierLabel(4320))
         assertEquals("1080P", nativePanelQualityTierLabel(1080))
         assertEquals("", nativePanelQualityTierLabel(0))
+    }
+
+    @Test
+    fun qualityMenuKeepsOriginalAndSelectsCurrentBitrateAfterSwitch() {
+        val original = mapOf<String, Any?>(
+            "mediaGuid" to "media-1", "videoGuid" to "video-1", "resolution" to "1080P",
+            "bitrate" to 8_000_000, "isDefault" to 1, "source" to "originalProxy",
+        )
+        val high = original + mapOf("source" to "serverSession", "isDefault" to 0, "bitrate" to 4_000_000)
+        val low = high + mapOf("bitrate" to 2_000_000)
+        val sd = low + mapOf("resolution" to "720P")
+        val qualities = listOf(original, high, low, sd)
+        val current = low + mapOf("playbackMode" to "serverSession")
+        assertTrue(nativePanelQualityIsOriginal(original))
+        assertEquals(listOf(0, 2, 3), nativePanelQualityMainIndices(qualities, current))
+        assertFalse(nativePanelQualityMatchesPlayback(original, current))
+        assertFalse(nativePanelQualityMatchesPlayback(high, current))
+        assertTrue(nativePanelQualityMatchesPlayback(low, current))
+        val downscaled = current + mapOf("resolution" to "720P")
+        assertEquals(0, nativePanelQualityMainIndices(qualities, downscaled).first())
+        assertTrue(nativePanelQualityMatchesPlayback(sd, downscaled))
+        assertFalse(nativePanelQualityMatchesPlayback(low, downscaled))
+        assertTrue(nativePanelQualityMatchesPlayback(original, original + mapOf("playbackMode" to "originalQuality")))
+    }
+
+    @Test
+    fun originalFlagUsesSerializedIntegerOrOriginalSource() {
+        assertTrue(nativePanelQualityIsOriginal(mapOf("isDefault" to 1, "source" to "directLink")))
+        assertTrue(nativePanelQualityIsOriginal(mapOf("isDefault" to 0, "source" to "originalProxy")))
+        assertFalse(nativePanelQualityIsOriginal(mapOf("isDefault" to 0, "source" to "serverSession")))
+    }
+
+    @Test
+    fun embyQualityCandidateMatchesItsMediaSourceAndCurrentBitrate() {
+        val current = mapOf<String, Any?>(
+            "mediaGuid" to "ms1", "videoGuid" to "0", "resolution" to "720P",
+            "bitrate" to 2_000_000, "playbackMode" to "serverSession",
+        )
+        val quality = current + mapOf("mediaGuid" to "emby:q:ms1:720:2000000", "source" to "serverSession")
+        assertTrue(nativePanelQualityMatchesPlayback(quality, current))
+        assertFalse(nativePanelQualityMatchesPlayback(quality, current + mapOf("mediaGuid" to "ms2")))
+        assertFalse(nativePanelQualityMatchesPlayback(quality, current + mapOf("bitrate" to 4_000_000)))
+        val original = quality + mapOf("mediaGuid" to "emby:q:ms1:original", "source" to "originalProxy")
+        assertTrue(nativePanelQualityMatchesPlayback(original, current + mapOf("playbackMode" to "originalQuality")))
     }
 
     @Test
@@ -907,6 +959,31 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun initialResumeWaitsForPlaybackBeforeHidingLoading() {
+        var previousPositionMs = -1L
+        var progressing = false
+        fun showLoading(state: MpvPlayerState): Boolean {
+            progressing = progressing || nativePanelHasPlaybackProgress(state, previousPositionMs)
+            previousPositionMs = state.positionMs
+            return nativePanelShouldShowPlaybackLoading(state, progressing)
+        }
+        val preparing = MpvPlayerState(nativeLibLoaded = true, playbackPhase = "preparing")
+        assertTrue(showLoading(preparing))
+        val resumed = preparing.copy(positionMs = 90_000L, paused = false)
+        assertTrue(showLoading(resumed))
+        assertFalse(progressing)
+        val playing = resumed.copy(ready = true, visualPlaybackReady = true, playbackPhase = "playing", positionMs = 90_250L)
+        assertFalse(showLoading(playing))
+        assertTrue(showLoading(playing.copy(buffering = true, playbackPhase = "buffering")))
+        // 换源准备不能沿用上一源的已开播状态。
+        assertTrue(showLoading(resumed.copy(ready = true)))
+        val listening = playing.copy(visualPlaybackReady = false, listenVideoModeEnabled = true)
+        val listenProgressing = nativePanelHasPlaybackProgress(listening, 90_000L)
+        assertTrue(listenProgressing)
+        assertFalse(nativePanelShouldShowPlaybackLoading(listening, listenProgressing))
+    }
+
+    @Test
     fun systemMediaCardDoesNotReportFailedPlaybackAsPlaying() {
         val failed = MpvPlayerState(
             ready = true, paused = false, playbackPhase = "error", error = "媒体加载失败",
@@ -969,6 +1046,18 @@ class NativePlayerActivityPanelModelsTest {
         val result = linkedMapOf<String, Any?>("loadArgs" to "{}")
         assertEquals(false, nativePanelShouldUsePreloadedEpisodeResultForSwitch(result, true))
         assertEquals(true, nativePanelShouldUsePreloadedEpisodeResultForSwitch(result, false))
+    }
+
+    @Test
+    fun sameItemSourceReloadDoesNotOfferResumeAgain() {
+        assertFalse(nativePanelShouldOfferResumeOnLoad("item", "item", isInSessionSwitch = true))
+    }
+
+    @Test
+    fun openingVideoOrSwitchingEpisodeStillOffersResume() {
+        assertTrue(nativePanelShouldOfferResumeOnLoad("", "item", isInSessionSwitch = false))
+        assertTrue(nativePanelShouldOfferResumeOnLoad("item", "item", isInSessionSwitch = false))
+        assertTrue(nativePanelShouldOfferResumeOnLoad("item", "next-item", isInSessionSwitch = true))
     }
 
     @Test
