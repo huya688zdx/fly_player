@@ -380,6 +380,7 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     }
     const batchSize = 4;
     for (var start = 0; start < unresolved.length; start += batchSize) {
+      if (!mounted || !_needsResolutionMetadata) return;
       final batch = unresolved.skip(start).take(batchSize);
       final entries = await Future.wait(
         batch.map((item) async {
@@ -387,7 +388,7 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
           return MapEntry(item.id, metadata);
         }),
       );
-      if (!mounted) return;
+      if (!mounted || !_needsResolutionMetadata) return;
       setState(() {
         for (final entry in entries) {
           _sortMetadata[entry.key] = entry.value;

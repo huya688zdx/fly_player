@@ -96,7 +96,6 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
       if (!mounted) {
         return;
       }
-      unawaited(_loadMetadataMaps());
       unawaited(_loadCurrentRange(initial: true));
     });
   }
@@ -171,6 +170,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
         _snapshotVersion += 1;
       });
       await _loadMetadataMaps();
+      if (!mounted || requestRange != _selectedRange) return;
       if (withBackfill) {
         await _runBackfillAndReload(l10n, snapshot, requestRange);
       } else {
@@ -194,6 +194,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     PlayStatsRange requestRange,
   ) async {
     await _triggerMetadataBackfill(snapshot);
+    if (!mounted || requestRange != _selectedRange) return;
     final refreshed = await _summaryRepository.loadReportSnapshot(
       l10n: l10n,
       range: requestRange,
@@ -262,6 +263,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
   Future<void> _triggerMetadataBackfill(
     PlayStatsReportSnapshot snapshot,
   ) async {
+    if (!mounted) return;
     final provider = context.read<NasProvider?>();
     if (provider == null || _metadataBackfillRunning) {
       return;
@@ -272,6 +274,23 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     if (gateway == null) {
       return;
     }
+    final service = PlayStatsService.instance;
+    final scope = service.currentScope;
+    final range = _selectedRange;
+    final baseUrl = provider.baseUrl;
+    final token = provider.token;
+    final route = ModalRoute.of(context);
+    bool isActive() =>
+        mounted &&
+        route?.isCurrent != false &&
+        range == _selectedRange &&
+        service.currentScope == scope &&
+        provider.isConfigured &&
+        provider.baseUrl == baseUrl &&
+        provider.token == token;
+    // 已有统计先完成首帧，回填只服务于仍可见的当前范围。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!isActive() || _metadataBackfillRunning) return;
     final ids = <String>{
       ...snapshot.topVideos.map((item) => item.videoId.trim()),
       ...snapshot.recentHistory.map((item) => item.videoId.trim()),
@@ -286,6 +305,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
         gateway: gateway,
         preferredVideoIds: ids,
         limit: 12,
+        isActive: isActive,
       );
     } finally {
       if (mounted) {

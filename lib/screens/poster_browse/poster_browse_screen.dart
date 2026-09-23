@@ -40,7 +40,6 @@ import 'poster_browse_large_layout.dart';
 import 'poster_browse_loader.dart';
 import 'poster_browse_mobile_layout.dart';
 import 'poster_browse_orientation_controller.dart';
-import 'poster_browse_row_artwork_warmup.dart';
 import 'poster_browse_rows.dart';
 import 'poster_browse_screen_policy.dart';
 import 'poster_browse_session_key.dart';
@@ -89,6 +88,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   String? _settledItemId;
   int _focusGeneration = 0;
   int _loadGeneration = 0;
+  bool _enrichmentRunning = false;
   bool _loading = true;
   bool _immersiveModeEntered = false;
   MediaBackend? _backend;
@@ -219,22 +219,13 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       );
       if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
 
-      final initialEnrichmentById = await _hydrateInitialVisibleArtwork(
-        rows: rows,
-        loadGeneration: generation,
-        loadKey: loadKey,
-      );
-      if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
-
       final displayById = <String, PosterBrowseDisplayItem>{};
       for (final row in rows) {
         for (final card in row.items) {
-          final prewarmed =
-              initialEnrichmentById[card.id] ??
-              PosterBrowseArtworkPrewarmCache.shared.peek(
-                sessionKey: loadKey,
-                itemId: card.id,
-              );
+          final prewarmed = PosterBrowseArtworkPrewarmCache.shared.peek(
+            sessionKey: loadKey,
+            itemId: card.id,
+          );
           displayById[card.id] = _displayBuilder.build(
             card: card,
             itemDetail: prewarmed?.itemDetail,
@@ -271,19 +262,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       });
 
       if (hasContinueWatching) {
-        unawaited(
-          _warmContinueWatchingRow(
-            rowIndex: 0,
-            loadGeneration: generation,
-            loadKey: loadKey,
-          ),
-        );
         unawaited(_settle(rowIndex: 0, itemIndex: 0));
-        if (firstCatalogIndex >= 0) {
-          unawaited(
-            _ensureCatalogLoaded(firstCatalogIndex, selectWhenReady: false),
-          );
-        }
         return;
       }
 
@@ -313,65 +292,6 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
   bool _isCurrentLoad({required int generation, required String loadKey}) {
     return mounted && generation == _loadGeneration && loadKey == _loadKey;
-  }
-
-  Future<Map<String, PosterBrowseEnrichment>> _hydrateInitialVisibleArtwork({
-    required List<PosterBrowseRow> rows,
-    required int loadGeneration,
-    required String loadKey,
-  }) async {
-    final continueRow = rows
-        .where(
-          (row) =>
-              row.kind == PosterBrowseRowKind.continueWatching &&
-              row.items.isNotEmpty,
-        )
-        .firstOrNull;
-    final enricher = _enricher;
-    if (continueRow == null || enricher == null || !mounted) {
-      return const <String, PosterBrowseEnrichment>{};
-    }
-
-    bool isActive() {
-      return _isCurrentLoad(generation: loadGeneration, loadKey: loadKey) &&
-          identical(enricher, _enricher);
-    }
-
-    ({int visibleCount, int? centerIndex}) currentProfile() {
-      final size = MediaQuery.sizeOf(context);
-      return (
-        visibleCount: PosterBrowseInitialArtworkPolicy.visibleCountFor(
-          width: size.width,
-          height: size.height,
-        ),
-        centerIndex: PosterBrowseInitialArtworkPolicy.centerIndexFor(
-          width: size.width,
-          height: size.height,
-        ),
-      );
-    }
-
-    final resolved = <String, PosterBrowseEnrichment>{};
-    final attemptedProfiles = <({int visibleCount, int? centerIndex})>{};
-    while (isActive()) {
-      final profile = currentProfile();
-      if (!attemptedProfiles.add(profile)) break;
-      resolved.addAll(
-        await PosterBrowseArtworkPrewarmCache.shared.resolveVisible(
-          sessionKey: loadKey,
-          items: continueRow.items,
-          centerIndex: profile.centerIndex,
-          limit: profile.visibleCount,
-          maxConcurrent: 2,
-          load: enricher.enrich,
-          isActive: isActive,
-        ),
-      );
-      if (!isActive()) break;
-      final latestProfile = currentProfile();
-      if (latestProfile == profile) break;
-    }
-    return resolved;
   }
 
   Future<void> _ensureCatalogLoaded(
@@ -605,65 +525,17 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     return _displayById[card.id] ?? _displayBuilder.build(card: card);
   }
 
-  Future<void> _warmContinueWatchingRow({
-    required int rowIndex,
-    required int loadGeneration,
-    required String loadKey,
-  }) async {
-    if (rowIndex < 0 || rowIndex >= _rows.length) return;
-    final row = _rows[rowIndex];
-    if (row.kind != PosterBrowseRowKind.continueWatching || row.items.isEmpty) {
-      return;
-    }
-    final enricher = _enricher;
-    if (enricher == null) return;
-
-    bool isActive() {
-      return _isCurrentLoad(generation: loadGeneration, loadKey: loadKey) &&
-          identical(enricher, _enricher);
-    }
-
-    await const PosterBrowseRowArtworkWarmup(maxConcurrent: 2).run(
-      items: row.items,
-      centerIndex: 0,
-      load: (card) =>
-          _loadEnrichment(enricher: enricher, card: card, loadKey: loadKey),
-      isActive: isActive,
-      onLoaded: (card, enrichment) {
-        if (!isActive()) return;
-        final display = _displayBuilder.build(
-          card: card,
-          itemDetail: enrichment.itemDetail,
-          seriesDetail: enrichment.seriesDetail,
-          season: enrichment.season,
-          resolvedSeriesId: enrichment.resolvedSeriesId,
-        );
-        setState(() => _displayById[card.id] = display);
-      },
-      onError: (card, error, stackTrace) {
-        unawaited(
-          logSwallowedError(
-            action: 'poster browse warm continue watching artwork',
-            error: error,
-            stackTrace: stackTrace,
-            source: 'poster_browse_screen',
-            id: card.id,
-          ),
-        );
-      },
-    );
-  }
-
   Future<PosterBrowseEnrichment> _loadEnrichment({
     required PosterBrowseArtworkEnricher enricher,
     required MediaItemCard card,
     required String loadKey,
+    required bool Function() isActive,
   }) {
     return PosterBrowseArtworkPrewarmCache.shared.futureFor(
           sessionKey: loadKey,
           itemId: card.id,
         ) ??
-        enricher.enrich(card);
+        enricher.enrich(card, isActive: isActive);
   }
 
   PosterBrowseDisplayItem? get _focusedItem {
@@ -713,9 +585,6 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     final card = row.items[normalized.itemIndex];
     final generation = _focusGeneration + 1;
     _focusGeneration = generation;
-    final requestLoadGeneration = _loadGeneration;
-    final loadKey = _loadKey;
-
     setState(() {
       _selection.select(
         rowIndex: normalized.rowIndex,
@@ -723,100 +592,73 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       );
       _settledItemId = card.id;
     });
-    _precacheNeighbors(
-      rowIndex: normalized.rowIndex,
-      itemIndex: normalized.itemIndex,
-    );
-
-    final enricher = _enricher;
-    if (enricher == null || loadKey == null) return;
-    if (row.kind != PosterBrowseRowKind.continueWatching) {
-      unawaited(
-        enricher.prefetchWindow(
-          row.items,
-          normalized.itemIndex,
-          radius: _backgroundSpec().prefetchRadius,
-        ),
-      );
-    }
-
-    try {
-      final enrichment = await _loadEnrichment(
-        enricher: enricher,
-        card: card,
-        loadKey: loadKey,
-      );
-      if (!mounted || loadKey != _loadKey) return;
-
-      final enrichedDisplay = _displayBuilder.build(
-        card: card,
-        itemDetail: enrichment.itemDetail,
-        seriesDetail: enrichment.seriesDetail,
-        season: enrichment.season,
-        resolvedSeriesId: enrichment.resolvedSeriesId,
-      );
-
-      final decision = PosterBrowseEnrichmentCommitPolicy.resolve(
-        requestLoadGeneration: requestLoadGeneration,
-        currentLoadGeneration: _loadGeneration,
-        requestFocusGeneration: generation,
-        currentFocusGeneration: _focusGeneration,
-      );
-      if (!decision.commitDisplay) return;
-      setState(() => _displayById[card.id] = enrichedDisplay);
-      if (decision.applyFocusEffects) {
-        _precacheNeighbors(
-          rowIndex: normalized.rowIndex,
-          itemIndex: normalized.itemIndex,
-        );
-      }
-    } catch (error, stackTrace) {
-      if (!mounted || loadKey != _loadKey) return;
-      await logSwallowedError(
-        action: 'poster browse enrich focused item',
-        error: error,
-        stackTrace: stackTrace,
-        source: 'poster_browse_screen',
-        id: card.id,
-      );
-    }
+    // 先让现成卡片绘制，再只补当前停留项；快速切换只保留最新焦点。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _focusGeneration) return;
+    await _enrichFocusedItem();
   }
 
-  void _precacheNeighbors({required int rowIndex, required int itemIndex}) {
-    if (!mounted) return;
-    final normalized = _normalizeSelection(
-      rowIndex: rowIndex,
-      itemIndex: itemIndex,
-    );
-    if (normalized == null) return;
-
-    final row = _rows[normalized.rowIndex];
-    final resolver = _resolver();
-    final spec = _backgroundSpec();
-    final cacheWidth = spec.cacheWidth;
-    for (
-      var index = normalized.itemIndex - spec.prefetchRadius;
-      index <= normalized.itemIndex + spec.prefetchRadius;
-      index += 1
-    ) {
-      if (index < 0 ||
-          index >= row.items.length ||
-          index == normalized.itemIndex) {
-        continue;
+  Future<void> _enrichFocusedItem() async {
+    if (_enrichmentRunning) return;
+    _enrichmentRunning = true;
+    try {
+      while (mounted && !_loading) {
+        final item = _focusedItem;
+        final enricher = _enricher;
+        final loadKey = _loadKey;
+        if (item == null || enricher == null || loadKey == null) return;
+        final card = item.card;
+        final generation = _focusGeneration;
+        final requestLoadGeneration = _loadGeneration;
+        bool isActive() =>
+            _isCurrentLoad(
+              generation: requestLoadGeneration,
+              loadKey: loadKey,
+            ) &&
+            generation == _focusGeneration;
+        try {
+          final enrichment = await _loadEnrichment(
+            enricher: enricher,
+            card: card,
+            loadKey: loadKey,
+            isActive: isActive,
+          );
+          if (isActive()) {
+            final enrichedDisplay = _displayBuilder.build(
+              card: card,
+              itemDetail: enrichment.itemDetail,
+              seriesDetail: enrichment.seriesDetail,
+              season: enrichment.season,
+              resolvedSeriesId: enrichment.resolvedSeriesId,
+            );
+            final decision = PosterBrowseEnrichmentCommitPolicy.resolve(
+              requestLoadGeneration: requestLoadGeneration,
+              currentLoadGeneration: _loadGeneration,
+              requestFocusGeneration: generation,
+              currentFocusGeneration: _focusGeneration,
+            );
+            if (!decision.commitDisplay) return;
+            setState(() => _displayById[card.id] = enrichedDisplay);
+          }
+        } catch (error, stackTrace) {
+          if (isActive()) {
+            unawaited(
+              logSwallowedError(
+                action: 'poster browse enrich focused item',
+                error: error,
+                stackTrace: stackTrace,
+                source: 'poster_browse_screen',
+                id: card.id,
+              ),
+            );
+          }
+        }
+        if (!mounted || generation == _focusGeneration) return;
+        // 桌面焦点还在节流窗口中时，等待停留回调再发请求。
+        if (_settledItemId != _focusedItem?.card.id) return;
       }
-      final display = _displayItemOf(row.items[index]);
-      final request = _backgroundRequestOf(resolver, display, spec);
-      if (request.isEmpty) continue;
-      unawaited(
-        precacheImage(
-          ResizeImage(
-            NetworkImage(request.urls.first, headers: request.headers),
-            width: cacheWidth,
-          ),
-          context,
-          onError: (_, __) {},
-        ),
-      );
+    } finally {
+      _enrichmentRunning = false;
     }
   }
 

@@ -19,6 +19,8 @@ class DanmakuSavedSourceStore {
   static const String _autoNoResultUntilPrefix = 'auto_no_result_until:';
   static const Duration autoNoResultRetryDelay = Duration(hours: 6);
   static final ValueNotifier<int> _revision = ValueNotifier<int>(0);
+  static final Map<(String, int), Future<List<DanmakuSavedSource>>>
+  _loadAllInFlight = {};
   // 所有写方法（读整体 payload → 改 → 整体写回）串行化到同一条队列上，
   // 避免并发写入时后完成的整体覆盖写丢失先完成的改动。
   static Future<void> _mutationQueue = Future<void>.value();
@@ -37,6 +39,19 @@ class DanmakuSavedSourceStore {
   }
 
   Future<List<DanmakuSavedSource>> loadAll() async {
+    // 同一次来源变更会通知多层路由，只共享在途读取，不长驻缓存。
+    final key = (directoryPath?.trim() ?? '', _revision.value);
+    final loading = _loadAllInFlight.putIfAbsent(key, _loadAll);
+    try {
+      return List<DanmakuSavedSource>.of(await loading, growable: false);
+    } finally {
+      if (identical(_loadAllInFlight[key], loading)) {
+        _loadAllInFlight.remove(key);
+      }
+    }
+  }
+
+  Future<List<DanmakuSavedSource>> _loadAll() async {
     final payload = await _loadPayload();
     final rawSources =
         (payload['sources'] as List<dynamic>? ?? const <dynamic>[])
@@ -302,10 +317,11 @@ class DanmakuSavedSourceStore {
     }
     final path = await (_pathFuture ??= () async {
       if (Platform.isWindows) {
-        final root = resolveFlyDataHome() ??
+        final root =
+            resolveFlyDataHome() ??
             ((Platform.environment['LOCALAPPDATA'] ?? '').trim().isNotEmpty
-            ? Platform.environment['LOCALAPPDATA']!.trim()
-            : Directory.systemTemp.path);
+                ? Platform.environment['LOCALAPPDATA']!.trim()
+                : Directory.systemTemp.path);
         final directory = Directory('$root${Platform.pathSeparator}FlyPlayer');
         await directory.create(recursive: true);
         return '${directory.path}${Platform.pathSeparator}$_fileName';

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -20,7 +22,7 @@ import 'package:fly_player/widgets/common/app_error_state.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('人物详情在会话暂不可用后显示重试并可恢复', (tester) async {
+  testWidgets('人物详情重试恢复后先显示正文，不等待作品列表', (tester) async {
     final nas = NasProvider();
     final session = _SwitchableBackendSessionProvider();
     final theme = AppThemeProvider();
@@ -64,6 +66,10 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Recovered Person'), findsWidgets);
     expect(find.byType(AppErrorState), findsNothing);
+    expect(backend.personItems.isCompleted, isFalse);
+
+    backend.personItems.complete(const <MediaItemCard>[]);
+    await tester.pump();
 
     await tester.pumpWidget(const SizedBox.shrink());
     theme.dispose();
@@ -101,6 +107,8 @@ class _StubMediaBackendProvider extends MediaBackendProvider {
 }
 
 class _StubMediaBackend extends Fake implements MediaBackend {
+  final personItems = Completer<List<MediaItemCard>>();
+
   @override
   MediaBackendCapabilities get capabilities =>
       const MediaBackendCapabilities.server(kind: MediaBackendKind.emby);
@@ -114,6 +122,6 @@ class _StubMediaBackend extends Fake implements MediaBackend {
   );
 
   @override
-  Future<List<MediaItemCard>> getPersonItems(String personId) async =>
-      const <MediaItemCard>[];
+  Future<List<MediaItemCard>> getPersonItems(String personId) =>
+      personItems.future;
 }

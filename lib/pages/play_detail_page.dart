@@ -26,6 +26,7 @@ import '../media_backend/detail/media_source_version.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/feiniu/feiniu_detail_mappers.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_backend.dart';
 import '../media_backend/media_image_ref.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
@@ -1531,31 +1532,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _neutralDisplayOnly = true;
       try {
         final detail = await backend.getItemDetail(_currentItemGuid);
-        // 版本 + 文件/视频信息 best-effort:失败不阻断详情展示。
-        var versions = const <MediaSourceVersion>[];
-        try {
-          versions = await backend.getItemSourceVersions(_currentItemGuid);
-        } catch (error, stackTrace) {
-          await logSwallowedError(
-            action: 'load neutral source versions',
-            id: _currentItemGuid,
-            error: error,
-            stackTrace: stackTrace,
-            source: 'play_detail_page',
-            details: 'backend=${backend.capabilities.kind.name}',
-          );
-          versions = const <MediaSourceVersion>[];
-        }
         if (!mounted) return;
         // 地区本地化在此渲染层做（mapper 无 l10n）：英文国名 / ISO code → 中文，未知原样。
         final l10n = AppLocalizations.of(context);
-        final localizedVersions = _localizeNeutralSourceVersions(
-          versions,
-          l10n,
-        );
-        final selectedVersion = localizedVersions.isNotEmpty
-            ? localizedVersions.first
-            : null;
         final localizedDetail = detail.copyWith(
           regionLabels: RegionNameLocalizer.localizeAll(
             l10n,
@@ -1568,12 +1547,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         if (!mounted) return;
         setState(() {
           _detail = localizedDetail;
-          _neutralVersions = localizedVersions;
-          _neutralSelectedVersionIndex = 0;
-          // 音轨/字幕初始化为选中版本的默认轨(无默认则首条音轨 / 字幕关闭)。
-          _neutralSelectedAudioId = _defaultAudioIdFor(selectedVersion);
-          _neutralSelectedSubtitleId = selectedVersion?.defaultSubtitleId ?? '';
-          _sourceInfo = selectedVersion?.info;
           _data = null;
           _liked = detail.favorite;
           _watched = detail.watched;
@@ -1587,6 +1560,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         _headerFadeController.forward(from: 0);
         _actionsPopController.forward(from: 0);
         _descriptionPopController.forward(from: 0);
+        unawaited(_loadNeutralSourceVersions(backend, localizedDetail));
       } catch (e) {
         if (!mounted) return;
         setState(() {
@@ -1611,18 +1585,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           ? info.item.guid.trim()
           : _currentItemGuid;
 
-      // Phase 2 与下载画质预取先行发起，让网络请求与转场动画并行；
-      // 它们应用结果时各自过闸（_loadPhase2 内已有 RouteTransitionGate）。
+      // 轨道信息应用时等待转场结束，下载数据留到点击下载时按需获取。
       unawaited(_loadPhase2(api: api, info: info));
-
-      // Pre-fetch download qualities so the download sheet opens instantly.
-      unawaited(
-        _prefetchDownloadQualities(
-          gateway: FeiniuDetailDataGateway.forApi(api),
-          itemGuid: _currentItemGuid,
-          playItem: info.item,
-        ),
-      );
 
       // 骨架→正文的整树替换 + 入场动画等转场结束再做，避免与 380ms
       // enter 动画同窗叠加（对齐 Phase-2 与 tv_detail 的既有闸门模式）。
@@ -1649,6 +1613,42 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         );
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _loadNeutralSourceVersions(
+    MediaBackend backend,
+    MediaDetail detail,
+  ) async {
+    // 正文先完成首帧；版本、音轨和文件信息随后只补当前条目。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || _loading || _detail != detail) return;
+    try {
+      final versions = await backend.getItemSourceVersions(detail.id);
+      if (!mounted || _loading || _detail != detail) return;
+      final localizedVersions = _localizeNeutralSourceVersions(
+        versions,
+        AppLocalizations.of(context),
+      );
+      final selectedVersion = localizedVersions.isNotEmpty
+          ? localizedVersions.first
+          : null;
+      setState(() {
+        _neutralVersions = localizedVersions;
+        _neutralSelectedVersionIndex = 0;
+        _neutralSelectedAudioId = _defaultAudioIdFor(selectedVersion);
+        _neutralSelectedSubtitleId = selectedVersion?.defaultSubtitleId ?? '';
+        _sourceInfo = selectedVersion?.info;
+      });
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load neutral source versions',
+        id: detail.id,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'play_detail_page',
+        details: 'backend=${backend.capabilities.kind.name}',
+      );
     }
   }
 
@@ -3056,28 +3056,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         if (variants.length == versions.length) _selectNeutralVersion(index);
       },
     );
-  }
-
-  Future<void> _prefetchDownloadQualities({
-    required FeiniuDetailDataGateway gateway,
-    required String itemGuid,
-    required PlayItem playItem,
-  }) async {
-    // Pre-fetch item detail so the download sheet opens instantly.
-    await PlayDetailDownloadSheetController.prefetchItemDetail(
-      gateway,
-      itemGuid,
-    );
-    // Pre-fetch quality options for likely play-item guids.
-    final candidates = <String>{
-      itemGuid.trim(),
-      playItem.guid.trim(),
-    }.where((v) => v.isNotEmpty).toSet();
-    for (final guid in candidates) {
-      unawaited(
-        PlayDetailDownloadSheetController.prefetchQualities(gateway, guid),
-      );
-    }
   }
 
   void _handleDownloadTap() {

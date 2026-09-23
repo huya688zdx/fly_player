@@ -139,6 +139,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   // 中立(Emby)季页面「收藏整部剧」态(收藏 widget.parentGuid 系列本身)。飞牛季页面不显示此键。
   bool _neutralSeriesFavorite = false;
   bool _seriesFavoriteUpdating = false;
+  bool _neutralSeriesFavoriteResolved = false;
   // 中立(Emby)季评分回退:Emby 季条目通常无 CommunityRating(评分挂在系列上),取系列评分兜底,
   // 使季页面 meta 与飞牛一致显示「X.X 分 / 年份」。
   String _neutralSeriesRating = '';
@@ -1082,7 +1083,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     );
   }
 
-  /// 中立(Emby)季数据加载:季列表 + 目标季详情 + 选集列表。播放接线一律不取(占位)。
+  /// 中立季详情先展示正文，系列补充信息和选集在首帧后分别加载。
   Future<void> _loadSeasonDataNeutral(
     String requestedGuid, {
     required bool showLoading,
@@ -1090,6 +1091,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _deferredLoadTimer?.cancel();
     if (showLoading) _resetEntryAnimations();
     final seq = ++_seasonLoadSeq;
+    _neutralSeriesFavoriteResolved = false;
     if (showLoading) {
       setState(() {
         _loading = true;
@@ -1122,65 +1124,28 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           ? requestedGuid
           : (seasons.isNotEmpty ? seasons.first.id : requestedGuid);
       final detail = await backend.getItemDetail(target);
-      // best-effort 查整部剧收藏态(收藏键收藏的是系列本身,非当前季)+ 系列评分(季无评分时兜底)。
-      bool seriesFavorite = _neutralSeriesFavorite;
-      String seriesRating = _neutralSeriesRating;
-      try {
-        final seriesId = widget.parentGuid.trim();
-        if (seriesId.isEmpty || seriesId == target) {
-          seriesFavorite = detail.favorite;
-          seriesRating = detail.rating;
-        } else {
-          final seriesDetail = await backend.getItemDetail(seriesId);
-          seriesFavorite = seriesDetail.favorite;
-          seriesRating = seriesDetail.rating;
-        }
-      } catch (error, stackTrace) {
-        await logSwallowedError(
-          action: 'load neutral series detail fallback',
-          id: widget.parentGuid,
-          error: error,
-          stackTrace: stackTrace,
-          source: 'tv_season_detail_page',
-          details: 'seasonGuid=$target',
-        );
-      }
-      List<MediaEpisodeSummary> episodes;
-      try {
-        episodes = await backend.getSeasonEpisodes(target);
-      } catch (error, stackTrace) {
-        await logSwallowedError(
-          action: 'load neutral season episodes',
-          id: target,
-          error: error,
-          stackTrace: stackTrace,
-          source: 'tv_season_detail_page',
-          details: 'backend=${backend.capabilities.kind.name}',
-        );
-        episodes = const <MediaEpisodeSummary>[];
-      }
       if (!mounted || seq != _seasonLoadSeq) return;
       await RouteTransitionGate.of(context);
       if (!mounted || seq != _seasonLoadSeq) return;
       _neutralDetailCache[target] = detail;
-      _neutralEpisodeCache[target] = episodes;
       setState(() {
         _neutralDisplayOnly = true;
         _neutralSeasons = seasons;
         _neutralDetail = detail;
-        _neutralSeriesFavorite = seriesFavorite;
-        _neutralSeriesRating = seriesRating;
-        _neutralEpisodes = episodes;
+        if (widget.parentGuid.trim().isEmpty ||
+            widget.parentGuid.trim() == target) {
+          _neutralSeriesFavorite = detail.favorite;
+          _neutralSeriesFavoriteResolved = true;
+          _neutralSeriesRating = detail.rating;
+        }
+        _neutralEpisodes = const [];
         _selectedSeasonGuid = target;
         _imdbId = detail.externalIds.imdbId;
         _trimId = detail.externalIds.tmdbId;
         _watched = detail.watched;
-        _selectedEpisodeGuid = _neutralPreferredEpisodeGuid(episodes);
-        _episodeRangeIndex = _neutralRangeIndexFor(
-          episodes,
-          _selectedEpisodeGuid,
-        );
-        _episodeItemsResolved = true;
+        _selectedEpisodeGuid = '';
+        _episodeRangeIndex = 0;
+        _episodeItemsResolved = false;
         _artworkReady = true;
         _descriptionVisible = true;
         _loading = false;
@@ -1188,8 +1153,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       });
       if (showLoading) _resetScrollToTop();
       if (showLoading) _startEntryAnimations();
-      _scheduleInitialEpisodePosition();
-      unawaited(_resolveNeutralPlayTarget(backend, target, episodes));
+      unawaited(_loadNeutralSeasonEpisodes(backend, seq, target));
+      unawaited(_loadNeutralSeriesFallback(backend, target));
     } catch (e) {
       if (!mounted || seq != _seasonLoadSeq) return;
       setState(() {
@@ -1201,6 +1166,80 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadNeutralSeriesFallback(
+    MediaBackend backend,
+    String seasonGuid,
+  ) async {
+    final seriesId = widget.parentGuid.trim();
+    if (seriesId.isEmpty || seriesId == seasonGuid) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || _loading || _neutralSeriesFavoriteResolved) return;
+    try {
+      final detail = await backend.getItemDetail(seriesId);
+      if (!mounted || _loading || _neutralSeriesFavoriteResolved) return;
+      setState(() {
+        _neutralSeriesFavorite = detail.favorite;
+        _neutralSeriesRating = detail.rating;
+        _neutralSeriesFavoriteResolved = true;
+      });
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load neutral series detail fallback',
+        id: seriesId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+        details: 'seasonGuid=$seasonGuid',
+      );
+      if (!mounted || _loading || _neutralSeriesFavoriteResolved) return;
+      setState(() => _neutralSeriesFavoriteResolved = true);
+    }
+  }
+
+  Future<void> _loadNeutralSeasonEpisodes(
+    MediaBackend backend,
+    int seq,
+    String seasonGuid,
+  ) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted ||
+        seq != _seasonLoadSeq ||
+        seasonGuid != _selectedSeasonGuid) {
+      return;
+    }
+    List<MediaEpisodeSummary> episodes;
+    try {
+      episodes = await backend.getSeasonEpisodes(seasonGuid);
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load neutral season episodes',
+        id: seasonGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+        details: 'backend=${backend.capabilities.kind.name}',
+      );
+      episodes = const [];
+    }
+    if (!mounted ||
+        seq != _seasonLoadSeq ||
+        seasonGuid != _selectedSeasonGuid) {
+      return;
+    }
+    _neutralEpisodeCache[seasonGuid] = episodes;
+    setState(() {
+      _neutralEpisodes = episodes;
+      _selectedEpisodeGuid = _neutralPreferredEpisodeGuid(episodes);
+      _episodeRangeIndex = _neutralRangeIndexFor(
+        episodes,
+        _selectedEpisodeGuid,
+      );
+      _episodeItemsResolved = true;
+    });
+    _scheduleInitialEpisodePosition();
+    unawaited(_resolveNeutralPlayTarget(backend, seasonGuid, episodes));
   }
 
   /// 中立切季:命中缓存瞬时切换(追平飞牛);未命中则先显占位再并行取详情+选集。
@@ -1472,6 +1511,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   }
 
   Future<void> _openNeutralEpisodePicker(BuildContext sheetContext) async {
+    if (!_episodeItemsResolved) {
+      _showTopTip(
+        AppLocalizations.of(context).detailPreparingPlayback,
+        context.appColors.textMuted,
+      );
+      return;
+    }
     if (_neutralSeasons.isEmpty && _neutralEpisodes.isEmpty) return;
     final result = await TvEpisodePickerSheet.show(
       sheetContext,
@@ -1511,7 +1557,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   }
 
   void _openNeutralEpisode(String episodeGuid) {
-    if (episodeGuid.trim().isEmpty) return;
+    if (!_episodeItemsResolved ||
+        !_neutralEpisodes.any((episode) => episode.id == episodeGuid)) {
+      return;
+    }
     AdaptiveDetailNavigator.open<void>(
       context,
       AdaptiveDetailRequest.item(
@@ -1850,7 +1899,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       headerBodyTopPadding: headerBodyTopPadding.toDouble(),
                       headerMetaOpacity: _headerMetaOpacity,
                       metaContent: metaContent,
-                      playLabel: _neutralPlayLabel(),
+                      playLabel: _episodeItemsResolved
+                          ? _neutralPlayLabel()
+                          : AppLocalizations.of(context).commonLoading,
                       playLabelFontSize: playLabelFontSize.toDouble(),
                       watched: _watched,
                       downloaded: false,
@@ -1922,13 +1973,19 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                               onTmdbTap: _openTmdb,
                             )
                           : null,
-                      onPlayTap: _onNeutralPlayTap,
+                      onPlayTap:
+                          _episodeItemsResolved &&
+                              _neutralEpisodes.isNotEmpty &&
+                              !_playPreparing
+                          ? _onNeutralPlayTap
+                          : null,
                       onDownloadTap: _neutralComingSoon,
                       onWatchedTap: _neutralComingSoon,
                       favorite: favoriteSupported
                           ? _neutralSeriesFavorite
                           : null,
-                      onFavoriteTap: favoriteSupported
+                      onFavoriteTap:
+                          favoriteSupported && _neutralSeriesFavoriteResolved
                           ? _toggleNeutralSeriesFavorite
                           : null,
                       onOverviewTap: () {
@@ -2166,7 +2223,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _artworkReady = _descriptionVisible;
       });
       _scheduleInitialEpisodePosition();
-      unawaited(_prefetchDownloadData(episodes, selectedEpisodeGuid));
     } catch (error, stackTrace) {
       await logSwallowedError(
         action: 'resolve feiniu episode items',
@@ -2565,27 +2621,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _showTopTip(
       AppLocalizations.of(context).detailDownloadPlaceholder,
       const Color(0xFF3B4A5E),
-    );
-  }
-
-  Future<void> _prefetchDownloadData(
-    List<MediaLibraryItem> episodes,
-    String selectedEpisodeGuid,
-  ) async {
-    if (episodes.isEmpty) return;
-    final provider = context.read<NasProvider>();
-    if (!provider.isConfigured) return;
-    final api = FeiniuApi(provider);
-    final candidates = <String>{
-      selectedEpisodeGuid.trim(),
-      _playInfo?.item.guid ?? '',
-      episodes.first.guid,
-      _selectedSeasonGuid,
-      widget.seasonItem.guid,
-    }.where((g) => g.isNotEmpty).toList(growable: false);
-    await TvSeasonDownloadSheetController.prefetchSeasonDownloadData(
-      FeiniuDetailDataGateway.forApi(api),
-      candidateItemGuids: candidates,
     );
   }
 
