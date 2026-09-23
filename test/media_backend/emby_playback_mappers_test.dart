@@ -53,10 +53,11 @@ void main() {
     ],
   };
 
-  test('mapEmbyPlaybackSource 取视频属性 + 直链投递', () {
+  test('mapEmbyPlaybackSource 将带 FN 入口令牌的 HTTPS 直链交给原生代理', () {
     final src = mapEmbyPlaybackSource(
       source(),
-      url: 'https://emby.test/Videos/x/stream?Static=true',
+      url:
+          'https://embyserver4-9.geqian688.fnos.net/Videos/x/stream?Static=true',
       headers: const <String, String>{'Cookie': 'entry-token=abc'},
     );
     expect(src.id, 'src-1');
@@ -68,8 +69,16 @@ void main() {
     expect(src.bitDepth, 10);
     expect(src.colorTransfer, 'smpte2084');
     expect(src.reliableSeek, isTrue);
-    expect(src.forceNativeProxy, isFalse);
+    expect(src.forceNativeProxy, isTrue);
     expect(src.headers['Cookie'], 'entry-token=abc');
+
+    final transcoding = mapEmbyPlaybackSource(
+      source(),
+      url: 'https://embyserver4-9.geqian688.fnos.net/Videos/x/master.m3u8',
+      headers: const <String, String>{'Cookie': 'entry-token=abc'},
+      delivery: MediaPlaybackDeliveryKind.transcoding,
+    );
+    expect(transcoding.forceNativeProxy, isFalse);
   });
 
   test('mapEmbyPlaybackTracks 抽音轨/字幕 + 默认标记 + 外挂位置', () {
