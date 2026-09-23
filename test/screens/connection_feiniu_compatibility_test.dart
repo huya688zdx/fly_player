@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -51,6 +53,68 @@ void main() {
     await tester.tap(find.byIcon(Icons.visibility_off_outlined).last);
     await tester.pump();
     expect(tester.widget<TextField>(accessCodeFinder).obscureText, isFalse);
+  });
+
+  testWidgets('提交期间锁定表单、切换和入口，完成后恢复操作', (tester) async {
+    final pending = Completer<LoginWithBaseUrlResult>();
+    await _pumpConnectionScreen(
+      tester,
+      baseUrl: 'https://nas.example.test',
+      feiniuLogin:
+          ({
+            required baseUrl,
+            required userName,
+            required password,
+            required accessCode,
+          }) => pending.future,
+    );
+    await _expandFeiniuOptions(tester);
+    await tester.ensureVisible(find.byType(ElevatedButton));
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pump();
+    expect(
+      tester
+          .widgetList<TextField>(find.byType(TextField))
+          .every((field) => field.enabled == false),
+      isTrue,
+    );
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).onChanged, isNull);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.widgetWithIcon(IconButton, Icons.history_rounded),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '查看已下载数据'))
+          .onPressed,
+      isNull,
+    );
+    await tester.ensureVisible(find.text('Emby'));
+    await tester.tap(find.text('Emby'));
+    await tester.dragFrom(const Offset(400, 300), const Offset(-360, 0));
+    await tester.pump();
+    expect(find.byKey(const Key('serverAddress_emby')), findsNothing);
+    pending.complete(
+      const LoginWithBaseUrlResult(
+        token: 'token',
+        resolvedBaseUrl: 'https://nas.example.test',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widgetList<TextField>(find.byType(TextField))
+          .every((field) => field.enabled == true),
+      isTrue,
+    );
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).onChanged, isNotNull);
+    await tester.tap(find.text('Emby'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('serverAddress_emby')), findsOneWidget);
   });
 
   testWidgets('访问码字段Done动作会提交原值', (tester) async {
