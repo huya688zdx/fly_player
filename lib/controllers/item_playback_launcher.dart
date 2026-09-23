@@ -127,9 +127,11 @@ class ItemPlaybackLauncher {
         var accepted = false;
         try {
           if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
-          // 服务器族单集起播需带上本季 episodes，桌面与 Android 宿主共用。
-          final serverEpisodes = isFeiniu
-              ? null
+          // 继续观看没有详情页预载列表，起播前补齐本季；原生选集入口依赖它显示。
+          final playbackEpisodes = isFeiniu
+              ? (source.mediaType.toLowerCase() == 'episode'
+                    ? await loadSeasonEpisodes(nas, source.seasonGuid)
+                    : null)
               : await _serverNativeEpisodes(backend, source);
           if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
 
@@ -141,7 +143,8 @@ class ItemPlaybackLauncher {
                 ? null
                 : await NativeDanmakuPrefetch.resolveToFile(
                     statsScope: source.statsScope,
-                    isCurrent: () => context.mounted && playbackLaunchIsCurrent(host),
+                    isCurrent: () =>
+                        context.mounted && playbackLaunchIsCurrent(host),
                     seriesTitle: source.seriesTitle,
                     itemTitle: source.title,
                     seasonNumber: source.seasonNumber,
@@ -155,7 +158,7 @@ class ItemPlaybackLauncher {
             if (!context.mounted || !playbackLaunchIsCurrent(host)) return null;
             if (await host.launch(
               source: source,
-              episodes: serverEpisodes,
+              episodes: playbackEpisodes,
               danmakuFilePath: danmakuFile,
               nas: isFeiniu ? nas : null,
             )) {
@@ -165,7 +168,7 @@ class ItemPlaybackLauncher {
           } else if (NativePlayerBridge.preferNativePlayerShell) {
             // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
             // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
-            // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
+            // 首次携带本季列表，跨季目录仍由已有反向通道按当前媒体加载；
             // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
             NativePlaybackReentry.bind(
               backend: backend,
@@ -209,7 +212,7 @@ class ItemPlaybackLauncher {
             // 服务器族封面由后端给出可直接消费的 URL，不走 NAS 鉴权预取，故只飞牛传 nas。
             if (await host.launch(
               source: source,
-              episodes: serverEpisodes,
+              episodes: playbackEpisodes,
               nas: isFeiniu ? nas : null,
             )) {
               accepted = true;
@@ -346,12 +349,18 @@ class ItemPlaybackLauncher {
               startPositionMs: startPositionMs,
             );
             if (local != null) {
+              final effectiveEpisodes =
+                  episodes ??
+                  (allowNetwork &&
+                          local.source.mediaType.toLowerCase() == 'episode'
+                      ? await loadSeasonEpisodes(nas, local.source.seasonGuid)
+                      : null);
               final loadArgs = <String, dynamic>{
                 ...local.source.toMap(),
                 if (startPositionMs != null) 'startPositionMs': startPositionMs,
                 // Bug 2 fix(下载视频切集后选集消失)：本地路由也带上 episodes。
-                if (episodes != null && episodes.isNotEmpty)
-                  'episodes': episodes,
+                if (effectiveEpisodes != null && effectiveEpisodes.isNotEmpty)
+                  'episodes': effectiveEpisodes,
               };
               // 桌面播放页会在起播后加载弹幕，本地切集无需在入口重复等待。
               if (PlaybackPlatform.usesMediaKit) {
@@ -395,10 +404,22 @@ class ItemPlaybackLauncher {
         if (resolved.source.isLive) {
           return {'loadArgs': jsonEncode(resolved.source.toMap())};
         }
+        // 单条目入口没有捕获详情页列表，换集时按新集所属季加载，不能复用旧季。
+        final effectiveEpisodes =
+            episodes ??
+            (resolved.source.mediaType.toLowerCase() == 'episode'
+                ? (backend == null || backend.capabilities.usesLegacyFeiniuFlow
+                      ? await loadSeasonEpisodes(
+                          nas,
+                          resolved.source.seasonGuid,
+                        )
+                      : await _serverNativeEpisodes(backend, resolved.source))
+                : null);
         final loadArgs = <String, dynamic>{
           ...resolved.source.toMap(),
           if (startPositionMs != null) 'startPositionMs': startPositionMs,
-          if (episodes != null && episodes.isNotEmpty) 'episodes': episodes,
+          if (effectiveEpisodes != null && effectiveEpisodes.isNotEmpty)
+            'episodes': effectiveEpisodes,
         };
         final settings = await const DanmakuSettingsStore().load();
         final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(

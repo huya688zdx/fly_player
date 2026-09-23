@@ -210,6 +210,9 @@ class TrackSelectionController(
 
     fun reset() {
         purgeExternalSubtitleTracks(force = true)
+        // 换源时清掉 mpv 实例保留的旧 aid；转码单轨不能沿用原文件的第 2 条音轨。
+        // 仅新源/释放时 reset，内部输出恢复仍保留当前选择。
+        runCatching { mpv.setPropertyString("aid", "auto") }
         pendingExternalSubtitlePath = null
         activeExternalSubtitlePath = null
         pendingAudioTrackIndex = null

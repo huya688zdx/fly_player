@@ -73,6 +73,8 @@ android {
     packaging {
         jniLibs {
             pickFirsts += listOf("**/libc++_shared.so")
+            // 正式播放器仅支持 ARM64，排除依赖附带的其他架构计数器库。
+            excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**", "lib/x86_64/**")
         }
     }
 
