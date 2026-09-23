@@ -1058,8 +1058,10 @@ class _MainNavigationState extends State<MainNavigation> {
                 ? MainPrimaryTab.settings.tabId
                 : MainPrimaryTab.home.tabId);
         if (!mounted) return null;
+        final nextTab = MainPrimaryTab.fromTabId(tabId);
+        if (_selectedTab == nextTab) return true;
         setState(() {
-          _selectedTab = MainPrimaryTab.fromTabId(tabId);
+          _selectedTab = nextTab;
         });
         return true;
       default:
@@ -1069,8 +1071,10 @@ class _MainNavigationState extends State<MainNavigation> {
 
   Future<void> _handleNavigationTap(int index) async {
     if (!mounted) return;
+    final nextTab = MainPrimaryTab.fromIndex(index);
+    if (_selectedTab == nextTab) return;
     setState(() {
-      _selectedTab = MainPrimaryTab.fromIndex(index);
+      _selectedTab = nextTab;
     });
   }
 
@@ -1095,7 +1099,16 @@ class _MainNavigationState extends State<MainNavigation> {
       // 内容延伸到导航条后方：底栏只保留悬浮胶囊 + 单层渐隐托底，
       // 由各页面的列表自行预留 MainNavigationMetrics.contentBottomInset。
       extendBody: true,
-      body: IndexedStack(index: _selectedTab.tabIndex, children: pages),
+      body: IndexedStack(
+        index: _selectedTab.tabIndex,
+        children: [
+          for (var index = 0; index < pages.length; index++)
+            TickerMode(
+              enabled: index == _selectedTab.tabIndex,
+              child: pages[index],
+            ),
+        ],
+      ),
       bottomNavigationBar: _LiquidGlassBottomNavigation(
         currentIndex: _selectedTab.tabIndex,
         onTap: (index) => unawaited(_handleNavigationTap(index)),
