@@ -63,6 +63,7 @@ class _ModeService extends FlyDataService {
     bool rememberPassword = true,
     String? expectedInstanceId,
     String fnEntryToken = '',
+    Map<String, String> fnGatewayCookies = const {},
   }) async {
     if (failLogin) throw StateError('fixture login rejected');
     session = _session();

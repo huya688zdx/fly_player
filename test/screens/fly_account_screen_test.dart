@@ -873,7 +873,11 @@ class _Account extends FlyAccountController {
   }
 
   @override
-  Future<void> activate(Map<String, dynamic> binding, {String? address}) async {
+  Future<void> activate(
+    Map<String, dynamic> binding, {
+    String? address,
+    String fnEntryToken = '',
+  }) async {
     activations.add((binding['id'] as String, address));
     if (rejectActivation) {
       message = '媒体地址验证失败';
@@ -893,6 +897,7 @@ class _Account extends FlyAccountController {
     bool rememberPassword = true,
     String? expectedInstanceId,
     String fnEntryToken = '',
+    Map<String, String> fnGatewayCookies = const {},
   }) async {
     logins.add((url, username, password, deviceName));
     loginInstanceIds.add(expectedInstanceId);

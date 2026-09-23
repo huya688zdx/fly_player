@@ -13,6 +13,106 @@ import 'package:fly_player/utils/private_network_http_overrides.dart';
 
 void main() {
   testWidgets(
+    'Emby 受阻后从 NAS 桌面签发入口令牌',
+    (tester) async {
+      final messenger = tester.binding.defaultBinaryMessenger;
+      const root = MethodChannel('io.jns.webview.win');
+      const view = MethodChannel('io.jns.webview.win/8');
+      const events = MethodChannel('io.jns.webview.win/8/events');
+      const target = 'https://embyserver4-9.geqian688.fnos.net';
+      const desktop = 'https://geqian688.fnos.net/';
+      final loads = <String>[];
+      final actions = <String>[];
+      final result = Completer<String?>();
+      final navigatorKey = GlobalKey<NavigatorState>();
+
+      Future<void> emit(String type, Object value) async {
+        await messenger.handlePlatformMessage(
+          events.name,
+          const StandardMethodCodec().encodeSuccessEnvelope({
+            'type': type,
+            'value': value,
+          }),
+          (_) {},
+        );
+      }
+
+      messenger.setMockMethodCallHandler(root, (call) async {
+        if (call.method == 'initialize') return {'textureId': 8};
+        return null;
+      });
+      messenger.setMockMethodCallHandler(events, (_) async => null);
+      messenger.setMockMethodCallHandler(view, (call) async {
+        if (call.method == 'executeScript') {
+          expect(
+            call.arguments,
+            contains('mode=relay; domain=geqian688.fnos.net; path=/; Secure'),
+          );
+          actions.add('set relay cookie');
+        }
+        if (call.method == 'loadUrl') {
+          loads.add(call.arguments as String);
+          actions.add('load ${call.arguments}');
+        }
+        return null;
+      });
+      addTearDown(() {
+        for (final channel in [root, view, events]) {
+          messenger.setMockMethodCallHandler(channel, null);
+        }
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigatorKey,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const SizedBox.shrink(),
+        ),
+      );
+      navigatorKey.currentState!
+          .push<String>(
+            MaterialPageRoute(
+              builder: (_) => const EmbyFnEntryLoginPage(serverUrl: target),
+            ),
+          )
+          .then(result.complete);
+      await tester.pump();
+      expect(loads, <String>[target]);
+
+      await emit(
+        'webMessageReceived',
+        jsonEncode({'pageUrl': '$target/web/index.html', 'blocked': true}),
+      );
+      await tester.pump();
+      expect(loads, <String>[target, desktop]);
+      expect(actions, <String>[
+        'load $target',
+        'set relay cookie',
+        'load $desktop',
+      ]);
+
+      await emit(
+        'webMessageReceived',
+        jsonEncode({'pageUrl': desktop, 'cookie': 'entry-token=too-early'}),
+      );
+      await tester.pump();
+      expect(loads, <String>[target, desktop]);
+      expect(result.isCompleted, isFalse);
+
+      await emit(
+        'webMessageReceived',
+        jsonEncode({
+          'pageUrl': '$target/web/index.html#!/login.html',
+          'cookie': 'entry-token=accepted',
+        }),
+      );
+      expect(await result.future, 'accepted');
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
     '关闭登录页后不再导航等待初始化的 Windows WebView',
     (tester) async {
       const channel = MethodChannel('io.jns.webview.win');

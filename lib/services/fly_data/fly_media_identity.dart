@@ -3,14 +3,16 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import '../../api/feiniu_api.dart';
 import 'fly_data_api.dart';
 
-/// Probe only the public identity before applying a media credential. There are
-/// no Fly or media tokens, cookies, login passwords, or redirects on this client.
+/// 应用媒体凭据前只探测公开身份，不携带飞翔或媒体账号令牌、不跟随重定向。
+/// 飞牛 FN 入口的 mode=relay 仅选择中继路由，不是登录凭据。
 Future<void> verifyFlyMediaAddress({
   required String address,
   required String kind,
   required String expectedId,
+  String fnEntryToken = '',
   Duration timeout = const Duration(seconds: 15),
 }) async {
   if (expectedId.isEmpty) throw StateError('媒体服务器尚无可验证身份，请重新授权。');
@@ -21,6 +23,19 @@ Future<void> verifyFlyMediaAddress({
   final feiniu = kind == 'feiniu';
   final path = feiniu ? '/v/api/v1/server/info' : '/System/Info/Public';
   final headers = <String, String>{};
+  if (!feiniu && fnEntryToken.isNotEmpty) {
+    final uri = Uri.parse(address);
+    if (uri.scheme != 'https' ||
+        !uri.host.endsWith('.fnos.net') ||
+        !RegExp(
+          r'^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]+$',
+        ).hasMatch(fnEntryToken)) {
+      dio.close(force: true);
+      throw StateError('FN 媒体入口授权无效，请重新授权。');
+    }
+    // 此令牌由当前媒体入口的网页授权获得，不使用飞翔或其他来源的 Cookie。
+    headers['Cookie'] = 'entry-token=$fnEntryToken';
+  }
   if (feiniu) {
     final nonce = '${100000 + Random.secure().nextInt(900000)}';
     final timestamp = '${DateTime.now().millisecondsSinceEpoch}';
@@ -34,6 +49,8 @@ Future<void> verifyFlyMediaAddress({
       'Authx': 'nonce=$nonce&timestamp=$timestamp&sign=$sign',
       'X-Trim-Client': 'web',
       'X-Trim-Client-Version': '616',
+      if (FeiniuApi.shouldUseRelayModeCookieForBaseUrl(address))
+        'Cookie': 'mode=relay',
     });
   }
   final cancelToken = CancelToken();

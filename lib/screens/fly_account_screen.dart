@@ -56,9 +56,51 @@ Future<bool> activateFlyBinding(
 ) async {
   if (account.busy || !context.mounted) return false;
   final accountKey = account.accountKey;
+  final accountEpoch = account.accountEpoch;
   final bindingId = binding['id'], revision = binding['revision'];
   try {
-    await account.activate(binding);
+    String? fnAddress;
+    var entryToken = '';
+    final server = binding['server'];
+    if (isFlyFnApplicationUrl(account.session?.serverUrl ?? '') &&
+        server is Map &&
+        {'emby', 'jellyfin'}.contains(server['kind'])) {
+      final addresses =
+          (server['addresses'] as List? ?? const []).whereType<Map>().where((
+            item,
+          ) {
+            final uri = Uri.tryParse(item['base_url']?.toString() ?? '');
+            return item['purpose'] == 'client_remote' &&
+                uri?.scheme == 'https' &&
+                uri!.host.endsWith('.fnos.net') &&
+                uri.userInfo.isEmpty &&
+                !uri.hasQuery &&
+                !uri.hasFragment;
+          }).toList()..sort(
+            (a, b) => (a['priority'] as int).compareTo(b['priority'] as int),
+          );
+      if (addresses.isNotEmpty) {
+        fnAddress = addresses.first['base_url'] as String;
+        final result = await showDesktopLoginDialog<String>(
+          context,
+          child: EmbyFnEntryLoginPage(serverUrl: fnAddress),
+        );
+        if (result == null ||
+            result.isEmpty ||
+            !context.mounted ||
+            account.accountEpoch != accountEpoch ||
+            !_bindingStillCurrent(account, accountKey, bindingId, revision)) {
+          return false;
+        }
+        entryToken = result;
+      }
+    }
+    // 控制器仍会重新获取授权地址并验证实例，网页结果不能扩大授权范围。
+    await account.activate(
+      binding,
+      address: fnAddress,
+      fnEntryToken: entryToken,
+    );
     return _bindingStillCurrent(account, accountKey, bindingId, revision);
   } catch (error) {
     if (context.mounted) {

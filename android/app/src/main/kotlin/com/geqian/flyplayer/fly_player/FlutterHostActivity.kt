@@ -21,6 +21,7 @@ import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.Log
 import android.view.Display
+import android.webkit.CookieManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -196,6 +197,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         registerSessionStateChannel(flutterEngine)
         registerMainHostChannel(flutterEngine)
         registerEmbeddingChannel(flutterEngine)
+        registerFlyFnCookieChannel(flutterEngine)
         registerDetailHostChannel(flutterEngine)
         registerNativePlayerChannel(flutterEngine)
         registerPlatformViewFactories(flutterEngine)
@@ -222,6 +224,42 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private fun trackMethodChannelHandler(channel: MethodChannel) {
         methodChannelsWithHandlers.remove(channel)
         methodChannelsWithHandlers += channel
+    }
+
+    private fun registerFlyFnCookieChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/fn_web_cookies").also { channel ->
+            trackMethodChannelHandler(channel)
+            channel.setMethodCallHandler { call, result ->
+                if (call.method != "getFlyGatewayCookies") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val url = call.argument<String>("url").orEmpty()
+                if (!isFlyGatewayIdentityUrl(url)) {
+                    result.error("invalid_url", "仅允许读取飞翔身份接口 Cookie。", null)
+                    return@setMethodCallHandler
+                }
+                val allowed = setOf("entry-token", "mode", "ost")
+                val cookies = CookieManager.getInstance().getCookie(url).orEmpty()
+                    .split(';')
+                    .map { it.trim() }
+                    .filter { it.substringBefore('=').trim() in allowed }
+                result.success(cookies.joinToString("; "))
+            }
+        }
+    }
+
+    private fun isFlyGatewayIdentityUrl(rawUrl: String): Boolean {
+        val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase().orEmpty()
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            host.endsWith(".fnos.net") &&
+            host != "fnos.net" &&
+            (uri.port == -1 || uri.port == 443) &&
+            uri.userInfo.isNullOrEmpty() &&
+            uri.query == null &&
+            uri.fragment == null &&
+            uri.path == "/app/fly-data-service/api/v1/system/identity"
     }
 
     // 渐进原生化：Flutter 编排层解析好 source（+ 弹幕落临时文件）后，通过此 channel
