@@ -143,6 +143,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   // 中立(Emby)季评分回退:Emby 季条目通常无 CommunityRating(评分挂在系列上),取系列评分兜底,
   // 使季页面 meta 与飞牛一致显示「X.X 分 / 年份」。
   String _neutralSeriesRating = '';
+  MediaImageRef _neutralSeriesBackdrop = MediaImageRef.empty;
   List<MediaSeasonSummary> _neutralSeasons = const [];
   List<MediaEpisodeSummary> _neutralEpisodes = const [];
   // 按季缓存详情 / 选集:切回已加载的季瞬时返回(追平飞牛切季速度)。
@@ -1092,6 +1093,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     if (showLoading) _resetEntryAnimations();
     final seq = ++_seasonLoadSeq;
     _neutralSeriesFavoriteResolved = false;
+    _neutralSeriesBackdrop = MediaImageRef.empty;
     if (showLoading) {
       setState(() {
         _loading = true;
@@ -1137,6 +1139,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           _neutralSeriesFavorite = detail.favorite;
           _neutralSeriesFavoriteResolved = true;
           _neutralSeriesRating = detail.rating;
+          _neutralSeriesBackdrop = detail.backdropImage;
         }
         _neutralEpisodes = const [];
         _selectedSeasonGuid = target;
@@ -1182,6 +1185,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       setState(() {
         _neutralSeriesFavorite = detail.favorite;
         _neutralSeriesRating = detail.rating;
+        _neutralSeriesBackdrop = detail.backdropImage;
         _neutralSeriesFavoriteResolved = true;
       });
     } catch (error, stackTrace) {
@@ -1450,6 +1454,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           1.0,
         );
       }
+      final imageRequest = resolver.resolveRef(ep.primaryImage, width: 720);
       return TvEpisodeCardData(
         guid: ep.id,
         shortLabel: '$number',
@@ -1458,7 +1463,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         durationText: _durationText(ep.durationSeconds),
         statusLabel: statusLabel,
         statusTone: statusTone,
-        imageUrls: resolver.resolveRef(ep.primaryImage, width: 720).urls,
+        imageUrls: imageRequest.urls,
+        imageRequest: imageRequest,
         resolutions: ep.resolutions,
         selected: ep.id == selectedGuid,
         playing: false,
@@ -1701,25 +1707,25 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         : _neutralSeriesRating.trim();
     final rating = double.tryParse(ratingText) ?? 0;
 
-    // 背景:系列 backdrop 完整直链(Phase C 透传,自鉴权判定走统一入口),
-    // 回退季详情 backdrop/海报。
-    final backdropImages = widget.backdropPath.trim().isNotEmpty
-        ? mediaImageRequestForUrls(
-            <String>[widget.backdropPath.trim()],
-            token: '',
-            accessCode: '',
-            baseUrl: '',
-          )
-        : artworkResolver.resolveRef(
-            detail.backdropImage.isNotEmpty
-                ? detail.backdropImage
-                : detail.primaryImage,
-          );
+    // 优先保留系列或季详情的完整图引用，不向导航传来的裸 URL 附加凭据。
+    final backdropImages = preferPreservedImageRequest(
+      preserved: artworkResolver.resolveRefs([
+        _neutralSeriesBackdrop,
+        detail.backdropImage,
+        detail.primaryImage,
+      ]),
+      fallbackUrls: widget.backdropPath.trim().isEmpty
+          ? const <String>[]
+          : <String>[widget.backdropPath.trim()],
+      fallbackToken: '',
+      fallbackAccessCode: '',
+      fallbackBaseUrl: '',
+    );
     // 海报卡:季自身海报(优先季摘要,回退季详情主图)。
     final posterRef = (season != null && season.primaryImage.isNotEmpty)
         ? season.primaryImage
         : detail.primaryImage;
-    final posterUrls = artworkResolver.resolveRef(posterRef, width: 560).urls;
+    final posterImages = artworkResolver.resolveRef(posterRef, width: 560);
 
     final creditItems = detail.people
         .map(
@@ -1891,7 +1897,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       accessCode: '',
                       baseUrl: '',
                       ambientTint: ambientTint,
-                      posterUrls: posterUrls,
+                      posterUrls: posterImages.urls,
+                      posterImages: posterImages,
                       posterWidth: posterWidth.toDouble(),
                       posterCardHeight: posterCardHeight.toDouble(),
                       posterBridgeOverlap: posterBridgeOverlap.toDouble(),

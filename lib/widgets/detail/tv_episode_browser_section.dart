@@ -500,6 +500,7 @@ class _PreviewCard extends StatelessWidget {
                 height: imageHeight,
                 child: _EpisodePoster(
                   imageUrls: entry.imageUrls,
+                  imageRequest: entry.imageRequest,
                   token: token,
                   accessCode: accessCode,
                   baseUrl: baseUrl,
@@ -628,6 +629,7 @@ class _EpisodeCompletedBadge extends StatelessWidget {
 
 class _EpisodePoster extends StatelessWidget {
   final List<String> imageUrls;
+  final MediaImageRequest? imageRequest;
   final String token;
   final String accessCode;
   final String baseUrl;
@@ -637,6 +639,7 @@ class _EpisodePoster extends StatelessWidget {
 
   const _EpisodePoster({
     required this.imageUrls,
+    this.imageRequest,
     required this.token,
     required this.accessCode,
     required this.baseUrl,
@@ -656,11 +659,12 @@ class _EpisodePoster extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           DetailHeroImage(
-            images: mediaImageRequestForUrls(
-              imageUrls,
-              token: token,
-              accessCode: accessCode,
-              baseUrl: baseUrl,
+            images: preferPreservedImageRequest(
+              preserved: imageRequest,
+              fallbackUrls: imageUrls,
+              fallbackToken: token,
+              fallbackAccessCode: accessCode,
+              fallbackBaseUrl: baseUrl,
             ),
           ),
           Positioned.fill(

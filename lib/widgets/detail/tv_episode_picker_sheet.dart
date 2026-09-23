@@ -639,11 +639,12 @@ class _EpisodeListViewState extends State<_EpisodeListView> {
                 width: widget.desktop ? 96 : 122,
                 height: widget.desktop ? 54 : 68,
                 child: DetailHeroImage(
-                  images: mediaImageRequestForUrls(
-                    entry.imageUrls,
-                    token: widget.token,
-                    accessCode: widget.accessCode,
-                    baseUrl: widget.baseUrl,
+                  images: preferPreservedImageRequest(
+                    preserved: entry.imageRequest,
+                    fallbackUrls: entry.imageUrls,
+                    fallbackToken: widget.token,
+                    fallbackAccessCode: widget.accessCode,
+                    fallbackBaseUrl: widget.baseUrl,
                   ),
                 ),
               ),

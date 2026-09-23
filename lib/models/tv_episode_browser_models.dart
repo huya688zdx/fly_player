@@ -1,3 +1,5 @@
+import '../media_backend/media_image_request.dart';
+
 class TvEpisodeSeasonOptionData {
   final String guid;
   final String label;
@@ -21,6 +23,7 @@ class TvEpisodeCardData {
   final String statusLabel;
   final TvEpisodeStatusTone statusTone;
   final List<String> imageUrls;
+  final MediaImageRequest? imageRequest;
   final List<String> resolutions;
   final bool selected;
   final bool playing;
@@ -36,6 +39,7 @@ class TvEpisodeCardData {
     required this.statusLabel,
     this.statusTone = TvEpisodeStatusTone.secondary,
     required this.imageUrls,
+    this.imageRequest,
     required this.resolutions,
     required this.selected,
     required this.playing,

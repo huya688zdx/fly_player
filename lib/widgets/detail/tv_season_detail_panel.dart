@@ -16,6 +16,7 @@ class TvSeasonPanelHeader {
   final String baseUrl;
   final Color? ambientTint;
   final List<String> posterUrls;
+  final MediaImageRequest? posterImages;
   final Animation<double> metaOpacity;
   final Widget metaContent;
 
@@ -27,6 +28,7 @@ class TvSeasonPanelHeader {
     required this.baseUrl,
     required this.ambientTint,
     required this.posterUrls,
+    this.posterImages,
     required this.metaOpacity,
     required this.metaContent,
   });
@@ -119,6 +121,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
     required String baseUrl,
     required Color? ambientTint,
     required List<String> posterUrls,
+    MediaImageRequest? posterImages,
     required double posterWidth,
     required double posterCardHeight,
     required double posterBridgeOverlap,
@@ -154,6 +157,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
         baseUrl: baseUrl,
         ambientTint: ambientTint,
         posterUrls: posterUrls,
+        posterImages: posterImages,
         metaOpacity: headerMetaOpacity,
         metaContent: metaContent,
       ),
@@ -282,11 +286,12 @@ class TvSeasonDetailPanel extends StatelessWidget {
             width: posterWidth,
             height: posterCardHeight,
             child: DetailHeroImage(
-              images: mediaImageRequestForUrls(
-                posterUrls,
-                token: token,
-                accessCode: accessCode,
-                baseUrl: baseUrl,
+              images: preferPreservedImageRequest(
+                preserved: header.posterImages,
+                fallbackUrls: posterUrls,
+                fallbackToken: token,
+                fallbackAccessCode: accessCode,
+                fallbackBaseUrl: baseUrl,
               ),
             ),
           ),
