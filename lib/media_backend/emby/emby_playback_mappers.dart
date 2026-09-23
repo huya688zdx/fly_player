@@ -39,8 +39,38 @@ MediaPlaybackSource mapEmbyPlaybackSource(
     colorPrimaries: (video?['ColorPrimaries'] ?? '').toString(),
     bitDepth: _asInt(video?['BitDepth']),
     reliableSeek: reliableSeek,
-    forceNativeProxy: false,
+    forceNativeProxy: _requiresFnNativeProxy(
+      url: url,
+      headers: headers,
+      delivery: delivery,
+    ),
   );
+}
+
+// FN 原画流复用系统网络库的证书校验，避免 mpv 内置 CA 信任链差异。
+// 该代理不改写播放列表，因此此处仅接入原文件直链。
+bool _requiresFnNativeProxy({
+  required String url,
+  required Map<String, String> headers,
+  required MediaPlaybackDeliveryKind delivery,
+}) {
+  if (delivery != MediaPlaybackDeliveryKind.directLink) return false;
+  final uri = Uri.tryParse(url);
+  if (uri == null ||
+      uri.scheme.toLowerCase() != 'https' ||
+      !uri.host.toLowerCase().endsWith('.fnos.net')) {
+    return false;
+  }
+  final cookie = headers.entries
+      .where((entry) => entry.key.toLowerCase() == 'cookie')
+      .map((entry) => entry.value)
+      .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+  return cookie.split(';').any((entry) {
+    final separator = entry.indexOf('=');
+    return separator > 0 &&
+        entry.substring(0, separator).trim().toLowerCase() == 'entry-token' &&
+        entry.substring(separator + 1).trim().isNotEmpty;
+  });
 }
 
 /// Emby 转码画质梯度：每个竖直分辨率档一条（高→低），码率为该档 VideoBitrate 上限（bps）。
