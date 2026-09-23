@@ -9,6 +9,7 @@ import '../../providers/backend_session_provider.dart';
 import '../../providers/nas_provider.dart';
 import '../media_backend_connection_store.dart';
 import '../play_stats/play_stats_service.dart';
+import '../session_exit_bridge.dart';
 import 'fly_data_service.dart';
 import 'fly_data_api.dart';
 import 'fly_media_address_selector.dart';
@@ -188,7 +189,12 @@ class FlyAccountController extends ChangeNotifier with WidgetsBindingObserver {
         try {
           await _rememberLoginMode('fly');
         } finally {
-          await _clearActiveAccess();
+          try {
+            await _clearActiveAccess();
+          } finally {
+            // 右侧详情使用独立引擎，清除主引擎凭据后还需丢弃旧导航栈。
+            await SessionExitBridge.logoutAndResetParallelUi();
+          }
         }
       }
     });
