@@ -166,6 +166,58 @@ void main() {
     );
   });
 
+  testWidgets(
+    'Android 氛围页从隐藏标签切入后仍能生成静态快照',
+    (tester) async {
+      final base = AppThemePalette.colorsFor(AppThemePreset.midnight);
+      final palette = AppAtmospherePalette.resolve(
+        baseColors: base,
+        effectiveColors: base,
+        hasDynamicTheme: false,
+      );
+      var selectedIndex = 0;
+      late StateSetter selectTab;
+      final snapshot = find.byKey(
+        const ValueKey<String>('app-atmosphere-snapshot-image'),
+        skipOffstage: false,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              selectTab = setState;
+              return IndexedStack(
+                index: selectedIndex,
+                children: <Widget>[
+                  const SizedBox.expand(),
+                  AppAtmosphericBackground(
+                    palette: palette,
+                    child: const SizedBox.expand(),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(snapshot, findsNothing);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+
+      selectTab(() => selectedIndex = 1);
+      await tester.pump();
+      // toImage 的引擎回调运行在真实异步环境中。
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+      expect(snapshot, findsOneWidget);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
   test('选中图标按钮使用低饱和填充和协调前景，而不是直铺原始取色', () {
     final base = AppThemePalette.colorsFor(AppThemePreset.midnight);
     final colors = base.copyWith(selection: const Color(0xFF35C8F2));

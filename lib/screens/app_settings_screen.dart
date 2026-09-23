@@ -1514,10 +1514,13 @@ class _DesktopSettingsGridState extends State<_DesktopSettingsGrid> {
       children: <Widget>[
         for (var i = 0; i < list.length; i++) ...<Widget>[
           if (i > 0) const SizedBox(height: 26),
-          _DesktopReveal(
-            delay: Duration(milliseconds: 50 * i),
-            child: _buildSection(context, list[i]),
-          ),
+          if (DesktopEnvironment.isDesktopPlatform)
+            _DesktopReveal(
+              delay: Duration(milliseconds: 50 * i),
+              child: _buildSection(context, list[i]),
+            )
+          else
+            _buildSection(context, list[i]),
         ],
       ],
     );
