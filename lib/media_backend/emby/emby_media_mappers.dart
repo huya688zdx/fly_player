@@ -15,9 +15,16 @@ MediaCatalog mapEmbyView(
   Map<String, Object?> view, {
   required String serverUrl,
   required String token,
+  Map<String, String> imageHeaders = const <String, String>{},
 }) {
   final id = (view['Id'] ?? '').toString();
-  final image = _primaryImage(view, serverUrl: serverUrl, token: token, id: id);
+  final image = _primaryImage(
+    view,
+    serverUrl: serverUrl,
+    token: token,
+    imageHeaders: imageHeaders,
+    id: id,
+  );
   return MediaCatalog(
     id: id,
     title: (view['Name'] ?? '').toString(),
@@ -34,12 +41,14 @@ MediaItemCard mapEmbyItemCard(
   Map<String, Object?> item, {
   required String serverUrl,
   required String token,
+  Map<String, String> imageHeaders = const <String, String>{},
 }) {
   final id = (item['Id'] ?? '').toString();
   final primary = _primaryImage(
     item,
     serverUrl: serverUrl,
     token: token,
+    imageHeaders: imageHeaders,
     id: id,
   );
   final userData = item['UserData'];
@@ -57,6 +66,7 @@ MediaItemCard mapEmbyItemCard(
       item,
       serverUrl: serverUrl,
       token: token,
+      imageHeaders: imageHeaders,
       id: id,
     ),
     durationSeconds: _ticksToSeconds(item['RunTimeTicks']),
@@ -79,11 +89,13 @@ MediaItemCard mapEmbyLiveChannelCard(
   Map<String, Object?> item, {
   required String serverUrl,
   required String token,
+  Map<String, String> imageHeaders = const <String, String>{},
 }) {
   return mapEmbyItemCard(
     <String, Object?>{...item, 'Type': 'LiveChannel'},
     serverUrl: serverUrl,
     token: token,
+    imageHeaders: imageHeaders,
   );
 }
 
@@ -127,6 +139,7 @@ MediaDetail mapEmbyItemDetail(
   Map<String, Object?> item, {
   required String serverUrl,
   required String token,
+  Map<String, String> imageHeaders = const <String, String>{},
 }) {
   final id = (item['Id'] ?? '').toString();
   final userData = item['UserData'];
@@ -144,15 +157,23 @@ MediaDetail mapEmbyItemDetail(
       item,
       serverUrl: serverUrl,
       token: token,
+      imageHeaders: imageHeaders,
       id: id,
     ),
     backdropImage: _backdropImage(
       item,
       serverUrl: serverUrl,
       token: token,
+      imageHeaders: imageHeaders,
       id: id,
     ),
-    logoImage: _logoImage(item, serverUrl: serverUrl, token: token, id: id),
+    logoImage: _logoImage(
+      item,
+      serverUrl: serverUrl,
+      token: token,
+      imageHeaders: imageHeaders,
+      id: id,
+    ),
     rating: _ratingText(item['CommunityRating']),
     releaseDate: _releaseDate(item),
     runtimeMinutes: _ticksToSeconds(item['RunTimeTicks']) ~/ 60,
@@ -167,7 +188,12 @@ MediaDetail mapEmbyItemDetail(
         ? _ticksToSeconds(userData['PlaybackPositionTicks'])
         : 0,
     externalIds: _externalIds(item['ProviderIds']),
-    people: _people(item['People'], serverUrl: serverUrl, token: token),
+    people: _people(
+      item['People'],
+      serverUrl: serverUrl,
+      token: token,
+      imageHeaders: imageHeaders,
+    ),
   );
 }
 
@@ -179,6 +205,7 @@ MediaSeasonSummary mapEmbySeason(
   Map<String, Object?> season, {
   required String serverUrl,
   required String token,
+  Map<String, String> imageHeaders = const <String, String>{},
 }) {
   final id = (season['Id'] ?? '').toString();
   final childCount = _asInt(season['ChildCount']);
@@ -194,6 +221,7 @@ MediaSeasonSummary mapEmbySeason(
       season,
       serverUrl: serverUrl,
       token: token,
+      imageHeaders: imageHeaders,
       id: id,
     ),
   );
@@ -204,6 +232,7 @@ MediaEpisodeSummary mapEmbyEpisode(
   Map<String, Object?> episode, {
   required String serverUrl,
   required String token,
+  Map<String, String> imageHeaders = const <String, String>{},
 }) {
   final id = (episode['Id'] ?? '').toString();
   final userData = episode['UserData'];
@@ -224,6 +253,7 @@ MediaEpisodeSummary mapEmbyEpisode(
       episode,
       serverUrl: serverUrl,
       token: token,
+      imageHeaders: imageHeaders,
       id: id,
     ),
   );
@@ -579,6 +609,7 @@ MediaImageRef _logoImage(
   Map<String, Object?> item, {
   required String serverUrl,
   required String token,
+  required Map<String, String> imageHeaders,
   required String id,
 }) {
   final tags = item['ImageTags'];
@@ -590,6 +621,7 @@ MediaImageRef _logoImage(
     kind: 'Logo',
     tag: tag,
     token: token,
+    imageHeaders: imageHeaders,
     // 详情页 logo 显示高度 ≤124，横条图限宽 800 足够高分屏。
     maxWidth: 800,
   );
@@ -636,6 +668,7 @@ List<MediaDetailPerson> _people(
   Object? people, {
   required String serverUrl,
   required String token,
+  required Map<String, String> imageHeaders,
 }) {
   if (people is! List) return const <MediaDetailPerson>[];
   final result = <MediaDetailPerson>[];
@@ -653,6 +686,7 @@ List<MediaDetailPerson> _people(
             kind: 'Primary',
             tag: tag,
             token: token,
+            imageHeaders: imageHeaders,
             // 演职员头像卡片显示宽度 ≤180 逻辑像素。
             maxWidth: 360,
           )
@@ -674,6 +708,7 @@ MediaImageRef _primaryImage(
   Map<String, Object?> item, {
   required String serverUrl,
   required String token,
+  required Map<String, String> imageHeaders,
   required String id,
 }) {
   final tags = item['ImageTags'];
@@ -686,6 +721,7 @@ MediaImageRef _primaryImage(
       kind: 'Primary',
       tag: tag,
       token: token,
+      imageHeaders: imageHeaders,
       // 海报卡片/详情竖图，对齐飞牛管线的 w≤400 量级。
       maxWidth: 400,
     );
@@ -702,6 +738,7 @@ MediaImageRef _primaryImage(
       kind: 'Thumb',
       tag: thumbTag,
       token: token,
+      imageHeaders: imageHeaders,
       maxWidth: 400,
     );
   }
@@ -716,6 +753,7 @@ MediaImageRef _primaryImage(
     kind: 'Backdrop',
     tag: backdropTag,
     token: token,
+    imageHeaders: imageHeaders,
     maxWidth: 400,
   );
 }
@@ -724,6 +762,7 @@ MediaImageRef _backdropImage(
   Map<String, Object?> item, {
   required String serverUrl,
   required String token,
+  required Map<String, String> imageHeaders,
   required String id,
 }) {
   final tags = item['BackdropImageTags'];
@@ -736,6 +775,7 @@ MediaImageRef _backdropImage(
     kind: 'Backdrop',
     tag: tag,
     token: token,
+    imageHeaders: imageHeaders,
     // 详情背景 hero 大图，对齐飞牛管线的 w=1200 上限。
     maxWidth: 1280,
   );
@@ -750,6 +790,7 @@ MediaImageRef _imageRef({
   required String kind,
   required String tag,
   required String token,
+  required Map<String, String> imageHeaders,
   required int maxWidth,
 }) {
   return MediaImageRef(
@@ -761,7 +802,7 @@ MediaImageRef _imageRef({
       token: token,
       maxWidth: maxWidth,
     ),
-    headers: _imageHeaders(token),
+    headers: <String, String>{..._imageHeaders(token), ...imageHeaders},
     selfAuthenticated: token.trim().isNotEmpty,
   );
 }

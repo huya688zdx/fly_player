@@ -106,7 +106,14 @@ class EmbyMediaBackend implements MediaBackend {
       });
     }
     final catalogs = visibleViews
-        .map((v) => mapEmbyView(v, serverUrl: _serverUrl, token: _token))
+        .map(
+          (v) => mapEmbyView(
+            v,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .toList(growable: false);
     for (final catalog in catalogs) {
       _catalogTypesById[catalog.id] = catalog.type.trim().toLowerCase();
@@ -199,7 +206,14 @@ class EmbyMediaBackend implements MediaBackend {
       fields: _cardFields,
     );
     return items
-        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .map(
+          (e) => mapEmbyItemCard(
+            e,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .map(_continueWatchingCard)
         .toList(growable: false);
   }
@@ -214,7 +228,14 @@ class EmbyMediaBackend implements MediaBackend {
       fields: '$_cardFields,UserData',
     );
     return items
-        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .map(
+          (e) => mapEmbyItemCard(
+            e,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -244,8 +265,12 @@ class EmbyMediaBackend implements MediaBackend {
       );
       return pageResult.items
           .map(
-            (e) =>
-                mapEmbyLiveChannelCard(e, serverUrl: _serverUrl, token: _token),
+            (e) => mapEmbyLiveChannelCard(
+              e,
+              serverUrl: _serverUrl,
+              token: _token,
+              imageHeaders: _entryTokenHeaders(),
+            ),
           )
           .toList(growable: false);
     }
@@ -265,7 +290,14 @@ class EmbyMediaBackend implements MediaBackend {
       fields: _cardFields,
     );
     return items
-        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .map(
+          (e) => mapEmbyItemCard(
+            e,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -285,7 +317,14 @@ class EmbyMediaBackend implements MediaBackend {
       sortOrder: 'Descending',
     );
     return items
-        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .map(
+          (e) => mapEmbyItemCard(
+            e,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -466,6 +505,7 @@ class EmbyMediaBackend implements MediaBackend {
                 e,
                 serverUrl: _serverUrl,
                 token: _token,
+                imageHeaders: _entryTokenHeaders(),
               ),
             )
             .toList(growable: false),
@@ -534,7 +574,14 @@ class EmbyMediaBackend implements MediaBackend {
     );
     return MediaItemCardPage(
       items: page.items
-          .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+          .map(
+            (e) => mapEmbyItemCard(
+              e,
+              serverUrl: _serverUrl,
+              token: _token,
+              imageHeaders: _entryTokenHeaders(),
+            ),
+          )
           .toList(growable: false),
       total: page.totalRecordCount,
     );
@@ -560,7 +607,14 @@ class EmbyMediaBackend implements MediaBackend {
     );
     return MediaItemCardPage(
       items: page.items
-          .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+          .map(
+            (e) => mapEmbyItemCard(
+              e,
+              serverUrl: _serverUrl,
+              token: _token,
+              imageHeaders: _entryTokenHeaders(),
+            ),
+          )
           .toList(growable: false),
       total: page.totalRecordCount,
     );
@@ -602,8 +656,18 @@ class EmbyMediaBackend implements MediaBackend {
 
   MediaItemCard _mapGeneralCard(Map<String, Object?> item) {
     return _isLiveTvType((item['Type'] ?? '').toString())
-        ? mapEmbyLiveChannelCard(item, serverUrl: _serverUrl, token: _token)
-        : mapEmbyItemCard(item, serverUrl: _serverUrl, token: _token);
+        ? mapEmbyLiveChannelCard(
+            item,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          )
+        : mapEmbyItemCard(
+            item,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          );
   }
 
   /// 中立类型标签 → Emby `IncludeItemTypes`。空 / 全部影视 → `Movie,Series`；`TV` → `Series`；
@@ -658,7 +722,14 @@ class EmbyMediaBackend implements MediaBackend {
       fields: _cardFields,
     );
     return page.items
-        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .map(
+          (e) => mapEmbyItemCard(
+            e,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -670,7 +741,12 @@ class EmbyMediaBackend implements MediaBackend {
       accessToken: _token,
       itemId: itemId,
     );
-    return mapEmbyItemDetail(item, serverUrl: _serverUrl, token: _token);
+    return mapEmbyItemDetail(
+      item,
+      serverUrl: _serverUrl,
+      token: _token,
+      imageHeaders: _entryTokenHeaders(),
+    );
   }
 
   @override
@@ -714,7 +790,14 @@ class EmbyMediaBackend implements MediaBackend {
       seriesId: seriesId,
     );
     return seasons
-        .map((s) => mapEmbySeason(s, serverUrl: _serverUrl, token: _token))
+        .map(
+          (s) => mapEmbySeason(
+            s,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -792,6 +875,7 @@ class EmbyMediaBackend implements MediaBackend {
           item,
           serverUrl: _serverUrl,
           token: _token,
+          imageHeaders: _entryTokenHeaders(),
         );
         // 空 id 无法起播（异常返回体），当作未命中。
         if (episode.id.trim().isNotEmpty) return episode;
@@ -825,7 +909,14 @@ class EmbyMediaBackend implements MediaBackend {
       fields: 'Overview,UserData,MediaStreams',
     );
     return episodes
-        .map((e) => mapEmbyEpisode(e, serverUrl: _serverUrl, token: _token))
+        .map(
+          (e) => mapEmbyEpisode(
+            e,
+            serverUrl: _serverUrl,
+            token: _token,
+            imageHeaders: _entryTokenHeaders(),
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -1477,7 +1568,7 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   /// 过 fnos 边缘闸的播放 headers：`*.fnos.net` 中转域名加 `Cookie: entry-token=<值>`
-  /// （播放直链由 mpv 取流，不经 EmbyApi 拦截器，故在此显式注入）；直连地址不加。
+  /// （播放直链和图片请求均不经 EmbyApi 拦截器，故在此显式注入）；直连地址不加。
   Map<String, String> _entryTokenHeaders() {
     final token = connection.entryToken.trim();
     if (token.isEmpty || !usesFnConnectRelayCookie(_serverUrl)) {

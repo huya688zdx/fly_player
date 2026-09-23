@@ -26,6 +26,7 @@ void main() {
         'https://emby.example.test/Items/lib-1/Images/Primary?tag=abc&maxWidth=400&quality=90&api_key=tok',
       );
       expect(catalog.primaryImage.headers['X-Emby-Token'], token);
+      expect(catalog.primaryImage.headers['Cookie'], isNull);
       expect(catalog.posters, hasLength(1));
     });
 
@@ -165,6 +166,7 @@ void main() {
         },
         serverUrl: serverUrl,
         token: token,
+        imageHeaders: const <String, String>{'Cookie': 'entry-token=fixture'},
       );
 
       expect(detail.id, 'm-1');
@@ -187,16 +189,19 @@ void main() {
         'https://emby.example.test/Items/m-1/Images/Primary?tag=p1&maxWidth=400&quality=90&api_key=tok',
       );
       expect(detail.primaryImage.headers['X-Emby-Token'], token);
+      expect(detail.primaryImage.headers['Cookie'], 'entry-token=fixture');
       expect(
         detail.logoImage.url,
         'https://emby.example.test/Items/m-1/Images/Logo?tag=lg1&maxWidth=800&quality=90&api_key=tok',
       );
       expect(detail.logoImage.headers['X-Emby-Token'], token);
+      expect(detail.logoImage.headers['Cookie'], 'entry-token=fixture');
       expect(
         detail.backdropImage.url,
         'https://emby.example.test/Items/m-1/Images/Backdrop?tag=b1&maxWidth=1280&quality=90&api_key=tok',
       );
       expect(detail.backdropImage.headers['X-Emby-Token'], token);
+      expect(detail.backdropImage.headers['Cookie'], 'entry-token=fixture');
       // 无名演职员被剔除；其余保留顺序、department=Type。
       expect(detail.people, hasLength(2));
       expect(detail.people[0].name, 'Ryan Gosling');
@@ -207,6 +212,7 @@ void main() {
         'https://emby.example.test/Items/pp-1/Images/Primary?tag=av1&maxWidth=360&quality=90&api_key=tok',
       );
       expect(detail.people[0].avatar.headers['X-Emby-Token'], token);
+      expect(detail.people[0].avatar.headers['Cookie'], 'entry-token=fixture');
       expect(detail.people[1].name, 'Denis Villeneuve');
       expect(detail.people[1].department, 'Director');
       expect(detail.people[1].avatar.isEmpty, isTrue);
