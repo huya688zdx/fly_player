@@ -58,7 +58,7 @@ class DanDanPlayRuntimeConfig {
 
 /// DanDanPlay 凭据的运行时加载入口。
 ///
-/// Android 从原生安全存储读取；Apple 从构建参数读取，Windows 另支持开发配置。
+/// Android 从原生安全存储读取；Apple/Linux 从构建参数读取，Windows 另支持开发配置。
 class DanDanPlayConfig {
   static const MethodChannel _channel = MethodChannel(
     'fly_player/secret_store',
@@ -127,7 +127,8 @@ class DanDanPlayConfig {
   }) {
     if (!kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.iOS ||
-            defaultTargetPlatform == TargetPlatform.macOS)) {
+            defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.linux)) {
       if (!forceRefresh && _loaded) {
         return Future<DanDanPlayRuntimeConfig>.value(_current);
       }
