@@ -1,11 +1,16 @@
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_theme_provider.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/visual_performance.dart';
 
 @immutable
 class AppAtmospherePalette {
@@ -74,7 +79,6 @@ class AppAtmosphericBackground extends StatelessWidget {
     final style = context.select<AppThemeProvider?, AppBackgroundStyle>(
       (provider) => provider?.backgroundStyle ?? AppBackgroundStyle.softMist,
     );
-    final background = AppAtmosphereSurface(palette: palette, style: style);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       key: const ValueKey<String>('app-atmosphere-system-ui'),
       value: SystemUiOverlayStyle(
@@ -93,21 +97,7 @@ class AppAtmosphericBackground extends StatelessWidget {
           Positioned.fill(
             child: RepaintBoundary(
               key: const ValueKey<String>('app-atmosphere-static-layer'),
-              child:
-                  !kIsWeb &&
-                      defaultTargetPlatform == TargetPlatform.android &&
-                      style == AppBackgroundStyle.softMist
-                  ? _AppAtmosphereSnapshot(
-                      // 颜色变化时重建快照；尺寸与像素比由 SnapshotWidget 更新。
-                      key: ValueKey((
-                        palette.base,
-                        palette.accentGlow,
-                        palette.selectionGlow,
-                        palette.linkGlow,
-                      )),
-                      child: background,
-                    )
-                  : background,
+              child: AppAtmosphereStaticLayer(palette: palette, style: style),
             ),
           ),
           child,
@@ -117,10 +107,55 @@ class AppAtmosphericBackground extends StatelessWidget {
   }
 }
 
-// 仅缓存静态背景，避免 Android Vulkan 每帧重复绘制全屏渐变。
-class _AppAtmosphereSnapshot extends StatefulWidget {
-  const _AppAtmosphereSnapshot({super.key, required this.child});
+/// 首页与详情正文共用的静态氛围层。
+///
+/// Android 柔雾会在稳定帧后转成受档位尺寸上限约束的纹理，避免 Vulkan 每帧
+/// 重绘全屏径向渐变；其他样式沿用实时绘制，避免把未经实测的路径一并改写。
+class AppAtmosphereStaticLayer extends StatelessWidget {
+  const AppAtmosphereStaticLayer({
+    super.key,
+    required this.palette,
+    required this.style,
+    this.surfaceKey,
+  });
 
+  final AppAtmospherePalette palette;
+  final AppBackgroundStyle style;
+  final Key? surfaceKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final tier = context.select<AppThemeProvider?, AppVisualPerformanceTier>(
+      (provider) =>
+          provider?.visualPerformanceTier ?? AppVisualPerformanceTier.full,
+    );
+    final surface = AppAtmosphereSurface(
+      key: surfaceKey,
+      palette: palette,
+      style: style,
+    );
+    if (kIsWeb ||
+        defaultTargetPlatform != TargetPlatform.android ||
+        style != AppBackgroundStyle.softMist) {
+      return surface;
+    }
+    return _AppAtmosphereSnapshot(
+      palette: palette,
+      maxTextureDimension: tier.atmosphereTextureMaxDimension,
+      child: surface,
+    );
+  }
+}
+
+class _AppAtmosphereSnapshot extends StatefulWidget {
+  const _AppAtmosphereSnapshot({
+    required this.palette,
+    required this.maxTextureDimension,
+    required this.child,
+  });
+
+  final AppAtmospherePalette palette;
+  final int maxTextureDimension;
   final Widget child;
 
   @override
@@ -128,19 +163,127 @@ class _AppAtmosphereSnapshot extends StatefulWidget {
 }
 
 class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
-  final _controller = SnapshotController(allowSnapshotting: true);
+  final GlobalKey _boundaryKey = GlobalKey();
+  ui.Image? _image;
+  Size? _capturedSize;
+  Size? _requestedSize;
+  bool _captureScheduled = false;
+  bool _captureFailed = false;
+  int _captureRevision = 0;
+
+  bool _samePalette(AppAtmospherePalette a, AppAtmospherePalette b) =>
+      a.base == b.base &&
+      a.accentGlow == b.accentGlow &&
+      a.selectionGlow == b.selectionGlow &&
+      a.linkGlow == b.linkGlow &&
+      a.hasDynamicTheme == b.hasDynamicTheme;
+
+  @override
+  void didUpdateWidget(covariant _AppAtmosphereSnapshot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.maxTextureDimension != widget.maxTextureDimension ||
+        !_samePalette(oldWidget.palette, widget.palette)) {
+      _invalidateSnapshot();
+    }
+  }
+
+  void _invalidateSnapshot() {
+    _captureRevision++;
+    _captureFailed = false;
+    _capturedSize = null;
+    _requestedSize = null;
+    _image?.dispose();
+    _image = null;
+  }
+
+  void _ensureSnapshot(Size size) {
+    if (_captureFailed ||
+        _captureScheduled ||
+        (_image != null && _capturedSize == size)) {
+      return;
+    }
+    _requestedSize = size;
+    _captureScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _captureScheduled = false;
+      if (_image != null) {
+        setState(() {
+          _image?.dispose();
+          _image = null;
+          _capturedSize = null;
+        });
+        return;
+      }
+      _capture(size, _captureRevision);
+    });
+  }
+
+  Future<void> _capture(Size size, int revision) async {
+    final boundary =
+        _boundaryKey.currentContext?.findRenderObject()
+            as RenderRepaintBoundary?;
+    if (boundary == null || !boundary.hasSize) return;
+    final logicalMax = math.max(size.width, size.height);
+    if (!logicalMax.isFinite || logicalMax <= 0) return;
+    final deviceRatio = MediaQuery.devicePixelRatioOf(context);
+    final cappedRatio = widget.maxTextureDimension / logicalMax;
+    final pixelRatio = math.min(deviceRatio, cappedRatio).toDouble();
+    try {
+      final image = await boundary.toImage(pixelRatio: pixelRatio);
+      if (!mounted || revision != _captureRevision || _requestedSize != size) {
+        image.dispose();
+        return;
+      }
+      setState(() {
+        _image?.dispose();
+        _image = image;
+        _capturedSize = size;
+      });
+    } catch (error) {
+      if (!mounted || revision != _captureRevision) return;
+      _captureFailed = true;
+      if (kDebugMode) {
+        debugPrint('[UI][ATMOSPHERE] snapshot failed: $error');
+      }
+    }
+  }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _captureRevision++;
+    _image?.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => SnapshotWidget(
-    controller: _controller,
-    autoresize: true,
-    child: widget.child,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final size = constraints.biggest;
+      if (!size.width.isFinite ||
+          !size.height.isFinite ||
+          size.width <= 0 ||
+          size.height <= 0) {
+        return widget.child;
+      }
+      _ensureSnapshot(size);
+      return Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Opacity(
+            opacity: _image == null ? 1 : 0,
+            child: RepaintBoundary(key: _boundaryKey, child: widget.child),
+          ),
+          if (_image != null)
+            RawImage(
+              key: const ValueKey<String>('app-atmosphere-snapshot-image'),
+              image: _image,
+              fit: BoxFit.fill,
+              filterQuality: FilterQuality.low,
+            ),
+        ],
+      );
+    },
   );
 }
 

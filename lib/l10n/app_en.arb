@@ -1504,6 +1504,22 @@
   "themeRecipeSelectionLabel": "Selection color",
   "themeRecipeLinkLabel": "Link color",
   "themeRecipeCurrentTitle": "Current recipe",
+  "themeVisualPerformanceTitle": "Visual performance",
+  "themeVisualPerformanceSubtitle": "Adjusts continuous motion and live blur for this device while preserving page content, hero images, and color intensity.",
+  "themeVisualPerformanceCurrent": "Currently using: {tier}",
+  "@themeVisualPerformanceCurrent": {
+    "placeholders": {
+      "tier": {"type": "String"}
+    }
+  },
+  "themeVisualPerformanceAutomatic": "Auto (recommended)",
+  "themeVisualPerformanceAutomaticDescription": "Uses Balanced normally and Smooth on Android low-RAM devices.",
+  "themeVisualPerformanceSmooth": "Smooth",
+  "themeVisualPerformanceSmoothDescription": "Keeps the full page design while reducing parallax, zoom, and live backdrop blur.",
+  "themeVisualPerformanceBalanced": "Balanced",
+  "themeVisualPerformanceBalancedDescription": "Keeps lightweight depth and atmosphere at a lower rendering cost.",
+  "themeVisualPerformanceFull": "Full",
+  "themeVisualPerformanceFullDescription": "Enables full motion, app-wide color sync, and live desktop blur.",
   "themeDynamicTitle": "Dynamic color theme",
   "themeDynamicSubtitle": "Details and people pages can temporarily extract colors from the poster, then restore the current theme on exit.",
   "themeDynamicScopeDetailsAndPeople": "Current scope: details and people pages",

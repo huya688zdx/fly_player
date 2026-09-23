@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/desktop.dart';
+import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/theme/visual_performance.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('通用悬浮小窗在浅色主题下使用浅色背景', (tester) async {
@@ -26,6 +30,43 @@ void main() {
             as BoxDecoration;
 
     expect(decoration.color!.computeLuminance(), greaterThan(0.7));
+  });
+
+  testWidgets('流畅档使用实色材质，完整档保留实时背景模糊', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final provider = AppThemeProvider();
+    await provider.setVisualPerformanceMode(AppVisualPerformanceMode.smooth);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => provider,
+        child: MaterialApp(
+          theme: AppThemeBuilder.build(AppThemePreset.midnight),
+          home: const Scaffold(
+            body: DesktopFloatingPanel(
+              child: SizedBox(width: 240, height: 180),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsNothing,
+    );
+
+    await provider.setVisualPerformanceMode(AppVisualPerformanceMode.full);
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byType(DesktopFloatingPanel),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsOneWidget,
+    );
   });
 
   // 模拟播放器画面层：背景手势是弹窗的祖先（与真实控件层拓扑一致）。

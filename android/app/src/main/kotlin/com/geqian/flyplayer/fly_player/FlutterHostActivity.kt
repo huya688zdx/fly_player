@@ -1,6 +1,7 @@
 package com.geqian.flyplayer.fly_player
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -338,6 +339,16 @@ abstract class FlutterHostActivity : FlutterActivity() {
                                 mapOf(
                                     "isLikelyMali" to profile.isLikelyMali,
                                     "summary" to profile.summary,
+                                ),
+                            )
+                        }
+
+                        "getDevicePerformanceProfile" -> {
+                            val activityManager =
+                                getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                            result.success(
+                                mapOf(
+                                    "isLowRamDevice" to activityManager.isLowRamDevice,
                                 ),
                             )
                         }

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,10 +8,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_item_card.dart';
+import '../providers/app_theme_provider.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
+import '../theme/visual_performance.dart';
 import '../ui/app_motion.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_artwork_resolver.dart';
@@ -21,6 +22,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/async_action_guard.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/app_performance_backdrop.dart';
 import '../widgets/common/bird_loader.dart';
 import '../screens/person_detail_screen.dart';
 import '../screens/play_detail_screen.dart';
@@ -518,20 +520,26 @@ class _DesktopSearchPanelState extends State<_DesktopSearchPanel> {
   Widget _buildSearchField(AppThemeColors colors, AppLocalizations l10n) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final focused = _focusNode.hasFocus;
+    final visualTier = context
+        .select<AppThemeProvider?, AppVisualPerformanceTier>(
+          (provider) =>
+              provider?.visualPerformanceTier ?? AppVisualPerformanceTier.full,
+        );
+    final hasLiveBlur = visualTier.desktopBlurSigma(18) > 0;
     return Material(
       color: Colors.transparent,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(999),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: AppPerformanceBackdrop(
+          sigma: 18,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
             height: 48,
             decoration: BoxDecoration(
               color: isLight
-                  ? Colors.white.withValues(alpha: 0.72)
-                  : colors.surface.withValues(alpha: 0.72),
+                  ? Colors.white.withValues(alpha: hasLiveBlur ? 0.72 : 0.96)
+                  : colors.surface.withValues(alpha: hasLiveBlur ? 0.72 : 0.96),
               borderRadius: BorderRadius.circular(999),
               border: Border.all(
                 color: focused

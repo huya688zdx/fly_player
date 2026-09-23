@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/device_performance_profile_bridge.dart';
 import '../services/parallel_host_bridge.dart';
 import '../services/runtime_theme_session_bridge.dart';
 import '../services/runtime_theme_sync_bridge.dart';
@@ -12,6 +13,7 @@ import '../theme/app_theme.dart';
 import '../theme/dynamic_theme_mapper.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
 import '../theme/glass_quality.dart';
+import '../theme/visual_performance.dart';
 import '../ui/route_transition_gate.dart';
 import '../utils/swallowed_error_logger.dart';
 
@@ -28,6 +30,8 @@ class AppThemeProvider extends ChangeNotifier {
   static const String _customLinkColorKey = 'app_theme_custom_link';
   static const String _dynamicThemeModeKey = 'app_theme_dynamic_mode';
   static const String _dynamicThemeIntensityKey = 'app_theme_dynamic_intensity';
+  static const String _visualPerformanceModeKey =
+      'app_theme_visual_performance_mode';
   static const String _glassLevelKey = 'app_theme_glass_level';
   static const String _themeSourceTypeKey = 'app_theme_source_type';
   static const String _activeSavedThemeIdKey =
@@ -70,6 +74,9 @@ class AppThemeProvider extends ChangeNotifier {
   AppDynamicThemeMode _dynamicThemeMode = AppDynamicThemeMode.off;
   AppDynamicThemeIntensity _dynamicThemeIntensity =
       AppDynamicThemeIntensity.medium;
+  AppVisualPerformanceMode _visualPerformanceMode =
+      AppVisualPerformanceMode.automatic;
+  bool _isLowRamDevice = false;
   LiquidGlassLevel _glassLevel = LiquidGlassLevel.frosted;
   AppThemeSourceType _themeSourceType = AppThemeSourceType.preset;
   String _activeSavedThemeId = '';
@@ -152,6 +159,21 @@ class AppThemeProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _refreshDevicePerformanceProfile() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+    final previousTier = visualPerformanceTier;
+    final profile = await DevicePerformanceProfileBridge.load();
+    if (_disposed) return;
+    _isLowRamDevice = profile.isLowRamDevice;
+    if (previousTier != visualPerformanceTier) {
+      _cacheBootstrapSnapshot();
+      _publishRuntimeDynamicThemeToScope();
+      notifyListeners();
+    }
+  }
+
   bool get isReady => _isReady;
   AppThemePreset get preset => _preset;
   AppBackgroundStyle get backgroundStyle => _backgroundStyle;
@@ -165,6 +187,11 @@ class AppThemeProvider extends ChangeNotifier {
   Color? get customLinkColor => _customLinkColor;
   AppDynamicThemeMode get dynamicThemeMode => _dynamicThemeMode;
   AppDynamicThemeIntensity get dynamicThemeIntensity => _dynamicThemeIntensity;
+  AppVisualPerformanceMode get visualPerformanceMode => _visualPerformanceMode;
+  AppVisualPerformanceTier get visualPerformanceTier =>
+      _visualPerformanceMode.resolve(isLowRamDevice: _isLowRamDevice);
+  bool get allowsGlobalRuntimeThemeSync =>
+      visualPerformanceTier.allowsGlobalRuntimeThemeSync;
   LiquidGlassLevel get glassLevel => _glassLevel;
   AppThemeSourceType get themeSourceType => _themeSourceType;
   String get activeSavedThemeId => _activeSavedThemeId;
@@ -417,6 +444,8 @@ class AppThemeProvider extends ChangeNotifier {
     _cacheBootstrapSnapshot();
     _publishRuntimeDynamicThemeToScope();
     notifyListeners();
+    unawaited(_refreshDevicePerformanceProfile());
+    unawaited(_restoreActiveRuntimeThemeSnapshot());
   }
 
   Future<void> setPreset(AppThemePreset value) async {
@@ -560,6 +589,29 @@ class AppThemeProvider extends ChangeNotifier {
     );
   }
 
+  Future<void> setVisualPerformanceMode(AppVisualPerformanceMode value) async {
+    if (_visualPerformanceMode == value && _isReady) return;
+    final previousAllowsGlobalSync = allowsGlobalRuntimeThemeSync;
+    final previousRuntimePage = _runtimeDynamicThemePage;
+    _visualPerformanceMode = value;
+    if (!allowsGlobalRuntimeThemeSync) {
+      _clearRuntimeDynamicThemeState();
+    }
+    await _persist((prefs) async {
+      await prefs.setString(_visualPerformanceModeKey, value.storageValue);
+      if (!allowsGlobalRuntimeThemeSync) {
+        await _clearPersistedRuntimeDynamicTheme(prefs);
+      }
+    });
+    if (previousAllowsGlobalSync &&
+        !allowsGlobalRuntimeThemeSync &&
+        previousRuntimePage.isNotEmpty) {
+      await RuntimeThemeSyncBridge.instance.clearRuntimeThemeOnMain(
+        previousRuntimePage,
+      );
+    }
+  }
+
   Future<void> setGlassLevel(LiquidGlassLevel value) async {
     if (_glassLevel == value && _isReady) return;
     _glassLevel = value;
@@ -581,6 +633,7 @@ class AppThemeProvider extends ChangeNotifier {
     bool broadcastToMain = true,
     Duration? localNotifyDelayAfterBroadcast,
   }) async {
+    if (!allowsGlobalRuntimeThemeSync) return;
     final normalizedPageKey = pageKey.trim();
     if (normalizedPageKey.isEmpty) return;
     await _ensureRuntimeSessionLoaded();
@@ -1102,7 +1155,9 @@ class AppThemeProvider extends ChangeNotifier {
       );
       final runtimeOrder = List<String>.from(_runtimeDynamicThemeOrder);
       _applyStoredValues(prefs);
-      if (runtimeSeed != null && runtimePage.isNotEmpty) {
+      if (allowsGlobalRuntimeThemeSync &&
+          runtimeSeed != null &&
+          runtimePage.isNotEmpty) {
         _runtimeDynamicThemePage = runtimePage;
         _runtimeDynamicThemeSeed = runtimeSeed;
         _runtimeDynamicThemeCache
@@ -1139,6 +1194,8 @@ class AppThemeProvider extends ChangeNotifier {
       _customLinkColor?.toARGB32(),
       _dynamicThemeMode.storageValue,
       _dynamicThemeIntensity.storageValue,
+      _visualPerformanceMode.storageValue,
+      visualPerformanceTier.name,
       ...selectedThemeBaseColors.toSignatureValues(),
     ];
     if (dynamicThemeEnabled && _runtimeDynamicThemeSeed != null) {
@@ -1160,7 +1217,8 @@ class AppThemeProvider extends ChangeNotifier {
 
   AppThemeColors? _runtimeDynamicThemeColors() {
     final runtimeSeed = _runtimeDynamicThemeSeed;
-    if (!dynamicThemeEnabled ||
+    if (!allowsGlobalRuntimeThemeSync ||
+        !dynamicThemeEnabled ||
         runtimeSeed == null ||
         _runtimeDynamicThemePage.trim().isEmpty) {
       return null;
@@ -1270,6 +1328,9 @@ class AppThemeProvider extends ChangeNotifier {
     _dynamicThemeIntensity = AppDynamicThemeIntensityX.fromStorageValue(
       prefs.getString(_dynamicThemeIntensityKey),
     );
+    _visualPerformanceMode = AppVisualPerformanceModeX.fromStorageValue(
+      prefs.getString(_visualPerformanceModeKey),
+    );
     _glassLevel = LiquidGlassLevelX.fromStorageValue(
       prefs.getString(_glassLevelKey),
     );
@@ -1295,7 +1356,8 @@ class AppThemeProvider extends ChangeNotifier {
     final accentSeed = prefs.getInt(_runtimeDynamicAccentSeedKey);
     final selectionSeed = prefs.getInt(_runtimeDynamicSelectionSeedKey);
     final linkSeed = prefs.getInt(_runtimeDynamicLinkSeedKey);
-    if (runtimePage.isNotEmpty &&
+    if (allowsGlobalRuntimeThemeSync &&
+        runtimePage.isNotEmpty &&
         backgroundSeed != null &&
         accentSeed != null &&
         selectionSeed != null &&
@@ -1336,6 +1398,8 @@ class AppThemeProvider extends ChangeNotifier {
     _customLinkColor = snapshot.customLinkColor;
     _dynamicThemeMode = snapshot.dynamicThemeMode;
     _dynamicThemeIntensity = snapshot.dynamicThemeIntensity;
+    _visualPerformanceMode = snapshot.visualPerformanceMode;
+    _isLowRamDevice = snapshot.isLowRamDevice;
     _glassLevel = snapshot.glassLevel;
     liquidGlassLevel.value = _glassLevel;
     _themeSourceType = snapshot.themeSourceType;
@@ -1367,6 +1431,8 @@ class AppThemeProvider extends ChangeNotifier {
       customLinkColor: _customLinkColor,
       dynamicThemeMode: _dynamicThemeMode,
       dynamicThemeIntensity: _dynamicThemeIntensity,
+      visualPerformanceMode: _visualPerformanceMode,
+      isLowRamDevice: _isLowRamDevice,
       glassLevel: _glassLevel,
       themeSourceType: _themeSourceType,
       activeSavedThemeId: _activeSavedThemeId,
@@ -1397,6 +1463,17 @@ class AppThemeProvider extends ChangeNotifier {
     final currentPage = _runtimeDynamicThemeOrder.last;
     _runtimeDynamicThemePage = currentPage;
     _runtimeDynamicThemeSeed = _runtimeDynamicThemeCache[currentPage];
+  }
+
+  void _clearRuntimeDynamicThemeState() {
+    _runtimeThemeApplyToken++;
+    _cancelPendingRuntimeMainClear();
+    _cancelPendingRuntimeTopRemoval();
+    _runtimeDynamicThemePage = '';
+    _runtimeDynamicThemeSeed = null;
+    _runtimeDynamicThemeCache.clear();
+    _runtimeDynamicThemeOrder.clear();
+    AppRuntimeColorController.instance.clearRuntimeColors();
   }
 
   Future<void> _clearPersistedRuntimeDynamicTheme(
@@ -1456,6 +1533,10 @@ class AppThemeProvider extends ChangeNotifier {
           return;
       }
     });
+    await _restoreActiveRuntimeThemeSnapshot();
+  }
+
+  Future<void> _restoreActiveRuntimeThemeSnapshot() async {
     final active = await RuntimeThemeSyncBridge.instance
         .activeRuntimeThemeSnapshot();
     if (active != null) {
@@ -1517,6 +1598,8 @@ class _AppThemeBootstrapSnapshot {
   final Color? customLinkColor;
   final AppDynamicThemeMode dynamicThemeMode;
   final AppDynamicThemeIntensity dynamicThemeIntensity;
+  final AppVisualPerformanceMode visualPerformanceMode;
+  final bool isLowRamDevice;
   final LiquidGlassLevel glassLevel;
   final AppThemeSourceType themeSourceType;
   final String activeSavedThemeId;
@@ -1541,6 +1624,8 @@ class _AppThemeBootstrapSnapshot {
     required this.customLinkColor,
     required this.dynamicThemeMode,
     required this.dynamicThemeIntensity,
+    required this.visualPerformanceMode,
+    required this.isLowRamDevice,
     required this.glassLevel,
     required this.themeSourceType,
     required this.activeSavedThemeId,

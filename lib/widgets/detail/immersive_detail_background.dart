@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../providers/app_theme_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/visual_performance.dart';
 import '../../ui/route_transition_gate.dart';
 import '../app_atmospheric_background.dart';
 
@@ -179,6 +180,11 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
           (provider) =>
               provider?.backgroundStyle ?? AppBackgroundStyle.softMist,
         );
+    final visualPerformanceTier = context
+        .select<AppThemeProvider?, AppVisualPerformanceTier>(
+          (provider) =>
+              provider?.visualPerformanceTier ?? AppVisualPerformanceTier.full,
+        );
 
     final mediaSize = MediaQuery.of(context).size;
     final screenWidth = mediaSize.width;
@@ -199,21 +205,35 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final topOverscroll = (-widget.scrollOffset).clamp(0.0, 220.0);
     final expandedHeroHeight = snapToDevice(heroHeight + topOverscroll);
 
-    final parallaxMax = (screenHeight * 0.85).clamp(180.0, 560.0);
+    final effectiveParallaxFactor = visualPerformanceTier.detailParallaxFactor(
+      widget.parallaxFactor,
+    );
+    final hasExtraParallax = effectiveParallaxFactor < .999;
+    final double parallaxMax = !hasExtraParallax
+        ? 0.0
+        : switch (visualPerformanceTier) {
+            AppVisualPerformanceTier.smooth => 0.0,
+            AppVisualPerformanceTier.balanced =>
+              (screenHeight * 0.35).clamp(96.0, 240.0).toDouble(),
+            AppVisualPerformanceTier.full =>
+              (screenHeight * 0.85).clamp(180.0, 560.0).toDouble(),
+          };
 
     final collapseOffset = widget.scrollOffset.clamp(0.0, double.infinity);
     final snappedCollapseOffset =
         (collapseOffset * devicePixelRatio).roundToDouble() / devicePixelRatio;
-    final parallaxShift = (collapseOffset * widget.parallaxFactor).clamp(
-      0.0,
-      parallaxMax,
-    );
+    final parallaxShift = hasExtraParallax
+        ? (collapseOffset * effectiveParallaxFactor)
+              .clamp(0.0, parallaxMax)
+              .toDouble()
+        : collapseOffset;
 
     final zoomT = Curves.easeOutCubic.transform(
       (topOverscroll / 160).clamp(0.0, 1.0),
     );
-    final scrollZoom =
-        1.0 + ((widget.maxScrollZoom.clamp(1.0, 1.3) - 1.0) * zoomT);
+    final scrollZoom = visualPerformanceTier.allowsPullDownZoom
+        ? 1.0 + ((widget.maxScrollZoom.clamp(1.0, 1.3) - 1.0) * zoomT)
+        : 1.0;
 
     final overlayOpacity = widget.overlayOpacity.clamp(0.0, 1.0);
     final transitionBody = widget.transitionBodyColor ?? colors.backgroundBase;
@@ -260,8 +280,8 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
               child: IgnorePointer(
                 child: ambientTint == null
                     ? ColoredBox(color: colors.backgroundBase)
-                    : AppAtmosphereSurface(
-                        key: const ValueKey<String>(
+                    : AppAtmosphereStaticLayer(
+                        surfaceKey: const ValueKey<String>(
                           'detail-background-ambient-wash',
                         ),
                         palette: AppAtmospherePalette.resolve(
