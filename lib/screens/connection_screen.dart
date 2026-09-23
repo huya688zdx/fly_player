@@ -191,7 +191,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   Future<void> _loadStoredBackendConnection() async {
     final snapshot = await MediaBackendConnectionStore.load();
-    if (!mounted) return;
+    if (!mounted || _isSubmitting) return;
     setState(() {
       if (_serverForms.containsKey(snapshot.activeKind)) {
         _selectedBackend = snapshot.activeKind;
@@ -251,6 +251,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _submit() async {
+    if (_isSubmitting) return;
     if (_selectedBackend.isServerFamily) {
       await _verifyServerConnection(
         MediaBackendRegistry.requireDescriptor(_selectedBackend),
@@ -587,10 +588,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _openLoginHistory() async {
+    if (_isSubmitting) return;
     FocusScope.of(context).unfocus();
     // 进入历史页前先刷新一次，确保拿到最新（含其它后端）的登录历史。
     final latest = await LoginHistoryStore.load();
-    if (!mounted) return;
+    if (!mounted ||
+        _isSubmitting ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     setState(() {
       _historyEntries = latest;
     });
@@ -601,8 +607,17 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       maxHeight: 600,
     );
     // 历史页内可能删除/清空，回来时同步最新列表。
+    if (!mounted ||
+        _isSubmitting ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     final refreshed = await LoginHistoryStore.load();
-    if (!mounted) return;
+    if (!mounted ||
+        _isSubmitting ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     setState(() {
       _historyEntries = refreshed;
     });
@@ -612,6 +627,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   /// 把历史记录回填到对应后端表单，并切换到该后端 Tab。
   void _applyHistorySelection(LoginHistoryEntry entry) {
+    if (_isSubmitting) return;
     final form = _serverForms[entry.kind];
     if (form != null) {
       form.baseUrl.text = entry.baseUrl;
@@ -638,6 +654,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   /// 切换选中后端，表单在原位淡入淡出。
   void _selectBackend(MediaBackendKind next) {
+    if (_isSubmitting) return;
     if (next == _selectedBackend) {
       if (_inlineError != null) {
         setState(() {
@@ -669,7 +686,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       confirmText: l10n.fnConnectReloginConfirm,
       confirmColor: context.appColors.warning,
     );
-    if (!mounted || !confirmed) return;
+    if (!mounted ||
+        _isSubmitting ||
+        !confirmed ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     setState(() {
       _isSubmitting = true;
     });
@@ -700,6 +722,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _openDownloadedData() async {
+    if (_isSubmitting) return;
     await Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
         const DownloadListScreen(offline: true),
@@ -909,7 +932,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   void _handleSwipePointerDown(PointerDownEvent event) {
-    if (event.kind != PointerDeviceKind.touch) return;
+    if (_isSubmitting || event.kind != PointerDeviceKind.touch) return;
     _swipeStartX = event.position.dx;
     _swipeStartY = event.position.dy;
     _swipeLastX = event.position.dx;
@@ -917,13 +940,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   void _handleSwipePointerMove(PointerMoveEvent event) {
-    if (event.kind != PointerDeviceKind.touch) return;
+    if (_isSubmitting || event.kind != PointerDeviceKind.touch) return;
     _swipeLastX = event.position.dx;
     _swipeLastY = event.position.dy;
   }
 
   void _handleSwipePointerUp(PointerUpEvent event) {
-    if (event.kind != PointerDeviceKind.touch) return;
+    if (_isSubmitting || event.kind != PointerDeviceKind.touch) return;
     final dx = _swipeLastX - _swipeStartX;
     final dy = _swipeLastY - _swipeStartY;
     if (dx.abs() < 80 || dx.abs() < dy.abs() * 1.4) return;
@@ -952,7 +975,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 key: const Key('connectionBackendSelector'),
                 l10n: l10n,
                 selected: _selectedBackend,
-                onChanged: _selectBackend,
+                onChanged: _isSubmitting ? null : _selectBackend,
               ),
               const SizedBox(height: 10),
               _buildConnectionCardHeader(l10n),
@@ -994,6 +1017,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                             ? _rememberPassword
                             : _serverForms[_selectedBackend]!.rememberPassword,
                         onChanged: (value) {
+                          if (_isSubmitting) return;
                           setState(() {
                             if (isFeiniu) {
                               _rememberPassword = value;
@@ -1008,11 +1032,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     if (isFeiniu)
                       TextButton(
                         key: const Key('feiniuAdvancedOptionsButton'),
-                        onPressed: () {
-                          setState(() {
-                            _showFeiniuAdvanced = !_showFeiniuAdvanced;
-                          });
-                        },
+                        onPressed: _isSubmitting
+                            ? null
+                            : () {
+                                setState(() {
+                                  _showFeiniuAdvanced = !_showFeiniuAdvanced;
+                                });
+                              },
                         style: _footerButtonStyle(
                           theme,
                           foregroundColor: context.appColors.textMuted,
@@ -1126,6 +1152,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final fields = <Widget>[
       LoginField(
         controller: baseController,
+        enabled: !_isSubmitting,
         textFieldKey: serverKey,
         labelText: descriptor != null
             ? l10n.connectionServerAddressLabel(descriptor.displayName)
@@ -1139,7 +1166,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         autofillHints: const <String>[AutofillHints.url],
         suffix: IconButton(
           tooltip: l10n.connectionLoginHistory,
-          onPressed: _openLoginHistory,
+          onPressed: _isSubmitting ? null : _openLoginHistory,
           icon: Icon(
             Icons.history_rounded,
             color: _historyEntries.isEmpty
@@ -1151,6 +1178,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       const SizedBox(height: 12),
       LoginField(
         controller: userController,
+        enabled: !_isSubmitting,
         textFieldKey: userKey,
         labelText: l10n.connectionAccountLabel,
         hintText: l10n.connectionUserNameHint,
@@ -1161,6 +1189,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       const SizedBox(height: 12),
       LoginField(
         controller: passwordController,
+        enabled: !_isSubmitting,
         textFieldKey: passwordKey,
         labelText: l10n.connectionPasswordHint,
         hintText: '',
@@ -1171,15 +1200,17 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         onSubmitted: (_) => _submit(),
         suffix: IconButton(
           tooltip: l10n.connectionPasswordHint,
-          onPressed: () {
-            setState(() {
-              if (form != null) {
-                form.obscurePassword = !form.obscurePassword;
-              } else {
-                _obscurePassword = !_obscurePassword;
-              }
-            });
-          },
+          onPressed: _isSubmitting
+              ? null
+              : () {
+                  setState(() {
+                    if (form != null) {
+                      form.obscurePassword = !form.obscurePassword;
+                    } else {
+                      _obscurePassword = !_obscurePassword;
+                    }
+                  });
+                },
           icon: Icon(
             obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
             color: colors.textMuted,
@@ -1196,6 +1227,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             key: const Key('feiniuAccessCodeFieldContainer'),
             textFieldKey: const Key('feiniuAccessCodeField'),
             controller: _accessCodeController,
+            enabled: !_isSubmitting,
             labelText: l10n.connectionAccessCodeOptional,
             hintText: '',
             leadingIcon: Icons.key_rounded,
@@ -1204,11 +1236,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             onSubmitted: (_) => _submit(),
             suffix: IconButton(
               tooltip: l10n.connectionAccessCodeOptional,
-              onPressed: () {
-                setState(() {
-                  _obscureAccessCode = !_obscureAccessCode;
-                });
-              },
+              onPressed: _isSubmitting
+                  ? null
+                  : () {
+                      setState(() {
+                        _obscureAccessCode = !_obscureAccessCode;
+                      });
+                    },
               icon: Icon(
                 _obscureAccessCode
                     ? Icons.visibility_off_outlined
@@ -1237,7 +1271,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         runSpacing: 2,
         children: [
           TextButton(
-            onPressed: _openDownloadedData,
+            onPressed: _isSubmitting ? null : _openDownloadedData,
             style: _footerButtonStyle(theme, foregroundColor: colors.textMuted),
             child: Text(l10n.connectionOpenDownloads),
           ),
@@ -1270,7 +1304,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         Expanded(
           child: InkWell(
             borderRadius: BorderRadius.circular(999),
-            onTap: () => onChanged(!value),
+            onTap: _isSubmitting ? null : () => onChanged(!value),
             child: Row(
               children: [
                 SizedBox(
@@ -1278,7 +1312,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   height: 28,
                   child: Checkbox(
                     value: value,
-                    onChanged: (next) => onChanged(next ?? false),
+                    onChanged: _isSubmitting
+                        ? null
+                        : (next) => onChanged(next ?? false),
                     side: BorderSide(color: colors.borderStrong),
                     fillColor: WidgetStateProperty.resolveWith(
                       (states) => states.contains(WidgetState.selected)
@@ -1336,7 +1372,7 @@ class _BackendSelector extends StatelessWidget {
 
   final AppLocalizations l10n;
   final MediaBackendKind selected;
-  final ValueChanged<MediaBackendKind> onChanged;
+  final ValueChanged<MediaBackendKind>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1406,7 +1442,9 @@ class _BackendSelector extends StatelessWidget {
                       label: option.label,
                       assetName: option.asset,
                       selected: option.kind == selected,
-                      onTap: () => onChanged(option.kind),
+                      onTap: onChanged == null
+                          ? null
+                          : () => onChanged!(option.kind),
                     ),
                   ),
               ],
@@ -1429,7 +1467,7 @@ class _BackendSelectorButton extends StatelessWidget {
   final String label;
   final bool selected;
   final String assetName;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
