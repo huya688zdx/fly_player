@@ -28,7 +28,7 @@ void main() {
     expect(source, contains('_prewarmPosterBrowseArtwork('));
   });
 
-  test('海报页首屏同步消费已完成结果并复用进行中的请求', () {
+  test('海报页先展示已完成结果并在后台复用进行中的请求', () {
     final source = File(
       'lib/screens/poster_browse/poster_browse_screen.dart',
     ).readAsStringSync();
@@ -39,9 +39,16 @@ void main() {
       contains('PosterBrowseArtworkPrewarmCache.shared.futureFor('),
     );
     expect(source, contains('final prewarmed ='));
-    expect(source, contains('await _hydrateInitialVisibleArtwork('));
-    expect(source, contains('initialEnrichmentById'));
-    expect(source, contains('while (isActive())'));
-    expect(source, contains('if (latestProfile == profile)'));
+    expect(source, isNot(contains('_hydrateInitialVisibleArtwork')));
+
+    final loadStart = source.indexOf('Future<void> _load(');
+    final pageShown = source.indexOf('_loading = false;', loadStart);
+    final backgroundWarmup = source.indexOf(
+      '_warmContinueWatchingRow(',
+      loadStart,
+    );
+    expect(loadStart, greaterThanOrEqualTo(0));
+    expect(pageShown, greaterThan(loadStart));
+    expect(backgroundWarmup, greaterThan(pageShown));
   });
 }

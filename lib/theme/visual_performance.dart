@@ -61,6 +61,28 @@ extension AppVisualPerformanceTierX on AppVisualPerformanceTier {
     };
   }
 
+  /// 海报浏览页进入后只补全当前真正需要的续播卡片。
+  ///
+  /// 流畅档只补当前项，均衡档补当前项和相邻项，完整档保留整行补全。
+  int posterBrowseContinueWarmupLimit(int requested) {
+    if (requested <= 0) return 0;
+    return switch (this) {
+      AppVisualPerformanceTier.smooth => 1,
+      AppVisualPerformanceTier.balanced => requested.clamp(0, 3),
+      AppVisualPerformanceTier.full => requested,
+    };
+  }
+
+  /// 焦点切换时允许在后台预取的邻近条目范围。
+  int posterBrowseNeighborPrefetchRadius(int requested) {
+    if (requested <= 0) return 0;
+    return switch (this) {
+      AppVisualPerformanceTier.smooth => 0,
+      AppVisualPerformanceTier.balanced => requested.clamp(0, 1),
+      AppVisualPerformanceTier.full => requested,
+    };
+  }
+
   double detailParallaxFactor(double requested) {
     final normalized = requested.clamp(0.0, 1.0).toDouble();
     return switch (this) {

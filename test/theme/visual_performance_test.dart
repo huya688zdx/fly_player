@@ -47,6 +47,31 @@ void main() {
     );
     expect(AppVisualPerformanceTier.full.posterBrowseHomePrewarmLimit(8), 8);
 
+    expect(
+      AppVisualPerformanceTier.smooth.posterBrowseContinueWarmupLimit(20),
+      1,
+    );
+    expect(
+      AppVisualPerformanceTier.balanced.posterBrowseContinueWarmupLimit(20),
+      3,
+    );
+    expect(
+      AppVisualPerformanceTier.full.posterBrowseContinueWarmupLimit(20),
+      20,
+    );
+    expect(
+      AppVisualPerformanceTier.smooth.posterBrowseNeighborPrefetchRadius(2),
+      0,
+    );
+    expect(
+      AppVisualPerformanceTier.balanced.posterBrowseNeighborPrefetchRadius(2),
+      1,
+    );
+    expect(
+      AppVisualPerformanceTier.full.posterBrowseNeighborPrefetchRadius(2),
+      2,
+    );
+
     expect(AppVisualPerformanceTier.smooth.detailParallaxFactor(.4), 1);
     expect(AppVisualPerformanceTier.balanced.detailParallaxFactor(.4), .72);
     expect(AppVisualPerformanceTier.full.detailParallaxFactor(.4), .4);

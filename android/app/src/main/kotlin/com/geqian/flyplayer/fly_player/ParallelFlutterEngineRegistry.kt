@@ -8,7 +8,6 @@ import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.embedding.engine.FlutterEngineGroup
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugins.GeneratedPluginRegistrant
 
 object ParallelFlutterEngineRegistry {
     private const val DETAIL_ENGINE_ID = "parallel_detail_engine"
@@ -61,7 +60,6 @@ object ParallelFlutterEngineRegistry {
                     DartExecutor.DartEntrypoint.createDefault(),
                     initialRoute,
                 )
-            GeneratedPluginRegistrant.registerWith(engine)
             registerBootstrapSecretStoreChannel(appContext, engine)
             cache.put(engineId, engine)
             return engine

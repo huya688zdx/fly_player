@@ -28,11 +28,13 @@ class PosterBrowseRowArtworkWarmup {
     required PosterBrowseArtworkLoaded onLoaded,
     required bool Function() isActive,
     int? centerIndex,
+    int? limit,
     PosterBrowseArtworkLoadError? onError,
   }) async {
     final queue = prioritizePosterBrowseArtworkItems(
       items: items,
       centerIndex: centerIndex,
+      limit: limit,
     );
     if (queue.isEmpty || !isActive()) return;
 
