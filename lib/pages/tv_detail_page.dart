@@ -312,39 +312,28 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
   }
 
-  /// 中立(Emby)加载:取 `MediaDetail` + 季列表,设展示态。播放接线一律不取(占位)。
+  /// 中立详情先展示正文，季列表在首帧后补齐。
   Future<void> _loadNeutral() async {
     try {
       final backend = context.read<MediaBackendProvider>().backend;
       final detail = await backend.getItemDetail(widget.itemGuid);
-      // 季列表 best-effort:失败不阻断详情展示(空列表 → 空态)。
-      List<MediaSeasonSummary> seasons;
-      try {
-        seasons = await backend.getItemSeasons(widget.itemGuid);
-        seasons = List<MediaSeasonSummary>.of(seasons)
-          ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
-      } catch (_) {
-        seasons = const <MediaSeasonSummary>[];
-      }
       if (!mounted) return;
       await RouteTransitionGate.of(context);
       if (!mounted) return;
       setState(() {
         _neutralDisplayOnly = true;
         _neutralDetail = detail;
-        _neutralSeasons = seasons;
+        _neutralSeasons = const [];
         _liked = detail.favorite;
         _watched = detail.watched;
         _imdbId = detail.externalIds.imdbId;
         _trimId = detail.externalIds.tmdbId;
-        _seasonItemsResolved = true;
+        _seasonItemsResolved = false;
         _artworkReady = true;
         _loading = false;
       });
-      // 主播放键「续看/首集」目标 best-effort 解析（含季/集号供按键文案）：不阻断详情展示，
-      // 解析完更新按键标签（解析前先显示「播放」）。
-      unawaited(_resolveNeutralPlayTarget(backend));
-      // 描述沿用页面入场动画；季列表直接稳定显示，避免整块闪动。
+      unawaited(_loadNeutralSeasons(backend, detail));
+      // 描述沿用页面入场动画，不等待季列表。
       _descriptionVisible = true;
       _descriptionPopController.forward(from: 0);
     } catch (e) {
@@ -358,6 +347,28 @@ class _TvDetailPageState extends State<TvDetailPage>
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadNeutralSeasons(
+    MediaBackend backend,
+    MediaDetail detail,
+  ) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || _loading || _neutralDetail != detail) return;
+    List<MediaSeasonSummary> seasons;
+    try {
+      seasons = List<MediaSeasonSummary>.of(
+        await backend.getItemSeasons(widget.itemGuid),
+      )..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+    } catch (_) {
+      seasons = const [];
+    }
+    if (!mounted || _loading || _neutralDetail != detail) return;
+    setState(() {
+      _neutralSeasons = seasons;
+      _seasonItemsResolved = true;
+    });
+    unawaited(_resolveNeutralPlayTarget(backend));
   }
 
   void _applyBaseDetail(Map<String, dynamic> detail) {

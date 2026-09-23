@@ -62,10 +62,6 @@ import 'home/widgets/home_landscape_media_section.dart';
 import 'home/widgets/home_section_header.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
-import 'poster_browse/poster_browse_artwork_enricher.dart';
-import 'poster_browse/poster_browse_artwork_prewarmer.dart';
-import 'poster_browse/poster_browse_loader.dart';
-import 'poster_browse/poster_browse_session_key.dart';
 import 'search_screen.dart';
 import '../widgets/app_atmospheric_background.dart';
 import '../widgets/common/bird_loader.dart';
@@ -193,7 +189,6 @@ class _MediaListScreenState extends State<MediaListScreen>
   // 仅当用户从本页打开过条目(可能已播放)后,回前台才刷新一次「继续观看」。避免每次 resume
   // 都拉取(用户要求:考虑性能、不要实时刷新)。打开条目时置位,刷新后清零。
   bool _pendingContinueWatchingRefresh = false;
-  int _posterBrowsePrewarmGeneration = 0;
 
   /// 桌面搜索弹层的图标本体锚点：弹层搜索框右缘钉在该图标右缘向左衍生。
   final LayerLink _searchAnchorLink = LayerLink();
@@ -229,7 +224,6 @@ class _MediaListScreenState extends State<MediaListScreen>
   @override
   void dispose() {
     _invalidateHomeLoads();
-    _posterBrowsePrewarmGeneration += 1;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -260,7 +254,6 @@ class _MediaListScreenState extends State<MediaListScreen>
     if (!serverReady && !provider.isConfigured) {
       _invalidateHomeLoads();
       _lastLoadKey = '';
-      _posterBrowsePrewarmGeneration += 1;
       _homeData = const HomeViewData.empty();
       _homeDataLoadKey = '';
       _localeMap = <String, dynamic>{};
@@ -274,7 +267,6 @@ class _MediaListScreenState extends State<MediaListScreen>
         ? '${session.currentKind.name}|${connection?.serverUrl ?? ''}|${connection?.accessToken ?? ''}'
         : '${provider.baseUrl}|${provider.token}';
     if (loadKey != _lastLoadKey) {
-      _posterBrowsePrewarmGeneration += 1;
       _lastLoadKey = loadKey;
       if (_homeDataLoadKey != loadKey) {
         _homeData = const HomeViewData.empty();
@@ -437,13 +429,9 @@ class _MediaListScreenState extends State<MediaListScreen>
     FeiniuApi api,
     DetailArtworkResolver resolver, {
     bool forceRefresh = false,
-    ValueChanged<List<MediaItemCard>>? onCardsLoaded,
   }) async {
     if (backend.capabilities.kind == MediaBackendKind.feiniu) {
       final items = await api.getPlayList(forceRefresh: forceRefresh);
-      onCardsLoaded?.call(
-        items.map(cardFromLibraryItem).toList(growable: false),
-      );
       return (
         items: items,
         imageRequests: const <String, MediaImageRequest>{},
@@ -451,7 +439,6 @@ class _MediaListScreenState extends State<MediaListScreen>
       );
     }
     final cards = await backend.getContinueWatching(forceRefresh: forceRefresh);
-    onCardsLoaded?.call(cards);
     return _cardsToMediaItems(resolver, cards);
   }
 
@@ -481,7 +468,6 @@ class _MediaListScreenState extends State<MediaListScreen>
     FeiniuApi api,
     DetailArtworkResolver resolver, {
     bool forceRefresh = false,
-    ValueChanged<List<MediaItemCard>>? onCardsLoaded,
   }) async {
     try {
       return HomeSectionLoadResult<_MediaItemsWithImages>.success(
@@ -490,7 +476,6 @@ class _MediaListScreenState extends State<MediaListScreen>
           api,
           resolver,
           forceRefresh: forceRefresh,
-          onCardsLoaded: onCardsLoaded,
         ),
       );
     } catch (error, stackTrace) {
@@ -572,21 +557,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatchingSafely(
-          backend,
-          api,
-          resolver,
-          onCardsLoaded: (cards) {
-            if (!_isCurrentHomeLoad(loadGeneration)) return;
-            unawaited(
-              _prewarmPosterBrowseArtwork(
-                backend: backend,
-                nas: provider,
-                cards: cards,
-              ),
-            );
-          },
-        ),
+        _loadContinueWatchingSafely(backend, api, resolver),
         needsNextUp
             ? _loadOptionalCards(
                 'nextUp',
@@ -640,39 +611,26 @@ class _MediaListScreenState extends State<MediaListScreen>
       );
       const localeMap = <String, dynamic>{};
 
-      // Fetch all category items in parallel.
+      // 首屏先用当前会话已有的分类预览，网络补全不阻塞基础区块显示。
+      final previous = homeDataFallbackForLoadKey(
+        snapshot: _homeData,
+        snapshotLoadKey: _homeDataLoadKey,
+        requestLoadKey: loadKey,
+      );
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
       final itemImageRequests = <String, MediaImageRequest>{};
       final backdropImageRequests = <String, MediaImageRequest>{};
       final allItems = <MediaLibraryItem>[];
-      final categoryFutures = categories.map((category) async {
-        try {
-          final result = await _loadCategoryItems(
-            backend,
-            api,
-            resolver,
-            category.id,
-          );
-          return (category.id, result);
-        } catch (error) {
-          debugPrint('[UI][HOME] category load failed ${category.id}: $error');
-          return (
-            category.id,
-            (
-              items: <MediaLibraryItem>[],
-              imageRequests: <String, MediaImageRequest>{},
-              backdropImageRequests: <String, MediaImageRequest>{},
-            ),
-          );
+      for (final category in categories) {
+        final items = previous.catalogPreviewItems[category.id] ?? const [];
+        itemsByCategory[category.id] = items;
+        allItems.addAll(items);
+        for (final item in items) {
+          final image = previous.itemImageRequests[item.guid];
+          final backdrop = previous.backdropImageRequests[item.guid];
+          if (image != null) itemImageRequests[item.guid] = image;
+          if (backdrop != null) backdropImageRequests[item.guid] = backdrop;
         }
-      }).toList();
-      final categoryResults = await Future.wait(categoryFutures);
-      if (!_isCurrentHomeLoad(loadGeneration)) return;
-      for (final (catId, result) in categoryResults) {
-        itemsByCategory[catId] = result.items;
-        allItems.addAll(result.items);
-        itemImageRequests.addAll(result.imageRequests);
-        backdropImageRequests.addAll(result.backdropImageRequests);
       }
 
       final continueSection = playListLoad.isSuccess
@@ -703,11 +661,7 @@ class _MediaListScreenState extends State<MediaListScreen>
             )
           : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
       final homeData = mergeHomeOptionalSections(
-        current: homeDataFallbackForLoadKey(
-          snapshot: _homeData,
-          snapshotLoadKey: _homeDataLoadKey,
-          requestLoadKey: loadKey,
-        ),
+        current: previous,
         refreshedBase: HomeViewData(
           catalogs: categories,
           catalogPreviewItems: itemsByCategory,
@@ -731,26 +685,16 @@ class _MediaListScreenState extends State<MediaListScreen>
         _error = null;
       });
 
-      if (playListLoad.isSuccess &&
-          playList.isEmpty &&
-          homeData.continueWatching.isNotEmpty) {
-        if (!_isCurrentHomeLoad(loadGeneration)) return;
-        unawaited(
-          _prewarmPosterBrowseArtwork(
-            backend: backend,
-            nas: provider,
-            cards: homeData.continueWatching
-                .map(cardFromLibraryItem)
-                .toList(growable: false),
-          ),
-        );
-      }
-
-      // Persist to cache锛堜粎椋炵墰锛欻omeDataCache 鏄鐗涙€佺紦瀛橈紝Emby 鏁版嵁涓嶅啓鍏ラ伩鍏嶈法鍚庣涓插唴瀹癸級銆?
-      if (backend.capabilities.kind == MediaBackendKind.feiniu) {
-        if (!_isCurrentHomeLoad(loadGeneration)) return;
-        _scheduleHomeCacheSave(loadGeneration, homeData);
-      }
+      unawaited(
+        _refreshCategoryPreviews(
+          backend: backend,
+          api: api,
+          resolver: resolver,
+          categories: categories,
+          loadGeneration: loadGeneration,
+          useContinueFallback: playListLoad.isSuccess && playList.isEmpty,
+        ),
+      );
     } catch (error) {
       debugPrint('[UI][HOME] load failed $error');
       if (!_isCurrentHomeLoad(loadGeneration)) return;
@@ -802,22 +746,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatchingSafely(
-          backend,
-          api,
-          resolver,
-          forceRefresh: true,
-          onCardsLoaded: (cards) {
-            if (!_isCurrentHomeLoad(loadGeneration)) return;
-            unawaited(
-              _prewarmPosterBrowseArtwork(
-                backend: backend,
-                nas: provider,
-                cards: cards,
-              ),
-            );
-          },
-        ),
+        _loadContinueWatchingSafely(backend, api, resolver, forceRefresh: true),
         needsNextUp
             ? _loadOptionalCards(
                 'nextUp',
@@ -870,38 +799,26 @@ class _MediaListScreenState extends State<MediaListScreen>
         latestLoad.valueOr(const <MediaItemCard>[]),
       );
 
-      // Fetch all category items in parallel.
+      // 先保留当前会话已有预览，新的分类数据随后逐项回填。
+      final previous = homeDataFallbackForLoadKey(
+        snapshot: _homeData,
+        snapshotLoadKey: _homeDataLoadKey,
+        requestLoadKey: loadKey,
+      );
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
       final itemImageRequests = <String, MediaImageRequest>{};
       final backdropImageRequests = <String, MediaImageRequest>{};
       final allItems = <MediaLibraryItem>[];
-      final categoryFutures = categories.map((category) async {
-        try {
-          final result = await _loadCategoryItems(
-            backend,
-            api,
-            resolver,
-            category.id,
-          );
-          return (category.id, result);
-        } catch (_) {
-          return (
-            category.id,
-            (
-              items: <MediaLibraryItem>[],
-              imageRequests: <String, MediaImageRequest>{},
-              backdropImageRequests: <String, MediaImageRequest>{},
-            ),
-          );
+      for (final category in categories) {
+        final items = previous.catalogPreviewItems[category.id] ?? const [];
+        itemsByCategory[category.id] = items;
+        allItems.addAll(items);
+        for (final item in items) {
+          final image = previous.itemImageRequests[item.guid];
+          final backdrop = previous.backdropImageRequests[item.guid];
+          if (image != null) itemImageRequests[item.guid] = image;
+          if (backdrop != null) backdropImageRequests[item.guid] = backdrop;
         }
-      }).toList();
-      final categoryResults = await Future.wait(categoryFutures);
-      if (!_isCurrentHomeLoad(loadGeneration)) return;
-      for (final (catId, result) in categoryResults) {
-        itemsByCategory[catId] = result.items;
-        allItems.addAll(result.items);
-        itemImageRequests.addAll(result.imageRequests);
-        backdropImageRequests.addAll(result.backdropImageRequests);
       }
 
       final continueSection = playListLoad.isSuccess
@@ -932,11 +849,7 @@ class _MediaListScreenState extends State<MediaListScreen>
             )
           : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
       final homeData = mergeHomeOptionalSections(
-        current: homeDataFallbackForLoadKey(
-          snapshot: _homeData,
-          snapshotLoadKey: _homeDataLoadKey,
-          requestLoadKey: loadKey,
-        ),
+        current: previous,
         refreshedBase: HomeViewData(
           catalogs: categories,
           catalogPreviewItems: itemsByCategory,
@@ -957,24 +870,16 @@ class _MediaListScreenState extends State<MediaListScreen>
         _loadingFromCache = false;
       });
 
-      if (playListLoad.isSuccess &&
-          playList.isEmpty &&
-          homeData.continueWatching.isNotEmpty) {
-        if (!_isCurrentHomeLoad(loadGeneration)) return;
-        unawaited(
-          _prewarmPosterBrowseArtwork(
-            backend: backend,
-            nas: provider,
-            cards: homeData.continueWatching
-                .map(cardFromLibraryItem)
-                .toList(growable: false),
-          ),
-        );
-      }
-
-      // Always update cache with fresh data.
-      if (!_isCurrentHomeLoad(loadGeneration)) return;
-      _scheduleHomeCacheSave(loadGeneration, homeData);
+      unawaited(
+        _refreshCategoryPreviews(
+          backend: backend,
+          api: api,
+          resolver: resolver,
+          categories: categories,
+          loadGeneration: loadGeneration,
+          useContinueFallback: playListLoad.isSuccess && playList.isEmpty,
+        ),
+      );
     } catch (error) {
       debugPrint('[UI][HOME] background refresh failed: $error');
       if (!_isCurrentHomeLoad(loadGeneration)) return;
@@ -1009,16 +914,6 @@ class _MediaListScreenState extends State<MediaListScreen>
         api,
         resolver,
         forceRefresh: true,
-        onCardsLoaded: (cards) {
-          if (!mounted || refreshLoadKey != _lastLoadKey) return;
-          unawaited(
-            _prewarmPosterBrowseArtwork(
-              backend: backend,
-              nas: provider,
-              cards: cards,
-            ),
-          );
-        },
       );
       if (!mounted || refreshLoadKey != _lastLoadKey) return;
       // 与 _fetchHomeData 一致:经 _resolveContinueWatching 统一(飞牛空时回退分类挑选,
@@ -1064,63 +959,66 @@ class _MediaListScreenState extends State<MediaListScreen>
           backdropImageRequests: backdropImageRequests,
         );
       });
-      if (playListResult.items.isEmpty && continueWatching.isNotEmpty) {
-        unawaited(
-          _prewarmPosterBrowseArtwork(
-            backend: backend,
-            nas: provider,
-            cards: continueWatching
-                .map(cardFromLibraryItem)
-                .toList(growable: false),
-          ),
-        );
-      }
     } catch (error) {
       debugPrint('[UI][HOME] continue watching refresh failed $error');
     }
   }
 
-  Future<void> _prewarmPosterBrowseArtwork({
+  Future<void> _refreshCategoryPreviews({
     required MediaBackend backend,
-    required NasProvider nas,
-    required List<MediaItemCard> cards,
+    required FeiniuApi api,
+    required DetailArtworkResolver resolver,
+    required List<MediaItem> categories,
+    required int loadGeneration,
+    required bool useContinueFallback,
   }) async {
-    if (cards.isEmpty || !mounted) return;
-    final size = MediaQuery.sizeOf(context);
-    final visibleCount = PosterBrowseInitialArtworkPolicy.visibleCountFor(
-      width: size.width,
-      height: size.height,
-    );
-    final centerIndex = PosterBrowseInitialArtworkPolicy.centerIndexFor(
-      width: size.width,
-      height: size.height,
-    );
-    final backendSession = context.read<BackendSessionProvider>();
-    final connection = backendSession.currentConnection;
-    final sessionKey = buildPosterBrowseBackendSessionKey(
-      backendKind: backend.capabilities.kind,
-      nasBaseUrl: nas.baseUrl,
-      nasToken: nas.token,
-      serverBaseUrl: connection?.serverUrl ?? '',
-      serverToken: connection?.accessToken ?? '',
-    );
-    final generation = _posterBrowsePrewarmGeneration + 1;
-    _posterBrowsePrewarmGeneration = generation;
-    final enricher = PosterBrowseArtworkEnricher(
-      backend: backend,
-      sessionKey: sessionKey,
-      maxEntries: 4,
-    );
-
-    await PosterBrowseArtworkPrewarmCache.shared.warmFirst(
-      sessionKey: sessionKey,
-      items: cards,
-      centerIndex: centerIndex,
-      limit: visibleCount,
-      maxConcurrent: 1,
-      load: enricher.enrich,
-      isActive: () => mounted && generation == _posterBrowsePrewarmGeneration,
-    );
+    var expectedContinueWatching = _continueWatching;
+    final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
+    // 先让基础区块出帧，再串行请求每个分类，避免所有片库一起抢占网络。
+    await WidgetsBinding.instance.endOfFrame;
+    for (final category in categories) {
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
+      _MediaItemsWithImages result;
+      try {
+        result = await _loadCategoryItems(backend, api, resolver, category.id);
+      } catch (error) {
+        debugPrint('[UI][HOME] category load failed ${category.id}: $error');
+        result = _emptyMediaItemsWithImages;
+      }
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
+      final itemsByCategory = <String, List<MediaLibraryItem>>{
+        ..._itemsByCategory,
+        category.id: result.items,
+      };
+      final canUpdateContinueFallback =
+          useContinueFallback &&
+          isFeiniu &&
+          HomeDataSnapshot.itemsEqual(
+            _continueWatching,
+            expectedContinueWatching,
+          );
+      setState(() {
+        _homeData = _homeData.copyWith(
+          catalogPreviewItems: itemsByCategory,
+          itemImageRequests: {..._itemImageRequests, ...result.imageRequests},
+          backdropImageRequests: {
+            ..._backdropImageRequests,
+            ...result.backdropImageRequests,
+          },
+          continueWatching: canUpdateContinueFallback
+              ? _pickContinueWatching(
+                  itemsByCategory.values.expand((items) => items).toList(),
+                )
+              : _continueWatching,
+        );
+      });
+      if (canUpdateContinueFallback) {
+        expectedContinueWatching = _continueWatching;
+      }
+    }
+    if (_isCurrentHomeLoad(loadGeneration) && isFeiniu) {
+      _scheduleHomeCacheSave(loadGeneration, _homeData);
+    }
   }
 
   void _showHomeSnackBar(String message, {Color? backgroundColor}) {

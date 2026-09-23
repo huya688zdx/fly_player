@@ -29,10 +29,18 @@ void main() {
     }
   });
 
-  test('仅保存候选来源时不应擅自切换当前弹幕', () async {
+  test('并发读取互不影响，候选写入后可立即读取且不擅自激活', () async {
     await store.saveSource(_source('10001'));
-
     expect(await store.loadActiveSourceKey('media-1'), isNull);
+    final sources = await Future.wait([
+      store.loadAll(),
+      DanmakuSavedSourceStore(directoryPath: tempDirectory.path).loadAll(),
+    ]);
+    expect(sources.first.single.sourceKey, 'dandan:10001');
+    sources.first[0] = _source('changed');
+    expect(sources.last.single.sourceKey, 'dandan:10001');
+    await store.saveSource(_source('10002'));
+    expect(await store.loadAll(), hasLength(2));
   });
 
   test('明确激活来源时应持久化统一后的来源键', () async {

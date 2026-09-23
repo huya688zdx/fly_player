@@ -450,7 +450,17 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         }
                     }
                     "getScreenshotCustomDirectory" -> {
-                        result.success(screenshotDirectoryAccessController.currentDirectorySummary())
+                        thread(name = "fly-screenshot-directory-summary") {
+                            val summary = runCatching {
+                                screenshotDirectoryAccessController.currentDirectorySummary()
+                            }
+                            runOnUiThread {
+                                summary.fold(
+                                    onSuccess = { result.success(it) },
+                                    onFailure = { result.error("screenshot_directory", it.message, null) },
+                                )
+                            }
+                        }
                     }
                     "requestScreenshotCustomDirectory" -> {
                         requestScreenshotCustomDirectory(result)
@@ -504,7 +514,18 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         )
                     }
                     "getStorageOverview" -> {
-                        result.success(storageManagementController.loadOverview(hasFileAccess()))
+                        val includePublic = hasFileAccess()
+                        thread(name = "fly-storage-overview") {
+                            val overview = runCatching {
+                                storageManagementController.loadOverview(includePublic)
+                            }
+                            runOnUiThread {
+                                overview.fold(
+                                    onSuccess = { result.success(it) },
+                                    onFailure = { result.error("storage_overview", it.message, null) },
+                                )
+                            }
+                        }
                     }
                     "clearStorageAction" -> {
                         val action = call.argument<String>("action").orEmpty()

@@ -9,7 +9,10 @@ internal class ScreenshotLibraryController(
     private val customDirectoryController: ScreenshotDirectoryAccessController =
         ScreenshotDirectoryAccessController(context),
 ) {
-    fun listLibrary(hasFileAccess: Boolean): List<Map<String, Any?>> {
+    fun listLibrary(
+        hasFileAccess: Boolean,
+        includeFormat: Boolean = true,
+    ): List<Map<String, Any?>> {
         val items = mutableListOf<Map<String, Any?>>()
         fileSources(includePublic = hasFileAccess).forEach { source ->
             source.root
@@ -17,15 +20,16 @@ internal class ScreenshotLibraryController(
                 ?.walkTopDown()
                 ?.filter { it.isFile && isImageFile(it.name) }
                 ?.forEach { file ->
-                    val format = ScreenshotImageFormatInspector.inspectFile(file)
+                    val format =
+                        if (includeFormat) ScreenshotImageFormatInspector.inspectFile(file) else null
                     items +=
                         mapOf(
                             "id" to "file:${file.absolutePath}",
                             "name" to file.name,
                             "sourceKind" to source.kind,
                             "locationLabel" to source.locationLabel,
-                            "formatKind" to format.formatKind,
-                            "isHdr" to format.isHdr,
+                            "formatKind" to (format?.formatKind ?: ""),
+                            "isHdr" to (format?.isHdr ?: false),
                             "sizeBytes" to file.length().coerceAtLeast(0L),
                             "modifiedAtMs" to file.lastModified().coerceAtLeast(0L),
                             "isScoped" to false,
@@ -33,7 +37,7 @@ internal class ScreenshotLibraryController(
                         )
                 }
         }
-        items += customDirectoryController.listImageEntries()
+        items += customDirectoryController.listImageEntries(includeFormat = includeFormat)
         items.sortWith(
             compareByDescending<Map<String, Any?>> {
                 (it["modifiedAtMs"] as? Number)?.toLong() ?: 0L

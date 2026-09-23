@@ -399,6 +399,31 @@ void main() {
     expect(emptySeasonsBackend.seasonCalls['series-2'], 1);
   });
 
+  test('焦点失效后不继续请求父级素材，也不缓存取消结果', () async {
+    final pending = Completer<MediaDetail>();
+    final backend = _FakeMediaBackend(
+      detailCompleters: {'episode-1': pending},
+      details: {'series-1': detail('series-1', type: 'TV')},
+    );
+    final enricher = PosterBrowseArtworkEnricher(
+      backend: backend,
+      sessionKey: 'session-a',
+    );
+    var active = true;
+    final target = card(id: 'episode-1', seriesId: 'series-1');
+    final loading = enricher.enrich(target, isActive: () => active);
+    active = false;
+    pending.complete(detail('episode-1', type: 'Episode'));
+    await loading;
+
+    expect(backend.detailCalls['series-1'], isNull);
+    expect(backend.seasonCalls, isEmpty);
+    expect(enricher.cacheLength, 0);
+    await enricher.enrich(target);
+    expect(backend.detailCalls['series-1'], 1);
+    expect(backend.seasonCalls['series-1'], 1);
+  });
+
   test('不同 session 实例不共享缓存', () async {
     final backend = _FakeMediaBackend(
       details: <String, MediaDetail>{'a': detail('a')},

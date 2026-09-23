@@ -18,7 +18,6 @@ class PlayStatsMetadataBackfillService {
   final VideoStatsRepository _videoStatsRepository;
   final VideoCreditStatsRepository _videoCreditStatsRepository;
 
-  final Set<String> _preferredVideoIds = <String>{};
   Future<void>? _activeRun;
 
   Future<void> drainPendingWrites() async {
@@ -34,7 +33,7 @@ class PlayStatsMetadataBackfillService {
        _videoStatsRepository = videoStatsRepository,
        _videoCreditStatsRepository = videoCreditStatsRepository;
 
-  /// 立即执行一次元数据回填任务。
+  /// 立即回填最多 [limit] 个视频；[isActive] 失效后停止后续网络请求。
   ///
   /// 只提供"立即执行"一种入口：网关由调用方按当前连接态现取现传，延迟调度会让
   /// 定时器攥着一个可能已随登出失效的网关，等回调触发时既绕过了调用方的连接态
@@ -43,18 +42,27 @@ class PlayStatsMetadataBackfillService {
     required PlayStatsBackfillGateway gateway,
     Iterable<String> preferredVideoIds = const <String>[],
     int limit = 8,
+    bool Function()? isActive,
   }) {
+    if (limit <= 0 || isActive?.call() == false) return Future<void>.value();
+    final active = _activeRun;
+    final candidateIds = <String>{};
     for (final videoId in preferredVideoIds) {
       final normalized = videoId.trim();
-      if (normalized.isNotEmpty) {
-        _preferredVideoIds.add(normalized);
-      }
+      if (normalized.isNotEmpty) candidateIds.add(normalized);
+      if (candidateIds.length >= limit) break;
     }
-    final active = _activeRun;
-    if (active != null) {
-      return active;
-    }
-    final future = _run(gateway: gateway, limit: limit);
+    Future<void> run() => _run(
+      gateway: gateway,
+      candidateIds: candidateIds,
+      limit: limit,
+      isActive: isActive,
+    );
+    final future = active == null
+        ? run()
+        : active.then(
+            (_) => isActive?.call() == false ? Future<void>.value() : run(),
+          );
     late final Future<void> tracked;
     tracked = future.whenComplete(() {
       if (identical(_activeRun, tracked)) {
@@ -67,47 +75,30 @@ class PlayStatsMetadataBackfillService {
 
   Future<void> _run({
     required PlayStatsBackfillGateway gateway,
+    required Set<String> candidateIds,
     required int limit,
+    bool Function()? isActive,
   }) async {
-    final processed = <String>{};
     // 本轮是否真的改写过 video_stats/play_history，决定收尾要不要重建聚合表。
     var aggregatesDirty = false;
     try {
-      while (true) {
-        final candidateIds = <String>[];
-        while (_preferredVideoIds.isNotEmpty && candidateIds.length < limit) {
-          final videoId = _preferredVideoIds.first;
-          _preferredVideoIds.remove(videoId);
-          if (videoId.isEmpty || processed.contains(videoId)) {
-            continue;
-          }
-          candidateIds.add(videoId);
-          processed.add(videoId);
+      // limit 是本次总预算；不足时只补一次本地候选，不连续扫描整库。
+      if (candidateIds.length < limit) {
+        final more = await _videoStatsRepository
+            .listMetadataBackfillCandidateIds(limit: limit);
+        for (final videoId in more) {
+          if (candidateIds.length >= limit) break;
+          if (videoId.isNotEmpty) candidateIds.add(videoId);
         }
-        if (candidateIds.length < limit) {
-          final more = await _videoStatsRepository
-              .listMetadataBackfillCandidateIds(limit: limit);
-          for (final videoId in more) {
-            if (candidateIds.length >= limit) {
-              break;
-            }
-            if (videoId.isEmpty || processed.contains(videoId)) {
-              continue;
-            }
-            candidateIds.add(videoId);
-            processed.add(videoId);
-          }
-        }
-        if (candidateIds.isEmpty) {
-          return;
-        }
-        for (final videoId in candidateIds) {
-          final mutated = await _backfillSingleVideo(
-            gateway: gateway,
-            videoId: videoId,
-          );
-          aggregatesDirty = aggregatesDirty || mutated;
-        }
+      }
+      for (final videoId in candidateIds) {
+        if (isActive?.call() == false) return;
+        final mutated = await _backfillSingleVideo(
+          gateway: gateway,
+          videoId: videoId,
+          isActive: isActive,
+        );
+        aggregatesDirty = aggregatesDirty || mutated;
       }
     } finally {
       // 聚合表是"全表删除后按 video_stats/play_history 重建"，逐视频重建纯属重复劳动；
@@ -122,6 +113,7 @@ class PlayStatsMetadataBackfillService {
   Future<bool> _backfillSingleVideo({
     required PlayStatsBackfillGateway gateway,
     required String videoId,
+    bool Function()? isActive,
   }) async {
     final normalizedVideoId = videoId.trim();
     if (normalizedVideoId.isEmpty) {
@@ -130,7 +122,7 @@ class PlayStatsMetadataBackfillService {
     final existing = await _videoStatsRepository.getByVideoId(
       normalizedVideoId,
     );
-    if (existing == null) {
+    if (existing == null || isActive?.call() == false) {
       return false;
     }
 
@@ -140,6 +132,7 @@ class PlayStatsMetadataBackfillService {
     } catch (_) {
       return false;
     }
+    if (isActive?.call() == false) return false;
     final isMovie = _isMovieType(_stringValue(itemDetail['type']));
     final ancestorGuid = _stringValue(itemDetail['ancestor_guid']);
     final seasonGuid = _firstNonEmpty(
@@ -152,6 +145,7 @@ class PlayStatsMetadataBackfillService {
         seasonDetail = await gateway.fetchItemDetail(seasonGuid);
       } catch (_) {}
     }
+    if (isActive?.call() == false) return false;
 
     Map<String, dynamic>? animeDetail;
     final currentAnimeId = existing.animeId.trim();
@@ -181,6 +175,7 @@ class PlayStatsMetadataBackfillService {
         animeDetail = await gateway.fetchItemDetail(realAnimeGuid);
       } catch (_) {}
     }
+    if (isActive?.call() == false) return false;
     if (existing.metadataEnriched &&
         !_needsIdentityRepair(
           existing: existing,
@@ -211,7 +206,9 @@ class PlayStatsMetadataBackfillService {
       videoId: normalizedVideoId,
       seasonId: seasonGuid,
       allowSeasonFallback: !isMovie,
+      isActive: isActive,
     );
+    if (isActive?.call() == false) return false;
     final creditsResolved = creditsResult.resolved;
     final credits = creditsResult.credits;
 
@@ -477,6 +474,7 @@ GROUP BY anime_id
     required String videoId,
     required String seasonId,
     required bool allowSeasonFallback,
+    bool Function()? isActive,
   }) async {
     final normalizedVideoId = videoId.trim();
     final normalizedSeasonId = seasonId.trim();
@@ -491,6 +489,7 @@ GROUP BY anime_id
     } catch (_) {}
 
     if (allowSeasonFallback &&
+        isActive?.call() != false &&
         normalizedSeasonId.isNotEmpty &&
         normalizedSeasonId != normalizedVideoId) {
       try {

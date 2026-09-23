@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +51,14 @@ class _ThrowingStorageAccessHost implements StorageAccessHost {
   ) async => _unavailable();
 }
 
+class _DelayedDirectoryHost extends DesktopStorageAccessHost {
+  final directory = Completer<Map<Object?, Object?>?>();
+
+  @override
+  Future<Map<Object?, Object?>?> getScreenshotCustomDirectory() =>
+      directory.future;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -94,8 +104,9 @@ void main() {
     expect(find.byType(ListView), findsOneWidget);
   });
 
-  testWidgets('桌面宿主下截图设置页正常加载并渲染四项入口', (WidgetTester tester) async {
-    StorageAccessService.setHostForTesting(const DesktopStorageAccessHost());
+  testWidgets('截图目录摘要未返回时先显示四项设置入口，返回后补摘要', (WidgetTester tester) async {
+    final host = _DelayedDirectoryHost();
+    StorageAccessService.setHostForTesting(host);
     addTearDown(() => StorageAccessService.setHostForTesting(null));
 
     await pumpScreen(tester, const ScreenshotSettingsScreen());
@@ -113,5 +124,13 @@ void main() {
       find.text(l10n.settingsScreenshotCustomDirectoryTitle),
       findsOneWidget,
     );
+    host.directory.complete(<Object?, Object?>{
+      'id': 'screenshots',
+      'name': '截图目录',
+      'locationLabel': '截图目录',
+      'available': true,
+    });
+    await tester.pump();
+    expect(find.text('截图目录'), findsOneWidget);
   });
 }

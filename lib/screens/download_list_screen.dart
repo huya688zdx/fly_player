@@ -126,12 +126,6 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     if (DesktopEnvironment.isDesktopPlatform) {
       unawaited(_loadDownloadDirectory());
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final provider = context.read<NasProvider>();
-      if (widget.offline || !provider.isConfigured) return;
-      _service.refreshDownloadedGroupMetadata(provider);
-    });
   }
 
   @override

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,11 +26,12 @@ void main() {
     await PlayStatsService.instance.database.bindOwnerScope('');
   });
 
-  testWidgets('外部设置切换弹幕来源优先顺序后立即保存', (tester) async {
+  testWidgets('弹幕设置不等待来源统计，来源优先顺序仍可立即保存', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await _flyBinding();
     DanmakuSettings? saved;
+    final sources = Completer<List<DanmakuSavedSource>>();
     await tester.pumpWidget(
       MaterialApp(
         locale: const Locale('zh', 'CN'),
@@ -39,12 +42,15 @@ void main() {
             saved = value;
           },
           settingsLoader: () async => DanmakuSettings.defaults,
-          savedSourceLoader: () async => const <DanmakuSavedSource>[],
+          savedSourceLoader: () => sources.future,
         ),
       ),
     );
     await tester.pumpAndSettle();
     expect(find.text('弹幕来源优先顺序'), findsOneWidget);
+    expect(sources.isCompleted, isFalse);
+    sources.complete(const <DanmakuSavedSource>[]);
+    await tester.pumpAndSettle();
     final dandan = find.text(DanmakuSourceStrategy.original.label);
     await tester.ensureVisible(dandan);
     await tester.pumpAndSettle();

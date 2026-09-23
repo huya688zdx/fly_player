@@ -42,7 +42,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   final DanmakuSavedSourceStore _savedSourceStore =
       const DanmakuSavedSourceStore();
   DanmakuSettings _settings = DanmakuSettings.defaults;
-  int _savedSourceCount = 0;
+  int? _savedSourceCount;
+  int _savedSourceLoadVersion = 0;
   bool _loading = true;
 
   @override
@@ -63,7 +64,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   }
 
   void _handleSavedSourceChanged() {
-    _load();
+    if (!_loading) unawaited(_loadSavedSourceCount());
   }
 
   void _handleAccountChanged() {
@@ -71,16 +72,24 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   }
 
   Future<void> _load() async {
-    final results = await Future.wait<Object>(<Future<Object>>[
-      (widget.settingsLoader ?? _store.load)(),
-      (widget.savedSourceLoader ?? _savedSourceStore.loadAll)(),
-    ]);
+    final settings = await (widget.settingsLoader ?? _store.load)();
     if (!mounted) return;
     setState(() {
-      _settings = results[0] as DanmakuSettings;
-      _savedSourceCount = (results[1] as List<DanmakuSavedSource>).length;
+      _settings = settings;
       _loading = false;
     });
+    // 数量只用于管理入口，先展示设置正文，不等待整库读取与排序。
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    unawaited(_loadSavedSourceCount());
+  }
+
+  Future<void> _loadSavedSourceCount() async {
+    final version = ++_savedSourceLoadVersion;
+    final sources =
+        await (widget.savedSourceLoader ?? _savedSourceStore.loadAll)();
+    if (!mounted || version != _savedSourceLoadVersion) return;
+    setState(() => _savedSourceCount = sources.length);
   }
 
   Future<void> _save(DanmakuSettings next) async {
@@ -150,13 +159,14 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
     );
     // 不在 pop 返回时重新 _load()：push 返回的 Future 在 pop 动画第一帧前就
     // resolve，整库反序列化+整页 setState 会砸进 380ms 退场转场；管理页内的
-    // 任何增删已通过 _savedSourceStore.changes 监听触发过 _load，无需兜底。
+    // 来源增删已通过 changes 单独刷新数量，无需重读设置。
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
+    final savedSourceCount = _savedSourceCount;
     final account = context.watch<FlyAccountController?>();
     final flyAccountSignedIn =
         account?.legacyMode != true &&
@@ -190,9 +200,11 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                     _DanmakuCard(
                       child: _DanmakuMenuTile(
                         title: l10n.danmakuManagementTitle,
-                        subtitle: _savedSourceCount <= 0
+                        subtitle: savedSourceCount == null
+                            ? l10n.commonLoading
+                            : savedSourceCount <= 0
                             ? l10n.danmakuNoSavedSources
-                            : l10n.danmakuSavedSourceCount(_savedSourceCount),
+                            : l10n.danmakuSavedSourceCount(savedSourceCount),
                         onTap: _openDanmakuManager,
                       ),
                     ),

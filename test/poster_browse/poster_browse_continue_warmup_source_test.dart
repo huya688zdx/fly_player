@@ -3,17 +3,18 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('继续观看整行在首屏后台限并发补全并逐项刷新卡片', () {
+  test('继续观看只在首帧之后补全当前焦点，不再预取整行', () {
     final source = File(
       'lib/screens/poster_browse/poster_browse_screen.dart',
     ).readAsStringSync();
 
-    expect(source, contains("import 'poster_browse_row_artwork_warmup.dart';"));
-    expect(source, contains('Future<void> _warmContinueWatchingRow('));
-    expect(source, contains('PosterBrowseRowArtworkWarmup('));
+    expect(source, isNot(contains('_warmContinueWatchingRow(')));
+    expect(source, isNot(contains('_precacheNeighbors(')));
+    expect(source, contains('await WidgetsBinding.instance.endOfFrame;'));
+    expect(source, contains('if (_enrichmentRunning) return;'));
     expect(
       source,
-      contains('setState(() => _displayById[card.id] = display);'),
+      contains('setState(() => _displayById[card.id] = enrichedDisplay);'),
     );
   });
 }
