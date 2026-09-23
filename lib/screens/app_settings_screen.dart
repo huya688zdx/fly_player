@@ -78,14 +78,6 @@ class AppSettingsScreen extends StatelessWidget {
     BuildContext context,
     String routeName,
   ) async {
-    // Account changes must stay in this engine so media and statistics share
-    // the same live FlyAccountController after a binding switch.
-    if (!DesktopEnvironment.isDesktopPlatform &&
-        (routeName == SettingsDestinationRoutes.flyAccount ||
-            routeName == SettingsDestinationRoutes.flyData)) {
-      unawaited(Navigator.of(context).pushNamed(routeName));
-      return;
-    }
     if (DesktopEnvironment.isDesktopPlatform) {
       // 桌面端：设置区内双栏（网格 | 子页列），条目在右侧子页列打开，
       // 分组网格与左侧应用侧栏均保持可见。
@@ -311,17 +303,6 @@ class AppSettingsScreen extends StatelessWidget {
         keywords: _keywords(l10n.settingsOtherKeywords),
         onSelect: () =>
             _openSettingsDestination(context, SettingsDestinationRoutes.other),
-      ),
-      SettingsSearchEntry(
-        id: 'fly_data_service',
-        title: '账号与媒体来源',
-        subtitle: '飞翔账号、飞牛与 Emby 连接',
-        location: l10n.settingsLocationRoot,
-        keywords: const ['NAS', '账号', '绑定', '飞牛', 'Emby', 'VPN'],
-        onSelect: () => _openSettingsDestination(
-          context,
-          SettingsDestinationRoutes.flyAccount,
-        ),
       ),
       SettingsSearchEntry(
         id: 'app_log',
@@ -696,15 +677,6 @@ class AppSettingsScreen extends StatelessWidget {
             onTap: () => _openSettingsDestination(
               context,
               SettingsDestinationRoutes.playStats,
-            ),
-          ),
-          _DesktopRowData(
-            icon: Icons.cloud_sync_outlined,
-            title: '账号与媒体来源',
-            subtitle: '飞翔账号、飞牛与 Emby 连接',
-            onTap: () => _openSettingsDestination(
-              context,
-              SettingsDestinationRoutes.flyAccount,
             ),
           ),
         ],

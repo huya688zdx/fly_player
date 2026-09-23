@@ -11,9 +11,9 @@ import '../../playback/playback_file_uri.dart';
 import '../../playback/playback_source.dart';
 import '../../playback/settings/mpv_settings_l10n.dart';
 import '../../playback/settings/mpv_settings_store.dart';
-import '../../services/fly_data/fly_oped.dart';
 import 'desktop_semantics_safe_slider.dart';
 import 'desktop_playback_chapters.dart';
+import 'desktop_danmaku_segmenter.dart';
 
 export 'desktop_playback_chapters.dart' show DesktopPlayerChapter;
 
@@ -550,15 +550,17 @@ class _DesktopDanmakuSettingsPanelState
                         _update(_settings.copyWith(avoidSubtitleArea: value)),
                   ),
                   const SizedBox(height: 10),
-                  _SettingsSwitchTile(
-                    title: Platform.isWindows ? '主体穿透遮挡' : '避让画面中心',
-                    subtitle: Platform.isWindows
-                        ? '用本地 AI 蒙版扣除人物区域内的弹幕'
-                        : '优先把弹幕限制在画面上部',
-                    value: _settings.avoidCenterArea,
-                    onChanged: (value) =>
-                        _update(_settings.copyWith(avoidCenterArea: value)),
-                  ),
+                  if (!Platform.isWindows ||
+                      DesktopDanmakuSegmenter.isSupported)
+                    _SettingsSwitchTile(
+                      title: Platform.isWindows ? '主体穿透遮挡' : '避让画面中心',
+                      subtitle: Platform.isWindows
+                          ? '用本地 AI 蒙版扣除人物区域内的弹幕'
+                          : '优先把弹幕限制在画面上部',
+                      value: _settings.avoidCenterArea,
+                      onChanged: (value) =>
+                          _update(_settings.copyWith(avoidCenterArea: value)),
+                    ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
                     title: '不透明度',
@@ -682,14 +684,8 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
     required this.loading,
     required this.initialKeyword,
     this.currentTmdbId = '',
-    this.flyAccountSignedIn = false,
-    this.serviceSourceIdentity,
-    this.serviceStatus = '',
-    this.onRefreshServiceSource,
     required this.onLoadSavedSources,
     required this.onSearch,
-    this.onSearchFly,
-    this.onExpandSearchResult,
     required this.onSelectSavedSource,
     required this.onSelectSearchResult,
     required this.onDeleteSavedSource,
@@ -703,19 +699,8 @@ class DesktopDanmakuSourcePanel extends StatefulWidget {
   final bool loading;
   final String initialKeyword;
   final String currentTmdbId;
-  final bool flyAccountSignedIn;
-  final Object? serviceSourceIdentity;
-  final String serviceStatus;
-  final Future<bool> Function({void Function(String)? onStatus})?
-  onRefreshServiceSource;
   final Future<List<Map<String, dynamic>>> Function() onLoadSavedSources;
   final Future<List<Map<String, dynamic>>> Function(String keyword) onSearch;
-  final Future<List<Map<String, dynamic>>> Function(String keyword)?
-  onSearchFly;
-  final Future<List<Map<String, dynamic>>> Function(
-    Map<String, dynamic> result,
-  )?
-  onExpandSearchResult;
   final Future<bool> Function(Map<String, dynamic> source) onSelectSavedSource;
   final Future<bool> Function(Map<String, dynamic> result) onSelectSearchResult;
   final Future<void> Function(Map<String, dynamic> source) onDeleteSavedSource;
@@ -734,75 +719,14 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
   );
   List<Map<String, dynamic>> _savedSources = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _searchResults = const <Map<String, dynamic>>[];
-  List<Map<String, dynamic>>? _parentResults;
   bool _loadingSources = true;
   bool _searching = false;
   bool _applying = false;
-  bool _refreshingService = false;
-  int _serviceRefreshGeneration = 0;
-  String _serviceStatus = '';
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadSavedSources());
-  }
-
-  @override
-  void didUpdateWidget(covariant DesktopDanmakuSourcePanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.flyAccountSignedIn != widget.flyAccountSignedIn ||
-        oldWidget.serviceSourceIdentity != widget.serviceSourceIdentity) {
-      _serviceRefreshGeneration++;
-      _refreshingService = false;
-      _serviceStatus = '';
-      _searchResults = const [];
-      _parentResults = null;
-      _searching = false;
-    }
-  }
-
-  Future<void> _refreshServiceSource() async {
-    final refresh = widget.onRefreshServiceSource;
-    if (!widget.flyAccountSignedIn ||
-        refresh == null ||
-        _refreshingService ||
-        _applying ||
-        widget.loading) {
-      return;
-    }
-    final generation = ++_serviceRefreshGeneration;
-    setState(() {
-      _refreshingService = true;
-      _serviceStatus = '';
-    });
-    var applied = false;
-    try {
-      applied = await refresh(
-        onStatus: (message) {
-          if (mounted &&
-              generation == _serviceRefreshGeneration &&
-              widget.flyAccountSignedIn) {
-            setState(() => _serviceStatus = message);
-          }
-        },
-      );
-    } catch (_) {
-      // Keep the existing source available when the service cannot be read.
-    }
-    if (!mounted ||
-        generation != _serviceRefreshGeneration ||
-        !widget.flyAccountSignedIn) {
-      return;
-    }
-    setState(() {
-      _refreshingService = false;
-      _serviceStatus = applied
-          ? '已加载飞翔后端弹幕'
-          : _serviceStatus.isNotEmpty
-          ? _serviceStatus
-          : '暂无可自动使用的弹幕，可点“查找来源”选择';
-    });
   }
 
   @override
@@ -821,19 +745,14 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     });
   }
 
-  Future<void> _search({bool flyOnly = false}) async {
+  Future<void> _search() async {
     final keyword = _searchController.text.trim();
     if (keyword.isEmpty || _searching) return;
     setState(() => _searching = true);
-    final generation = _serviceRefreshGeneration;
-    final search = flyOnly
-        ? widget.onSearchFly ?? widget.onSearch
-        : widget.onSearch;
-    final results = await search(keyword);
-    if (!mounted || generation != _serviceRefreshGeneration) return;
+    final results = await widget.onSearch(keyword);
+    if (!mounted) return;
     setState(() {
       _searchResults = results;
-      _parentResults = null;
       _searching = false;
     });
   }
@@ -846,7 +765,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
   }
 
   Future<void> _applySaved(Map<String, dynamic> source) async {
-    if (_applying || _refreshingService) return;
+    if (_applying) return;
     setState(() => _applying = true);
     final applied = await widget.onSelectSavedSource(source);
     if (!mounted) return;
@@ -858,21 +777,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
   }
 
   Future<void> _applySearchResult(Map<String, dynamic> result) async {
-    if (_applying || _refreshingService) return;
-    if (result['source'] == 'fly' && result['kind'] == 'series') {
-      final expand = widget.onExpandSearchResult;
-      if (expand == null || _searching) return;
-      final generation = _serviceRefreshGeneration;
-      setState(() => _searching = true);
-      final episodes = await expand(result);
-      if (!mounted || generation != _serviceRefreshGeneration) return;
-      setState(() {
-        _parentResults = _searchResults;
-        _searchResults = episodes;
-        _searching = false;
-      });
-      return;
-    }
+    if (_applying) return;
     setState(() => _applying = true);
     final applied = await widget.onSelectSearchResult(result);
     if (!mounted) return;
@@ -884,7 +789,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
   }
 
   Future<void> _import() async {
-    if (_applying || _refreshingService) return;
+    if (_applying) return;
     setState(() => _applying = true);
     final applied = await widget.onImportFile();
     if (!mounted) return;
@@ -946,45 +851,6 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                     value: currentSource.isEmpty ? '未选择' : currentSource,
                     description: currentStatus,
                   ),
-                  if (widget.flyAccountSignedIn) ...<Widget>[
-                    const SizedBox(height: 10),
-                    _SettingsStatusCard(
-                      title: '飞翔后端弹幕',
-                      value: widget.serviceStatus.isNotEmpty
-                          ? widget.serviceStatus
-                          : _serviceStatus.isNotEmpty
-                          ? _serviceStatus
-                          : _refreshingService
-                          ? '正在获取'
-                          : '通过飞翔后端查找并获取弹幕',
-                      description: '',
-                    ),
-                    if (widget.onSearchFly != null)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed:
-                              _searching || _applying || _refreshingService
-                              ? null
-                              : () => unawaited(_search(flyOnly: true)),
-                          child: const Text('查找来源'),
-                        ),
-                      ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed:
-                            _refreshingService ||
-                                _applying ||
-                                widget.loading ||
-                                widget.onRefreshServiceSource == null
-                            ? null
-                            : () => unawaited(_refreshServiceSource()),
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('重新获取'),
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 10),
                   _SettingsMenuTile(
                     title: '导入本地弹幕',
@@ -994,14 +860,6 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                   ),
                   const SizedBox(height: 18),
                   const _DanmakuSectionTitle('在线搜索'),
-                  if (widget.flyAccountSignedIn)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
-                      child: Text(
-                        '优先顺序在应用设置 → 弹幕设置中调整。',
-                        style: TextStyle(color: Colors.white54, fontSize: 12),
-                      ),
-                    ),
                   const SizedBox(height: 8),
                   Material(
                     color: Colors.transparent,
@@ -1051,26 +909,13 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                         ),
                     ],
                   ),
-                  if (_parentResults != null)
-                    TextButton.icon(
-                      onPressed: _searching || _applying
-                          ? null
-                          : () => setState(() {
-                              _searchResults = _parentResults!;
-                              _parentResults = null;
-                            }),
-                      icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                      label: const Text('返回作品列表'),
-                    ),
                   if (_searchResults.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 10),
                     for (final result in _searchResults) ...<Widget>[
                       _DanmakuSourceTile(
-                        title: '${result['title'] ?? '弹幕来源'}',
+                        title: '${result['title'] ?? '弹弹play'}',
                         subtitle: '${result['subtitle'] ?? ''}',
-                        trailing: result['kind'] == 'series'
-                            ? '选择分集'
-                            : result['matchesCurrentEpisode'] == true
+                        trailing: result['matchesCurrentEpisode'] == true
                             ? '当前集'
                             : '',
                         onTap: _applying || _searching
@@ -1267,10 +1112,6 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.onSelectBookmark,
     required this.danmakuSettingsPageBuilder,
     required this.danmakuSourcesPageBuilder,
-    this.flyAccountSignedIn = false,
-    this.flyOpedEnabled = true,
-    this.flyOpedSet,
-    this.onFlyOpedChanged,
     this.initialPage = DesktopPlaybackSettingsPage.main,
     this.reserveCloseButtonSpace = false,
   });
@@ -1295,10 +1136,6 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
   final int introMaxMinutes;
   final int outroMaxMinutes;
   final bool fixedDurationSkipEnabled;
-  final bool flyAccountSignedIn;
-  final bool flyOpedEnabled;
-  final FlyOpedSet? flyOpedSet;
-  final Future<void> Function(bool value)? onFlyOpedChanged;
   final bool hasNextEpisode;
   final double subtitleDelaySeconds;
   final int subtitlePosition;
@@ -1603,13 +1440,8 @@ class _DesktopPlaybackSettingsPanelState
     ),
     _SettingsMenuTile(
       title: '片头片尾跳过',
-      subtitle: widget.flyAccountSignedIn ? '服务片头片尾、章节与固定时长' : '按时长窗口提示跳过片头片尾',
-      trailing:
-          widget.introOutroEnabled ||
-              widget.fixedDurationSkipEnabled ||
-              (widget.flyAccountSignedIn && widget.flyOpedEnabled)
-          ? '已开启'
-          : '已关闭',
+      subtitle: '按时长窗口提示跳过片头片尾',
+      trailing: widget.introOutroEnabled ? '已开启' : '已关闭',
       icon: Icons.skip_next_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.introOutro),
     ),
@@ -1723,44 +1555,6 @@ class _DesktopPlaybackSettingsPanelState
     );
     Widget statusCard({required bool intro}) {
       final label = intro ? '片头' : '片尾';
-      final usingFlySet =
-          widget.flyAccountSignedIn &&
-          widget.flyOpedEnabled &&
-          widget.flyOpedSet != null;
-      final reviewed = usingFlySet
-          ? widget.flyOpedSet!.segments
-                .where((segment) => segment.kind == (intro ? 'op' : 'ed'))
-                .toList()
-          : const <FlyOpedSegment>[];
-      if (usingFlySet && reviewed.isEmpty) {
-        return _SettingsStatusCard(
-          title: '当前$label',
-          value: '当前不提示跳过',
-          description: '暂无服务$label数据。关闭“服务片头片尾”后可使用章节或固定时长。',
-        );
-      }
-      if (reviewed.isNotEmpty) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var index = 0; index < reviewed.length; index++) ...[
-              if (index > 0) const SizedBox(height: 10),
-              _SettingsStatusCard(
-                title: '当前$label',
-                value:
-                    '${_flyOpedTime(reviewed[index].startMs)}–${_flyOpedTime(reviewed[index].endMs)} · ${switch (reviewed[index].policy) {
-                      'auto' => '自动跳过',
-                      'never' => '禁止跳过',
-                      _ => '仅提示',
-                    }}',
-                description: reviewed[index].policy == 'never'
-                    ? '该区间禁止跳过，完整保留内容。'
-                    : '${reviewed[index].policy == 'auto' ? '符合连续播放条件时可自动跳到' : '点击跳过后跳到'} ${_flyOpedTime(reviewed[index].endMs)}${intro ? '。' : '，保留结束点之后的内容。'}',
-              ),
-            ],
-          ],
-        );
-      }
       final start = intro ? bounds.introStart : bounds.outroStart;
       final end = intro ? bounds.introEnd : widget.duration;
       final fromChapter = intro
@@ -1799,20 +1593,6 @@ class _DesktopPlaybackSettingsPanelState
     }
 
     final children = <Widget>[
-      if (widget.flyAccountSignedIn)
-        _SettingsSwitchTile(
-          title: '服务片头片尾',
-          subtitle: !widget.flyOpedEnabled
-              ? '已关闭；章节识别与固定时长由各自开关控制'
-              : widget.flyOpedSet == null
-              ? '暂无服务数据，使用章节或固定时长'
-              : '按服务提供的片头片尾范围跳过',
-          value: widget.flyOpedEnabled,
-          enabled: widget.onFlyOpedChanged != null,
-          onChanged: (value) async {
-            await widget.onFlyOpedChanged?.call(value);
-          },
-        ),
       _SettingsSwitchTile(
         title: '按章节识别',
         subtitle: '匹配 OP、ED、片头、片尾等章节名称，进入范围后提示跳过',
@@ -2270,14 +2050,6 @@ class _DesktopPlaybackSettingsPanelState
     final minutes = safe.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = safe.inSeconds.remainder(60).toString().padLeft(2, '0');
     return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
-  }
-
-  String _flyOpedTime(int milliseconds) {
-    final whole = _duration(Duration(milliseconds: milliseconds));
-    final fraction = milliseconds.remainder(1000);
-    return fraction == 0
-        ? whole
-        : '$whole.${fraction.toString().padLeft(3, '0')}';
   }
 }
 

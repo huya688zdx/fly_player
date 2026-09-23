@@ -1,17 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/models/danmaku_settings.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../l10n/generated/app_localizations.dart';
-import '../services/fly_data/fly_account_controller.dart';
-import '../services/fly_data/fly_data_service.dart';
-import '../services/fly_data/fly_playback_service_client.dart';
-import '../services/play_stats/play_stats_service.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/secondary_host_navigation.dart';
@@ -50,25 +45,17 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   void initState() {
     super.initState();
     _savedSourceStore.changes.addListener(_handleSavedSourceChanged);
-    FlyDataService.instance.accountChanges.addListener(_handleAccountChanged);
     _load();
   }
 
   @override
   void dispose() {
     _savedSourceStore.changes.removeListener(_handleSavedSourceChanged);
-    FlyDataService.instance.accountChanges.removeListener(
-      _handleAccountChanged,
-    );
     super.dispose();
   }
 
   void _handleSavedSourceChanged() {
     if (!_loading) unawaited(_loadSavedSourceCount());
-  }
-
-  void _handleAccountChanged() {
-    if (mounted) setState(() {});
   }
 
   Future<void> _load() async {
@@ -167,12 +154,6 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final savedSourceCount = _savedSourceCount;
-    final account = context.watch<FlyAccountController?>();
-    final flyAccountSignedIn =
-        account?.legacyMode != true &&
-        FlyPlaybackServiceClient.instance.hasActiveAccountBinding(
-          statsScope: PlayStatsService.instance.currentScope,
-        );
     final pageTitle = Text(
       l10n.danmakuSettingsTitle,
       style: TextStyle(
@@ -237,100 +218,42 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                         ],
                       ),
                     ),
-                    if (flyAccountSignedIn) ...[
-                      const SizedBox(height: 18),
-                      const _DanmakuSectionTitle(
-                        title: '弹幕来源优先顺序',
-                        subtitle: '自动获取与在线搜索使用同一顺序；手动导入文件优先。',
-                      ),
-                      const SizedBox(height: 10),
-                      _DanmakuCard(
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Column(
-                                children: [
-                                  for (final strategy
-                                      in DanmakuSourceStrategy.values)
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 3,
-                                        ),
-                                        child: _DanmakuChoiceButton(
-                                          label: strategy.label,
-                                          selected:
-                                              _settings.sourceStrategy ==
-                                              strategy,
-                                          onTap: () => _save(
-                                            _settings.copyWith(
-                                              sourceStrategy: strategy,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _settings.sourceStrategy.description,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  height: 1.5,
-                                  color: context.appColors.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: 18),
-                    if (!flyAccountSignedIn ||
-                        _settings.sourceStrategy ==
-                            DanmakuSourceStrategy.original) ...[
-                      _DanmakuSectionTitle(
-                        title: l10n.danmakuSourcePriorityTitle,
-                        subtitle: l10n.danmakuSourcePrioritySubtitle,
-                      ),
-                      const SizedBox(height: 10),
-                      _DanmakuCard(
-                        child: Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: _DanmakuChoiceButton(
-                                label: l10n.danmakuPreferLocal,
-                                selected: _settings.preferLocalSource,
-                                onTap: () {
-                                  _save(
-                                    _settings.copyWith(preferLocalSource: true),
-                                  );
-                                },
-                              ),
+                    _DanmakuSectionTitle(
+                      title: l10n.danmakuSourcePriorityTitle,
+                      subtitle: l10n.danmakuSourcePrioritySubtitle,
+                    ),
+                    const SizedBox(height: 10),
+                    _DanmakuCard(
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: _DanmakuChoiceButton(
+                              label: l10n.danmakuPreferLocal,
+                              selected: _settings.preferLocalSource,
+                              onTap: () {
+                                _save(
+                                  _settings.copyWith(preferLocalSource: true),
+                                );
+                              },
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _DanmakuChoiceButton(
-                                label: l10n.danmakuPreferNetwork,
-                                selected: !_settings.preferLocalSource,
-                                onTap: () {
-                                  _save(
-                                    _settings.copyWith(
-                                      preferLocalSource: false,
-                                    ),
-                                  );
-                                },
-                              ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _DanmakuChoiceButton(
+                              label: l10n.danmakuPreferNetwork,
+                              selected: !_settings.preferLocalSource,
+                              onTap: () {
+                                _save(
+                                  _settings.copyWith(preferLocalSource: false),
+                                );
+                              },
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 18),
-                    ],
+                    ),
+                    const SizedBox(height: 18),
                     _DanmakuSectionTitle(
                       title: l10n.danmakuDisplayStyleTitle,
                       subtitle: l10n.danmakuDisplayStyleSubtitle,

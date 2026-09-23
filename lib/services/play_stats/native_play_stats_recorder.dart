@@ -187,7 +187,6 @@ class NativePlayStatsRecorder {
     if (!mayFinish) return;
     try {
       await _sessionController.finishPlayback(reason: reason);
-      PlayStatsService.instance.onSessionFinished?.call();
     } catch (error, stackTrace) {
       _logSwallowed('finishPlayback', error, stackTrace);
     }
@@ -205,7 +204,7 @@ class NativePlayStatsRecorder {
   bool _acceptsEventScope(Map<String, dynamic> event) {
     if (_sessionControllerOverride != null) return true;
     final scope = (event['statsScope'] ?? '').toString();
-    if (scope.isEmpty) return !PlayStatsService.instance.hasUnifiedBinding;
+    if (scope.isEmpty) return true;
     return scope == PlayStatsService.instance.currentScope;
   }
 

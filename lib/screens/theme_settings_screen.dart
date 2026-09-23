@@ -163,6 +163,8 @@ class ThemeSettingsScreen extends StatelessWidget {
               const SizedBox(height: 18),
               _ToneCustomizationCard(provider: provider),
               const SizedBox(height: 18),
+              ThemeSettingsVisualPerformancePanel(provider: provider),
+              const SizedBox(height: 18),
               ThemeSettingsDynamicThemePanel(provider: provider),
               const SizedBox(height: 22),
               ThemeSettingsSectionTitle(

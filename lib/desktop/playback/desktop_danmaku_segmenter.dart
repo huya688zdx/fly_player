@@ -26,6 +26,10 @@ class DesktopDanmakuMask {
 /// Windows MNN 人物分割入口。模型固定使用 512×512；[outputWidth] 只控制回传
 /// 蒙版尺寸，不改变模型输入。
 abstract final class DesktopDanmakuSegmenter {
+  static bool get isSupported =>
+      Platform.isWindows &&
+      const bool.fromEnvironment('FLY_WINDOWS_AI_MASK', defaultValue: true);
+
   static const MethodChannel _channel = MethodChannel(
     'fly_player/desktop_danmaku_segmentation',
   );
@@ -34,7 +38,7 @@ abstract final class DesktopDanmakuSegmenter {
     Player player, {
     required int outputWidth,
   }) async {
-    if (!Platform.isWindows) return null;
+    if (!isSupported) return null;
     final stopwatch = Stopwatch()..start();
     final state = player.state;
     final bgra = await player.screenshot(

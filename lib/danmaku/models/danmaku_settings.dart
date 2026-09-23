@@ -128,24 +128,6 @@ class DanmakuAiPrecisionPreset {
   static const List<String> values = <String>[performance, balanced, quality];
 }
 
-enum DanmakuSourceStrategy {
-  nasPreferred,
-  nasOnly,
-  original;
-
-  String get label => switch (this) {
-    nasPreferred => '飞翔后端优先',
-    nasOnly => '仅飞翔后端',
-    original => '弹弹play 优先',
-  };
-
-  String get description => switch (this) {
-    nasPreferred => '先由飞翔后端查找，未找到时再使用弹弹play。',
-    nasOnly => '仅由飞翔后端查找；仍可手动导入本地文件。',
-    original => '先使用弹弹play，未找到时再由飞翔后端查找。',
-  };
-}
-
 class DanmakuSettings {
   static const int minAiSampleIntervalMs = 200;
   static const int maxAiSampleIntervalMs = 500;
@@ -155,7 +137,6 @@ class DanmakuSettings {
   final bool enabled;
   final bool previewEnabled;
   final bool preferLocalSource;
-  final DanmakuSourceStrategy sourceStrategy;
   final bool scrollEnabled;
   final bool topEnabled;
   final bool bottomEnabled;
@@ -183,7 +164,6 @@ class DanmakuSettings {
     required this.enabled,
     required this.previewEnabled,
     required this.preferLocalSource,
-    this.sourceStrategy = DanmakuSourceStrategy.nasPreferred,
     required this.scrollEnabled,
     required this.topEnabled,
     required this.bottomEnabled,
@@ -229,7 +209,6 @@ class DanmakuSettings {
     bool? enabled,
     bool? previewEnabled,
     bool? preferLocalSource,
-    DanmakuSourceStrategy? sourceStrategy,
     bool? scrollEnabled,
     bool? topEnabled,
     bool? bottomEnabled,
@@ -257,7 +236,6 @@ class DanmakuSettings {
       enabled: enabled ?? this.enabled,
       previewEnabled: previewEnabled ?? this.previewEnabled,
       preferLocalSource: preferLocalSource ?? this.preferLocalSource,
-      sourceStrategy: sourceStrategy ?? this.sourceStrategy,
       scrollEnabled: scrollEnabled ?? this.scrollEnabled,
       topEnabled: topEnabled ?? this.topEnabled,
       bottomEnabled: bottomEnabled ?? this.bottomEnabled,
@@ -304,7 +282,6 @@ class DanmakuSettings {
       'enabled': enabled,
       'previewEnabled': previewEnabled,
       'preferLocalSource': preferLocalSource,
-      'sourceStrategy': sourceStrategy.name,
       'scrollEnabled': scrollEnabled,
       'topEnabled': topEnabled,
       'bottomEnabled': bottomEnabled,
@@ -341,11 +318,6 @@ class DanmakuSettings {
           : defaults.enabled,
       previewEnabled: json['previewEnabled'] == true,
       preferLocalSource: json['preferLocalSource'] != false,
-      sourceStrategy: switch (json['sourceStrategy']) {
-        'nasOnly' => DanmakuSourceStrategy.nasOnly,
-        'original' => DanmakuSourceStrategy.original,
-        _ => DanmakuSourceStrategy.nasPreferred,
-      },
       scrollEnabled: json['scrollEnabled'] != false,
       topEnabled: json['topEnabled'] != false,
       bottomEnabled: json['bottomEnabled'] == true,

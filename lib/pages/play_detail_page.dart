@@ -2699,7 +2699,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           String? danmakuFile;
           if (danmakuSettings.enabled) {
             danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
-              statsScope: source.statsScope,
               isCurrent: () => mounted && _currentItemGuid == source.itemGuid,
               seriesTitle: source.seriesTitle,
               itemTitle: source.title,
