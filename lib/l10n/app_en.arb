@@ -213,8 +213,8 @@
   "connectionFeiniuMedia": "fnOS Media",
   "connectionFeiniuNas": "fnOS NAS",
   "connectionTagline": "Connect to your media service and enjoy a world of entertainment",
-  "connectionMoreOptions": "More options",
-  "connectionCollapseOptions": "Collapse extra options",
+  "connectionMoreOptions": "Feiniu advanced options",
+  "connectionCollapseOptions": "Hide advanced options",
   "loginErrorGenericFailure": "Sign-in failed. Please try again.",
   "loginErrorInvalidServerAddress": "Invalid server address format",
   "loginErrorInvalidCredentials": "Incorrect username or password",
@@ -2461,7 +2461,7 @@
   "flyAccountRemove": "Remove",
   "flyAccountTitle": "Account and media sources",
   "flyAccountSharedAccountSubtitle": "Fly account · Shared by the app and NAS",
-  "flyAccountLogout": "Switch account",
+  "flyAccountLogout": "Sign out and switch accounts",
   "flyAccountMySources": "My media sources",
   "flyAccountChooseSourceSubtitle": "Choose a source to return to your media library and continue watching.",
   "flyAccountRefreshSources": "Refresh media sources",
@@ -2519,10 +2519,10 @@
   "flyAccountBrand": "Fly",
   "flyAccountTagline": "Connect to your media and keep watching",
   "flyAccountLoginTitle": "Sign in to your Fly account",
-  "flyAccountLoginSubtitle": "Use one account for the app and NAS to manage media sources and viewing history.",
+  "flyAccountLoginSubtitle": "Use your Fly account to access linked media sources.",
   "flyAccountStatusConnectable": "Available to connect",
-  "flyAccountStatusOffline": "Temporarily offline; you can try connecting",
-  "flyAccountStatusReauthRequired": "Sign in to the media account again",
+  "flyAccountStatusOffline": "Marked offline by server",
+  "flyAccountStatusReauthRequired": "Reauthorization required",
   "flyAccountStatusUnbound": "Removed; playback history kept",
   "flyAccountStatusUnavailable": "Currently unavailable",
   "flyAccountSourceSettings": "Source settings",
@@ -2833,5 +2833,52 @@
   "flyCatalogSyncedInfoConnectionHint": "Synced information does not guarantee that the current address is reachable. If you have trouble connecting, retry or open connection settings in “Account and media sources”.",
   "flyCatalogSyncedInfoTooltip": "About synced titles",
   "flyCatalogLoadTitlesAction": "Load synced titles",
-  "flyCatalogCurrentTitleAssistant": "Info assistant · Current title"
+  "flyCatalogCurrentTitleAssistant": "Info assistant · Current title",
+  "accountConnectionFlyMode": "Fly account",
+  "accountConnectionDirectMode": "Direct connection",
+  "accountProcessing": "Processing…",
+  "accountBrandFlyTitle": "One account for your media",
+  "accountBrandFlyDescription": "Sign in to your Fly account, then choose a linked media source.",
+  "accountBrandDirectTitle": "Connect to your media library",
+  "accountBrandDirectDescription": "Use your media service address and account to connect to your library.",
+  "accountBrandFlyPath": "Fly account → Choose a source → Library",
+  "accountBrandDirectPath": "Choose a service → Sign in → Library",
+  "connectionDirectTitle": "Connect to a media service",
+  "connectionDirectSubtitle": "Sign in with your media service account, independently of Fly.",
+  "connectionAccountForBackendLabel": "{backend} account",
+  "@connectionAccountForBackendLabel": {
+    "placeholders": {
+      "backend": {
+        "type": "String"
+      }
+    }
+  },
+  "connectionLoginAndEnter": "Sign in and open library",
+  "connectionLoggingIn": "Signing in…",
+  "connectionFeiniuAddressLabel": "Feiniu address / FN Connect ID",
+  "connectionFeiniuAddressHelp": "Enter a Feiniu server address or FN Connect ID.",
+  "connectionDirectLoginNote": "This signs you in to {backend} only. It does not add a Fly binding.",
+  "@connectionDirectLoginNote": {
+    "placeholders": {
+      "backend": {
+        "type": "String"
+      }
+    }
+  },
+  "connectionSwitchToFlyFailed": "Could not switch. Please try again.",
+  "flyAccountServiceAddressExplanation": "Enter your Fly service address, rather than a Feiniu or Emby media server address.",
+  "flyAccountLoginSelectSource": "Sign in and choose a source",
+  "flyAccountLoggedIn": "Signed in",
+  "flyAccountOtherSources": "Switch to another source",
+  "flyAccountSwitchAndEnter": "Switch and open",
+  "flyAccountTryConnect": "Try connecting",
+  "flyAccountConnecting": "Connecting",
+  "flyAccountRefreshing": "Refreshing",
+  "flyAccountLogoutConfirmTitle": "Sign out and switch accounts?",
+  "flyAccountLogoutConfirmMessage": "You will sign out of your Fly account and disconnect the media source used on this device. Login history will be kept so you can choose a saved account or sign in to another one. Server bindings will remain unchanged.",
+  "flyAccountLogoutConfirmAction": "Sign out and continue",
+  "flyAccountReuseAuthorization": "Uses your existing Fly binding authorization without another media service sign-in.",
+  "flyAccountIndependentCredentials": "Fly and media service accounts are separate. Use the password for the selected account.",
+  "connectionShowPassword": "Show password",
+  "connectionHidePassword": "Hide password"
 }

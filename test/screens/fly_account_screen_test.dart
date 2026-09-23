@@ -25,6 +25,7 @@ import 'package:fly_player/services/fly_data/fly_login_history_store.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/login_components.dart';
+import 'package:fly_player/widgets/common/bird_loader.dart';
 import 'package:fly_player/ui/app_info_popover.dart';
 import 'package:fly_player/utils/app_top_tip.dart';
 import 'package:fly_player/widgets/common/app_option_list.dart';
@@ -122,8 +123,8 @@ void main() {
     await tester.pumpWidget(_app(account, locale: const Locale('en')));
     await tester.pumpAndSettle();
     expect(find.text('Sign in to your Fly account'), findsOneWidget);
-    await tester.ensureVisible(find.text('Sign in to Fly'));
-    await tester.tap(find.text('Sign in to Fly'));
+    await tester.ensureVisible(find.text('Sign in and choose a source'));
+    await tester.tap(find.text('Sign in and choose a source'));
     await tester.pumpAndSettle();
     expect(find.text('Please fill in Fly service address'), findsOneWidget);
     expect(account.logins, isEmpty);
@@ -140,7 +141,7 @@ void main() {
   });
 
   testWidgets(
-    '来源页复用选项行和贴边滚动条，无绑定时指引后端处理',
+    '来源页显式来源操作和贴边滚动条，无绑定时指引后端处理',
     (tester) async {
       DesktopEnvironment.debugOverridePlatform = true;
       await tester.binding.setSurfaceSize(const Size(1280, 720));
@@ -158,28 +159,73 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.getRect(find.byType(DesktopScrollbar).first).right, 1280);
-      expect(find.byType(AppOptionListTile), findsWidgets);
+      expect(find.byKey(const ValueKey('fly-source-source-0')), findsOneWidget);
+      expect(find.text('进入媒体库'), findsWidgets);
       await _capture(tester, 'account-desktop-sources');
       account.bindings = account.bindings.take(2).toList();
       account.activeBindingId = 'source-0';
       account.notifyListeners();
       await tester.pumpAndSettle();
       await _capture(tester, 'account-desktop-compact');
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account, light: true)),
+      );
+      await tester.pumpAndSettle();
+      await _capture(tester, 'account-desktop-light');
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account)),
+      );
+      await tester.pumpAndSettle();
       await tester.binding.setSurfaceSize(const Size(390, 844));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       await _capture(tester, 'account-mobile-sources');
+      await tester.binding.setSurfaceSize(const Size(320, 800));
+      account.serverUrl =
+          'https://long-address-for-account-information.example.test:5667/fly';
+      account.bindings[0] = {
+        ...account.bindings[0],
+        'label': '客厅与家人共享的长名称媒体来源',
+      };
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account, textScale: 1.6)),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('fly-source-enter-source-0')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('fly-source-enter-source-0')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await _capture(tester, 'account-mobile-large-text');
+      expect(find.text('连接信息'), findsNothing);
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      await tester.pumpWidget(
+        RepaintBoundary(key: _captureKey, child: _app(account)),
+      );
+      await tester.pumpAndSettle();
       account.bindings = [];
       account.notifyListeners();
       await tester.pumpAndSettle();
       expect(find.text('暂无已绑定的媒体来源'), findsOneWidget);
       expect(find.textContaining('后端网页的“连接”'), findsOneWidget);
-      expect(find.text('切换账号'), findsOneWidget);
+      expect(find.text('退出并切换账号'), findsOneWidget);
       expect(find.text('添加服务器'), findsNothing);
       expect(find.text('添加媒体来源'), findsNothing);
       expect(find.byType(TextFormField), findsNothing);
       expect(tester.takeException(), isNull);
       await _capture(tester, 'account-empty');
+      account.busy = true;
+      account.notifyListeners();
+      await tester.pump();
+      expect(find.byType(BirdLoader), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.text('暂无已绑定的媒体来源'), findsNothing);
+      await _capture(tester, 'account-loading');
+      account.busy = false;
       account.message = '读取媒体来源失败，请重试。';
       account.notifyListeners();
       await tester.pumpAndSettle();
@@ -189,7 +235,29 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
 
-  Finder activateButton() => find.byKey(const ValueKey('fly-source-source'));
+  testWidgets('退出确认取消保留会话，确认后仅退出一次并回到登录', (tester) async {
+    await tester.pumpWidget(_app(account));
+    await tester.pumpAndSettle();
+    final logout = find.text('退出并切换账号');
+    await tester.ensureVisible(logout);
+    await tester.tap(logout);
+    await tester.pumpAndSettle();
+    expect(find.text('退出并切换账号？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(account.signedIn, isTrue);
+    expect(account.logoutCalls, 0);
+    await tester.tap(logout);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('退出并继续'));
+    await tester.pumpAndSettle();
+    expect(account.logoutCalls, 1);
+    expect(account.session, isNull);
+    expect(find.byType(FlyLoginScreen), findsOneWidget);
+  });
+
+  Finder activateButton() =>
+      find.byKey(const ValueKey('fly-source-enter-source'));
 
   testWidgets('单客户端地址直接选用，成功后返回原媒体首页', (tester) async {
     await tester.pumpWidget(_app(account, pushed: true));
@@ -283,9 +351,8 @@ void main() {
     expect(find.text('记住密码'), findsOneWidget);
   });
 
-  TextEditingController loginField(WidgetTester tester, String label) => tester
-      .widget<TextFormField>(find.widgetWithText(TextFormField, label))
-      .controller!;
+  TextEditingController loginField(WidgetTester tester, String label) =>
+      tester.widget<TextFormField>(_flyField(label)).controller!;
 
   Future<void> settleHistory(WidgetTester tester) async {
     await tester.pumpAndSettle();
@@ -314,8 +381,8 @@ void main() {
     expect(loginField(tester, '飞翔账号').text, savedLogin.username);
     expect(loginField(tester, '密码').text, savedLogin.password);
     expect(account.logins, isEmpty);
-    await tester.ensureVisible(find.text('登录飞翔'));
-    await tester.tap(find.text('登录飞翔'));
+    await tester.ensureVisible(find.text('登录并选择来源'));
+    await tester.tap(find.text('登录并选择来源'));
     await settleHistory(tester);
     expect(account.logins.single, (
       savedLogin.serverUrl,
@@ -405,16 +472,13 @@ void main() {
       final secret = loginField(tester, '密码');
       secret.selection = const TextSelection.collapsed(offset: 1);
       await tester.enterText(
-        find.widgetWithText(TextFormField, identity),
+        _flyField(identity),
         identity == '飞翔服务地址' ? 'https://different.example' : 'different-viewer',
       );
       expect(secret.text, isEmpty);
-      await tester.enterText(
-        find.widgetWithText(TextFormField, '密码'),
-        'new-manual-fixture',
-      );
-      await tester.ensureVisible(find.text('登录飞翔'));
-      await tester.tap(find.text('登录飞翔'));
+      await tester.enterText(_flyField('密码'), 'new-manual-fixture');
+      await tester.ensureVisible(find.text('登录并选择来源'));
+      await tester.tap(find.text('登录并选择来源'));
       await settleHistory(tester);
       expect(account.logins.single.$3, 'new-manual-fixture');
       expect(account.loginInstanceIds, [null]);
@@ -450,10 +514,7 @@ void main() {
       account.signedIn = false;
       await tester.pumpWidget(_app(account));
       await settleHistory(tester);
-      await tester.enterText(
-        find.widgetWithText(TextFormField, '飞翔账号'),
-        'typing-viewer',
-      );
+      await tester.enterText(_flyField('飞翔账号'), 'typing-viewer');
       if (changeMode) {
         account.legacyMode = true;
         account.notifyListeners();
@@ -475,25 +536,16 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(account.logins, isEmpty);
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '飞翔服务地址'),
-      'https://fly.example',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '飞翔账号'),
-      'viewer',
-    );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, '密码'),
-      'example-password',
-    );
+    await tester.enterText(_flyField('飞翔服务地址'), 'https://fly.example');
+    await tester.enterText(_flyField('飞翔账号'), 'viewer');
+    await tester.enterText(_flyField('密码'), 'example-password');
     await tester.tap(find.byTooltip('显示密码'));
     await tester.pump();
     expect(find.byTooltip('隐藏密码'), findsOneWidget);
     await tester.tap(find.byTooltip('隐藏密码'));
     await tester.pump();
-    await tester.ensureVisible(find.text('登录飞翔'));
-    await tester.tap(find.text('登录飞翔'));
+    await tester.ensureVisible(find.text('登录并选择来源'));
+    await tester.tap(find.text('登录并选择来源'));
     await tester.pump();
     expect(
       tester
@@ -523,10 +575,7 @@ void main() {
       ('https://fly.example', 'viewer', 'example-password', 'Fly Player'),
     ]);
     expect(
-      tester
-          .widget<TextFormField>(find.widgetWithText(TextFormField, '密码'))
-          .controller!
-          .text,
+      tester.widget<TextFormField>(_flyField('密码')).controller!.text,
       isEmpty,
     );
   });
@@ -598,6 +647,7 @@ Widget _app(
   NavigatorObserver? observer,
   AppThemePreset preset = AppThemePreset.midnight,
   double textScale = 1,
+  bool light = false,
   Widget? home,
   Locale locale = const Locale('zh', 'CN'),
 }) => ChangeNotifierProvider<FlyAccountController>.value(
@@ -606,20 +656,47 @@ Widget _app(
     debugShowCheckedModeBanner: false,
     scrollBehavior: const DesktopScrollBehavior(),
     theme: _captureDirectory.isEmpty
-        ? AppThemeBuilder.build(preset)
-        : AppThemeBuilder.build(preset).copyWith(
+        ? AppThemeBuilder.build(
+            preset,
+            backgroundTone: light
+                ? AppBackgroundTone.pearl
+                : AppBackgroundTone.night,
+          )
+        : AppThemeBuilder.build(
+            preset,
+            backgroundTone: light
+                ? AppBackgroundTone.pearl
+                : AppBackgroundTone.night,
+          ).copyWith(
             textTheme: AppThemeBuilder.build(
               preset,
+              backgroundTone: light
+                  ? AppBackgroundTone.pearl
+                  : AppBackgroundTone.night,
             ).textTheme.apply(fontFamily: 'FlyUiPreview'),
             primaryTextTheme: AppThemeBuilder.build(
               preset,
+              backgroundTone: light
+                  ? AppBackgroundTone.pearl
+                  : AppBackgroundTone.night,
             ).primaryTextTheme.apply(fontFamily: 'FlyUiPreview'),
-            appBarTheme: AppThemeBuilder.build(preset).appBarTheme.copyWith(
-              titleTextStyle: AppThemeBuilder.build(preset)
-                  .appBarTheme
-                  .titleTextStyle!
-                  .copyWith(fontFamily: 'FlyUiPreview'),
-            ),
+            appBarTheme:
+                AppThemeBuilder.build(
+                  preset,
+                  backgroundTone: light
+                      ? AppBackgroundTone.pearl
+                      : AppBackgroundTone.night,
+                ).appBarTheme.copyWith(
+                  titleTextStyle:
+                      AppThemeBuilder.build(
+                        preset,
+                        backgroundTone: light
+                            ? AppBackgroundTone.pearl
+                            : AppBackgroundTone.night,
+                      ).appBarTheme.titleTextStyle!.copyWith(
+                        fontFamily: 'FlyUiPreview',
+                      ),
+                ),
           ),
     builder: (context, child) => MediaQuery(
       data: MediaQuery.of(
@@ -681,6 +758,15 @@ class _Account extends FlyAccountController {
   }
   bool signedIn = true, rejectActivation = false, admin = false;
   String serverUrl = 'https://fly.example';
+  int logoutCalls = 0;
+  @override
+  Future<void> logout() async {
+    logoutCalls++;
+    signedIn = false;
+    activeBindingId = '';
+    notifyListeners();
+  }
+
   final addressSwitches = <String>[];
   final activations = <(String, String?)>[];
   Completer<void>? pendingLogin;
@@ -766,3 +852,10 @@ class _Backend extends BackendSessionProvider {
   @override
   MediaBackendConnection? get currentConnection => connection;
 }
+
+Finder _flyField(String label) => find.descendant(
+  of: find.byWidgetPredicate(
+    (widget) => widget is LoginField && widget.labelText == label,
+  ),
+  matching: find.byType(TextFormField),
+);

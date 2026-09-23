@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +10,7 @@ import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/connection_screen.dart';
+import 'package:fly_player/services/app_log_service.dart';
 import 'package:fly_player/services/login_history_store.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
@@ -19,17 +22,18 @@ void main() {
     await _pumpConnectionScreen(tester, baseUrl: 'https://nas.example.test');
     await tester.pump();
 
-    expect(find.text('飞翔播放器'), findsOneWidget);
+    expect(find.text('直接连接媒体服务'), findsOneWidget);
     expect(find.byIcon(Icons.history_rounded), findsOneWidget);
     expect(find.byType(Switch), findsNothing);
     expect(find.text('查看已下载数据'), findsOneWidget);
-    expect(find.text('重新登录 FN Connect'), findsOneWidget);
-    expect(find.text('登录'), findsOneWidget);
+    expect(find.text('重新登录 FN Connect'), findsNothing);
+    expect(find.text('登录并进入媒体库'), findsOneWidget);
     expect(find.text('访问码（可选）'), findsNothing);
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
     expect(find.byType(TextField), findsNWidgets(3));
 
     await _expandFeiniuOptions(tester);
+    expect(find.text('重新登录 FN Connect'), findsOneWidget);
     expect(find.text('访问码（可选）'), findsOneWidget);
     expect(
       tester
@@ -38,6 +42,61 @@ void main() {
       isTrue,
     );
     expect(find.byType(TextField), findsNWidgets(4));
+  });
+
+  testWidgets('提交时锁定服务历史和编辑，失败后恢复操作', (tester) async {
+    final pending = Completer<LoginWithBaseUrlResult>();
+    await _pumpConnectionScreen(
+      tester,
+      baseUrl: 'https://nas.example.test',
+      feiniuLogin:
+          ({
+            required baseUrl,
+            required userName,
+            required password,
+            required accessCode,
+          }) => pending.future,
+    );
+    // 日志初始化含真实文件读取与 isolate，先在真实异步区完成。
+    await tester.runAsync(() => AppLogService.instance.initialize());
+    await tester.enterText(
+      find.byKey(const Key('connectionPasswordField')),
+      'secret',
+    );
+    await tester.ensureVisible(find.byType(ElevatedButton));
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pump();
+    final history = find.byKey(const Key('connectionLoginHistory'));
+    expect(tester.widget<TextButton>(history).onPressed, isNull);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const Key('connectionServerAddressField')),
+          )
+          .enabled,
+      isFalse,
+    );
+    await tester.ensureVisible(find.text('Emby'));
+    await tester.tap(find.text('Emby'));
+    await tester.dragFrom(const Offset(250, 150), const Offset(-180, 0));
+    await tester.pump();
+    expect(find.byKey(const Key('serverAddress_emby')), findsNothing);
+    pending.completeError(StateError('测试登录失败'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextButton>(history).onPressed, isNotNull);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const Key('connectionServerAddressField')),
+          )
+          .enabled,
+      isTrue,
+    );
+    await tester.ensureVisible(find.text('Emby'));
+    await tester.tap(find.text('Emby'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('serverAddress_emby')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('访问码默认遮挡且眼睛按钮可切换明文状态', (tester) async {
@@ -125,10 +184,12 @@ void main() {
       'temporary-access-code',
     );
 
+    await tester.ensureVisible(find.text('Emby'));
     await tester.tap(find.text('Emby'));
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsNWidgets(3));
 
+    await tester.ensureVisible(find.text('飞牛影视'));
     await tester.tap(find.text('飞牛影视'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
@@ -163,7 +224,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.history_rounded));
+    await tester.ensureVisible(find.byKey(const Key('connectionLoginHistory')));
+    await tester.tap(find.byKey(const Key('connectionLoginHistory')));
     await tester.pumpAndSettle();
     await tester.tap(find.text(feiniuHistory.baseUrl));
     await tester.pumpAndSettle();
@@ -176,12 +238,14 @@ void main() {
       feiniuHistory.accessCode,
     );
 
-    await tester.tap(find.byIcon(Icons.history_rounded));
+    await tester.ensureVisible(find.byKey(const Key('connectionLoginHistory')));
+    await tester.tap(find.byKey(const Key('connectionLoginHistory')));
     await tester.pumpAndSettle();
     await tester.tap(find.text(embyHistory.baseUrl));
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsNWidgets(3));
 
+    await tester.ensureVisible(find.text('飞牛影视'));
     await tester.tap(find.text('飞牛影视'));
     await tester.pumpAndSettle();
     await _expandFeiniuOptions(tester);
@@ -225,6 +289,7 @@ void main() {
       find.byKey(const Key('connectionPasswordField')),
       'secret',
     );
+    await tester.ensureVisible(find.byKey(const Key('connectionSubmitButton')));
     await tester.tap(find.byKey(const Key('connectionSubmitButton')));
     await tester.pumpAndSettle();
     expect(submittedBaseUrl, 'https://nas.example.test:5667');
@@ -261,6 +326,7 @@ void main() {
       find.byKey(const Key('connectionPasswordField')),
       'secret',
     );
+    await tester.ensureVisible(find.byKey(const Key('connectionSubmitButton')));
     await tester.tap(find.byKey(const Key('connectionSubmitButton')));
     await tester.pumpAndSettle();
     expect(submittedBaseUrl, 'http://nas.example.test:5667');
@@ -296,14 +362,15 @@ void main() {
 
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
 
-    await tester.tap(find.byKey(const Key('feiniuAdvancedOptionsButton')));
-    await tester.pumpAndSettle();
+    await _expandFeiniuOptions(tester);
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsOneWidget);
 
+    await tester.ensureVisible(find.text('Emby'));
     await tester.tap(find.text('Emby'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
 
+    await tester.ensureVisible(find.text('飞牛影视'));
     await tester.tap(find.text('飞牛影视'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
@@ -366,6 +433,7 @@ Future<void> _pumpConnectionScreen(
 Future<void> _expandFeiniuOptions(WidgetTester tester) async {
   final button = find.byKey(const Key('feiniuAdvancedOptionsButton'));
   if (find.byKey(const Key('feiniuAccessCodeField')).evaluate().isEmpty) {
+    await tester.ensureVisible(button);
     await tester.tap(button);
     await tester.pumpAndSettle();
   }

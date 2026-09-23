@@ -22,6 +22,7 @@ import 'package:fly_player/services/play_stats/play_stats_service.dart';
 import 'package:fly_player/services/login_history_store.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/widgets/common/login_components.dart';
 
 const _captureDir = String.fromEnvironment('FLY_LOGIN_CAPTURE_DIR');
 const _captureFont = String.fromEnvironment('FLY_UI_FONT');
@@ -53,8 +54,8 @@ void main() {
   testWidgets('暂用本地媒体后可从真实入口切回飞翔登录且不带入媒体密码', (tester) async {
     await tester.pumpWidget(const FlyPlayerApp());
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('媒体账号登录'));
-    await tester.tap(find.text('媒体账号登录'));
+    await tester.ensureVisible(find.text('直接连接'));
+    await tester.tap(find.text('直接连接'));
     await tester.pumpAndSettle();
     expect(find.byType(ConnectionScreen), findsOneWidget);
     await tester.enterText(find.byType(TextField).at(2), 'local-only-fixture');
@@ -66,10 +67,7 @@ void main() {
     expect(find.byType(FlyLoginScreen), findsOneWidget);
     expect(find.byType(ConnectionScreen), findsNothing);
     expect(
-      tester
-          .widget<TextFormField>(find.widgetWithText(TextFormField, '密码'))
-          .controller!
-          .text,
+      tester.widget<TextFormField>(_flyField('密码')).controller!.text,
       isEmpty,
     );
     expect(
@@ -89,7 +87,7 @@ void main() {
     await tester.tap(switcher);
     await tester.pump();
     expect(account.returnCalls, 1);
-    expect(tester.widget<OutlinedButton>(switcher).onPressed, isNull);
+    expect(tester.widget<TextButton>(switcher).onPressed, isNull);
     final localSubmit = find.descendant(
       of: find.byKey(const Key('connectionSubmitButton')),
       matching: find.byType(ElevatedButton),
@@ -104,7 +102,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ConnectionScreen), findsOneWidget);
     expect(find.text('切换未完成，请稍后重试。'), findsWidgets);
-    expect(tester.widget<OutlinedButton>(switcher).onPressed, isNotNull);
+    expect(tester.widget<TextButton>(switcher).onPressed, isNotNull);
     expect(tester.takeException(), isNull);
     await tester.pump(const Duration(seconds: 3));
   });
@@ -124,6 +122,21 @@ void main() {
     );
     expect(tester.takeException(), isNull);
     await _capture(tester, 'mobile-local-return');
+
+    DesktopEnvironment.debugOverridePlatform = true;
+    tester.view.physicalSize = const Size(1280, 720);
+    await tester.pumpWidget(_host(account, home: const ConnectionScreen()));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('connectionWideBrandPane')), findsOneWidget);
+    expect(find.byKey(const Key('connectionWideFormPane')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _capture(tester, 'desktop-direct-login');
+    await tester.pumpWidget(
+      _host(account, home: const ConnectionScreen(), light: true),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await _capture(tester, 'desktop-direct-login-light');
   });
 
   testWidgets('二级本地页切回飞翔时阻止子页导航，完成后不会滞留旧登录页', (tester) async {
@@ -148,18 +161,20 @@ void main() {
     );
     await tester.tap(find.text('打开本地连接'));
     await tester.pumpAndSettle();
-    final history = find.widgetWithIcon(IconButton, Icons.history_rounded);
+    final history = find.byKey(const Key('connectionLoginHistory'));
     final downloads = find.widgetWithText(TextButton, '查看已下载数据');
+    await tester.tap(find.byKey(const Key('feiniuAdvancedOptionsButton')));
+    await tester.pumpAndSettle();
     final fnReset = find.widgetWithText(TextButton, '重新登录 FN Connect');
     // Retain callbacks from before the state change to exercise handler guards.
-    final oldHistory = tester.widget<IconButton>(history).onPressed!;
+    final oldHistory = tester.widget<TextButton>(history).onPressed!;
     final oldDownloads = tester.widget<TextButton>(downloads).onPressed!;
     final oldReset = tester.widget<TextButton>(fnReset).onPressed!;
     final switcher = find.byKey(const Key('connectionSwitchToFlyAccount'));
     await tester.ensureVisible(switcher);
     await tester.tap(switcher);
     await tester.pump();
-    expect(tester.widget<IconButton>(history).onPressed, isNull);
+    expect(tester.widget<TextButton>(history).onPressed, isNull);
     expect(tester.widget<TextButton>(downloads).onPressed, isNull);
     expect(tester.widget<TextButton>(fnReset).onPressed, isNull);
     oldHistory();
@@ -214,9 +229,7 @@ void main() {
     await tester.pumpAndSettle();
     credentials.pauseHistory = true;
     tester
-        .widget<IconButton>(
-          find.widgetWithIcon(IconButton, Icons.history_rounded),
-        )
+        .widget<TextButton>(find.byKey(const Key('connectionLoginHistory')))
         .onPressed!();
     await tester.pump();
     expect(credentials.blockedReads, 1);
@@ -252,14 +265,12 @@ void main() {
     );
     await tester.pumpWidget(const FlyPlayerApp());
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('媒体账号登录'));
-    await tester.tap(find.text('媒体账号登录'));
+    await tester.ensureVisible(find.text('直接连接'));
+    await tester.tap(find.text('直接连接'));
     await tester.pumpAndSettle();
     credentials.pauseHistory = true;
     tester
-        .widget<IconButton>(
-          find.widgetWithIcon(IconButton, Icons.history_rounded),
-        )
+        .widget<TextButton>(find.byKey(const Key('connectionLoginHistory')))
         .onPressed!();
     await tester.pump();
     expect(credentials.blockedReads, 1);
@@ -284,7 +295,7 @@ void main() {
   for (final desktop in [true, false]) {
     testWidgets('飞翔登录宽屏布局遵守真实桌面开关 $desktop', (tester) async {
       DesktopEnvironment.debugOverridePlatform = desktop;
-      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      await tester.binding.setSurfaceSize(const Size(1280, 720));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final account = _account();
       addTearDown(() => _disposeAccount(account));
@@ -297,11 +308,26 @@ void main() {
       if (desktop) {
         expect(
           tester.getRect(brand).right,
-          lessThan(tester.getRect(form).left),
+          lessThanOrEqualTo(tester.getRect(form).left),
         );
-        expect(tester.getSize(form).width, lessThanOrEqualTo(480));
+        expect(tester.getSize(form).width, lessThanOrEqualTo(630));
         await _capture(tester, 'desktop-login');
+        await tester.pumpWidget(_host(account, light: true));
+        await tester.pumpAndSettle();
+        await _capture(tester, 'desktop-login-light');
       }
+      expect(tester.takeException(), isNull);
+
+      await tester.binding.setSurfaceSize(const Size(899, 720));
+      await tester.pumpAndSettle();
+      expect(brand, findsNothing);
+      expect(form, findsNothing);
+      await tester.binding.setSurfaceSize(const Size(900, 720));
+      await tester.pumpAndSettle();
+      expect(brand, desktop ? findsOneWidget : findsNothing);
+      expect(form, desktop ? findsOneWidget : findsNothing);
+      await tester.ensureVisible(find.text('登录并选择来源'));
+      expect(find.text('登录并选择来源').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -316,10 +342,14 @@ void main() {
     addTearDown(() => _disposeAccount(account));
     await tester.pumpWidget(_host(account));
     await tester.pumpAndSettle();
-    expect(find.text('登录飞翔'), findsOneWidget);
-    expect(find.text('媒体账号登录'), findsOneWidget);
+    expect(find.text('登录并选择来源'), findsOneWidget);
+    expect(find.text('直接连接'), findsOneWidget);
     expect(find.byKey(const Key('flyLoginDesktopForm')), findsNothing);
     await _capture(tester, 'mobile-login');
+    await tester.pumpWidget(_host(account, light: true));
+    await tester.pumpAndSettle();
+    await _capture(tester, 'mobile-login-light');
+    tester.view.physicalSize = const Size(320, 800);
     await tester.pumpWidget(_host(account, textScale: 1.6));
     tester.view.viewInsets = const FakeViewPadding(bottom: 280);
     await tester.pumpAndSettle();
@@ -329,8 +359,8 @@ void main() {
       ).viewInsets.bottom,
       280,
     );
-    await tester.ensureVisible(find.text('登录飞翔'));
-    expect(find.text('登录飞翔').hitTestable(), findsOneWidget);
+    await tester.ensureVisible(find.text('登录并选择来源'));
+    expect(find.text('登录并选择来源').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
     await _capture(tester, 'mobile-login-large-text-keyboard');
   });
@@ -359,9 +389,13 @@ void _disposeAccount(FlyAccountController account) {
 Widget _host(
   FlyAccountController account, {
   double textScale = 1,
+  bool light = false,
   Widget home = const FlyLoginScreen(),
 }) {
-  final baseTheme = AppThemeBuilder.build(AppThemePreset.midnight);
+  final baseTheme = AppThemeBuilder.build(
+    AppThemePreset.midnight,
+    backgroundTone: light ? AppBackgroundTone.pearl : AppBackgroundTone.night,
+  );
   return RepaintBoundary(
     key: _captureKey,
     child: MultiProvider(
@@ -498,3 +532,10 @@ class _DelayedHistoryCredentials extends MemorySecureCredentialBackend {
     return super.read(key);
   }
 }
+
+Finder _flyField(String label) => find.descendant(
+  of: find.byWidgetPredicate(
+    (widget) => widget is LoginField && widget.labelText == label,
+  ),
+  matching: find.byType(TextFormField),
+);

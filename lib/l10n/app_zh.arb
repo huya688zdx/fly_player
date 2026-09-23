@@ -287,8 +287,8 @@
   "connectionFeiniuMedia": "飞牛影视",
   "connectionFeiniuNas": "飞牛 NAS",
   "connectionTagline": "连接您的媒体服务，畅享影音世界",
-  "connectionMoreOptions": "更多选项",
-  "connectionCollapseOptions": "收起更多选项",
+  "connectionMoreOptions": "飞牛高级选项",
+  "connectionCollapseOptions": "收起高级选项",
   "loginErrorGenericFailure": "登录失败，请重试",
   "loginErrorInvalidServerAddress": "服务器地址格式不正确",
   "loginErrorInvalidCredentials": "用户名或密码错误",
@@ -3845,7 +3845,7 @@
   "flyAccountRemove": "移除",
   "flyAccountTitle": "账号与媒体来源",
   "flyAccountSharedAccountSubtitle": "飞翔账号 · App 与 NAS 共用",
-  "flyAccountLogout": "切换账号",
+  "flyAccountLogout": "退出并切换账号",
   "flyAccountMySources": "我的媒体来源",
   "flyAccountChooseSourceSubtitle": "选择一个来源，回到熟悉的媒体库继续观看。",
   "flyAccountRefreshSources": "刷新媒体来源",
@@ -3903,10 +3903,10 @@
   "flyAccountBrand": "飞翔",
   "flyAccountTagline": "连接你的媒体，继续你的观看",
   "flyAccountLoginTitle": "登录飞翔账号",
-  "flyAccountLoginSubtitle": "与 NAS 共用一个账号，管理媒体来源和观看记录。",
+  "flyAccountLoginSubtitle": "使用飞翔后台的账号，获取已绑定的媒体来源。",
   "flyAccountStatusConnectable": "可连接",
-  "flyAccountStatusOffline": "暂时离线，可尝试连接",
-  "flyAccountStatusReauthRequired": "需要重新登录媒体账号",
+  "flyAccountStatusOffline": "后台标记离线",
+  "flyAccountStatusReauthRequired": "需重新授权",
   "flyAccountStatusUnbound": "已移除，播放历史保留",
   "flyAccountStatusUnavailable": "暂不可用",
   "flyAccountSourceSettings": "来源设置",
@@ -4231,5 +4231,52 @@
   "flyCatalogSyncedInfoConnectionHint": "同步资料不代表当前地址可连接。连接遇到问题时，可在“账号与媒体来源”中重试或打开连接设置。",
   "flyCatalogSyncedInfoTooltip": "同步节目说明",
   "flyCatalogLoadTitlesAction": "读取已同步节目",
-  "flyCatalogCurrentTitleAssistant": "资料助手 · 当前节目"
+  "flyCatalogCurrentTitleAssistant": "资料助手 · 当前节目",
+  "accountConnectionFlyMode": "飞翔账号",
+  "accountConnectionDirectMode": "直接连接",
+  "accountProcessing": "处理中…",
+  "accountBrandFlyTitle": "一个账号，连接你的媒体",
+  "accountBrandFlyDescription": "登录飞翔账号后，选择已绑定的媒体来源。",
+  "accountBrandDirectTitle": "直接连接，进入媒体库",
+  "accountBrandDirectDescription": "使用媒体服务的地址和账号，连接你的私人媒体库。",
+  "accountBrandFlyPath": "飞翔账号 → 选择来源 → 媒体库",
+  "accountBrandDirectPath": "选择媒体服务 → 登录 → 媒体库",
+  "connectionDirectTitle": "直接连接媒体服务",
+  "connectionDirectSubtitle": "不经过飞翔账号，使用媒体服务自己的账号登录。",
+  "connectionAccountForBackendLabel": "{backend} 账号",
+  "@connectionAccountForBackendLabel": {
+    "placeholders": {
+      "backend": {
+        "type": "String"
+      }
+    }
+  },
+  "connectionLoginAndEnter": "登录并进入媒体库",
+  "connectionLoggingIn": "正在登录…",
+  "connectionFeiniuAddressLabel": "飞牛地址 / FN Connect ID",
+  "connectionFeiniuAddressHelp": "支持飞牛服务器地址或 FN Connect ID。",
+  "connectionDirectLoginNote": "本次登录只用于 {backend}，不会自动添加飞翔绑定。",
+  "@connectionDirectLoginNote": {
+    "placeholders": {
+      "backend": {
+        "type": "String"
+      }
+    }
+  },
+  "connectionSwitchToFlyFailed": "切换未完成，请稍后重试。",
+  "flyAccountServiceAddressExplanation": "填写飞翔服务地址，不是飞牛或 Emby 的媒体服务地址。",
+  "flyAccountLoginSelectSource": "登录并选择来源",
+  "flyAccountLoggedIn": "账号已登录",
+  "flyAccountOtherSources": "切换到其他来源",
+  "flyAccountSwitchAndEnter": "切换并进入",
+  "flyAccountTryConnect": "尝试连接",
+  "flyAccountConnecting": "正在连接",
+  "flyAccountRefreshing": "正在刷新",
+  "flyAccountLogoutConfirmTitle": "退出并切换账号？",
+  "flyAccountLogoutConfirmMessage": "将退出当前飞翔账号，并断开本机正在使用的媒体来源。登录记录会保留；退出后可以选择已有记录，或登录另一个账号。不会解除后台绑定。",
+  "flyAccountLogoutConfirmAction": "退出并继续",
+  "flyAccountReuseAuthorization": "使用飞翔账号已有的绑定授权，无需再次登录媒体服务。",
+  "flyAccountIndependentCredentials": "飞翔账号与媒体账号相互独立，请勿混用密码。",
+  "connectionShowPassword": "显示密码",
+  "connectionHidePassword": "隐藏密码"
 }
