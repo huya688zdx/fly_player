@@ -56,7 +56,7 @@ class TvSeasonPanelActions {
   final String playLabel;
   final bool watched;
   final bool downloaded;
-  final VoidCallback onPlayTap;
+  final VoidCallback? onPlayTap;
   final VoidCallback onDownloadTap;
   final VoidCallback onWatchedTap;
 
@@ -137,7 +137,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
     required Widget episodeSection,
     required Widget? creditsSection,
     required Widget? linkSection,
-    required VoidCallback onPlayTap,
+    required VoidCallback? onPlayTap,
     required VoidCallback onDownloadTap,
     required VoidCallback onWatchedTap,
     required VoidCallback onOverviewTap,
@@ -242,6 +242,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
                 onTap: onPlayTap,
+                enabled: onPlayTap != null,
                 backgroundColor: colors.accent,
                 foregroundColor: primaryForeground,
               ),

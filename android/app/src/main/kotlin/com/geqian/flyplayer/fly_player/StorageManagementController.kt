@@ -42,7 +42,8 @@ internal class StorageManagementController(
         val otherCacheFiles =
             (cacheStats.fileCount - danmakuAiCacheStats.fileCount).coerceAtLeast(0)
 
-        val screenshotItems = screenshotLibraryController.listLibrary(hasFileAccess)
+        // 空间统计只需要文件大小与数量，不为整个截图库解码 HDR 格式。
+        val screenshotItems = screenshotLibraryController.listLibrary(hasFileAccess, includeFormat = false)
         val screenshotBytes =
             screenshotItems.fold(0L) { sum, item ->
                 sum + ((item["sizeBytes"] as? Number)?.toLong() ?: 0L)
@@ -109,7 +110,7 @@ internal class StorageManagementController(
             }
 
             ACTION_CLEAR_SCREENSHOTS -> {
-                val items = screenshotLibraryController.listLibrary(hasFileAccess)
+                val items = screenshotLibraryController.listLibrary(hasFileAccess, includeFormat = false)
                 val deleted =
                     screenshotLibraryController.deleteEntries(
                         items.mapNotNull { entry ->

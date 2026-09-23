@@ -77,7 +77,7 @@ internal class ScreenshotDirectoryAccessController(
         return currentDirectorySummary()
     }
 
-    fun listImageEntries(): List<Map<String, Any?>> {
+    fun listImageEntries(includeFormat: Boolean = true): List<Map<String, Any?>> {
         val treeUri = currentTreeUri() ?: return emptyList()
         if (!hasPersistedReadPermission(treeUri)) {
             return emptyList()
@@ -132,20 +132,24 @@ internal class ScreenshotDirectoryAccessController(
                     val documentUri =
                         DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
                     val format =
-                        ScreenshotImageFormatInspector.inspectUri(
-                            contentResolver = contentResolver,
-                            uri = documentUri,
-                            displayName = displayName,
-                            mimeType = mimeType,
-                        )
+                        if (includeFormat) {
+                            ScreenshotImageFormatInspector.inspectUri(
+                                contentResolver = contentResolver,
+                                uri = documentUri,
+                                displayName = displayName,
+                                mimeType = mimeType,
+                            )
+                        } else {
+                            null
+                        }
                     entries +=
                         mapOf(
                             "id" to "custom:$documentId",
                             "name" to displayName,
                             "sourceKind" to "custom",
                             "locationLabel" to directoryLabel,
-                            "formatKind" to format.formatKind,
-                            "isHdr" to format.isHdr,
+                            "formatKind" to (format?.formatKind ?: ""),
+                            "isHdr" to (format?.isHdr ?: false),
                             "sizeBytes" to sizeBytes,
                             "modifiedAtMs" to modifiedAtMs,
                             "isScoped" to true,

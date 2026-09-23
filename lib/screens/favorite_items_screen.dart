@@ -89,10 +89,11 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   late final Map<_FavoriteTab, ScrollController> _tabScrollControllers;
   late final Map<_FavoriteTab, _FavoriteTabData> _tabData;
 
-  Map<String, dynamic> _localeMap = <String, dynamic>{};
+  final Map<String, dynamic> _localeMap = <String, dynamic>{};
   Map<String, List<dynamic>> _tagOptions = <String, List<dynamic>>{};
   Map<int, String> _genresFromApi = <int, String>{};
   Map<String, String> _locateFromApi = <String, String>{};
+  Future<void>? _filterMetadataFuture;
   final Map<String, MediaLibraryItem> _episodePosterParentCache =
       <String, MediaLibraryItem>{};
   final Map<String, MediaImageRequest> _itemImageRequests =
@@ -177,30 +178,38 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
         _viewType = MediaCollectionViewTypeX.fromStorage(setting.viewType);
       });
     }
-    const localeMap = <String, dynamic>{};
-    final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
-    final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
+    await _fetch(tab: _selectedTab, reset: true);
+    if (mounted) unawaited(_loadFilterMetadata());
+  }
 
-    Map<String, List<dynamic>> tags = const <String, List<dynamic>>{};
+  Future<void> _loadFilterMetadata() =>
+      _filterMetadataFuture ??= _loadFilterMetadataOnce();
+
+  Future<void> _loadFilterMetadataOnce() async {
+    if (!_isFeiniuBackend) return;
+    final api = FeiniuApi(context.read<NasProvider>());
     try {
-      tags = await api.getTagList(isFavorite: 1);
+      final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
+      if (!mounted) return;
+      final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
+      if (!mounted) return;
+      final tags = await api.getTagList(isFavorite: 1);
+      if (!mounted) return;
+      setState(() {
+        _genresFromApi = genresMap;
+        _locateFromApi = locateMap;
+        _tagOptions = tags;
+      });
     } catch (error, stackTrace) {
-      await logSwallowedError(
-        action: 'load favorite tag filters',
-        error: error,
-        stackTrace: stackTrace,
-        source: 'favorite_items_screen',
+      unawaited(
+        logSwallowedError(
+          action: 'load favorite tag filters',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'favorite_items_screen',
+        ),
       );
     }
-
-    if (!mounted) return;
-    setState(() {
-      _localeMap = localeMap;
-      _genresFromApi = genresMap;
-      _locateFromApi = locateMap;
-      _tagOptions = tags;
-    });
-    await _fetch(tab: _selectedTab, reset: true);
   }
 
   List<String>? _tabTypeFilter(_FavoriteTab tab) {
@@ -986,27 +995,11 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       return;
     }
 
-    final provider = context.read<NasProvider>();
-    Map<String, dynamic>? initialDetail;
-    try {
-      initialDetail = await FeiniuApi(
-        provider,
-      ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
-    } catch (error, stackTrace) {
-      await logSwallowedError(
-        action: 'prefetch favorite item detail',
-        id: item.guid,
-        error: error,
-        stackTrace: stackTrace,
-        source: 'favorite_items_screen',
-      );
-    }
-    if (!mounted) return;
     await AdaptiveDetailNavigator.open<void>(
       context,
       AdaptiveDetailRequest.item(
         itemGuid: item.guid,
-        initialItemDetail: initialDetail,
+        initialItemDetail: item.toJson(),
         // Emby 等直链后端：push 前预取详情 hero（背景图优先、海报兜底）。
         // 飞牛条目这两个字段是空/相对路径，导航层自动回退旧管线。
         heroImageRefs: <MediaImageRef>[

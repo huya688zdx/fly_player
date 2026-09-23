@@ -109,6 +109,8 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
   }
 
   Future<void> _openFilterSheet() async {
+    await _loadFilterMetadata();
+    if (!mounted) return;
     if (DesktopEnvironment.isDesktopPlatform) {
       _setStateIfMounted(() {
         _filterDraft = _filterDraft == null

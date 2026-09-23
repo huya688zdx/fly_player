@@ -234,7 +234,7 @@ void main() {
         'lib/pages/play_detail_page.dart': 2,
         'lib/pages/tv_detail_page.dart': 4,
         'lib/pages/tv_season_detail_page.dart': 1,
-        'lib/screens/category_items_screen.dart': 2,
+        'lib/screens/category_items_screen.dart': 1,
         'lib/screens/connection_screen.dart': 4,
         'lib/screens/favorite_items_screen.dart': 3,
         'lib/screens/media_list_screen.dart': 8,

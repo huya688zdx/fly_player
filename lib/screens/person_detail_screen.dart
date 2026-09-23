@@ -166,6 +166,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       return;
     }
 
+    final loadVersion = ++_jobLoadVersion;
     setState(() {
       _isLoading = true;
       _error = null;
@@ -197,12 +198,11 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     // 不进飞牛的按职务分页路径。数据/导航层按 backend 能力分支，UI 渲染不写 if(isEmby)。
     final backend = context.read<MediaBackendProvider>().backend;
     if (backend.capabilities.kind != MediaBackendKind.feiniu) {
-      await _loadNeutral(backend);
+      await _loadNeutral(backend, loadVersion);
       return;
     }
 
     final api = FeiniuApi(context.read<NasProvider>());
-    final loadVersion = ++_jobLoadVersion;
     final localeFuture = Future.value(_localeMap);
     try {
       final personFuture = _loadPersonDetail(api, widget.personGuid);
@@ -250,23 +250,21 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     }
   }
 
-  /// Emby 等公共后端的人物详情加载：并行取人物详情（姓名/简介/照片/外部 ID）+ 作品列表。
-  Future<void> _loadNeutral(MediaBackend backend) async {
+  /// 中立人物详情先展示，作品列表在首帧后补齐。
+  Future<void> _loadNeutral(MediaBackend backend, int loadVersion) async {
     _neutralDisplayOnly = true;
     try {
-      final results = await Future.wait(<Future<Object>>[
-        backend.getItemDetail(widget.personGuid),
-        backend.getPersonItems(widget.personGuid),
-      ]);
-      if (!mounted) return;
+      final detail = await backend.getItemDetail(widget.personGuid);
+      if (!mounted || loadVersion != _jobLoadVersion) return;
       setState(() {
-        _neutralDetail = results[0] as MediaDetail;
-        _neutralWorks = results[1] as List<MediaItemCard>;
+        _neutralDetail = detail;
+        _neutralWorks = const [];
         _isLoading = false;
         _error = null;
       });
+      unawaited(_loadNeutralWorks(backend, loadVersion));
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || loadVersion != _jobLoadVersion) return;
       setState(() {
         _error = AppException.from(
           e,
@@ -275,6 +273,24 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         );
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadNeutralWorks(MediaBackend backend, int loadVersion) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || loadVersion != _jobLoadVersion) return;
+    try {
+      final works = await backend.getPersonItems(widget.personGuid);
+      if (!mounted || loadVersion != _jobLoadVersion) return;
+      setState(() => _neutralWorks = works);
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load neutral person works',
+        id: widget.personGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'person_detail_screen',
+      );
     }
   }
 

@@ -74,6 +74,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   final ScrollController _scrollController = ScrollController();
 
   bool _metaLoaded = false;
+  Future<void>? _metaLoadFuture;
   String _sortColumn = 'create_time';
   String _sortType = 'DESC';
   MediaCollectionViewType _viewType = MediaCollectionViewType.verticalPoster;
@@ -145,12 +146,44 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   }
 
   Future<void> _initLoad() async {
-    await _loadMeta();
+    await _loadListSetting();
+    if (!mounted) return;
     await _fetch();
+    if (mounted) unawaited(_loadMeta());
   }
 
-  Future<void> _loadMeta() async {
-    if (_metaLoaded) return;
+  Future<void> _loadListSetting() async {
+    if (_isLiveCatalog ||
+        !_isFeiniuBackend ||
+        widget.category.id.trim().isEmpty) {
+      return;
+    }
+    try {
+      final setting = await FeiniuApi(
+        context.read<NasProvider>(),
+      ).getUserListSetting(widget.category.id);
+      if (!mounted || setting == null) return;
+      setState(() {
+        _sortColumn = setting.sortField;
+        _sortType = setting.sortType == 'ASC' ? 'ASC' : 'DESC';
+        _viewType = MediaCollectionViewTypeX.fromStorage(setting.viewType);
+      });
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'load category list setting',
+          id: widget.category.id,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'category_items_screen',
+        ),
+      );
+    }
+  }
+
+  Future<void> _loadMeta() => _metaLoadFuture ??= _loadMetaOnce();
+
+  Future<void> _loadMetaOnce() async {
     if (_isLiveCatalog) {
       setState(() {
         _metaLoaded = true;
@@ -164,27 +197,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       });
       return;
     }
-    final provider = context.read<NasProvider>();
-    final api = FeiniuApi(provider);
     final backend = context.read<MediaBackendProvider>().backend;
-    final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
-    final hasAncestor = widget.category.id.trim().isNotEmpty;
-    UserListSetting? setting;
-    // 列表排序/视图偏好是飞牛专属持久化（mdb 用户设置端点）；其它后端（Emby）无此口径，
-    // 跳过读取，用页面默认值。
-    if (hasAncestor && isFeiniu) {
-      try {
-        setting = await api.getUserListSetting(widget.category.id);
-      } catch (error, stackTrace) {
-        await logSwallowedError(
-          action: 'load category list setting',
-          id: widget.category.id,
-          error: error,
-          stackTrace: stackTrace,
-          source: 'category_items_screen',
-        );
-      }
-    }
     var schema = const MediaCatalogFilterSchema();
     try {
       schema = await backend.getCatalogFilterSchema(widget.category.id);
@@ -204,11 +217,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       _metaLoaded = true;
       _schema = schema;
       _localeMap = const <String, dynamic>{};
-      if (setting != null) {
-        _sortColumn = setting.sortField;
-        _sortType = setting.sortType == 'ASC' ? 'ASC' : 'DESC';
-        _viewType = MediaCollectionViewTypeX.fromStorage(setting.viewType);
-      }
     });
   }
 

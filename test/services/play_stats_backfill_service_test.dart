@@ -13,32 +13,62 @@ import 'package:fly_player/services/play_stats/play_stats_repositories.dart';
 import 'package:sqflite/sqflite.dart';
 
 void main() {
-  test(
-    'drained metadata run releases its active future for the next account/run',
-    () async {
-      final gateway = _FakeBackfillGateway({
-        'video-1': {'type': 'movie', 'title': 'First'},
-      });
-      final database = _FakeDatabase();
-      final service = PlayStatsMetadataBackfillService(
-        database: database,
-        videoStatsRepository: _FakeVideoStatsRepository(
-          _Harness._existingRecord,
-        ),
-        videoCreditStatsRepository: _FakeVideoCreditStatsRepository(),
-      );
-      await service.backfillNow(
-        gateway: gateway,
-        preferredVideoIds: ['video-1'],
-      );
-      await service.drainPendingWrites();
-      await service.backfillNow(
-        gateway: gateway,
-        preferredVideoIds: ['video-1'],
-      );
-      expect(gateway.detailRequests, ['video-1', 'video-1']);
-    },
-  );
+  test('回填失效后停止详情级联，等待的新页面继续自身回填', () async {
+    final gateway = _FakeBackfillGateway({
+      'video-1': {'type': 'episode', 'title': '第一集', 'parent_guid': 'season-1'},
+      'season-1': {'title': '第一季'},
+    });
+    final nextGateway = _FakeBackfillGateway({
+      'video-1': {'type': 'movie', 'title': '电影'},
+    });
+    final database = _FakeDatabase();
+    final service = PlayStatsMetadataBackfillService(
+      database: database,
+      videoStatsRepository: _FakeVideoStatsRepository(_Harness._existingRecord),
+      videoCreditStatsRepository: _FakeVideoCreditStatsRepository(),
+    );
+    final active = service.backfillNow(
+      gateway: gateway,
+      preferredVideoIds: ['video-1'],
+      isActive: () => gateway.detailRequests.isEmpty,
+    );
+    final next = service.backfillNow(
+      gateway: nextGateway,
+      preferredVideoIds: ['video-1'],
+      limit: 1,
+      isActive: () => true,
+    );
+    expect(nextGateway.detailRequests, isEmpty);
+    await service.drainPendingWrites();
+    expect(gateway.detailRequests, ['video-1']);
+    expect(gateway.creditRequests, isEmpty);
+    expect(nextGateway.detailRequests, ['video-1']);
+    expect(nextGateway.creditRequests, ['video-1']);
+    expect(database.executor.updates['video_stats']?['title'], '电影');
+    await Future.wait([active, next]);
+  });
+  test('limit 限制整轮候选总数，超额候选不留到下一轮', () async {
+    final repository = _FakeVideoStatsRepository(_Harness._existingRecord);
+    final gateway = _FakeBackfillGateway({
+      'video-1': {'type': 'movie', 'title': '电影'},
+    });
+    final service = PlayStatsMetadataBackfillService(
+      database: _FakeDatabase(),
+      videoStatsRepository: repository,
+      videoCreditStatsRepository: _FakeVideoCreditStatsRepository(),
+    );
+
+    await service.backfillNow(
+      gateway: gateway,
+      preferredVideoIds: ['video-1', 'video-2', 'video-3'],
+      limit: 1,
+    );
+    expect(repository.requestedVideoIds, ['video-1']);
+    expect(gateway.detailRequests, ['video-1']);
+
+    await service.backfillNow(gateway: gateway, limit: 1);
+    expect(repository.requestedVideoIds, ['video-1']);
+  });
   group('回填判型只认 type == movie', () {
     // 两个用例喂完全相同的详情载荷，只有 type 不同：能观察到的差异就只可能来自判型。
     Map<String, dynamic> itemDetail(String type) => <String, dynamic>{
@@ -334,12 +364,14 @@ class _FakeVideoStatsRepository implements VideoStatsRepository {
   _FakeVideoStatsRepository(this._record);
 
   final VideoStatsRecord _record;
+  final List<String> requestedVideoIds = [];
 
   @override
   Future<VideoStatsRecord?> getByVideoId(
     String videoId, {
     DatabaseExecutor? executor,
   }) async {
+    requestedVideoIds.add(videoId);
     return videoId == _record.videoId ? _record : null;
   }
 

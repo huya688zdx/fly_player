@@ -57,7 +57,10 @@ class PosterBrowseArtworkEnricher {
   /// 测试可见：当前成功 LRU 缓存条目数。
   int get cacheLength => _cache.length;
 
-  Future<PosterBrowseEnrichment> enrich(MediaItemCard card) {
+  Future<PosterBrowseEnrichment> enrich(
+    MediaItemCard card, {
+    bool Function()? isActive,
+  }) {
     final key = _cacheKey(card);
     final temporaryFailure = _temporaryFailures[key];
     if (temporaryFailure != null) {
@@ -79,12 +82,13 @@ class PosterBrowseArtworkEnricher {
     }
 
     final requestGeneration = _clearGeneration;
+    bool canContinue() =>
+        requestGeneration == _clearGeneration && (isActive?.call() ?? true);
     late final Future<PosterBrowseEnrichment> future;
-    future = _load(card)
+    future = _load(card, isActive: canContinue)
         .then((result) {
           final stillCurrent =
-              requestGeneration == _clearGeneration &&
-              identical(_inFlight[key], future);
+              canContinue() && identical(_inFlight[key], future);
           if (!stillCurrent) {
             return result;
           }
@@ -159,8 +163,13 @@ class PosterBrowseArtworkEnricher {
 
   String _cacheKey(MediaItemCard card) => '$sessionKey|${card.id.trim()}';
 
-  Future<PosterBrowseEnrichment> _load(MediaItemCard card) async {
+  Future<PosterBrowseEnrichment> _load(
+    MediaItemCard card, {
+    required bool Function() isActive,
+  }) async {
+    if (!isActive()) return const PosterBrowseEnrichment();
     final itemDetailLookup = await _loadDetail(card.id);
+    if (!isActive()) return const PosterBrowseEnrichment();
     final detailSeriesId = itemDetailLookup.value?.seriesId.trim() ?? '';
     final seriesId = detailSeriesId.isNotEmpty
         ? detailSeriesId
@@ -168,19 +177,15 @@ class PosterBrowseArtworkEnricher {
     final cardId = card.id.trim();
     final shouldLoadSeries = seriesId.isNotEmpty && seriesId != cardId;
 
-    Future<_Lookup<MediaDetail>>? seriesDetailFuture;
-    Future<_Lookup<List<MediaSeasonSummary>>>? seasonsFuture;
+    var seriesDetailLookup = const _Lookup<MediaDetail>.empty();
+    var seasonsLookup = const _Lookup<List<MediaSeasonSummary>>.value(
+      <MediaSeasonSummary>[],
+    );
     if (shouldLoadSeries) {
-      seriesDetailFuture = _loadDetail(seriesId);
-      seasonsFuture = _loadSeasons(seriesId);
+      seriesDetailLookup = await _loadDetail(seriesId);
+      if (!isActive()) return const PosterBrowseEnrichment();
+      seasonsLookup = await _loadSeasons(seriesId);
     }
-
-    final seriesDetailLookup = seriesDetailFuture == null
-        ? const _Lookup<MediaDetail>.empty()
-        : await seriesDetailFuture;
-    final seasonsLookup = seasonsFuture == null
-        ? const _Lookup<List<MediaSeasonSummary>>.value(<MediaSeasonSummary>[])
-        : await seasonsFuture;
     final season = _matchSeason(
       seasonsLookup.value ?? const <MediaSeasonSummary>[],
       card.seasonNumber,

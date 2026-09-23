@@ -89,6 +89,8 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
   DanmakuSettings _danmakuSettings = DanmakuSettings.defaults;
   List<PlayerBookmarkEntry> _bookmarks = const <PlayerBookmarkEntry>[];
   bool _loading = true;
+  int _loadGeneration = 0;
+  int _bookmarkLoadGeneration = 0;
 
   @override
   void initState() {
@@ -104,10 +106,12 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
   }
 
   void _handleBookmarkStoreChanged() {
-    unawaited(_loadSettings());
+    unawaited(_loadBookmarks());
   }
 
   Future<void> _loadSettings() async {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
     final results = await Future.wait<Object?>(<Future<Object?>>[
       _tolerantLoad(
         'load screenshot settings',
@@ -122,25 +126,39 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
         _danmakuStore.load,
         DanmakuSettings.defaults,
       ),
-      _tolerantLoad(
-        'load bookmarks',
-        _bookmarkStore.loadAll,
-        const <PlayerBookmarkEntry>[],
-      ),
-      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
-        'load screenshot custom directory',
-        StorageAccessService.getScreenshotCustomDirectory,
-        null,
-      ),
     ]);
-    if (!mounted) return;
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
       _screenshotSettings = results[0] as ScreenshotSettingsData;
       _danmakuSettings = results[1] as DanmakuSettings;
-      _bookmarks = results[2] as List<PlayerBookmarkEntry>;
-      _customScreenshotDirectory = results[3] as ScreenshotCustomDirectoryInfo?;
       _loading = false;
     });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _loadGeneration) return;
+    unawaited(_loadBookmarks());
+    unawaited(_loadScreenshotDirectory(generation));
+  }
+
+  Future<void> _loadBookmarks() async {
+    if (!mounted) return;
+    final generation = ++_bookmarkLoadGeneration;
+    final entries = await _tolerantLoad(
+      'load bookmarks',
+      _bookmarkStore.loadAll,
+      const <PlayerBookmarkEntry>[],
+    );
+    if (!mounted || generation != _bookmarkLoadGeneration) return;
+    setState(() => _bookmarks = entries);
+  }
+
+  Future<void> _loadScreenshotDirectory(int generation) async {
+    final info = await _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+      'load screenshot custom directory',
+      StorageAccessService.getScreenshotCustomDirectory,
+      null,
+    );
+    if (!mounted || generation != _loadGeneration) return;
+    setState(() => _customScreenshotDirectory = info);
   }
 
   Future<void> _openBookmarkManager() async {
@@ -149,7 +167,6 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
         const BookmarkManagerScreen(),
       ),
     );
-    await _loadSettings();
   }
 
   Future<void> _openDanmakuSettings() async {
@@ -376,6 +393,7 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
   ScreenshotCustomDirectoryInfo? _customDirectoryInfo;
   bool _loading = true;
   bool _initialTargetHandled = false;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -384,33 +402,38 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final results = await Future.wait<Object?>(<Future<Object?>>[
-      _tolerantLoad(
-        'load screenshot settings',
-        _store.load,
-        const ScreenshotSettingsData(
-          includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
-          savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
-        ),
-      ),
-      _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
-        'load screenshot custom directory',
-        StorageAccessService.getScreenshotCustomDirectory,
-        null,
-      ),
-    ]);
     if (!mounted) return;
+    final generation = ++_loadGeneration;
+    final settings = await _tolerantLoad(
+      'load screenshot settings',
+      _store.load,
+      const ScreenshotSettingsData(
+        includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+        savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+      ),
+    );
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
-      _settings = results[0] as ScreenshotSettingsData;
-      _customDirectoryInfo = results[1] as ScreenshotCustomDirectoryInfo?;
+      _settings = settings;
       _loading = false;
     });
     if (!_initialTargetHandled && widget.initialTarget != null) {
       _initialTargetHandled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || generation != _loadGeneration) return;
         unawaited(_openInitialTarget());
       });
+      return;
     }
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _loadGeneration) return;
+    final info = await _tolerantLoad<ScreenshotCustomDirectoryInfo?>(
+      'load screenshot custom directory',
+      StorageAccessService.getScreenshotCustomDirectory,
+      null,
+    );
+    if (!mounted || generation != _loadGeneration) return;
+    setState(() => _customDirectoryInfo = info);
   }
 
   Route<void> _buildAutoRoute(

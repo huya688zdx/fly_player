@@ -51,37 +51,36 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
     _loadMetadataMaps();
   }
 
-  List<String> _collectVideoIds(PlayStatsDebugSnapshot snapshot) {
+  Iterable<String> _collectVideoIds(PlayStatsDebugSnapshot snapshot) sync* {
     final ids = <String>{};
     for (final anime in snapshot.animes) {
       for (final season in anime.seasons) {
         for (final video in season.videos) {
           final id = video.video.videoId.trim();
-          if (id.isNotEmpty) {
-            ids.add(id);
+          if (id.isNotEmpty && ids.add(id)) {
+            yield id;
           }
         }
       }
       for (final video in anime.ungroupedVideos) {
         final id = video.video.videoId.trim();
-        if (id.isNotEmpty) {
-          ids.add(id);
+        if (id.isNotEmpty && ids.add(id)) {
+          yield id;
         }
       }
     }
     for (final movie in snapshot.movies) {
       final id = movie.video.videoId.trim();
-      if (id.isNotEmpty) {
-        ids.add(id);
+      if (id.isNotEmpty && ids.add(id)) {
+        yield id;
       }
     }
     for (final video in snapshot.orphanVideos) {
       final id = video.video.videoId.trim();
-      if (id.isNotEmpty) {
-        ids.add(id);
+      if (id.isNotEmpty && ids.add(id)) {
+        yield id;
       }
     }
-    return ids.toList(growable: false);
   }
 
   Future<void> _loadMetadataMaps() async {
@@ -131,23 +130,39 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
   Future<void> _triggerMetadataBackfill({
     Iterable<String> preferredVideoIds = const <String>[],
   }) async {
-    if (_metadataBackfillRunning) {
+    if (!mounted || _metadataBackfillRunning) {
       return;
     }
+    final provider = context.read<NasProvider>();
     final gateway = MediaBackendRegistry.createPlayStatsMetadataGateway(
-      context.read<NasProvider>(),
+      provider,
     );
     if (gateway == null) {
       return;
     }
+    final service = PlayStatsService.instance;
+    final scope = service.currentScope;
+    final baseUrl = provider.baseUrl;
+    final token = provider.token;
+    final route = ModalRoute.of(context);
+    bool isActive() =>
+        mounted &&
+        route?.isCurrent != false &&
+        service.currentScope == scope &&
+        provider.isConfigured &&
+        provider.baseUrl == baseUrl &&
+        provider.token == token;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!isActive() || _metadataBackfillRunning) return;
     setState(() => _metadataBackfillRunning = true);
     try {
       await _backfillService.backfillNow(
         gateway: gateway,
         preferredVideoIds: preferredVideoIds,
         limit: 12,
+        isActive: isActive,
       );
-      if (!mounted) {
+      if (!isActive()) {
         return;
       }
       await _refresh();
