@@ -8,6 +8,7 @@ import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/screens/theme_settings_screen.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/theme/dynamic_theme_seed_extractor.dart';
+import 'package:fly_player/theme/visual_performance.dart';
 import 'package:fly_player/widgets/common/app_ambient_page.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
 import 'package:fly_player/widgets/settings/theme/theme_settings_preview_card.dart';
@@ -67,6 +68,7 @@ void main() {
     expect(provider.backgroundStyle, AppBackgroundStyle.auroraRibbon);
     expect(provider.preset, AppThemePreset.forest);
     await tester.runAsync(() async {
+      await provider.setVisualPerformanceMode(AppVisualPerformanceMode.full);
       await provider.setDynamicThemeMode(AppDynamicThemeMode.detailsAndPeople);
       await provider.setRuntimeDynamicTheme(
         pageKey: 'test:poster',
@@ -169,6 +171,45 @@ void main() {
     await tester.drag(scrollable, const Offset(0, -850));
     await tester.pumpAndSettle();
     expect(tester.getBottomLeft(lastItem).dy, lessThanOrEqualTo(850 - 80));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('表现档位可在主题设置中手动覆盖自动选择', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(404, 850);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final provider = AppThemeProvider();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => provider,
+        child: MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          theme: AppThemeBuilder.build(AppThemePreset.midnight),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ThemeSettingsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final smooth = find.byKey(
+      const ValueKey<String>('visual-performance-smooth'),
+    );
+    await tester.scrollUntilVisible(
+      smooth,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(smooth);
+    await tester.pumpAndSettle();
+
+    expect(provider.visualPerformanceMode, AppVisualPerformanceMode.smooth);
+    expect(provider.visualPerformanceTier, AppVisualPerformanceTier.smooth);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('app_theme_visual_performance_mode'), 'smooth');
     expect(tester.takeException(), isNull);
   });
 }

@@ -1,6 +1,7 @@
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/theme/visual_performance.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
 import 'package:fly_player/widgets/detail/detail_hero_overlay.dart';
 import 'package:fly_player/widgets/detail/immersive_detail_background.dart';
@@ -51,6 +52,7 @@ void main() {
     expect(wash.palette.base, baseColors.backgroundBase);
     expect(wash.palette.accentGlow.withValues(alpha: 1), ambientTint);
     expect(wash.palette.accentGlow.a, greaterThan(.10));
+    expect(find.byType(AppAtmosphereStaticLayer), findsOneWidget);
   });
 
   testWidgets('海报与正文交接层完全属于海报且不侵入正文', (tester) async {
@@ -423,6 +425,49 @@ void main() {
       ),
       findsNothing,
     );
+  });
+
+  testWidgets('流畅档让详情大图正常随正文滚动并取消额外视差', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final provider = AppThemeProvider();
+    await provider.setVisualPerformanceMode(AppVisualPerformanceMode.smooth);
+    final baseColors = AppThemeBuilder.build(
+      AppThemePreset.midnight,
+    ).extension<AppThemeColors>()!;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => provider,
+        child: MaterialApp(
+          theme: AppThemeBuilder.build(AppThemePreset.midnight),
+          home: AppRuntimeColorScope(
+            colors: baseColors,
+            hasRuntimeColors: true,
+            child: const Scaffold(
+              body: ImmersiveDetailBackground(
+                images: MediaImageRequest.empty,
+                scrollOffset: 96,
+                posterHeight: 400,
+                ambientTintOverride: Color(0xFF65A85D),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final regionTransform = tester.widget<Transform>(
+      find.byKey(const ValueKey<String>('detail-hero-region-scroll-follow')),
+    );
+    final imageTransform = tester.widget<Transform>(
+      find.byKey(const ValueKey<String>('detail-hero-image-parallax')),
+    );
+    final regionShiftY = regionTransform.transform.storage[13];
+    final imageCompensationY = imageTransform.transform.storage[13];
+
+    expect(regionShiftY, closeTo(-96, 0.01));
+    expect(imageCompensationY, closeTo(0, 0.01));
+    expect(regionShiftY + imageCompensationY, closeTo(-96, 0.01));
   });
 
   testWidgets('小数滚动偏移时海报裁切边界对齐物理像素', (tester) async {

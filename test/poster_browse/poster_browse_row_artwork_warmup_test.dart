@@ -69,6 +69,23 @@ void main() {
     expect(maxActive, 2);
   });
 
+  test('可限制后台补全数量', () async {
+    final loaded = <String>[];
+
+    await const PosterBrowseRowArtworkWarmup(maxConcurrent: 1).run(
+      items: <MediaItemCard>[_card('a'), _card('b'), _card('c')],
+      limit: 1,
+      load: (card) async {
+        loaded.add(card.id);
+        return const PosterBrowseEnrichment();
+      },
+      onLoaded: (_, __) {},
+      isActive: () => true,
+    );
+
+    expect(loaded, <String>['a']);
+  });
+
   test('会话失效后不再领取队列中的新条目', () async {
     final first = Completer<PosterBrowseEnrichment>();
     final loaded = <String>[];

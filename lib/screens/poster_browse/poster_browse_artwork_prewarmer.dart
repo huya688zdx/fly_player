@@ -9,10 +9,10 @@ import 'poster_browse_artwork_priority.dart';
 typedef PosterBrowsePrewarmLoad =
     Future<PosterBrowseEnrichment> Function(MediaItemCard card);
 
-/// 首屏需要在展示前补全的封面数量。
+/// 首页在后台预热海报浏览素材时采用的优先数量。
 ///
 /// 竖屏弧形列表只会突出中心和左右邻居；横屏一行会同时露出更多卡片，
-/// 但最多等待八张，避免弱性能设备因素材请求过多拖慢首次进入。
+/// 但最多预热八张，避免弱性能设备因素材请求过多争用首页资源。
 abstract final class PosterBrowseInitialArtworkPolicy {
   static const int _portraitVisibleCount = 3;
   static const int _landscapeVisibleCount = 8;

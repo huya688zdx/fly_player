@@ -416,7 +416,6 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _syncPlayStatsOwner(SharedPreferences prefs) async {
-    if (PlayStatsService.instance.hasUnifiedBinding) return;
     final nextOwnerKey = _currentPlayStatsOwnerKey();
     await PlayStatsService.instance.bindOwnerScope(nextOwnerKey);
     if (nextOwnerKey.isEmpty) {
