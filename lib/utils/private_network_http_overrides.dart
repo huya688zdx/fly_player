@@ -30,7 +30,7 @@ class PrivateNetworkHttpOverrides extends HttpOverrides {
     }
     final address = InternetAddress.tryParse(normalized);
     if (address != null) {
-      return _isPrivateAddress(address);
+      return isPrivateAddress(address);
     }
     if (normalized == 'localhost') {
       return true;
@@ -38,7 +38,7 @@ class PrivateNetworkHttpOverrides extends HttpOverrides {
     return false;
   }
 
-  static bool _isPrivateAddress(InternetAddress address) {
+  static bool isPrivateAddress(InternetAddress address) {
     if (address.isLoopback || address.isLinkLocal) {
       return true;
     }

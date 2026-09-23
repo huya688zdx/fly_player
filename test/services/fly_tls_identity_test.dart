@@ -19,6 +19,14 @@ class _PermissiveMediaOverride extends HttpOverrides {
 
 void main() {
   _NetworkBinding();
+  test('飞翔服务的 Tailscale 地址直连，公网地址保留环境代理', () {
+    expect(flyServiceProxy(Uri.parse('http://100.125.130.96:8787')), 'DIRECT');
+    final public = Uri.parse('https://fly.example.com');
+    expect(
+      flyServiceProxy(public),
+      HttpClient.findProxyFromEnvironment(public),
+    );
+  });
   test(
     'Fly authentication and public media probes reject real self-signed TLS despite global media override',
     () async {
@@ -49,7 +57,7 @@ void main() {
       final previous = HttpOverrides.current;
       HttpOverrides.global = _PermissiveMediaOverride();
       final url = 'https://127.0.0.1:${server.port}';
-      final control = HttpClient();
+      final control = HttpClient()..findProxy = (_) => 'DIRECT';
       final api = FlyDataApi(url, token: 'must-not-arrive');
       try {
         final response = await (await control.getUrl(Uri.parse(url))).close();
@@ -62,7 +70,10 @@ void main() {
         );
         await expectLater(api.get('/system/identity'), throwsStateError);
         await expectLater(
-          api.bifBytes('/api/v1/bif/assets/e0f07686-66e0-4331-abcd-675476aac219/content', expectedBytes: 84),
+          api.bifBytes(
+            '/api/v1/bif/assets/e0f07686-66e0-4331-abcd-675476aac219/content',
+            expectedBytes: 84,
+          ),
           throwsStateError,
         );
         await expectLater(
