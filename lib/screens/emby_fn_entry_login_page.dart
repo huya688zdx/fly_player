@@ -266,9 +266,9 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         if (!_requiresSecureTarget) return;
       }
 
-      // 已登录的同域页（飞牛桌面）：自动跳一次目标 Emby 地址去触发该服务的令牌签发/校验。
-      if (_isSameFnIdFamily(pageHost) &&
-          (!_requiresSecureTarget || page?.scheme == 'https') &&
+      // 普通 Emby 的已登录同域页自动跳一次目标地址；飞翔由用户手动继续。
+      if (!_requiresSecureTarget &&
+          _isSameFnIdFamily(pageHost) &&
           !blocked &&
           !_autoRedirectedToTarget) {
         _autoRedirectedToTarget = true;
@@ -370,13 +370,24 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0C1724),
         foregroundColor: Colors.white,
-        title: Text(l10n.fnConnectEntryLoginTitle),
+        title: Text(
+          _requiresSecureTarget
+              ? '登录 FN Connect（飞翔）'
+              : l10n.fnConnectEntryLoginTitle,
+        ),
         actions: [
-          IconButton(
-            tooltip: l10n.fnConnectEntryAuthorizedBack,
-            onPressed: _isReady ? () => _loadTargetUrl() : null,
-            icon: const Icon(Icons.check_circle_outline_rounded),
-          ),
+          if (_requiresSecureTarget)
+            TextButton.icon(
+              onPressed: _isReady ? _loadTargetUrl : null,
+              icon: const Icon(Icons.login_rounded),
+              label: const Text('进入飞翔'),
+            )
+          else
+            IconButton(
+              tooltip: l10n.fnConnectEntryAuthorizedBack,
+              onPressed: _isReady ? _loadTargetUrl : null,
+              icon: const Icon(Icons.check_circle_outline_rounded),
+            ),
           IconButton(
             tooltip: l10n.fnConnectEntryReload,
             onPressed: _isReady ? () => _reload() : null,

@@ -291,6 +291,15 @@ void main() {
           .then(result.complete);
       await tester.pump();
 
+      // 根页、登录页和 NAS 桌面都不能自动进入飞翔。
+      await emit(
+        'webMessageReceived',
+        jsonEncode({'pageUrl': rootUrl, 'cookie': 'entry-token=too-early'}),
+      );
+      await tester.pump();
+      expect(loads, <String>[rootUrl]);
+      expect(result.isCompleted, isFalse);
+
       // NAS 登录页不会提前跳转或交付令牌。
       await emit(
         'webMessageReceived',
@@ -303,7 +312,7 @@ void main() {
       expect(loads, <String>[rootUrl]);
       expect(result.isCompleted, isFalse);
 
-      // 已登录 NAS 桌面只会触发一次精确目标跳转，不能提前交付令牌。
+      // NAS 桌面也要等待用户手动继续，不能提前交付令牌。
       await emit(
         'webMessageReceived',
         jsonEncode({
@@ -312,8 +321,15 @@ void main() {
         }),
       );
       await tester.pump();
-      expect(loads, <String>[rootUrl, target]);
+      expect(loads, <String>[rootUrl]);
       expect(result.isCompleted, isFalse);
+
+      await emit('loadingStateChanged', 2);
+      await tester.pump();
+      expect(find.text('登录 FN Connect（飞翔）'), findsOneWidget);
+      await tester.tap(find.text('进入飞翔'));
+      await tester.pump();
+      expect(loads, <String>[rootUrl, target]);
 
       await emit(
         'webMessageReceived',
