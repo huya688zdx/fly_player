@@ -6,12 +6,14 @@ class SessionExitBridge {
 
   const SessionExitBridge._();
 
-  /// 请求宿主在注销前重置并行界面状态。
+  /// 请求宿主在注销时重置并行界面状态。
   static Future<void> logoutAndResetParallelUi() async {
     try {
       await _channel.invokeMethod<void>('logoutAndResetParallelUi');
     } on PlatformException {
-      // Ignore platform cleanup failures and allow logout to proceed.
+      // 宿主清理失败不阻断注销。
+    } on MissingPluginException {
+      // 桌面等没有 Android 分屏宿主的平台无需清理原生窗口。
     }
   }
 }

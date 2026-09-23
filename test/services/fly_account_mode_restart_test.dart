@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -348,8 +349,22 @@ void main() {
   test('飞翔退出即使远端离线也保存飞翔模式，不恢复本地登录入口', () async {
     final original = await create();
     await original.enterLegacyMode();
+    await original.backendSession.saveActive(_direct);
     original.service.session = _session();
+    const channel = MethodChannel('fly_player/embedding');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(original.session, isNull);
+      expect(original.backendSession.isConfigured, isFalse);
+      expect(original.nas.isConfigured, isFalse);
+      calls.add(call.method);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await expectLater(original.logout(), throwsStateError);
+    expect(calls, ['logoutAndResetParallelUi']);
     final restarted = await create();
     await restarted.restore();
     expect(restarted.legacyMode, isFalse);

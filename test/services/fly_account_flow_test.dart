@@ -254,6 +254,10 @@ void main() {
             );
             await account.enterLegacyMode();
             expect(nas.isConfigured, isFalse);
+          } else {
+            await account.logout();
+            expect(account.session, isNull);
+            expect(backend.isConfigured, isFalse);
           }
         } finally {
           account.dispose();
