@@ -1,0 +1,226 @@
+name: 构建正式发布包
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版本号
+        required: true
+        default: '1.0.2'
+        type: string
+      build_number:
+        description: 构建号
+        required: true
+        default: '4'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    name: ${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.flavor }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: android, arch: arm64, flavor: full, os: ubuntu-24.04 }
+          - { platform: android, arch: arm64, flavor: lite, os: ubuntu-24.04 }
+          - { platform: windows, arch: x64, flavor: full, os: windows-2022 }
+          - { platform: windows, arch: x64, flavor: lite, os: windows-2022 }
+          - { platform: linux, arch: x64, flavor: standard, os: ubuntu-24.04 }
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_BUILD: ${{ inputs.build_number }}
+      BUILD_PLATFORM: ${{ matrix.platform }}
+      BUILD_ARCH: ${{ matrix.arch }}
+      BUILD_FLAVOR: ${{ matrix.flavor }}
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 检查版本输入
+        run: |
+          if ($env:RELEASE_VERSION -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw '版本号必须为数字组成的 x.y.z。'
+          }
+          if ($env:RELEASE_BUILD -notmatch '^[1-9][0-9]{0,8}$') {
+            throw '构建号必须为 1 至 9 位正整数。'
+          }
+
+      - name: 配置 Android Java
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Linux 编译依赖
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git curl unzip xz-utils clang lld \
+            cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev libmpv-dev \
+            libepoxy-dev libsecret-1-dev libsqlite3-0 liblzma-dev
+
+      - name: 安装固定 Flutter SDK
+        run: |
+          $flutterDir = Join-Path $env:RUNNER_TEMP 'flutter'
+          git clone --depth 1 --branch 3.41.6 https://github.com/flutter/flutter.git $flutterDir
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter SDK 下载失败。' }
+          $flutterBin = Join-Path $flutterDir 'bin'
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $flutterBin -Encoding utf8
+          $flutterCommand = Join-Path $flutterBin $(if ($IsWindows) { 'flutter.bat' } else { 'flutter' })
+          & $flutterCommand --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter SDK 初始化失败。' }
+
+      - name: 安装项目依赖
+        run: |
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter 项目依赖安装失败。' }
+
+      - name: 注入凭据并构建
+        env:
+          DANDANPLAY_CONFIG_JSON: ${{ secrets.DANDANPLAY_CONFIG_JSON }}
+          ANDROID_KEYSTORE_BASE64: ${{ matrix.platform == 'android' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+        run: |
+          $definesPath = Join-Path $env:RUNNER_TEMP 'defines.json'
+          $keystorePath = Join-Path $HOME '.android/debug.keystore'
+          $keys = @('DANDANPLAY_APP_ID', 'DANDANPLAY_APP_SECRET', 'DANDANPLAY_APP_SECRET_FALLBACK')
+          try {
+            try { $config = ConvertFrom-Json -InputObject $env:DANDANPLAY_CONFIG_JSON -AsHashtable }
+            catch { throw 'DANDANPLAY_CONFIG_JSON 必须是有效 JSON。' }
+            $defines = @{}
+            foreach ($key in $keys) {
+              $value = [string]$config[$key]
+              if ($value) {
+                $masked = $value.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+                Write-Output "::add-mask::$masked"
+              }
+              if ($value -match '[\r\n]' -or ($key -ne 'DANDANPLAY_APP_SECRET_FALLBACK' -and [string]::IsNullOrWhiteSpace($value))) {
+                throw "缺少或无效的构建配置：$key"
+              }
+              $defines[$key] = $value.Trim()
+              if ($defines[$key]) { Write-Output "::add-mask::$($defines[$key])" }
+              # Flutter/Gradle 的诊断可能使用 Base64 编码后的 Dart 定义。
+              $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$key=$($defines[$key])"))
+              Write-Output "::add-mask::$encoded"
+            }
+            $defines | ConvertTo-Json -Compress | Set-Content -LiteralPath $definesPath -Encoding utf8NoBOM
+            $buildArgs = @('--release', '--no-pub', '--build-name', $env:RELEASE_VERSION, '--build-number', $env:RELEASE_BUILD)
+            if ($env:BUILD_PLATFORM -eq 'android') {
+              if ([string]::IsNullOrWhiteSpace($env:ANDROID_KEYSTORE_BASE64)) { throw '缺少 Android 历史签名证书。' }
+              Write-Output "::add-mask::$($env:ANDROID_KEYSTORE_BASE64)"
+              New-Item -ItemType Directory -Path (Split-Path $keystorePath) -Force | Out-Null
+              try { $keystoreBytes = [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64) }
+              catch { throw 'Android 签名证书编码无效。' }
+              [IO.File]::WriteAllBytes($keystorePath, $keystoreBytes)
+              foreach ($key in $keys) { [Environment]::SetEnvironmentVariable("ORG_GRADLE_PROJECT_$key", $defines[$key]) }
+              # Flutter 自动补齐缺失的 Gradle wrapper，保留仓库指定的 Gradle 版本。
+              flutter build apk @buildArgs --flavor $env:BUILD_FLAVOR --target-platform android-arm64
+            } else {
+              flutter test --no-pub --dart-define-from-file $definesPath test/danmaku/dandanplay_apple_config_test.dart
+              if ($LASTEXITCODE -ne 0) { throw '桌面弹幕凭据编译验证失败。' }
+              $buildArgs += @('--dart-define-from-file', $definesPath)
+              if ($env:BUILD_PLATFORM -eq 'windows') {
+                $aiMask = if ($env:BUILD_FLAVOR -eq 'full') { 'true' } else { 'false' }
+                $buildArgs += "--dart-define=FLY_WINDOWS_AI_MASK=$aiMask"
+              }
+              flutter build $env:BUILD_PLATFORM @buildArgs
+            }
+            if ($LASTEXITCODE -ne 0) { throw '正式包构建失败。' }
+          } finally {
+            Remove-Item -LiteralPath $definesPath -Force -ErrorAction SilentlyContinue
+            if ($env:BUILD_PLATFORM -eq 'android') {
+              Remove-Item -LiteralPath $keystorePath -Force -ErrorAction SilentlyContinue
+              foreach ($key in $keys) { [Environment]::SetEnvironmentVariable("ORG_GRADLE_PROJECT_$key", $null) }
+            }
+          }
+
+      - name: 打包并生成校验信息
+        run: |
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          $name = "fly-player-$env:RELEASE_VERSION-$env:RELEASE_BUILD-$env:BUILD_PLATFORM-$env:BUILD_ARCH-$env:BUILD_FLAVOR"
+          if ($env:BUILD_PLATFORM -eq 'android') {
+            $package = Join-Path $dist "$name.apk"
+            Copy-Item -LiteralPath "build/app/outputs/flutter-apk/app-$env:BUILD_FLAVOR-release.apk" -Destination $package
+            $apksigner = Get-ChildItem -Path "$env:ANDROID_HOME/build-tools/*/apksigner" | Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $apksigner) { throw '未找到 apksigner。' }
+            $signature = & $apksigner.FullName verify --verbose --print-certs $package
+            if ($LASTEXITCODE -ne 0) { throw 'APK 签名验证失败。' }
+            $expected = '9751b357d03f5fa8b1c927ac98baf6b0d14838dccc1342abe4f79496b26defa1'
+            if (($signature -join "`n") -notmatch "certificate SHA-256 digest: $expected") {
+              throw 'APK 签名证书与已发布版本不一致。'
+            }
+            $signature | Set-Content -LiteralPath (Join-Path $dist "$name.signing.txt") -Encoding utf8NoBOM
+          } elseif ($env:BUILD_PLATFORM -eq 'windows') {
+            $bundle = 'build/windows/x64/runner/Release'
+            if (-not (Test-Path "$bundle/fly_player.exe")) { throw '未找到 Windows 主程序。' }
+            # Flutter 便携包需要应用本地的 Visual C++ 运行库。
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+            $vsPath = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if ($LASTEXITCODE -ne 0 -or -not $vsPath) { throw '未找到 Visual Studio C++ 安装目录。' }
+            $crt = Get-ChildItem -Path "$vsPath/VC/Redist/MSVC/*/x64/Microsoft.VC*.CRT" -Directory |
+              Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $crt) { throw '未找到 x64 Visual C++ 可再发行运行库。' }
+            foreach ($dll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+              if (-not (Test-Path "$bundle/$dll")) {
+                Copy-Item -LiteralPath (Join-Path $crt.FullName $dll) -Destination $bundle
+              }
+            }
+            $hasMnn = Test-Path "$bundle/MNN.dll"
+            $hasModel = Test-Path "$bundle/data/models/isnet-anime-512-fp16.mnn"
+            $needsAi = $env:BUILD_FLAVOR -eq 'full'
+            if ($hasMnn -ne $needsAi -or $hasModel -ne $needsAi) { throw 'Windows AI 文件与所选版本不符。' }
+            $package = Join-Path $dist "$name.zip"
+            Compress-Archive -Path "$bundle/*" -DestinationPath $package
+          } else {
+            $bundle = 'build/linux/x64/release/bundle'
+            if (-not (Test-Path "$bundle/fly_player")) { throw '未找到 Linux 主程序。' }
+            $dependencyLog = Join-Path $dist "$name.dependencies.txt"
+            $elfFiles = @(Get-Item -LiteralPath "$bundle/fly_player") + @(
+              Get-ChildItem -LiteralPath "$bundle/lib" -Recurse -File | Where-Object { $_.Name -match '\.so(?:\.|$)' }
+            )
+            foreach ($elf in $elfFiles) {
+              $dependencies = & ldd $elf.FullName 2>&1
+              $dependencyExit = $LASTEXITCODE
+              "文件：$($elf.FullName)" | Add-Content -LiteralPath $dependencyLog -Encoding utf8
+              $dependencies | Add-Content -LiteralPath $dependencyLog -Encoding utf8
+              if ($dependencyExit -ne 0 -or ($dependencies -join "`n") -match 'not found') {
+                throw "Linux 运行依赖检查失败：$($elf.Name)"
+              }
+            }
+            @('飞翔播放器 Linux x64 标准版（不含 AI 弹幕遮挡）。',
+              '解压整个目录，在 Ubuntu 24.04 桌面环境运行 ./fly_player。',
+              '运行依赖：libmpv2、libgtk-3-0t64、libsecret-1-0、libsqlite3-0、libepoxy0。',
+              '需要可用的图形桌面、声音服务和已解锁的系统密钥环。') |
+              Set-Content -LiteralPath "$bundle/README.txt" -Encoding utf8NoBOM
+            $package = Join-Path $dist "$name.tar.gz"
+            tar -czf $package -C $bundle .
+            if ($LASTEXITCODE -ne 0) { throw 'Linux bundle 打包失败。' }
+          }
+          $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $package -Leaf)" | Set-Content -LiteralPath "$package.sha256" -Encoding utf8NoBOM
+          @("版本：$env:RELEASE_VERSION+$env:RELEASE_BUILD", "源码提交：$env:GITHUB_SHA",
+            'Flutter：3.41.6', "目标：$env:BUILD_PLATFORM $env:BUILD_ARCH $env:BUILD_FLAVOR") |
+            Set-Content -LiteralPath (Join-Path $dist "$name.build-info.txt") -Encoding utf8NoBOM
+
+      - name: 上传构建产物（不创建 Release）
+        uses: actions/upload-artifact@v4
+        with:
+          name: fly-player-${{ inputs.version }}-${{ inputs.build_number }}-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.flavor }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

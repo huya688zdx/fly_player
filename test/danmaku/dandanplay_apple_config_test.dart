@@ -10,7 +10,11 @@ void main() {
   const secret = String.fromEnvironment('DANDANPLAY_APP_SECRET');
   const fallback = String.fromEnvironment('DANDANPLAY_APP_SECRET_FALLBACK');
 
-  for (final platform in [TargetPlatform.iOS, TargetPlatform.macOS]) {
+  for (final platform in [
+    TargetPlatform.iOS,
+    TargetPlatform.macOS,
+    TargetPlatform.linux,
+  ]) {
     test(
       '$platform loads only build credentials without an Android channel',
       () async {
