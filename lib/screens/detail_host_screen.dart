@@ -226,9 +226,13 @@ class DetailHostScreenState extends State<DetailHostScreen> {
     final rootRoute = widget.rootRouteName?.trim().isNotEmpty == true
         ? _normalizeRoute(widget.rootRouteName!)
         : null;
-    if (rootRoute == null ||
-        settingsStack.first == rootRoute ||
-        routeName == rootRoute) {
+    if (rootRoute == null) {
+      // 主栏已经显示设置首页，副栏只保留子页层级；退到一级子页后交由宿主关闭。
+      return settingsStack.length > 1
+          ? settingsStack.sublist(1)
+          : settingsStack;
+    }
+    if (settingsStack.first == rootRoute || routeName == rootRoute) {
       return settingsStack;
     }
     return <String>[rootRoute, ...settingsStack];
