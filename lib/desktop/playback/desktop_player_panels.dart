@@ -981,7 +981,14 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                             ? null
                             : () => unawaited(_refreshServiceSource()),
                         icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('重新获取'),
+                        label: Text(
+                          (widget.serviceStatus.isNotEmpty
+                                      ? widget.serviceStatus
+                                      : _serviceStatus)
+                                  .startsWith('暂时无法读取进度')
+                              ? '重新读取进度'
+                              : '重新获取',
+                        ),
                       ),
                     ),
                   ],

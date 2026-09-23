@@ -7,6 +7,19 @@ class DanmakuSettingsStore {
 
   const DanmakuSettingsStore();
 
+  // 仅保存在本播放器，账号键包含服务实例与用户标识。
+  Future<bool> loadFlyAiConsent(String accountKey) async {
+    if (accountKey.isEmpty) return false;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('fly_danmaku_ai_consent:$accountKey') ?? false;
+  }
+
+  Future<void> saveFlyAiConsent(String accountKey, bool allowed) async {
+    if (accountKey.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('fly_danmaku_ai_consent:$accountKey', allowed);
+  }
+
   Future<DanmakuSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_prefKey) ?? '';

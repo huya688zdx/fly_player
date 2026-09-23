@@ -6,6 +6,33 @@ import 'package:fly_player/screens/home/home_presentation_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('继续观看的飞牛起播与切集均补齐本季列表再交给播放器', () {
+    final launcher = File(
+      'lib/controllers/item_playback_launcher.dart',
+    ).readAsStringSync().replaceAll('\r\n', '\n');
+    final open = launcher.substring(
+      0,
+      launcher.indexOf('_resolveServerForNative(\n    MediaBackend'),
+    );
+    expect(open, contains('await loadSeasonEpisodes(nas, source.seasonGuid)'));
+    expect(open, contains("source.mediaType.toLowerCase() == 'episode'"));
+    expect('episodes: playbackEpisodes'.allMatches(open), hasLength(2));
+    final resolve = launcher.substring(
+      launcher.indexOf('Future<Map<String, dynamic>?> resolveForNative('),
+    );
+    expect(
+      resolve,
+      matches(
+        r'await loadSeasonEpisodes\(\s*nas,\s*resolved\.source\.seasonGuid,?\s*\)',
+      ),
+    );
+    expect(
+      resolve,
+      contains('await loadSeasonEpisodes(nas, local.source.seasonGuid)'),
+    );
+    expect("'episodes': effectiveEpisodes".allMatches(resolve), hasLength(2));
+  });
+
   group('visibleHomeSections', () {
     test('Jellyfin 只按配置顺序保留有内容的区块', () {
       final sections = visibleHomeSections(

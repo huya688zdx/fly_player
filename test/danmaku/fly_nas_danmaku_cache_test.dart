@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fly_player/danmaku/settings/danmaku_settings_store.dart';
 import 'package:fly_player/danmaku/models/danmaku_comment.dart';
 import 'package:fly_player/danmaku/api/fly_danmaku_api.dart';
 import 'package:fly_player/services/fly_data/fly_data_api.dart';
@@ -10,12 +12,15 @@ import 'package:fly_player/services/fly_data/fly_nas_danmaku_cache.dart';
 import 'package:fly_player/services/play_stats/play_stats_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late FlyDataSession? session;
   late String scope;
   late _Api api;
   late FlyNasDanmakuCache cache;
   var current = true;
-  setUp(() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await SharedPreferences.getInstance();
     session = FlyDataSession(
       serverUrl: 'https://fly.example',
       userId: 'viewer',
@@ -61,6 +66,7 @@ void main() {
         result = await fly.importCandidate(episodes.single);
       }());
       clock.flushMicrotasks();
+      expect(transport.assist, false);
       expect(transport.selection?['expected_revision'], 4);
       expect(transport.payloadQueries, isEmpty);
       clock.elapse(const Duration(seconds: 332));
@@ -95,21 +101,43 @@ void main() {
     });
   });
 
-  test('播放后台只提交一次精确版本任务，就绪后复用弹幕读取', () {
+  test('播放使用本机账号授权，精确子项就绪后复用弹幕读取', () async {
+    const settings = DanmakuSettingsStore();
+    expect(await settings.loadFlyAiConsent(session!.accountKey), false);
+    await settings.saveFlyAiConsent(session!.accountKey, true);
+    expect(await settings.loadFlyAiConsent('other-instance|viewer'), false);
+    expect(await settings.loadFlyAiConsent('instance|other-viewer'), false);
     fakeAsync((clock) {
       api.responses = [
-        {'status': 'queued', 'request_id': 'request', 'item_id': 'current'},
-        ...List.generate(91, (_) => {
-          'goal_status': 'needs_decision',
-          'items': [
-            {'id': 'other', 'resource_kind': 'danmaku', 'state': 'needs_decision'},
-            {'id': 'current', 'resource_kind': 'danmaku', 'state': 'working'},
-          ],
-        }),
+        {
+          'status': 'queued',
+          'request_id': 'request',
+          'item_id': 'current',
+          'job_id': 'download',
+          'match_id': 'match',
+        },
+        ...List.generate(
+          91,
+          (_) => {
+            'goal_status': 'needs_decision',
+            'items': [
+              {
+                'id': 'other',
+                'resource_kind': 'danmaku',
+                'state': 'needs_decision',
+              },
+              {'id': 'current', 'resource_kind': 'danmaku', 'state': 'working'},
+            ],
+          },
+        ),
         {
           'goal_status': 'needs_decision',
           'items': [
-            {'id': 'other', 'resource_kind': 'danmaku', 'state': 'needs_decision'},
+            {
+              'id': 'other',
+              'resource_kind': 'danmaku',
+              'state': 'needs_decision',
+            },
             {'id': 'current', 'resource_kind': 'danmaku', 'state': 'ready'},
           ],
         },
@@ -130,6 +158,7 @@ void main() {
       clock.flushMicrotasks();
       expect(api.calls.single.$1, '/danmaku/ensure');
       expect(api.calls.single.$2, {
+        'use_ai': true,
         'source_ref': {
           'binding_id': 'binding',
           'remote_item_id': 'same/id',
@@ -151,31 +180,106 @@ void main() {
 
   test('人工重新获取过期来源会等待确切下载任务再读取弹幕', () {
     fakeAsync((clock) {
+      api.postError = TimeoutException('响应丢失');
       api.responses = [
         {'status': 'queued', 'job_id': 'download', 'match_id': 'match'},
-        {'items': [{'id': 'download', 'match_id': 'match', 'status': 'running'}]},
-        {'items': [{'id': 'download', 'match_id': 'match', 'status': 'succeeded'}]},
+        {
+          'items': [
+            {'id': 'download', 'match_id': 'match', 'status': 'running'},
+          ],
+        },
+        {
+          'items': [
+            {'id': 'download', 'match_id': 'match', 'status': 'succeeded'},
+          ],
+        },
         _ready,
         _payload,
       ];
       FlyNasDanmakuResult? result;
-      cache.prepareOnPlayback(
-        statsScope: scope,
-        itemGuid: 'same/id',
-        mediaGuid: 'file-2',
-        refreshExisting: true,
-        isCurrent: () => current,
-      ).then((ready) async { if (ready) result = await resolve(); });
+      cache
+          .prepareOnPlayback(
+            statsScope: scope,
+            itemGuid: 'same/id',
+            mediaGuid: 'file-2',
+            refreshExisting: true,
+            isCurrent: () => current,
+          )
+          .then((ready) async {
+            if (ready) result = await resolve();
+          });
       clock.flushMicrotasks();
-      expect(api.calls.single.$2?['refresh_existing'], true);
+      expect(api.calls.first.$2?['refresh_existing'], true);
+      expect(api.calls[1].$2?['refresh_existing'], false);
+      expect(api.calls[1].$2?['use_ai'], false);
       clock.elapse(const Duration(seconds: 5));
       expect(result, isNull);
       clock.elapse(const Duration(seconds: 5));
       expect(result?.comments, hasLength(3));
       expect(api.calls.map((call) => call.$1), [
-        '/danmaku/ensure', '/danmaku/jobs', '/danmaku/jobs',
-        '/danmaku/resolve', '/danmaku/matches/match/payload',
+        '/danmaku/ensure',
+        '/danmaku/ensure',
+        '/danmaku/jobs',
+        '/danmaku/jobs',
+        '/danmaku/resolve',
+        '/danmaku/matches/match/payload',
       ]);
+    });
+  });
+
+  test('任务读取中断保留定位，重读只观察当前集且不重复提交', () {
+    fakeAsync((clock) {
+      api.responses = [
+        {'status': 'queued', 'request_id': 'request', 'item_id': 'current'},
+        {
+          'items': [
+            {'id': 'current', 'resource_kind': 'danmaku', 'state': 'ready'},
+          ],
+        },
+        _ready,
+        _payload,
+      ];
+      api.pollError = StateError('数据服务连接失败，请检查地址和网络后手动重试。');
+      api.pollFailures = 3;
+      FlyNasDanmakuResult? result;
+      bool? prepared;
+      cache
+          .prepareOnPlayback(
+            statsScope: scope,
+            itemGuid: 'same/id',
+            mediaGuid: 'file-2',
+            isCurrent: () => current,
+          )
+          .then((ready) async {
+            prepared = ready;
+            if (ready) result = await resolve();
+          });
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 5));
+      expect(result, isNull);
+      expect(api.closed, isFalse);
+      clock.elapse(const Duration(seconds: 10));
+      expect(prepared, false);
+      expect(cache.interruptedTask, isNotNull);
+      cache
+          .prepareOnPlayback(
+            statsScope: scope,
+            itemGuid: 'same/id',
+            mediaGuid: 'file-2',
+            refreshExisting: true,
+            resumeTask: cache.interruptedTask,
+            isCurrent: () => current,
+          )
+          .then((ready) async {
+            if (ready) result = await resolve();
+          });
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 5));
+      expect(result?.comments, hasLength(3));
+      expect(
+        api.calls.where((call) => call.$1 == '/danmaku/ensure'),
+        hasLength(1),
+      );
     });
   });
 
@@ -190,7 +294,7 @@ void main() {
     session = null;
     api.pending!.complete({'status': 'queued', 'request_id': 'old-request'});
     expect(await preparing, isFalse);
-    expect(api.calls, hasLength(1));
+    expect(api.calls, isEmpty);
     expect(api.closed, isTrue);
   });
 
@@ -436,9 +540,17 @@ class _Api extends FlyDataApi {
   List<Map<String, dynamic>> responses = [_ready, _payload];
   Completer<Map<String, dynamic>>? pending, payloadPending;
   bool closed = false;
+  Object? pollError;
+  Object? postError;
+  int pollFailures = 1;
   @override
   Future<Map<String, dynamic>> post(String path, Object data) async {
     calls.add((path, Map<String, dynamic>.from(data as Map)));
+    if (postError != null) {
+      final error = postError!;
+      postError = null;
+      throw error;
+    }
     return pending?.future ?? Future.value(responses.removeAt(0));
   }
 
@@ -448,6 +560,11 @@ class _Api extends FlyDataApi {
     Map<String, dynamic>? query,
   }) async {
     calls.add((path, query));
+    if (path.startsWith('/service-requests/') && pollError != null) {
+      final error = pollError!;
+      if (--pollFailures == 0) pollError = null;
+      throw error;
+    }
     if (pending != null) return pending!.future;
     if (path.endsWith('/payload') && payloadPending != null) {
       return payloadPending!.future;
@@ -483,6 +600,7 @@ class _InteractiveApi extends FlyDataApi {
   bool stalePublication = false;
   int workingPolls = 1;
   int polls = 0;
+  bool? assist;
   Map<String, dynamic> get selected => {
     'provider_id': 'bilibili',
     'remote_ref': 'https://www.bilibili.com/bangumi/play/ep1',
@@ -561,6 +679,7 @@ class _InteractiveApi extends FlyDataApi {
   @override
   Future<Map<String, dynamic>> post(String path, Object body) async {
     if (path == '/danmaku/search') {
+      assist = (body as Map)['assist'] as bool;
       return {
         'items': [
           {

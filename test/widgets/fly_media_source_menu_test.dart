@@ -211,6 +211,23 @@ void main() {
     expect(account.activations, isEmpty);
   });
 
+  testWidgets('同名媒体账号通过服务器显示名和用户名区分', (tester) async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    for (var i = 0; i < account.bindings.length; i++) {
+      account.bindings[i]['label'] = '我的媒体账号';
+      (account.bindings[i]['server'] as Map)['name'] = '家庭服务器 ${i + 1}';
+    }
+    await mount(tester);
+    await tester.tap(find.byTooltip('切换媒体来源'));
+    await tester.pumpAndSettle();
+    expect(find.text('飞牛影视 · 家庭服务器 1 · media-user'), findsOneWidget);
+    expect(find.text('Emby · 家庭服务器 2 · media-user'), findsOneWidget);
+    await tester.tap(find.text('Emby · 家庭服务器 2 · media-user'));
+    await tester.pumpAndSettle();
+    expect(account.activations, ['emby']);
+    expect(find.byType(DesktopFloatingPanel), findsNothing);
+  });
+
   testWidgets('PC menu preserves brand assets, selection and page colors', (
     tester,
   ) async {
@@ -535,6 +552,7 @@ void main() {
         300,
         scrollable: scrollable,
       );
+      await tester.pumpAndSettle();
       expect(find.text('账号与媒体来源').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
