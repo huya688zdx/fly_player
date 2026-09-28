@@ -28,6 +28,9 @@ dependencies:
   sqflite_common_ffi: ^2.4.0
   provider: ^6.1.1
   crypto: ^3.0.3
+  # FN Connect 原生登录：fnOS 系统加密 WebSocket RPC（RSA-OAEP + AES-CBC 信封）所需。
+  web_socket_channel: ^3.0.3
+  pointycastle: ^3.9.1
   file_picker: ^10.3.2
   flutter_svg: ^2.0.10+1
   fl_chart: ^0.70.2
