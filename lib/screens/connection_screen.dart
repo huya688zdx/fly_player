@@ -33,7 +33,6 @@ import 'emby_fn_entry_login_page.dart';
 import 'fn_connect_web_login_page.dart';
 import 'login_history_screen.dart';
 import '../widgets/common/desktop_login_dialog.dart';
-import '../utils/app_confirm_dialog.dart';
 import '../widgets/common/login_components.dart';
 
 /// 服务器族后端（Emby / Jellyfin…）共用的一套登录表单状态。
@@ -683,52 +682,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
   }
 
-  Future<void> _resetFnConnectWebLoginState() async {
-    if (_isSubmitting) return;
-    final l10n = AppLocalizations.of(context);
-    final confirmed = await showAppConfirmDialog(
-      context,
-      title: l10n.fnConnectReloginTitle,
-      content: l10n.fnConnectReloginContent,
-      cancelText: l10n.commonCancel,
-      confirmText: l10n.fnConnectReloginConfirm,
-      confirmColor: context.appColors.warning,
-    );
-    if (!mounted ||
-        _isSubmitting ||
-        !confirmed ||
-        ModalRoute.of(context)?.isCurrent != true) {
-      return;
-    }
-    setState(() {
-      _isSubmitting = true;
-    });
-    try {
-      await FnConnectWebSessionService.clearLoginState();
-      if (mounted) {
-        await context.read<NasProvider>().logout();
-      }
-      if (!mounted) return;
-      _showTopTip(l10n.fnConnectReloginSuccess, context.appColors.accent);
-    } catch (error, stackTrace) {
-      await AppErrorReporter.report(
-        error,
-        action: 'clear fn connect web login state',
-        source: 'connection_screen',
-        stackTrace: stackTrace,
-        fallbackKind: AppExceptionKind.transient,
-      );
-      if (!mounted) return;
-      _showTopTip(l10n.fnConnectReloginFailure, context.appColors.danger);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
-    }
-  }
-
   Future<void> _openDownloadedData() async {
     if (_isSubmitting) return;
     await Navigator.of(context).push(
@@ -752,6 +705,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
     if (!_shouldUseFnConnectWebFallback(error)) {
       return null;
+    }
+    if (!mounted) {
+      return null;
+    }
+    // WebView 仅作兜底：打开前清一次 FN Connect 网页会话，避免残留 cookie
+    // 导致兜底页用旧账号静默授权。
+    try {
+      await FnConnectWebSessionService.clearLoginState();
+    } catch (error, stackTrace) {
+      await AppErrorReporter.report(
+        error,
+        action: 'clear fn connect web cookies before fallback',
+        source: 'connection_screen',
+        stackTrace: stackTrace,
+        fallbackKind: AppExceptionKind.transient,
+      );
     }
     if (!mounted) {
       return null;
@@ -1282,16 +1251,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             onPressed: _isSubmitting ? null : _openDownloadedData,
             style: _footerButtonStyle(theme, foregroundColor: colors.textMuted),
             child: Text(l10n.connectionOpenDownloads),
-          ),
-          TextButton(
-            onPressed: _isSubmitting ? null : _resetFnConnectWebLoginState,
-            style: _footerButtonStyle(
-              theme,
-              foregroundColor: colors.textMuted,
-              disabledForegroundColor: colors.textMuted.withValues(alpha: 0.5),
-              fontWeight: FontWeight.w600,
-            ),
-            child: Text(l10n.fnConnectReloginTitle),
           ),
         ],
       ),

@@ -14,11 +14,9 @@ import '../playback/settings/mpv_settings_l10n.dart';
 import '../playback/settings/mpv_settings_store.dart';
 import '../providers/app_locale_provider.dart';
 import '../providers/app_theme_provider.dart';
-import '../providers/nas_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
 import '../providers/startup_preferences_provider.dart';
 import '../services/embedded_detail_launcher.dart';
-import '../services/fn_connect_web_session_service.dart';
 import '../services/storage_access_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_l10n.dart';
@@ -26,7 +24,6 @@ import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/main_navigation_metrics.dart';
 import '../ui/player_pane_host_scope.dart';
-import '../utils/app_confirm_dialog.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
@@ -94,44 +91,6 @@ class AppSettingsScreen extends StatelessWidget {
       context: context,
       destinationRoute: routeName,
     );
-  }
-
-  Future<void> _resetFnConnectWebLoginState(BuildContext context) async {
-    final l10n = AppLocalizations.of(context);
-    final confirmed = await showAppConfirmDialog(
-      context,
-      title: l10n.fnConnectReloginTitle,
-      content: l10n.fnConnectReloginContent,
-      cancelText: l10n.commonCancel,
-      confirmText: l10n.fnConnectReloginConfirm,
-      confirmColor: context.appColors.warning,
-    );
-    if (!context.mounted || !confirmed) return;
-
-    try {
-      await FnConnectWebSessionService.clearLoginState();
-      if (!context.mounted) return;
-      AppTopTip().show(
-        context,
-        message: l10n.fnConnectReloginSuccess,
-        color: context.appColors.accent,
-      );
-      await context.read<NasProvider>().logout();
-    } catch (error, stackTrace) {
-      await AppErrorReporter.report(
-        error,
-        action: 'clear fn connect web login state',
-        source: 'app_settings_screen',
-        stackTrace: stackTrace,
-        fallbackKind: AppExceptionKind.transient,
-      );
-      if (!context.mounted) return;
-      AppTopTip().show(
-        context,
-        message: l10n.fnConnectReloginFailure,
-        color: context.appColors.danger,
-      );
-    }
   }
 
   Future<void> _openSettingsSearch(
@@ -312,14 +271,6 @@ class AppSettingsScreen extends StatelessWidget {
         keywords: _keywords(l10n.settingsLogKeywords),
         onSelect: () =>
             _openSettingsDestination(context, SettingsDestinationRoutes.logs),
-      ),
-      SettingsSearchEntry(
-        id: 'fn_connect_relogin',
-        title: l10n.fnConnectReloginTitle,
-        subtitle: l10n.fnConnectReloginSubtitle,
-        location: l10n.settingsLocationRoot,
-        keywords: _keywords(l10n.fnConnectReloginKeywords),
-        onSelect: () => _resetFnConnectWebLoginState(context),
       ),
       SettingsSearchEntry(
         id: 'bookmark_manager',
@@ -585,12 +536,6 @@ class AppSettingsScreen extends StatelessWidget {
                   )
                 : null,
             switchKey: 'startup_poster_home_switch',
-          ),
-          _DesktopRowData(
-            icon: Icons.cloud_sync_outlined,
-            title: l10n.fnConnectReloginTitle,
-            subtitle: l10n.fnConnectReloginShortSubtitle,
-            onTap: () => unawaited(_resetFnConnectWebLoginState(context)),
           ),
         ],
       ),
