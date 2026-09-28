@@ -25,6 +25,8 @@ import '../models/server_play_session.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
+import '../services/fn_connect_saved_login_store.dart';
+import '../services/fn_native_system_login.dart';
 import '../services/playback_client_id_store.dart';
 import '../services/playlist_view_preference_store.dart';
 import '../services/user_list_preference_store.dart';
@@ -887,15 +889,36 @@ class FeiniuApi {
       discovery: discovery,
       allowIpv6: hasIpv6 != false,
     );
-    if (candidates.isEmpty) {
-      throw FnConnectLoginException(
-        error: AppException.api(
-          action: 'login',
-          message:
-              'FN Connect did not provide a direct API address. Relay-only access is not supported by this app yet.',
-        ),
-        diagnostic: diagnostic,
+    // 中继候选：官方 FN Connect 入口域（discovery 的 fn 字段，*.fnos.net 等）
+    // 本质是 NAS 源的反向代理，与直连地址共用同一套 API/WS 路由，因此可以
+    // 原生登录，无需再打开 Web 授权页。
+    final relayCandidates = <_FnConnectLoginCandidate>[];
+    for (final host in discovery.relayHosts) {
+      final normalized = ApiUrlHelper.normalizeBaseUrl('https://$host');
+      if (normalized.isEmpty ||
+          normalized == _fnConnectServiceBaseUrl ||
+          candidates.any((candidate) => candidate.baseUrl == normalized)) {
+        continue;
+      }
+      relayCandidates.add(
+        _FnConnectLoginCandidate(baseUrl: normalized, label: 'relay'),
       );
+    }
+
+    // 0) 免密续登：优先用已保存的 longToken 静默换取系统会话与媒体 token，
+    //    全程不接触密码（"只输入 FN ID 即可登录"的实现基础）。
+    final savedLogin = await FnConnectSavedLoginStore.read(fnConnectId);
+    if (savedLogin != null) {
+      final savedResult = await _trySavedLongTokenLogin(
+        fnConnectId: fnConnectId,
+        saved: savedLogin,
+        candidates: [...candidates, ...relayCandidates],
+        accessCode: accessCode,
+        httpClientAdapter: httpClientAdapter,
+      );
+      if (savedResult != null) {
+        return savedResult;
+      }
     }
 
     AppException? accessCodeError;
@@ -903,64 +926,95 @@ class FeiniuApi {
     AppException? firstTransientError;
     AppException? firstFatalError;
 
-    for (final candidate in candidates) {
-      debugPrint(
-        '[LOGIN][FN_CONNECT] try fnId=$fnConnectId '
-        'label=${candidate.label} baseUrl=${candidate.baseUrl}',
-      );
-      try {
-        final dio = _buildLoginDio(
-          candidate.baseUrl,
-          accessCode: accessCode,
-          httpClientAdapter: httpClientAdapter,
+    if (userName.isNotEmpty && password.isNotEmpty) {
+      for (final candidate in candidates) {
+        debugPrint(
+          '[LOGIN][FN_CONNECT] try fnId=$fnConnectId '
+          'label=${candidate.label} baseUrl=${candidate.baseUrl}',
         );
-        final token = await _performLogin(
-          dio,
-          userName,
-          password,
-          baseUrlLabel: candidate.baseUrl,
-        );
-        return LoginWithBaseUrlResult(
-          token: token,
-          resolvedBaseUrl: ApiUrlHelper.normalizeBaseUrl(candidate.baseUrl),
-          usedFnConnect: true,
-          diagnostic: diagnostic.withAttempt(
+        try {
+          final dio = _buildLoginDio(
+            candidate.baseUrl,
+            accessCode: accessCode,
+            httpClientAdapter: httpClientAdapter,
+          );
+          final token = await _performLogin(
+            dio,
+            userName,
+            password,
+            baseUrlLabel: candidate.baseUrl,
+          );
+          // 首次密码登录成功后，后台补一次系统登录换取 longToken，
+          // 供之后"只输入 FN ID"免密续登使用；失败不影响本次登录。
+          unawaited(
+            _opportunisticLongTokenSave(
+              fnConnectId: fnConnectId,
+              base: candidate.baseUrl,
+              userName: userName,
+              password: password,
+              savedDid: savedLogin?.did,
+            ),
+          );
+          return LoginWithBaseUrlResult(
+            token: token,
+            resolvedBaseUrl: ApiUrlHelper.normalizeBaseUrl(candidate.baseUrl),
+            usedFnConnect: true,
+            diagnostic: diagnostic.withAttempt(
+              FnConnectAttemptDiagnostic(
+                label: candidate.label,
+                baseUrl: candidate.baseUrl,
+                status: 'success',
+                message: 'Login succeeded',
+              ),
+            ),
+          );
+        } catch (error) {
+          final exception = AppException.from(
+            error,
+            action: 'login',
+            fallbackKind: AppExceptionKind.transient,
+          );
+          diagnostic = diagnostic.withAttempt(
             FnConnectAttemptDiagnostic(
               label: candidate.label,
               baseUrl: candidate.baseUrl,
-              status: 'success',
-              message: 'Login succeeded',
+              status: _fnConnectAttemptStatus(exception),
+              message: exception.message,
             ),
-          ),
-        );
-      } catch (error) {
-        final exception = AppException.from(
-          error,
-          action: 'login',
-          fallbackKind: AppExceptionKind.transient,
-        );
-        diagnostic = diagnostic.withAttempt(
-          FnConnectAttemptDiagnostic(
-            label: candidate.label,
-            baseUrl: candidate.baseUrl,
-            status: _fnConnectAttemptStatus(exception),
-            message: exception.message,
-          ),
-        );
-        debugPrint(
-          '[LOGIN][FN_CONNECT] failed fnId=$fnConnectId '
-          'label=${candidate.label} baseUrl=${candidate.baseUrl} '
-          'message=${exception.message}',
-        );
-        if (exception.message == feiniuAccessCodeRequiredSentinel ||
-            exception.message == feiniuAccessCodeInvalidSentinel) {
-          accessCodeError ??= exception;
-        } else if (exception.isUnauthorized) {
-          unauthorizedError ??= exception;
-        } else if (exception.isTransient) {
-          firstTransientError ??= exception;
-        } else {
-          firstFatalError ??= exception;
+          );
+          debugPrint(
+            '[LOGIN][FN_CONNECT] failed fnId=$fnConnectId '
+            'label=${candidate.label} baseUrl=${candidate.baseUrl} '
+            'message=${exception.message}',
+          );
+          if (exception.message == feiniuAccessCodeRequiredSentinel ||
+              exception.message == feiniuAccessCodeInvalidSentinel) {
+            accessCodeError ??= exception;
+          } else if (exception.isUnauthorized) {
+            unauthorizedError ??= exception;
+          } else if (exception.isTransient) {
+            firstTransientError ??= exception;
+          } else {
+            firstFatalError ??= exception;
+          }
+        }
+      }
+
+      // 直连全部不可达（连接/超时类错误）时才尝试中继原生登录。若是密码或
+      // 访问码错误，服务端已给出明确结果，重复尝试只会徒增失败计数（触发封禁）。
+      if (unauthorizedError == null && accessCodeError == null) {
+        for (final candidate in relayCandidates) {
+          final relayResult = await _tryRelayNativeLogin(
+            fnConnectId: fnConnectId,
+            candidate: candidate,
+            userName: userName,
+            password: password,
+            accessCode: accessCode,
+            httpClientAdapter: httpClientAdapter,
+          );
+          if (relayResult != null) {
+            return relayResult;
+          }
         }
       }
     }
@@ -972,7 +1026,7 @@ class FeiniuApi {
             ? AppException.api(
                 action: 'login',
                 message:
-                    'FN Connect resolved only direct API addresses, but none of them were reachable from the current network. Official relay access is web-only and is not supported by this app yet.',
+                    'FN Connect resolved only direct API addresses, but none of them were reachable from the current network. Relay access is now attempted natively; see diagnostics for details.',
                 cause: firstTransientError,
               )
             : null) ??
@@ -982,6 +1036,238 @@ class FeiniuApi {
           message: 'FN Connect login failed for all resolved addresses',
         );
     throw FnConnectLoginException(error: finalError, diagnostic: diagnostic);
+  }
+
+  /// 用已保存的 longToken 依次在直连/中继地址上静默续登。
+  ///
+  /// 返回 null 表示所有候选都不可用（包括令牌过期），调用方应继续走密码登录。
+  static Future<LoginWithBaseUrlResult?> _trySavedLongTokenLogin({
+    required String fnConnectId,
+    required FnConnectSavedLogin saved,
+    required List<_FnConnectLoginCandidate> candidates,
+    required String accessCode,
+    HttpClientAdapter? httpClientAdapter,
+  }) async {
+    for (final candidate in candidates) {
+      try {
+        debugPrint(
+          '[LOGIN][FN_CONNECT] saved-token relogin fnId=$fnConnectId '
+          'label=${candidate.label} baseUrl=${candidate.baseUrl}',
+        );
+        final session = await FnNativeSystemLogin.loginWithLongToken(
+          baseUrl: candidate.baseUrl,
+          longToken: saved.longToken,
+          secretBytes: saved.secretBase64.isEmpty
+              ? Uint8List(0)
+              : base64Decode(saved.secretBase64),
+          did: saved.did.isEmpty ? null : saved.did,
+        );
+        if (session.longToken.isNotEmpty && session.secretBase64.isNotEmpty) {
+          unawaited(
+            FnConnectSavedLoginStore.save(
+              fnConnectId,
+              longToken: session.longToken,
+              secretBase64: session.secretBase64,
+              did: session.did.isEmpty ? saved.did : session.did,
+            ),
+          );
+        }
+        final config = await fetchFnConnectOauthConfig(
+          baseUrl: candidate.baseUrl,
+          cookie: 'mode=relay',
+          accessCode: accessCode,
+          httpClientAdapter: httpClientAdapter,
+        );
+        final code = await FnNativeSystemLogin.requestAuthorizeCode(
+          baseUrl: config.baseUrl,
+          systemToken: session.token,
+          clientId: config.appId,
+          accessCode: accessCode,
+        );
+        return await loginWithFnConnectOauthCode(
+          baseUrl: config.baseUrl,
+          code: code,
+          accessCode: accessCode,
+          httpClientAdapter: httpClientAdapter,
+        );
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'fn connect saved-token relogin',
+          id: '$fnConnectId@${candidate.baseUrl}',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'feiniu_api',
+        );
+      }
+    }
+    return null;
+  }
+
+  /// 中继域上的原生登录：先试媒体 legacy 登录，再试官方加密 WS 授权链路。
+  ///
+  /// 返回 null 表示两种链路都失败；失败细节仅记入日志（不影响最终错误聚合）。
+  static Future<LoginWithBaseUrlResult?> _tryRelayNativeLogin({
+    required String fnConnectId,
+    required _FnConnectLoginCandidate candidate,
+    required String userName,
+    required String password,
+    required String accessCode,
+    HttpClientAdapter? httpClientAdapter,
+  }) async {
+    final relayBase = candidate.baseUrl;
+    // a) 媒体 legacy 登录（与直连候选完全同路径，只是落在中继域上）。
+    try {
+      final dio = _buildLoginDio(
+        relayBase,
+        accessCode: accessCode,
+        httpClientAdapter: httpClientAdapter,
+      );
+      dio.options.headers['Cookie'] = 'mode=relay';
+      final token = await _performLogin(
+        dio,
+        userName,
+        password,
+        baseUrlLabel: relayBase,
+      );
+      unawaited(
+        _opportunisticLongTokenSave(
+          fnConnectId: fnConnectId,
+          base: relayBase,
+          userName: userName,
+          password: password,
+        ),
+      );
+      return LoginWithBaseUrlResult(
+        token: token,
+        resolvedBaseUrl: relayBase,
+        usedFnConnect: true,
+      );
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'fn connect relay legacy login',
+        id: relayBase,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_api',
+      );
+    }
+    // b) 官方链路：系统加密 WS 登录 → 静默 /oauthapi/authorize → 换媒体 token。
+    try {
+      return await _loginViaOfficialChain(
+        fnConnectId: fnConnectId,
+        base: relayBase,
+        userName: userName,
+        password: password,
+        accessCode: accessCode,
+        httpClientAdapter: httpClientAdapter,
+      );
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'fn connect relay official login',
+        id: relayBase,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_api',
+      );
+      return null;
+    }
+  }
+
+  /// 官方 App 同款链路：加密 WS 系统登录 → 原生 /oauthapi/authorize → 换媒体 token。
+  static Future<LoginWithBaseUrlResult> _loginViaOfficialChain({
+    required String fnConnectId,
+    required String base,
+    required String userName,
+    required String password,
+    required String accessCode,
+    String? savedDid,
+    HttpClientAdapter? httpClientAdapter,
+  }) async {
+    final session = await FnNativeSystemLogin.login(
+      baseUrl: base,
+      userName: userName,
+      password: password,
+      did: savedDid,
+    );
+    if (session.longToken.isNotEmpty && session.secretBase64.isNotEmpty) {
+      final did = session.did.isNotEmpty
+          ? session.did
+          : FnNativeSystemLogin.generateDeviceId();
+      unawaited(
+        FnConnectSavedLoginStore.save(
+          fnConnectId,
+          longToken: session.longToken,
+          secretBase64: session.secretBase64,
+          did: did,
+        ),
+      );
+    }
+    final config = await fetchFnConnectOauthConfig(
+      baseUrl: base,
+      cookie: 'mode=relay',
+      accessCode: accessCode,
+      httpClientAdapter: httpClientAdapter,
+    );
+    final code = await FnNativeSystemLogin.requestAuthorizeCode(
+      baseUrl: config.baseUrl,
+      systemToken: session.token,
+      clientId: config.appId,
+      accessCode: accessCode,
+    );
+    return loginWithFnConnectOauthCode(
+      baseUrl: config.baseUrl,
+      code: code,
+      accessCode: accessCode,
+      httpClientAdapter: httpClientAdapter,
+    );
+  }
+
+  /// 已有媒体登录结果但缺少 longToken 时，后台补一次系统登录并保存免密凭据。
+  static Future<void> _opportunisticLongTokenSave({
+    required String fnConnectId,
+    required String base,
+    required String userName,
+    required String password,
+    String? savedDid,
+  }) async {
+    try {
+      if (userName.isEmpty || password.isEmpty) return;
+      final existing = await FnConnectSavedLoginStore.read(fnConnectId);
+      if (existing != null) return;
+      final session = await FnNativeSystemLogin.login(
+        baseUrl: base,
+        userName: userName,
+        password: password,
+        did: savedDid,
+      );
+      if (session.longToken.isEmpty || session.secretBase64.isEmpty) return;
+      await FnConnectSavedLoginStore.save(
+        fnConnectId,
+        longToken: session.longToken,
+        secretBase64: session.secretBase64,
+        did: session.did.isEmpty
+            ? FnNativeSystemLogin.generateDeviceId()
+            : session.did,
+      );
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'fn connect opportunistic long token save',
+        id: fnConnectId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_api',
+      );
+    }
+  }
+
+  /// 是否已保存该 FN ID 的免密续登凭据（供登录表单放开密码必填校验）。
+  static Future<bool> hasFnConnectSavedLogin(String fnConnectId) async {
+    return await FnConnectSavedLoginStore.read(fnConnectId) != null;
+  }
+
+  /// 清除该 FN ID 的免密续登凭据（"退出并清除登录状态"时调用）。
+  static Future<void> clearFnConnectSavedLogin(String fnConnectId) {
+    return FnConnectSavedLoginStore.clear(fnConnectId);
   }
 
   static Future<_FnConnectDiscoveryData> _fetchFnConnectDiscovery(
