@@ -1,0 +1,143 @@
+name: iOS 模拟器冒烟测试
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator-smoke:
+    name: ios-simulator-smoke
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 安装固定 Flutter SDK
+        run: |
+          $flutterDir = Join-Path $env:RUNNER_TEMP 'flutter'
+          git clone --depth 1 --branch 3.41.6 https://github.com/flutter/flutter.git $flutterDir
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter SDK 下载失败。' }
+          $flutterBin = Join-Path $flutterDir 'bin'
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $flutterBin -Encoding utf8
+          & (Join-Path $flutterBin 'flutter') --version
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter SDK 初始化失败。' }
+
+      - name: 安装项目依赖
+        run: |
+          flutter pub get
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter 项目依赖安装失败。' }
+
+      - name: 注入凭据并构建模拟器包
+        env:
+          DANDANPLAY_CONFIG_JSON: ${{ secrets.DANDANPLAY_CONFIG_JSON }}
+        run: |
+          $definesPath = Join-Path $env:RUNNER_TEMP 'defines.json'
+          $keys = @('DANDANPLAY_APP_ID', 'DANDANPLAY_APP_SECRET', 'DANDANPLAY_APP_SECRET_FALLBACK')
+          try {
+            try { $config = ConvertFrom-Json -InputObject $env:DANDANPLAY_CONFIG_JSON -AsHashtable }
+            catch { throw 'DANDANPLAY_CONFIG_JSON 必须是有效 JSON。' }
+            $defines = @{}
+            foreach ($key in $keys) {
+              $value = [string]$config[$key]
+              if ($value) {
+                $masked = $value.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+                Write-Output "::add-mask::$masked"
+              }
+              if ($value -match '[\r\n]' -or ($key -ne 'DANDANPLAY_APP_SECRET_FALLBACK' -and [string]::IsNullOrWhiteSpace($value))) {
+                throw "缺少或无效的构建配置：$key"
+              }
+              $defines[$key] = $value.Trim()
+              if ($defines[$key]) { Write-Output "::add-mask::$($defines[$key])" }
+              $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$key=$($defines[$key])"))
+              Write-Output "::add-mask::$encoded"
+            }
+            $defines | ConvertTo-Json -Compress | Set-Content -LiteralPath $definesPath -Encoding utf8NoBOM
+            flutter test --no-pub --dart-define-from-file $definesPath test/danmaku/dandanplay_apple_config_test.dart
+            if ($LASTEXITCODE -ne 0) { throw 'Apple 弹幕凭据编译验证失败。' }
+            flutter build ios --simulator --debug --no-pub --dart-define-from-file $definesPath
+            if ($LASTEXITCODE -ne 0) { throw 'iOS 模拟器构建失败。' }
+          } finally {
+            Remove-Item -LiteralPath $definesPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 启动 iPhone 模拟器
+        run: |
+          $devices = ConvertFrom-Json (& xcrun simctl list devices available -j | Out-String)
+          $iphone = $null
+          foreach ($runtime in $devices.devices.PSObject.Properties) {
+            foreach ($dev in $runtime.Value) {
+              if (-not $dev.isAvailable) { continue }
+              if ($dev.name -like 'iPhone *' -and $dev.state -ne 'Creating') { $iphone = $dev; break }
+            }
+            if ($iphone) { break }
+          }
+          if (-not $iphone) { throw '构建机上没有可用的 iPhone 模拟器。' }
+          Write-Output "选用模拟器：$($iphone.name)（$($iphone.udid)）"
+          if ($iphone.state -ne 'Booted') {
+            & xcrun simctl boot $iphone.udid
+            # 已在启动中时 boot 返回 149，视为成功。
+            if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 149) { throw '模拟器启动失败。' }
+          }
+          & xcrun simctl bootstatus $iphone.udid
+          if ($LASTEXITCODE -ne 0) { throw '模拟器启动超时。' }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "SIM_UDID=$($iphone.udid)" -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "SIM_NAME=$($iphone.name)" -Encoding utf8
+
+      - name: 安装并启动应用
+        run: |
+          $app = 'build/ios/iphonesimulator/Runner.app'
+          if (-not (Test-Path (Join-Path $app 'Runner'))) { throw '未找到模拟器构建产物。' }
+          $bundleId = & /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' (Join-Path $app 'Info.plist')
+          if ($LASTEXITCODE -ne 0 -or -not $bundleId) { throw '读取 CFBundleIdentifier 失败。' }
+          & xcrun simctl install $env:SIM_UDID $app
+          if ($LASTEXITCODE -ne 0) { throw '安装到模拟器失败。' }
+          & xcrun simctl launch $env:SIM_UDID $bundleId
+          if ($LASTEXITCODE -ne 0) { throw '应用启动失败。' }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "APP_BUNDLE_ID=$bundleId" -Encoding utf8
+
+      - name: 定时截图并检查进程
+        run: |
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          $status = @("模拟器：$env:SIM_NAME", "应用包：$env:APP_BUNDLE_ID")
+          $prev = 0
+          foreach ($sec in @(20, 50, 90)) {
+            Start-Sleep -Seconds ($sec - $prev)
+            $prev = $sec
+            $shot = Join-Path $dist "simulator-${sec}s.png"
+            & xcrun simctl io $env:SIM_UDID screenshot $shot
+            if ($LASTEXITCODE -ne 0) { throw "第 $sec 秒截图失败。" }
+            $running = (& xcrun simctl spawn $env:SIM_UDID launchctl list) -match [regex]::Escape($env:APP_BUNDLE_ID)
+            $status += "第 $sec 秒：$(if ($running) { '应用进程运行中' } else { '应用进程未检出（可能已崩溃或退出）' })"
+          }
+          # 收集模拟器崩溃报告，便于定位闪退。
+          Get-ChildItem "$HOME/Library/Logs/DiagnosticReports" -Filter 'Runner*' -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dist -ErrorAction SilentlyContinue }
+          $status | Set-Content -LiteralPath (Join-Path $dist 'smoke-status.txt') -Encoding utf8NoBOM
+
+      - name: 收集运行日志
+        run: |
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          & xcrun simctl spawn $env:SIM_UDID log show --last 5m --style compact --predicate 'processImagePath CONTAINS "Runner"' |
+            Set-Content -LiteralPath (Join-Path $dist 'simulator-app-logs.txt') -Encoding utf8NoBOM
+          @("源码提交：$env:GITHUB_SHA", 'Flutter：3.41.6（iOS 模拟器 debug 构建）', "模拟器：$env:SIM_NAME") |
+            Set-Content -LiteralPath (Join-Path $dist 'build-info.txt') -Encoding utf8NoBOM
+
+      - name: 上传截图与日志
+        uses: actions/upload-artifact@v4
+        with:
+          name: fly-player-ios-simulator-smoke-${{ github.run_number }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
