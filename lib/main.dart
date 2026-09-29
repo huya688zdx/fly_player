@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show debugProfileLayoutsEnabled;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -159,6 +160,15 @@ class _FrameTimingLogger {
       return;
     }
     _installed = true;
+    // TEMP-PERF-TRACE: 逐组件构建/布局打点（仅 profile/debug），定位弹窗
+    // 开关的固定 build 开销；分析完成后移除。
+    if (kProfileMode) {
+      debugProfileBuildsEnabled = true;
+      debugProfileLayoutsEnabled = true;
+      debugPrint(
+        '[PERF][FRAME][$_source] profile build/layout tracing enabled',
+      );
+    }
     WidgetsBinding.instance.addTimingsCallback(_handleTimings);
     debugPrint('[PERF][FRAME][$_source] timings enabled');
   }
