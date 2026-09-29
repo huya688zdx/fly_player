@@ -522,8 +522,8 @@ void main() {
       const Duration(minutes: 24),
       chapterEnabled: true,
       fixedDurationEnabled: false,
-      introMinutes: 2,
-      outroMinutes: 2,
+      introSeconds: 120,
+      outroSeconds: 120,
     );
     expect(noFallback.introEnd, isNull);
     expect(noFallback.outroStart, isNull);
@@ -532,8 +532,8 @@ void main() {
       const Duration(minutes: 24),
       chapterEnabled: true,
       fixedDurationEnabled: true,
-      introMinutes: 2,
-      outroMinutes: 2,
+      introSeconds: 120,
+      outroSeconds: 120,
     );
     expect(mixed.introStart, const Duration(seconds: 30));
     expect(mixed.introEnd, const Duration(seconds: 125));
@@ -545,8 +545,8 @@ void main() {
       const Duration(minutes: 24),
       chapterEnabled: false,
       fixedDurationEnabled: true,
-      introMinutes: 2,
-      outroMinutes: 2,
+      introSeconds: 120,
+      outroSeconds: 120,
     );
     expect(fixedOnly.introStart, Duration.zero);
     expect(fixedOnly.introEnd, const Duration(minutes: 2));
@@ -985,8 +985,8 @@ void main() {
               bookmarks: const <PlayerBookmarkEntry>[],
               chapters: const <DesktopPlayerChapter>[],
               introOutroEnabled: true,
-              introMaxMinutes: 2,
-              outroMaxMinutes: 2,
+              introMaxSeconds: 120,
+              outroMaxSeconds: 120,
               fixedDurationSkipEnabled: fixedEnabled,
               hasNextEpisode: true,
               subtitleDelaySeconds: 0,
@@ -1001,8 +1001,8 @@ void main() {
               onIntroOutroChanged:
                   ({
                     required enabled,
-                    required introMaxMinutes,
-                    required outroMaxMinutes,
+                    required introMaxSeconds,
+                    required outroMaxSeconds,
                     required bool fixedDurationEnabled,
                   }) async {
                     setState(() => fixedEnabled = fixedDurationEnabled);
