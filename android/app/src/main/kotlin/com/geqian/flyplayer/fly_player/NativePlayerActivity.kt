@@ -1484,8 +1484,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var autoPlayEnabled = true
     private var nextEpisodePreloadEnabled = false
     private var introOutroEnabled = true
-    private var introMaxMin = 3
-    private var outroMaxMin = 4
+    // 固定片头/片尾时长（秒，对齐飞牛 play.setConfigByItem 的 skip_opening/skip_ending）。
+    private var introMaxSec = 120
+    private var outroMaxSec = 120
+    // 飞牛按条目下发的跳过配置（反向通道 loadIntroOutroConfig）；null 表示未获取或后端不支持，
+    // 此时退回本地固定时长。
+    private var serverIntroSkipSec: Int? = null
+    private var serverOutroSkipSec: Int? = null
+    private var introOutroConfigGuid = ""
+    private var introOutroConfigItemGuid = ""
     private var skipCountdownSec = 5
     private var introSkipDismissed = false
     private var outroSkipDismissed = false
@@ -7262,6 +7269,66 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return layer
     }
 
+    /** 飞牛按条目下发的跳过配置存在时优先；否则退回本地固定时长（秒）。 */
+    private fun effectiveIntroSkipSec(): Int =
+        serverIntroSkipSec?.takeIf { it >= 0 } ?: introMaxSec
+
+    private fun effectiveOutroSkipSec(): Int =
+        serverOutroSkipSec?.takeIf { it >= 0 } ?: outroMaxSec
+
+    private fun hasServerIntroOutroConfig(): Boolean =
+        serverIntroSkipSec != null || serverOutroSkipSec != null
+
+    /** 按条目拉取飞牛跳过配置（play.info → play_config）；Emby 等后端返回空，保持本地设置。 */
+    private fun requestIntroOutroConfig() {
+        val itemGuid = loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty()
+        if (itemGuid.isEmpty() || itemGuid == introOutroConfigItemGuid) return
+        introOutroConfigItemGuid = itemGuid
+        introOutroConfigGuid = ""
+        serverIntroSkipSec = null
+        serverOutroSkipSec = null
+        NativePlayerReverseBridge.dispatch(
+            method = "loadIntroOutroConfig",
+            args = mapOf("itemGuid" to itemGuid),
+            onResult = { res ->
+                runOnUiThread {
+                    // 等待期间已切集：丢弃过期配置，等待新条目重新请求。
+                    if (loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty() != itemGuid) return@runOnUiThread
+                    val map = res as? Map<*, *>
+                    introOutroConfigGuid = map?.get("guid")?.toString()?.trim().orEmpty()
+                    serverIntroSkipSec = (map?.get("introSeconds") as? Number)?.toInt()
+                    serverOutroSkipSec = (map?.get("outroSeconds") as? Number)?.toInt()
+                    // 设置面板开着时同步刷新滑杆位置（面板未开时 renderTopPanel 直接返回）。
+                    renderTopPanel()
+                }
+            },
+            onError = {
+                // 通道未就绪（起播早期）或处理失败：放开守卫，下帧自动重试。
+                introOutroConfigItemGuid = ""
+            },
+        )
+    }
+
+    /** 把当前片头片尾配置写回飞牛（play.setConfigByItem），与官方 App 及其他端共享。 */
+    private fun pushIntroOutroConfig() {
+        val guid = introOutroConfigGuid.ifEmpty {
+            loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty()
+        }
+        if (guid.isEmpty()) return
+        NativePlayerReverseBridge.dispatch(
+            method = "saveIntroOutroConfig",
+            args = mapOf(
+                "guid" to guid,
+                "itemGuid" to (loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty()),
+                // 关闭片头片尾跳过时清除服务端配置（对齐官方模式语义：off → null）。
+                "introSeconds" to if (introOutroEnabled) effectiveIntroSkipSec() else null,
+                "outroSeconds" to if (introOutroEnabled) effectiveOutroSkipSec() else null,
+            ),
+            onResult = {},
+            onError = {},
+        )
+    }
+
     /** 片头片尾跳过：按设置时长窗口在 [updateOverlays] 里驱动显隐。 */
     private fun updateIntroOutroSkip(state: MpvPlayerState) {
         if (!this::skipCard.isInitialized) return
@@ -7277,9 +7344,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         val pos = state.positionMs
         // 有章节推断到的片头/片尾区间则精确跳转（跳到章节边界）；否则退回按设置时长上限的窗口。
-        val introEndMs = if (inferredIntroEndMs > 0) inferredIntroEndMs else introMaxMin * 60_000L
+        // 固定时长优先用飞牛按条目配置（秒），无配置时退回本地设置。
+        if (loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty() != introOutroConfigItemGuid) {
+            requestIntroOutroConfig()
+        }
+        val introEndMs = if (inferredIntroEndMs > 0) inferredIntroEndMs else effectiveIntroSkipSec() * 1000L
         val introShowFromMs = if (inferredIntroStartMs >= 0) maxOf(2_000L, inferredIntroStartMs) else 2_000L
-        val outroStartMs = if (inferredOutroStartMs >= 0) inferredOutroStartMs else dur - outroMaxMin * 60_000L
+        val outroStartMs = if (inferredOutroStartMs >= 0) inferredOutroStartMs else dur - effectiveOutroSkipSec() * 1000L
         when {
             // 片头窗口：起播 2s（或片头章节起点）后到片头结束边界内
             !introSkipDismissed && pos in introShowFromMs until introEndMs -> {
@@ -8046,12 +8117,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val io = settingsStore.loadMap(
             NativePlayerSettingsStore.KEY_INTRO_OUTRO,
             linkedMapOf(
-                "enabled" to false, "introMaxMin" to 2, "outroMaxMin" to 2, "skipCountdownSec" to 5,
+                "enabled" to false, "introMaxSec" to 120, "outroMaxSec" to 120,
+                "introMaxMin" to 2, "outroMaxMin" to 2, "skipCountdownSec" to 5,
             ),
         )
         introOutroEnabled = (io["enabled"] as? Boolean) ?: false
-        introMaxMin = (io["introMaxMin"] as? Number)?.toInt() ?: 2
-        outroMaxMin = (io["outroMaxMin"] as? Number)?.toInt() ?: 2
+        // 固定时长单位为秒；旧版本按分钟存储，缺秒键时一次性换算。
+        introMaxSec = (io["introMaxSec"] as? Number)?.toInt()
+            ?: ((io["introMaxMin"] as? Number)?.toInt() ?: 2) * 60
+        outroMaxSec = (io["outroMaxSec"] as? Number)?.toInt()
+            ?: ((io["outroMaxMin"] as? Number)?.toInt() ?: 2) * 60
         skipCountdownSec = (io["skipCountdownSec"] as? Number)?.toInt() ?: 5
         // 截图设置与 Flutter 端共享同一份偏好（FlutterSharedPreferences），两端互通不漂移。
         screenshotIncludeSubtitles = loadSharedScreenshotIncludeSubtitles()
@@ -8295,8 +8370,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun persistIntroOutro() = settingsStore.saveMap(
         NativePlayerSettingsStore.KEY_INTRO_OUTRO,
         linkedMapOf<String, Any?>(
-            "enabled" to introOutroEnabled, "introMaxMin" to introMaxMin,
-            "outroMaxMin" to outroMaxMin, "skipCountdownSec" to skipCountdownSec,
+            "enabled" to introOutroEnabled, "introMaxSec" to introMaxSec,
+            "outroMaxSec" to outroMaxSec,
+            // 旧版本按分钟读取；保留一份换算值便于版本回退。
+            "introMaxMin" to (introMaxSec / 60).coerceAtLeast(1),
+            "outroMaxMin" to (outroMaxSec / 60).coerceAtLeast(1),
+            "skipCountdownSec" to skipCountdownSec,
         ),
     )
 
@@ -9507,14 +9586,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun buildIntroOutroPage() {
         addPanelRow(panelToggle(localizedString(R.string.player_text_0275), introOutroEnabled) { v ->
-            introOutroEnabled = v; persistIntroOutro(); renderTopPanel()
+            introOutroEnabled = v; persistIntroOutro(); pushIntroOutroConfig(); renderTopPanel()
         })
         if (introOutroEnabled) {
-            addPanelRow(panelSlider(localizedString(R.string.player_text_0276), 1f, 4f, introMaxMin.toFloat(), steps = 3, format = { localizedString(R.string.player_minutes_format, it.toInt()) }) { v ->
-                introMaxMin = v.toInt(); persistIntroOutro()
+            // 固定片头/片尾时长按秒设置（对齐飞牛 play.setConfigByItem 的 skip_opening/skip_ending）。
+            // 拖动只改本地态，松手（onCommit）才回传服务器，避免拖动过程连续请求。
+            addPanelRow(panelSlider(localizedString(R.string.player_text_0276), 0f, 600f, effectiveIntroSkipSec().toFloat(), steps = 120, format = { skipSecondsLabel(it.toInt()) }, onCommit = { pushIntroOutroConfig() }) { v ->
+                introMaxSec = v.toInt()
+                if (hasServerIntroOutroConfig()) serverIntroSkipSec = introMaxSec
+                persistIntroOutro()
             })
-            addPanelRow(panelSlider(localizedString(R.string.player_text_0277), 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { localizedString(R.string.player_minutes_format, it.toInt()) }) { v ->
-                outroMaxMin = v.toInt(); persistIntroOutro()
+            addPanelRow(panelSlider(localizedString(R.string.player_text_0277), 0f, 600f, effectiveOutroSkipSec().toFloat(), steps = 120, format = { skipSecondsLabel(it.toInt()) }, onCommit = { pushIntroOutroConfig() }) { v ->
+                outroMaxSec = v.toInt()
+                if (hasServerIntroOutroConfig()) serverOutroSkipSec = outroMaxSec
+                persistIntroOutro()
             })
             addPanelRow(panelSlider(localizedString(R.string.player_text_0278), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { localizedString(R.string.player_seconds_format, it.toInt()) }) { v ->
                 skipCountdownSec = v.toInt(); persistIntroOutro()
@@ -9528,6 +9613,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding(dp(12), dp(10), dp(12), dp(10))
         })
+    }
+
+    /** 固定时长标签：整分钟显示分钟，其余显示秒；0 表示该侧不提示。 */
+    private fun skipSecondsLabel(sec: Int): String = when {
+        sec <= 0 -> localizedString(R.string.player_skip_duration_off)
+        sec % 60 == 0 -> localizedString(R.string.player_minutes_format, sec / 60)
+        else -> localizedString(R.string.player_seconds_format, sec)
     }
 
     /** 书签按 itemGuid::mediaGuid 分组持久化（对齐 Flutter BookmarkStore 的 identityKey）。 */

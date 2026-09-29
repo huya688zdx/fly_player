@@ -24,6 +24,7 @@ import '../../services/native_reentry_support.dart';
 import '../../services/native_playback_reentry.dart';
 import '../../services/server_native_picker_support.dart';
 import '../../services/server_reentry_support.dart';
+import 'desktop_playback_chapters.dart';
 import 'desktop_playback_screen.dart';
 import 'desktop_playback_session.dart';
 import 'desktop_playback_launch_guard.dart';
@@ -372,6 +373,35 @@ final class DesktopPlaybackHost implements PlaybackHost {
             ? (progress) =>
                   NativeReentrySupport.recordProgress(effectiveNas, progress)
             : serverReporter.report,
+        // 片头片尾跳过时长走飞牛按条目配置（play.info / play.setConfigByItem），
+        // 与官方 App 共享；其余后端不接线，播放页退回本地偏好。
+        loadIntroOutroConfig:
+            !offline && backend.capabilities.supportsIntroOutroConfig
+            ? (itemGuid) async {
+                final info = await FeiniuApi(
+                  effectiveNas,
+                ).getPlayInfo(itemGuid);
+                final config = info.playConfig;
+                final configGuid = config?.guid.trim() ?? '';
+                final parentGuid = info.parentGuid.trim();
+                return DesktopIntroOutroConfig(
+                  guid: configGuid.isNotEmpty
+                      ? configGuid
+                      : (parentGuid.isNotEmpty ? parentGuid : itemGuid),
+                  introSeconds: config?.skipOpening,
+                  outroSeconds: config?.skipEnding,
+                );
+              }
+            : null,
+        saveIntroOutroConfig:
+            !offline && backend.capabilities.supportsIntroOutroConfig
+            ? (guid, {introSeconds, outroSeconds}) =>
+                  FeiniuApi(effectiveNas).setPlayConfigByItem(
+                    itemGuid: guid,
+                    skipOpening: introSeconds,
+                    skipEnding: outroSeconds,
+                  )
+            : null,
         source: session.source,
         episodes: effectiveEpisodes,
         loadSeasons: offline || source.mediaType.toLowerCase() != 'episode'

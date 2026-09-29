@@ -87,6 +87,32 @@ class NativePlaybackReentry {
         onResolvePlayback: onResolvePlayback,
         onRecordProgress: (progress) =>
             NativeReentrySupport.recordProgress(nas, progress),
+        // 片头片尾跳过时长走飞牛按条目配置（play.info / play.setConfigByItem），
+        // 与官方 App、桌面端共享；服务器族不接线，原生壳退回本地固定时长。
+        onLoadIntroOutroConfig: (itemGuid) async {
+          try {
+            final info = await FeiniuApi(nas).getPlayInfo(itemGuid);
+            final config = info.playConfig;
+            final configGuid = config?.guid.trim() ?? '';
+            final parentGuid = info.parentGuid.trim();
+            return <String, dynamic>{
+              'guid': configGuid.isNotEmpty
+                  ? configGuid
+                  : (parentGuid.isNotEmpty ? parentGuid : itemGuid),
+              'introSeconds': config?.skipOpening,
+              'outroSeconds': config?.skipEnding,
+            };
+          } catch (_) {
+            return null;
+          }
+        },
+        onSaveIntroOutroConfig:
+            (guid, {itemGuid, introSeconds, outroSeconds}) =>
+                FeiniuApi(nas).setPlayConfigByItem(
+                  itemGuid: guid,
+                  skipOpening: introSeconds,
+                  skipEnding: outroSeconds,
+                ),
         onResolveSubtitleFile: (guid, {format}) =>
             NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
         onReloadServerSession: (currentLoadArgs, intent) =>

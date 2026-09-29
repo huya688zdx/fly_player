@@ -74,6 +74,8 @@ class DesktopPlaybackScreen extends StatefulWidget {
     this.resolveSegmentedSubtitle,
     this.refreshDirectLink,
     this.resolveArtwork,
+    this.loadIntroOutroConfig,
+    this.saveIntroOutroConfig,
   });
 
   final MpvMediaSource source;
@@ -99,6 +101,17 @@ class DesktopPlaybackScreen extends StatefulWidget {
   refreshDirectLink;
   final MediaImageRequest Function(String path)? resolveArtwork;
 
+  /// 飞牛按条目保存的片头片尾跳过配置（play.info / play.setConfigByItem）。
+  /// 仅支持该能力的后端（飞牛）提供；其余后端为 null，固定时长退回本地偏好。
+  final Future<DesktopIntroOutroConfig?> Function(String itemGuid)?
+  loadIntroOutroConfig;
+  final Future<void> Function(
+    String guid, {
+    int? introSeconds,
+    int? outroSeconds,
+  })?
+  saveIntroOutroConfig;
+
   @override
   State<DesktopPlaybackScreen> createState() => _DesktopPlaybackScreenState();
 }
@@ -114,8 +127,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   static const String _aspectRatioPrefKey = 'player_display_aspect_ratio';
   static const String _decoderModePrefKey = 'player_decoder_mode';
   static const String _introOutroEnabledPrefKey = 'player_intro_outro_enabled';
-  static const String _introMaxMinutesPrefKey = 'player_intro_outro_intro_min';
-  static const String _outroMaxMinutesPrefKey = 'player_intro_outro_outro_min';
+  // 固定时长单位为秒（对齐飞牛 play.setConfigByItem 的 skip_opening/skip_ending）；
+  // 旧版按分钟的键仅在迁移时读取一次。
+  static const String _legacyIntroMaxMinutesPrefKey =
+      'player_intro_outro_intro_min';
+  static const String _legacyOutroMaxMinutesPrefKey =
+      'player_intro_outro_outro_min';
+  static const String _introMaxSecondsPrefKey = 'player_intro_outro_intro_sec';
+  static const String _outroMaxSecondsPrefKey = 'player_intro_outro_outro_sec';
   static const String _fixedDurationSkipPrefKey =
       'player_intro_outro_fixed_duration_enabled';
   static const String _subDelayPrefKey = 'player_subtitle_delay_seconds';
@@ -218,9 +237,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   late final DesktopPlaybackChapters _chapterLoader;
   List<DesktopPlayerChapter> get _chapters => _chapterLoader.value;
   bool _introOutroEnabled = true;
-  int _introMaxMinutes = 2;
-  int _outroMaxMinutes = 2;
+  int _introMaxSeconds = 120;
+  int _outroMaxSeconds = 120;
   bool _fixedDurationSkipEnabled = false;
+  // 飞牛按条目（play.setConfigByItem）保存跳过配置的 guid；空表示尚未获取或后端不支持。
+  String _introOutroConfigGuid = '';
+  String _introOutroConfigLoadedItemGuid = '';
+  int _introOutroConfigLoadGeneration = 0;
   // 片头片尾跳过提示：ValueNotifier 驱动，全屏路由下也能即时显隐。
   final ValueNotifier<_SkipPromptKind?> _skipPromptKindNotifier =
       ValueNotifier<_SkipPromptKind?>(null);
@@ -423,8 +446,16 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _mpvSettings = mpvBundle.settings;
       _videoAdjustments = mpvBundle.videoAdjustments;
       _introOutroEnabled = prefs.getBool(_introOutroEnabledPrefKey) ?? true;
-      _introMaxMinutes = prefs.getInt(_introMaxMinutesPrefKey) ?? 2;
-      _outroMaxMinutes = prefs.getInt(_outroMaxMinutesPrefKey) ?? 2;
+      _introMaxSeconds = _readSkipSecondsPref(
+        prefs,
+        key: _introMaxSecondsPrefKey,
+        legacyMinutesKey: _legacyIntroMaxMinutesPrefKey,
+      );
+      _outroMaxSeconds = _readSkipSecondsPref(
+        prefs,
+        key: _outroMaxSecondsPrefKey,
+        legacyMinutesKey: _legacyOutroMaxMinutesPrefKey,
+      );
       _fixedDurationSkipEnabled =
           prefs.getBool(_fixedDurationSkipPrefKey) ?? false;
       _subtitleDelaySeconds = prefs.getDouble(_subDelayPrefKey) ?? 0;
@@ -1014,8 +1045,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _player.state.duration,
     chapterEnabled: _introOutroEnabled,
     fixedDurationEnabled: _fixedDurationSkipEnabled,
-    introMinutes: _introMaxMinutes,
-    outroMinutes: _outroMaxMinutes,
+    introSeconds: _introMaxSeconds,
+    outroSeconds: _outroMaxSeconds,
   );
 
   /// 仅在已启用的章节或固定时长范围内提示跳过。
@@ -1097,17 +1128,41 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
   }
 
+  static const int _skipSecondsMin = 0;
+  static const int _skipSecondsMax = 600;
+
+  /// 读取按秒保存的固定时长；旧版本按分钟存储，一次性换算成秒。
+  static int _readSkipSecondsPref(
+    SharedPreferences prefs, {
+    required String key,
+    required String legacyMinutesKey,
+  }) {
+    final seconds = prefs.getInt(key);
+    if (seconds != null) return seconds.clamp(_skipSecondsMin, _skipSecondsMax);
+    final legacyMinutes = prefs.getInt(legacyMinutesKey);
+    if (legacyMinutes != null) {
+      return (legacyMinutes * 60).clamp(_skipSecondsMin, _skipSecondsMax);
+    }
+    return 120;
+  }
+
   Future<void> _setIntroOutroSettings({
     required bool enabled,
-    required int introMaxMinutes,
-    required int outroMaxMinutes,
+    required int introMaxSeconds,
+    required int outroMaxSeconds,
     required bool fixedDurationEnabled,
   }) async {
     if (mounted) {
       _updateView(() {
         _introOutroEnabled = enabled;
-        _introMaxMinutes = introMaxMinutes.clamp(1, 4);
-        _outroMaxMinutes = outroMaxMinutes.clamp(1, 4);
+        _introMaxSeconds = introMaxSeconds.clamp(
+          _skipSecondsMin,
+          _skipSecondsMax,
+        );
+        _outroMaxSeconds = outroMaxSeconds.clamp(
+          _skipSecondsMin,
+          _skipSecondsMax,
+        );
         _fixedDurationSkipEnabled = fixedDurationEnabled;
         _skipPromptKindNotifier.value = _computeSkipPromptKind(
           _player.state.position,
@@ -1116,9 +1171,59 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_introOutroEnabledPrefKey, enabled);
-    await prefs.setInt(_introMaxMinutesPrefKey, _introMaxMinutes);
-    await prefs.setInt(_outroMaxMinutesPrefKey, _outroMaxMinutes);
+    await prefs.setInt(_introMaxSecondsPrefKey, _introMaxSeconds);
+    await prefs.setInt(_outroMaxSecondsPrefKey, _outroMaxSeconds);
     await prefs.setBool(_fixedDurationSkipPrefKey, fixedDurationEnabled);
+    // 与飞牛官方片头片尾配置保持同步；固定时长关闭时清除服务端配置（对齐旧版官方模式语义）。
+    unawaited(_pushIntroOutroConfig());
+  }
+
+  /// 换源/换集后按条目拉取飞牛跳过配置；不支持的后端（Emby、本地）与拉取失败时
+  /// 继续使用本地偏好。
+  Future<void> _loadIntroOutroConfigForCurrentItem() async {
+    final loader = widget.loadIntroOutroConfig;
+    final itemGuid = _source.itemGuid.trim();
+    if (loader == null || itemGuid.isEmpty) return;
+    _introOutroConfigLoadedItemGuid = itemGuid;
+    final generation = ++_introOutroConfigLoadGeneration;
+    try {
+      final config = await loader(itemGuid);
+      if (!mounted || generation != _introOutroConfigLoadGeneration) return;
+      _updateView(() {
+        _introOutroConfigGuid = config?.guid ?? '';
+        final intro = config?.introSeconds;
+        final outro = config?.outroSeconds;
+        if (intro != null && intro >= 0) {
+          _introMaxSeconds = intro.clamp(_skipSecondsMin, _skipSecondsMax);
+        }
+        if (outro != null && outro >= 0) {
+          _outroMaxSeconds = outro.clamp(_skipSecondsMin, _skipSecondsMax);
+        }
+        _skipPromptKindNotifier.value = _computeSkipPromptKind(
+          _player.state.position,
+        );
+      });
+    } catch (_) {
+      // 拉取失败不阻塞播放，保持本地偏好。
+    }
+  }
+
+  Future<void> _pushIntroOutroConfig() async {
+    final save = widget.saveIntroOutroConfig;
+    if (save == null) return;
+    final guid = _introOutroConfigGuid.isNotEmpty
+        ? _introOutroConfigGuid
+        : _source.itemGuid.trim();
+    if (guid.isEmpty) return;
+    try {
+      await save(
+        guid,
+        introSeconds: _fixedDurationSkipEnabled ? _introMaxSeconds : null,
+        outroSeconds: _fixedDurationSkipEnabled ? _outroMaxSeconds : null,
+      );
+    } catch (_) {
+      // 同步失败不影响本地播放；下次调整时会再次尝试。
+    }
   }
 
   Future<void> _selectChapter(Duration position) async {
@@ -1147,6 +1252,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _source = source;
     _updateSystemMediaMetadata();
     _weakNetwork.setSource(source);
+    // 换条目后按该条目拉取飞牛跳过配置；同条目（切画质/音轨）不重复请求。
+    if (source.itemGuid.trim() != _introOutroConfigLoadedItemGuid) {
+      unawaited(_loadIntroOutroConfigForCurrentItem());
+    }
     _pausedByUser = !play;
     widget.session.ready = false;
     _subtitleWindowSecond = -100;
@@ -2708,8 +2817,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           onApplySavedPreset: _applySavedMpvPreset,
           chapters: _chapters,
           introOutroEnabled: _introOutroEnabled,
-          introMaxMinutes: _introMaxMinutes,
-          outroMaxMinutes: _outroMaxMinutes,
+          introMaxSeconds: _introMaxSeconds,
+          outroMaxSeconds: _outroMaxSeconds,
           fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
           hasNextEpisode: _nextEpisode != null,
           subtitleDelaySeconds: _subtitleDelaySeconds,
@@ -3225,8 +3334,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           onApplySavedPreset: _applySavedMpvPreset,
           chapters: _chapters,
           introOutroEnabled: _introOutroEnabled,
-          introMaxMinutes: _introMaxMinutes,
-          outroMaxMinutes: _outroMaxMinutes,
+          introMaxSeconds: _introMaxSeconds,
+          outroMaxSeconds: _outroMaxSeconds,
           fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
           hasNextEpisode: _nextEpisode != null,
           subtitleDelaySeconds: _subtitleDelaySeconds,

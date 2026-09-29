@@ -181,6 +181,15 @@ class NativePlayerBridge {
     Future<bool> Function(String viewType)? onSetEpisodePickerViewType,
     Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleImported,
     Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleRemoved,
+    Future<Map<String, dynamic>?> Function(String itemGuid)?
+    onLoadIntroOutroConfig,
+    Future<void> Function(
+      String guid, {
+      String? itemGuid,
+      int? introSeconds,
+      int? outroSeconds,
+    })?
+    onSaveIntroOutroConfig,
   }) {
     final token = Object();
     final statsScope = PlayStatsService.instance.currentScope;
@@ -375,6 +384,27 @@ class NativePlayerBridge {
             ),
           );
           await onRecordProgress(progress);
+          return null;
+        case 'loadIntroOutroConfig':
+          // 飞牛按条目的片头片尾跳过配置（play.info → play_config）；
+          // 未接线的后端返回 null，原生壳退回本地固定时长。
+          if (onLoadIntroOutroConfig == null) return null;
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final itemGuid = (args['itemGuid'] ?? '').toString().trim();
+          if (itemGuid.isEmpty) return null;
+          return await onLoadIntroOutroConfig(itemGuid);
+        case 'saveIntroOutroConfig':
+          // 原生壳把调整后的片头片尾时长写回飞牛（play.setConfigByItem）。
+          if (onSaveIntroOutroConfig == null) return null;
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final guid = (args['guid'] ?? '').toString().trim();
+          if (guid.isEmpty) return null;
+          await onSaveIntroOutroConfig(
+            guid,
+            itemGuid: (args['itemGuid'] ?? '').toString().trim(),
+            introSeconds: (args['introSeconds'] as num?)?.toInt(),
+            outroSeconds: (args['outroSeconds'] as num?)?.toInt(),
+          );
           return null;
         case 'recordNativeLog':
           // 原生 mpv 内核的 error/warn 级日志 → 写进应用内日志，使设置→日志界面能看到

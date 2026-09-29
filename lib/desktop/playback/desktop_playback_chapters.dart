@@ -20,6 +20,21 @@ final _outroChapterTitle = RegExp(
   caseSensitive: false,
 );
 
+/// 飞牛按条目保存的片头片尾跳过配置（单位秒，对应 play.setConfigByItem 的
+/// skip_opening / skip_ending）。
+class DesktopIntroOutroConfig {
+  const DesktopIntroOutroConfig({
+    required this.guid,
+    this.introSeconds,
+    this.outroSeconds,
+  });
+
+  /// 保存该配置的条目 guid（play_config.guid，缺省回退父条目）。
+  final String guid;
+  final int? introSeconds;
+  final int? outroSeconds;
+}
+
 /// 只根据明确的片头/片尾名称识别；普通编号章节不猜测跳过范围。
 ({Duration? introStart, Duration? introEnd, Duration? outroStart})
 desktopChapterSkipBounds(
@@ -50,6 +65,7 @@ desktopChapterSkipBounds(
 }
 
 /// 设置页和播放提示共用实际生效的范围；固定时长必须单独开启。
+/// 固定时长单位为秒，与飞牛 `play.setConfigByItem` 的 skip_opening/skip_ending 一致。
 ({
   Duration? introStart,
   Duration? introEnd,
@@ -62,8 +78,8 @@ desktopPlaybackSkipBounds(
   Duration duration, {
   required bool chapterEnabled,
   required bool fixedDurationEnabled,
-  required int introMinutes,
-  required int outroMinutes,
+  required int introSeconds,
+  required int outroSeconds,
 }) {
   final detected = desktopChapterSkipBounds(
     chapterEnabled ? chapters : const [],
@@ -73,11 +89,13 @@ desktopPlaybackSkipBounds(
   var introEnd = detected.introEnd;
   var outroStart = detected.outroStart;
   if (fixedDurationEnabled && duration > Duration.zero) {
-    if (introEnd == null) {
+    if (introEnd == null && introSeconds > 0) {
       introStart = Duration.zero;
-      introEnd = Duration(minutes: introMinutes);
+      introEnd = Duration(seconds: introSeconds);
     }
-    outroStart ??= duration - Duration(minutes: outroMinutes);
+    if (outroStart == null && outroSeconds > 0) {
+      outroStart = duration - Duration(seconds: outroSeconds);
+    }
   }
   if (introEnd != null &&
       (introEnd <= const Duration(seconds: 2) || introEnd >= duration)) {

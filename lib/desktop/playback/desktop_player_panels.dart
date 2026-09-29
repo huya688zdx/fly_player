@@ -1088,8 +1088,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.danmakuCommentCount,
     required this.chapters,
     required this.introOutroEnabled,
-    required this.introMaxMinutes,
-    required this.outroMaxMinutes,
+    required this.introMaxSeconds,
+    required this.outroMaxSeconds,
     required this.fixedDurationSkipEnabled,
     required this.hasNextEpisode,
     required this.subtitleDelaySeconds,
@@ -1133,8 +1133,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
   final String danmakuSourceLabel;
   final int danmakuCommentCount;
   final bool introOutroEnabled;
-  final int introMaxMinutes;
-  final int outroMaxMinutes;
+  final int introMaxSeconds;
+  final int outroMaxSeconds;
   final bool fixedDurationSkipEnabled;
   final bool hasNextEpisode;
   final double subtitleDelaySeconds;
@@ -1142,8 +1142,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
   final double subtitleScale;
   final Future<void> Function({
     required bool enabled,
-    required int introMaxMinutes,
-    required int outroMaxMinutes,
+    required int introMaxSeconds,
+    required int outroMaxSeconds,
     required bool fixedDurationEnabled,
   })
   onIntroOutroChanged;
@@ -1550,8 +1550,8 @@ class _DesktopPlaybackSettingsPanelState
       widget.duration,
       chapterEnabled: widget.introOutroEnabled,
       fixedDurationEnabled: widget.fixedDurationSkipEnabled,
-      introMinutes: widget.introMaxMinutes,
-      outroMinutes: widget.outroMaxMinutes,
+      introSeconds: widget.introMaxSeconds,
+      outroSeconds: widget.outroMaxSeconds,
     );
     Widget statusCard({required bool intro}) {
       final label = intro ? '片头' : '片尾';
@@ -1611,28 +1611,28 @@ class _DesktopPlaybackSettingsPanelState
         _SettingsSliderTile(
           title: '固定片头时长',
           subtitle: '从视频开头到设定时间，点击跳过会跳到该时间点',
-          valueLabel: '${widget.introMaxMinutes} 分钟',
-          value: widget.introMaxMinutes.toDouble(),
-          min: 1,
-          max: 4,
-          divisions: 3,
+          valueLabel: _skipSecondsLabel(widget.introMaxSeconds),
+          value: widget.introMaxSeconds.toDouble(),
+          min: 0,
+          max: 600,
+          divisions: 120,
           onChanged: (_) {},
           onChangeEnd: (value) =>
-              _setIntroOutro(introMaxMinutes: value.round()),
+              _setIntroOutro(introMaxSeconds: value.round()),
         ),
       );
       children.add(
         _SettingsSliderTile(
           title: '固定片尾时长',
           subtitle: '在视频最后这段时间内提示跳过',
-          valueLabel: '${widget.outroMaxMinutes} 分钟',
-          value: widget.outroMaxMinutes.toDouble(),
-          min: 1,
-          max: 4,
-          divisions: 3,
+          valueLabel: _skipSecondsLabel(widget.outroMaxSeconds),
+          value: widget.outroMaxSeconds.toDouble(),
+          min: 0,
+          max: 600,
+          divisions: 120,
           onChanged: (_) {},
           onChangeEnd: (value) =>
-              _setIntroOutro(outroMaxMinutes: value.round()),
+              _setIntroOutro(outroMaxSeconds: value.round()),
         ),
       );
     }
@@ -1641,16 +1641,26 @@ class _DesktopPlaybackSettingsPanelState
     return _settingsList(children);
   }
 
+  /// 固定时长按秒展示（与飞牛官方配置同单位）；0 表示该侧不提示。
+  static String _skipSecondsLabel(int seconds) {
+    if (seconds <= 0) return '关闭';
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    if (minutes == 0) return '$seconds 秒';
+    if (rest == 0) return '$minutes 分钟';
+    return '$minutes 分 $rest 秒';
+  }
+
   Future<void> _setIntroOutro({
     bool? enabled,
-    int? introMaxMinutes,
-    int? outroMaxMinutes,
+    int? introMaxSeconds,
+    int? outroMaxSeconds,
     bool? fixedDurationEnabled,
   }) async {
     await widget.onIntroOutroChanged(
       enabled: enabled ?? widget.introOutroEnabled,
-      introMaxMinutes: introMaxMinutes ?? widget.introMaxMinutes,
-      outroMaxMinutes: outroMaxMinutes ?? widget.outroMaxMinutes,
+      introMaxSeconds: introMaxSeconds ?? widget.introMaxSeconds,
+      outroMaxSeconds: outroMaxSeconds ?? widget.outroMaxSeconds,
       fixedDurationEnabled:
           fixedDurationEnabled ?? widget.fixedDurationSkipEnabled,
     );

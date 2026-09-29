@@ -112,6 +112,7 @@
     <string name="player_dandan_episode_id">弹弹play #%1$s</string>
     <string name="player_minutes_format">%1$d 分钟</string>
     <string name="player_seconds_format">%1$d 秒</string>
+    <string name="player_skip_duration_off">关闭</string>
     <string name="player_bookmark_title">书签 %1$s</string>
     <string name="player_track_number_format">轨道 %1$s</string>
     <string name="player_track_generic">轨道</string>
