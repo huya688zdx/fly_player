@@ -124,6 +124,9 @@ class FnNativeSystemLogin {
     String deviceName = _defaultDeviceName,
     Duration timeout = const Duration(seconds: 20),
   }) {
+    // 设备标识只生成一次并贯穿请求与响应解析：fnOS 登录响应不回显 did，
+    // 若在响应解析时才生成，保存的免密凭据会与 longToken 绑定的 did 不一致。
+    final effectiveDid = did ?? generateDeviceId();
     return _runSession(
       baseUrl: baseUrl,
       timeout: timeout,
@@ -135,10 +138,10 @@ class FnNativeSystemLogin {
           'stay': 2,
           'deviceType': _deviceType,
           'deviceName': deviceName,
-          'did': did ?? generateDeviceId(),
+          'did': effectiveDid,
           'si': si,
         });
-        return _sessionFromLoginResponse(data, did: did);
+        return _sessionFromLoginResponse(data, did: effectiveDid);
       },
     );
   }
@@ -169,19 +172,20 @@ class FnNativeSystemLogin {
     );
     try {
       final si = await channel.getSystemIdentifier();
+      final effectiveDid = did ?? generateDeviceId();
       final body = jsonEncode(<String, dynamic>{
         'req': 'user.tokenLogin',
         'token': longToken,
         'deviceType': _deviceType,
         'deviceName': deviceName,
-        'did': did ?? generateDeviceId(),
+        'did': effectiveDid,
         'si': si,
       });
       final hmac = Hmac(sha256, secretBytes);
       final signed =
           base64Encode(hmac.convert(utf8.encode(body)).bytes) + body;
       final reply = await channel.sendPlain(signed);
-      return _sessionFromLoginResponse(reply, did: did);
+      return _sessionFromLoginResponse(reply, did: effectiveDid);
     } on FnSystemTwoFactorRequired {
       rethrow;
     } on AppException {
@@ -218,6 +222,7 @@ class FnNativeSystemLogin {
       baseUrl: baseUrl,
       timeout: timeout,
       action: (channel, si) async {
+        final effectiveDid = did ?? generateDeviceId();
         final data = await channel.sendEncrypted(<String, dynamic>{
           'req': 'user.2fa.loginVerify',
           if (totpCode != null && totpCode.isNotEmpty) 'code': totpCode,
@@ -228,10 +233,10 @@ class FnNativeSystemLogin {
           'stay': trustedDevice ? 2 : 0,
           'deviceType': _deviceType,
           'deviceName': deviceName,
-          'did': did ?? generateDeviceId(),
+          'did': effectiveDid,
           'si': si,
         });
-        return _sessionFromLoginResponse(data, did: did);
+        return _sessionFromLoginResponse(data, did: effectiveDid);
       },
     );
   }

@@ -474,25 +474,25 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       );
       return;
     }
-    if (userName.isEmpty) {
+    // FN ID 登录且已保存免密续登凭据（longToken）时，用户名与密码都可留空：
+    // 原生加密 WS 静默续登（tokenLogin 不需要账号名）后直接授权换媒体 token，
+    // 无需打开 Web 授权页。豁免判定必须先于用户名/密码必填校验。
+    final fnConnectIdForPasswordless =
+        FeiniuApi.extractFnConnectIdFromInput(baseUrl);
+    final canPasswordless = fnConnectIdForPasswordless != null &&
+        await FeiniuApi.hasFnConnectSavedLogin(fnConnectIdForPasswordless);
+    if (!mounted) return;
+    if (userName.isEmpty && !canPasswordless) {
       _showValidationError(
         AppLocalizations.of(context).connectionUserNameRequired,
       );
       return;
     }
-    if (password.isEmpty) {
-      // FN ID 登录且已保存免密续登凭据（longToken）时允许密码留空：
-      // 原生加密 WS 静默续登后直接授权换媒体 token，无需打开 Web 授权页。
-      final fnConnectId = FeiniuApi.extractFnConnectIdFromInput(baseUrl);
-      final canPasswordless = fnConnectId != null &&
-          await FeiniuApi.hasFnConnectSavedLogin(fnConnectId);
-      if (!mounted) return;
-      if (!canPasswordless) {
-        _showValidationError(
-          AppLocalizations.of(context).connectionPasswordRequired,
-        );
-        return;
-      }
+    if (password.isEmpty && !canPasswordless) {
+      _showValidationError(
+        AppLocalizations.of(context).connectionPasswordRequired,
+      );
+      return;
     }
 
     setState(() {
