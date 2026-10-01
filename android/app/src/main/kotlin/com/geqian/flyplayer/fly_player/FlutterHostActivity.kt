@@ -149,6 +149,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (changed) {
             window.attributes = params
         }
+        // HyperOS 云控/SAGT 会把应用误判成游戏并写 secure miui_refresh_rate=60，
+        // primary 策略层随之把 render 钳到 (0,60)，上面的 preferredDisplayModeId
+        // 请求此时不生效（displayHz 停在 60）。这里按播放器弹幕面的先例
+        // （MpvPlayerView 的 host_frame_rate_vote）补 SDK 35 的帧率类别票：
+        // View.setRequestedFrameRate 让本窗口在 FrameRateCategory（normal=60/high=90）
+        // 之外拿到显式票。设备被钳时这是应用侧能打出的票；未被钳时无副作用。
+        if (Build.VERSION.SDK_INT >= 35) {
+            window.decorView.setRequestedFrameRate(preferredRefreshRateHz)
+        }
         val modeRefreshRate =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 currentDisplay.mode?.refreshRate ?: preferredRefreshRateHz
