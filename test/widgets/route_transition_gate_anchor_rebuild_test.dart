@@ -23,91 +23,69 @@ void main() {
   });
 
   testWidgets(
-      '弹窗 push/pop 期间页面根 build 计数不变（showModalBottomSheet 与 showDialog 各一轮）',
-      (tester) async {
-    final navKey = GlobalKey<NavigatorState>();
-    await tester.pumpWidget(_app(navKey));
-    // 等首页自身进场转场结束：此后每一帧的转场信号只来自弹窗开/关。
-    await tester.pumpAndSettle();
-    final page =
-        tester.state<_InstrumentedPageState>(find.byType(_InstrumentedPage));
-    final baseline = page.rootBuildCount;
+    '弹窗 push/pop 期间页面根 build 计数不变（showModalBottomSheet 与 showDialog 各一轮）',
+    (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(_app(navKey));
+      // 等首页自身进场转场结束：此后每一帧的转场信号只来自弹窗开/关。
+      await tester.pumpAndSettle();
+      final page = tester.state<_InstrumentedPageState>(
+        find.byType(_InstrumentedPage),
+      );
+      final baseline = page.rootBuildCount;
 
-    // —— 第一轮：showModalBottomSheet（进场 250ms，小步 pump 落在转场中途）——
-    await tester.tap(find.text('打开底部弹窗'));
-    await tester.pump(const Duration(milliseconds: 10));
-    expect(
-      RouteTransitionGate.anyRouteTransitioning,
-      isTrue,
-      reason: 'observer 已挂（对齐 main.dart:461），弹窗进场中应处于转场',
-    );
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: '弹窗 push 翻转 _ModalScopeStatus 只允许重建锚点叶子，页根不得重建',
-    );
-    await tester.pumpAndSettle();
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: '弹窗打开完成后页根仍不得重建',
-    );
+      // —— 第一轮：showModalBottomSheet（进场 250ms，小步 pump 落在转场中途）——
+      await tester.tap(find.text('打开底部弹窗'));
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(
+        RouteTransitionGate.anyRouteTransitioning,
+        isTrue,
+        reason: 'observer 已挂（对齐 main.dart:461），弹窗进场中应处于转场',
+      );
+      expect(
+        page.rootBuildCount,
+        baseline,
+        reason: '弹窗 push 翻转 _ModalScopeStatus 只允许重建锚点叶子，页根不得重建',
+      );
+      await tester.pumpAndSettle();
+      expect(page.rootBuildCount, baseline, reason: '弹窗打开完成后页根仍不得重建');
 
-    navKey.currentState!.pop();
-    await tester.pump(const Duration(milliseconds: 10));
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: 'pop 翻转 _ModalScopeStatus 同样不得触发页根重建',
-    );
-    await tester.pumpAndSettle();
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: '弹窗关闭完成后页根仍不得重建',
-    );
-    expect(RouteTransitionGate.anyRouteTransitioning, isFalse);
+      navKey.currentState!.pop();
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(
+        page.rootBuildCount,
+        baseline,
+        reason: 'pop 翻转 _ModalScopeStatus 同样不得触发页根重建',
+      );
+      await tester.pumpAndSettle();
+      expect(page.rootBuildCount, baseline, reason: '弹窗关闭完成后页根仍不得重建');
+      expect(RouteTransitionGate.anyRouteTransitioning, isFalse);
 
-    // —— 第二轮：showDialog（进场 150ms，同款小步 pump）——
-    await tester.tap(find.text('打开对话框'));
-    await tester.pump(const Duration(milliseconds: 10));
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: '对话框 push 中途页根不得重建',
-    );
-    await tester.pumpAndSettle();
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: '对话框打开完成后页根不得重建',
-    );
+      // —— 第二轮：showDialog（进场 150ms，同款小步 pump）——
+      await tester.tap(find.text('打开对话框'));
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(page.rootBuildCount, baseline, reason: '对话框 push 中途页根不得重建');
+      await tester.pumpAndSettle();
+      expect(page.rootBuildCount, baseline, reason: '对话框打开完成后页根不得重建');
 
-    navKey.currentState!.pop();
-    await tester.pump(const Duration(milliseconds: 10));
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: '对话框 pop 中途页根不得重建',
-    );
-    await tester.pumpAndSettle();
-    expect(
-      page.rootBuildCount,
-      baseline,
-      reason: '对话框关闭完成后页根不得重建',
-    );
+      navKey.currentState!.pop();
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(page.rootBuildCount, baseline, reason: '对话框 pop 中途页根不得重建');
+      await tester.pumpAndSettle();
+      expect(page.rootBuildCount, baseline, reason: '对话框关闭完成后页根不得重建');
 
-    expect(tester.takeException(), isNull);
-  });
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets('锚点承接通知：debugRebuildCount 每轮 push/pop 必增且页根计数不动',
-      (tester) async {
+  testWidgets('锚点承接通知：debugRebuildCount 每轮 push/pop 必增且页根计数不动', (tester) async {
     final navKey = GlobalKey<NavigatorState>();
     await tester.pumpWidget(_app(navKey));
     // 等首页自身进场转场结束，锚点/页根计数基线此后不再受初始动画影响。
     await tester.pumpAndSettle();
-    final page =
-        tester.state<_InstrumentedPageState>(find.byType(_InstrumentedPage));
+    final page = tester.state<_InstrumentedPageState>(
+      find.byType(_InstrumentedPage),
+    );
     final rootBaseline = page.rootBuildCount;
 
     final anchorAtStart = RouteGateAnchorState.debugRebuildCount;
@@ -168,21 +146,17 @@ void main() {
       RouteGateAnchorState.debugRebuildCount,
       greaterThanOrEqualTo(anchorAtStart + 4),
     );
-    expect(
-      page.rootBuildCount,
-      rootBaseline,
-      reason: '两轮弹窗开关后页根 build 计数全程不变',
-    );
+    expect(page.rootBuildCount, rootBaseline, reason: '两轮弹窗开关后页根 build 计数全程不变');
     expect(tester.takeException(), isNull);
   });
 }
 
 Widget _app(GlobalKey<NavigatorState> navKey) => MaterialApp(
-      navigatorKey: navKey,
-      // 对齐生产：main.dart:459-461 的 _appNavigatorObservers 首项。
-      navigatorObservers: <NavigatorObserver>[RouteTransitionGate.observer],
-      home: const _InstrumentedPage(),
-    );
+  navigatorKey: navKey,
+  // 对齐生产：main.dart:459-461 的 _appNavigatorObservers 首项。
+  navigatorObservers: <NavigatorObserver>[RouteTransitionGate.observer],
+  home: const _InstrumentedPage(),
+);
 
 /// 埋点页面：根 build 计数自增；build 根包 [RouteGateAnchor]（§3.4 范式）。
 class _InstrumentedPage extends StatefulWidget {
@@ -203,10 +177,8 @@ class _InstrumentedPageState extends State<_InstrumentedPage> {
   void _openBottomSheet(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      builder: (_) => const SizedBox(
-        height: 48,
-        child: Center(child: Text('底部弹窗')),
-      ),
+      builder: (_) =>
+          const SizedBox(height: 48, child: Center(child: Text('底部弹窗'))),
     );
   }
 

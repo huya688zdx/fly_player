@@ -35,8 +35,9 @@ void main() {
   });
 
   for (final api in _GateApi.values) {
-    testWidgets('gate 等待时序：primary+secondary 全部稳定才放行（api: ${api.name}）',
-        (tester) async {
+    testWidgets('gate 等待时序：primary+secondary 全部稳定才放行（api: ${api.name}）', (
+      tester,
+    ) async {
       final navKey = GlobalKey<NavigatorState>();
       final homeProbe = _GateProbe();
       await tester.pumpWidget(_app(navKey, homeProbe));
@@ -58,11 +59,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.idle();
-      expect(
-        primaryResolved,
-        isTrue,
-        reason: '[${api.name}] 转场结束后必须 resolve',
-      );
+      expect(primaryResolved, isTrue, reason: '[${api.name}] 转场结束后必须 resolve');
       nav.pop();
       await tester.pumpAndSettle();
 
@@ -102,12 +99,15 @@ void main() {
       var sandwichResolved = false;
       _gateFuture(api, sandwichProbe).then((_) => sandwichResolved = true);
       nav.push(_pageRoute(null)); // B 在 t=T+10 起步，A 的 secondary 随 B 进场启动
-      await tester.pump(const Duration(milliseconds: 395)); // t=T+405：A.primary 刚 completed、B 仍 forward
+      await tester.pump(
+        const Duration(milliseconds: 395),
+      ); // t=T+405：A.primary 刚 completed、B 仍 forward
       await tester.idle();
       expect(
         sandwichResolved,
         isFalse,
-        reason: '[${api.name}] primary 刚 completed 而 secondary 仍在动时不得放行'
+        reason:
+            '[${api.name}] primary 刚 completed 而 secondary 仍在动时不得放行'
             '（任一动画状态变化后重查两条）',
       );
       await tester.pumpAndSettle();
@@ -124,8 +124,9 @@ void main() {
     });
   }
 
-  testWidgets('无 ModalRoute 的 context 立即放行且 isTransitioning 为 false',
-      (tester) async {
+  testWidgets('无 ModalRoute 的 context 立即放行且 isTransitioning 为 false', (
+    tester,
+  ) async {
     BuildContext? aboveNavigatorContext;
     final floatingAnchorKey = GlobalKey<RouteGateAnchorState>();
     await tester.pumpWidget(
@@ -134,7 +135,8 @@ void main() {
           children: <Widget>[
             Builder(
               builder: (context) {
-                aboveNavigatorContext = context; // Navigator 之上：ModalRoute.of 返回 null
+                aboveNavigatorContext =
+                    context; // Navigator 之上：ModalRoute.of 返回 null
                 return const SizedBox(height: 1);
               },
             ),
@@ -163,23 +165,16 @@ void main() {
     );
 
     var ofResolved = false;
-    RouteTransitionGate.of(aboveNavigatorContext!)
-        .then((_) => ofResolved = true);
+    RouteTransitionGate.of(
+      aboveNavigatorContext!,
+    ).then((_) => ofResolved = true);
     var anchorResolved = false;
-    floatingAnchorKey.currentState!
-        .waitTransition()
-        .then((_) => anchorResolved = true);
+    floatingAnchorKey.currentState!.waitTransition().then(
+      (_) => anchorResolved = true,
+    );
     await tester.pump(); // 下一次 pump 即完成：不挂起
-    expect(
-      ofResolved,
-      isTrue,
-      reason: '无 ModalRoute 的 of() 不得挂起',
-    );
-    expect(
-      anchorResolved,
-      isTrue,
-      reason: '锚点 route==null 退化路径同样立即放行',
-    );
+    expect(ofResolved, isTrue, reason: '无 ModalRoute 的 of() 不得挂起');
+    expect(anchorResolved, isTrue, reason: '锚点 route==null 退化路径同样立即放行');
     expect(
       RouteTransitionGate.isTransitioning(aboveNavigatorContext!),
       isFalse,
@@ -188,8 +183,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('debugOverrideTransition 短路优先于真实转场：强制关闭时立即放行',
-      (tester) async {
+  testWidgets('debugOverrideTransition 短路优先于真实转场：强制关闭时立即放行', (tester) async {
     final navKey = GlobalKey<NavigatorState>();
     final homeProbe = _GateProbe();
     await tester.pumpWidget(_app(navKey, homeProbe));
@@ -221,30 +215,25 @@ void main() {
     );
 
     var ofResolved = false;
-    RouteTransitionGate.of(homeProbe.innerContext!)
-        .then((_) => ofResolved = true);
+    RouteTransitionGate.of(
+      homeProbe.innerContext!,
+    ).then((_) => ofResolved = true);
     var coreResolved = false;
-    RouteTransitionGate.waitForRoute(ModalRoute.of(homeProbe.innerContext!))
-        .then((_) => coreResolved = true);
+    RouteTransitionGate.waitForRoute(
+      ModalRoute.of(homeProbe.innerContext!),
+    ).then((_) => coreResolved = true);
     await tester.pump();
     await tester.idle();
-    expect(
-      ofResolved,
-      isTrue,
-      reason: '短路 wait 为已完成 future 时 of() 立即 resolve',
-    );
-    expect(
-      coreResolved,
-      isTrue,
-      reason: '核心 waitForRoute 同样被短路',
-    );
+    expect(ofResolved, isTrue, reason: '短路 wait 为已完成 future 时 of() 立即 resolve');
+    expect(coreResolved, isTrue, reason: '核心 waitForRoute 同样被短路');
 
     navKey.currentState!.pop();
     await tester.pumpAndSettle();
   });
 
-  testWidgets('debugOverrideTransition 在稳定路由上强制挂起直至 override future 完成',
-      (tester) async {
+  testWidgets('debugOverrideTransition 在稳定路由上强制挂起直至 override future 完成', (
+    tester,
+  ) async {
     final navKey = GlobalKey<NavigatorState>();
     final homeProbe = _GateProbe();
     await tester.pumpWidget(_app(navKey, homeProbe));
@@ -262,19 +251,16 @@ void main() {
     );
 
     var ofResolved = false;
-    RouteTransitionGate.of(homeProbe.innerContext!)
-        .then((_) => ofResolved = true);
+    RouteTransitionGate.of(
+      homeProbe.innerContext!,
+    ).then((_) => ofResolved = true);
     var anchorResolved = false;
-    homeProbe.anchorKey.currentState!
-        .waitTransition()
-        .then((_) => anchorResolved = true);
+    homeProbe.anchorKey.currentState!.waitTransition().then(
+      (_) => anchorResolved = true,
+    );
     await tester.pumpAndSettle();
     await tester.idle();
-    expect(
-      ofResolved,
-      isFalse,
-      reason: 'override future 未完成时 of() 必须挂起',
-    );
+    expect(ofResolved, isFalse, reason: 'override future 未完成时 of() 必须挂起');
     expect(
       anchorResolved,
       isFalse,
@@ -284,16 +270,8 @@ void main() {
     pending.complete();
     await tester.pump();
     await tester.idle();
-    expect(
-      ofResolved,
-      isTrue,
-      reason: 'override future 完成后 of() 放行',
-    );
-    expect(
-      anchorResolved,
-      isTrue,
-      reason: 'override future 完成后锚点路径放行',
-    );
+    expect(ofResolved, isTrue, reason: 'override future 完成后 of() 放行');
+    expect(anchorResolved, isTrue, reason: 'override future 完成后锚点路径放行');
   });
 
   testWidgets('debugResetTransitionOverride 后恢复读取真实路由状态', (tester) async {
@@ -320,15 +298,12 @@ void main() {
     );
 
     var resolved = false;
-    RouteTransitionGate.of(homeProbe.innerContext!)
-        .then((_) => resolved = true);
+    RouteTransitionGate.of(
+      homeProbe.innerContext!,
+    ).then((_) => resolved = true);
     await tester.pump();
     await tester.idle();
-    expect(
-      resolved,
-      isTrue,
-      reason: 'reset 后稳定路由 of() 恢复立即 resolve',
-    );
+    expect(resolved, isTrue, reason: 'reset 后稳定路由 of() 恢复立即 resolve');
 
     // 真实转场读数恢复：Material 路由压 Material 路由使 home 的 secondary 随
     // 上层页进场（见文件头说明），push 后转场中识别为 true，settle 后 false。
@@ -361,10 +336,7 @@ class _GateProbe {
 }
 
 Widget _app(GlobalKey<NavigatorState> navKey, _GateProbe homeProbe) =>
-    MaterialApp(
-      navigatorKey: navKey,
-      home: _ProbedPage(homeProbe),
-    );
+    MaterialApp(navigatorKey: navKey, home: _ProbedPage(homeProbe));
 
 /// 探针页面：build 根包 [RouteGateAnchor]（§3.4 范式），页内 Builder 捕获 context。
 class _ProbedPage extends StatelessWidget {
@@ -391,12 +363,12 @@ class _ProbedPage extends StatelessWidget {
 const Duration _transitionDuration = Duration(milliseconds: 400);
 
 PageRouteBuilder<void> _pageRoute(_GateProbe? probe) => PageRouteBuilder<void>(
-      transitionDuration: _transitionDuration,
-      reverseTransitionDuration: _transitionDuration,
-      pageBuilder: (_, __, ___) => probe == null
-          ? const Scaffold(body: SizedBox.expand())
-          : _ProbedPage(probe),
-    );
+  transitionDuration: _transitionDuration,
+  reverseTransitionDuration: _transitionDuration,
+  pageBuilder: (_, __, ___) => probe == null
+      ? const Scaffold(body: SizedBox.expand())
+      : _ProbedPage(probe),
+);
 
 /// 与 `MaterialApp.home`（MaterialPageRoute）转场兼容的上层页路由。
 ///
@@ -405,8 +377,8 @@ PageRouteBuilder<void> _pageRoute(_GateProbe? probe) => PageRouteBuilder<void>(
 /// 时底层页 secondaryAnimation 恒为 dismissed。需要"真实转场中的 home"作为
 /// override 短路的对照时，必须用 MaterialPageRoute 压 home。
 MaterialPageRoute<void> _homeCompatiblePageRoute() => MaterialPageRoute<void>(
-      builder: (_) => const Scaffold(body: SizedBox.expand()),
-    );
+  builder: (_) => const Scaffold(body: SizedBox.expand()),
+);
 
 /// 三条 API 路径取同一个 gate future（三者同走核心，等价性回归保护）。
 Future<void> _gateFuture(_GateApi api, _GateProbe probe) {
