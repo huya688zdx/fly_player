@@ -32,63 +32,71 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
     );
 
-    return AppAtmosphericBackground(
-      palette: atmosphere,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
+    // 路由门锚点包住首页返回根：独自承接 _ModalScopeStatus 依赖（弹窗开/关
+    // 只重建锚点叶子，首页不再整页重建），State 经 _gateKey 句柄等本页转场。
+    // 锚点必须无条件在此在场：勿移进条件分支或提升出页面子树。
+    return RouteGateAnchor(
+      key: _gateKey,
+      child: AppAtmosphericBackground(
+        palette: atmosphere,
+        child: Scaffold(
           backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          foregroundColor: colors.textPrimary,
-          iconTheme: IconThemeData(color: colors.textPrimary),
-          actionsIconTheme: IconThemeData(color: colors.textPrimary),
-          titleTextStyle: TextStyle(
-            color: colors.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-          ),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: widget.secondaryHost
-                ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
-                : _confirmLogout,
-          ),
-          title: Text(AppLocalizations.of(context).homeTitle),
-          actions: <Widget>[
-            if (isDesktopTier)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: CompositedTransformTarget(
-                  link: _searchAnchorLink,
-                  child: SizedBox.square(
-                    dimension: 44,
-                    child: IconButton(
-                      tooltip: AppLocalizations.of(context).searchPlaceholder,
-                      icon: const Icon(Icons.search_rounded, size: 25),
-                      onPressed: () => unawaited(_openDesktopSearchOverlay()),
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            foregroundColor: colors.textPrimary,
+            iconTheme: IconThemeData(color: colors.textPrimary),
+            actionsIconTheme: IconThemeData(color: colors.textPrimary),
+            titleTextStyle: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+            ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: widget.secondaryHost
+                  ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
+                  : _confirmLogout,
+            ),
+            title: Text(AppLocalizations.of(context).homeTitle),
+            actions: <Widget>[
+              if (isDesktopTier)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: CompositedTransformTarget(
+                    link: _searchAnchorLink,
+                    child: SizedBox.square(
+                      dimension: 44,
+                      child: IconButton(
+                        tooltip: AppLocalizations.of(context).searchPlaceholder,
+                        icon: const Icon(Icons.search_rounded, size: 25),
+                        onPressed: () => unawaited(_openDesktopSearchOverlay()),
+                      ),
                     ),
                   ),
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  onPressed: () => unawaited(_openSearchAsync()),
                 ),
-              )
-            else
-              IconButton(
-                icon: const Icon(Icons.search),
-                onPressed: () => unawaited(_openSearchAsync()),
-              ),
-            if (!widget.secondaryHost)
-              IconButton(
-                icon: const Icon(Icons.connected_tv_outlined),
-                tooltip: AppLocalizations.of(context).posterBrowseEntryTooltip,
-                onPressed: () {
-                  Navigator.of(
+              if (!widget.secondaryHost)
+                IconButton(
+                  icon: const Icon(Icons.connected_tv_outlined),
+                  tooltip: AppLocalizations.of(
                     context,
-                    rootNavigator: DesktopEnvironment.isDesktopPlatform,
-                  ).pushNamed('/screen/poster-browse');
-                },
-              ),
-          ],
+                  ).posterBrowseEntryTooltip,
+                  onPressed: () {
+                    Navigator.of(
+                      context,
+                      rootNavigator: DesktopEnvironment.isDesktopPlatform,
+                    ).pushNamed('/screen/poster-browse');
+                  },
+                ),
+            ],
+          ),
+          body: body,
         ),
-        body: body,
       ),
     );
   }

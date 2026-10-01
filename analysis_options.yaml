@@ -9,6 +9,12 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # build/ 下的 dart 文件是 gitignore 的本地草稿产物（perf capture 脚本、
+    # 性能对比用的改动前快照等），不属于源码，不参与 analyze 门禁。
+    - build/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

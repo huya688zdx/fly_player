@@ -106,6 +106,11 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _episodeSectionKey = GlobalKey();
+  // 路由门锚点：build 根无条件包 RouteGateAnchor(key: _gateKey)，_ModalScopeStatus
+  // 依赖只落在锚点叶子 element，弹窗开/关不再触发整页重建。存 final 字段：setState
+  // 重建与热重载都保留锚点 State；本页全部 gate 调用点共用同一 key。
+  final GlobalKey<RouteGateAnchorState> _gateKey =
+      GlobalKey<RouteGateAnchorState>();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
   final DetailTopTip _topTip = DetailTopTip();
   final TvSeasonDownloadSheetController _downloadSheetController =
@@ -985,6 +990,43 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _topTip.show(context, message: message, color: color);
   }
 
+  /// 统一入口。锚点已挂载（正常路径）：经叶子句柄等待，页根不注册任何依赖。
+  /// 锚点未挂载（首帧竞态等不应发生的路径）：兜底走旧 API 保语义不破，且必须
+  /// 留下全模式可观测痕迹（docs/plans/route-gate-popup-jank-fix.md §3.4/§3.5）。
+  Future<void> _waitOwnTransition() {
+    final gate = _gateKey.currentState;
+    if (gate != null) {
+      return gate.waitTransition();
+    }
+    // 兜底被触发的瞬间，页根 element 会经 of(context) 重新注册 _ModalScopeStatus
+    // 依赖，整页重建无声复活——该痕迹不能只放在 assert 里（profile/release 零输出）。
+    // logSwallowedError 无 debug 门控、落盘可导出，可从导出日志核对兜底是否触发过。
+    unawaited(
+      logSwallowedError(
+        action: 'route gate anchor missing',
+        error: StateError(
+          'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of；'
+          '请确认锚点无条件包裹页面根',
+        ),
+        stackTrace: StackTrace.current,
+        source: 'route_transition_gate',
+      ),
+    );
+    assert(() {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: StateError(
+            'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of',
+          ),
+          library: 'fly_play',
+          context: ErrorDescription('while waiting route transition'),
+        ),
+      );
+      return true;
+    }());
+    return RouteTransitionGate.of(context);
+  }
+
   Future<void> _loadEpisodePickerModeSetting() async {
     final viewType = await FeiniuApi(
       context.read<NasProvider>(),
@@ -996,7 +1038,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     // 选集区；推迟到转场结束再应用。等待期间用户手动切换过（本地值已变）则以
     // 手动为准，不用服务端旧值覆盖。
     final modeBeforeGate = _episodePickerMode;
-    await RouteTransitionGate.of(context);
+    await _waitOwnTransition();
     if (!mounted ||
         _episodePickerMode != modeBeforeGate ||
         _episodePickerMode == mode) {
@@ -1125,7 +1167,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           : (seasons.isNotEmpty ? seasons.first.id : requestedGuid);
       final detail = await backend.getItemDetail(target);
       if (!mounted || seq != _seasonLoadSeq) return;
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted || seq != _seasonLoadSeq) return;
       _neutralDetailCache[target] = detail;
       setState(() {
@@ -2112,7 +2154,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       if (!mounted || seq != _seasonLoadSeq) return;
       // 首次进入（showLoading）时把"骨架→正文"整树替换推迟到转场结束后；
       // 切季（showLoading=false）路由已稳定，gate 立即返回，无额外延迟。
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted || seq != _seasonLoadSeq) return;
       setState(() {
         _seasonItems = seasons;
@@ -3040,439 +3082,455 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         );
     final syncGlobalTheme = dynamicThemeEnabled && allowRuntimeThemeSync;
 
-    return DynamicPageThemeScope(
-      pageKey: dynamicThemeKey,
-      imageUrl: dynamicThemeImageUrl,
-      imageHeaders: dynamicThemeImages.headers,
-      enabled: dynamicThemeEnabled,
-      allowLiveResolve: !_loading && dynamicThemeImageUrl.isNotEmpty,
-      syncGlobalTheme: syncGlobalTheme,
-      deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
-      intensity: dynamicThemeIntensity,
-      builder: (context, ambientTint) {
-        final colors = context.appColors;
-        final heroFogBase = Color.alphaBlend(
-          (ambientTint ?? colors.backgroundElevated).withValues(
-            alpha: colors.backgroundBase.computeLuminance() >= 0.58
-                ? 0.18
-                : 0.28,
-          ),
-          colors.backgroundBase,
-        );
-        if (_error != null) {
-          return DetailStatusPage(
-            child: SafeArea(
-              child: AppErrorState(
-                error: _error!,
-                localeMap: _localeMap,
-                onRetry: () =>
-                    _loadSeasonData(_selectedSeasonGuid, showLoading: true),
-              ),
+    return RouteGateAnchor(
+      key: _gateKey,
+      // 锚点必须无条件包裹页面根（不进任何条件分支）；child 原样传入，
+      // 勿包装/换 key，否则依赖翻转会连带重建被包子树（plan §3.3）。
+      child: DynamicPageThemeScope(
+        pageKey: dynamicThemeKey,
+        imageUrl: dynamicThemeImageUrl,
+        imageHeaders: dynamicThemeImages.headers,
+        enabled: dynamicThemeEnabled,
+        allowLiveResolve: !_loading && dynamicThemeImageUrl.isNotEmpty,
+        syncGlobalTheme: syncGlobalTheme,
+        deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
+        intensity: dynamicThemeIntensity,
+        builder: (context, ambientTint) {
+          final colors = context.appColors;
+          final heroFogBase = Color.alphaBlend(
+            (ambientTint ?? colors.backgroundElevated).withValues(
+              alpha: colors.backgroundBase.computeLuminance() >= 0.58
+                  ? 0.18
+                  : 0.28,
             ),
+            colors.backgroundBase,
           );
-        }
-
-        // 中立(Emby)展示路:飞牛 build 整段不进。
-        if (_neutralDisplayOnly && _neutralDetail != null) {
-          return _buildNeutralSeasonBody(colors, ambientTint);
-        }
-
-        final provider = context.read<NasProvider>();
-        final media = MediaQuery.of(context);
-        final screenSize = media.size;
-        final desktop = DetailLayoutSolver.usesDesktopLayout(screenSize.width);
-        final textScale = media.textScaler.scale(1).clamp(1.0, 1.35);
-        final aspect = screenSize.height / screenSize.width;
-        final shortestSide = screenSize.shortestSide;
-        final isLandscape = screenSize.width > screenSize.height;
-        final isTablet = shortestSide >= 720.0;
-        final heroAdaptive = TvHeroAdaptive.resolve(
-          screenSize,
-          devicePixelRatio: media.devicePixelRatio,
-        );
-        final posterHeightRatio = isLandscape ? 0.42 : 0.31;
-        const heroImageFit = BoxFit.cover;
-        final heroImageAlignment = isLandscape
-            ? Alignment(heroAdaptive.imageAlignX, heroAdaptive.imageAlignY)
-            : Alignment(heroAdaptive.imageAlignX, -1.0);
-        final posterHeightMax = screenSize.height * 0.42;
-        final posterHeightMin = math.min(260.0, posterHeightMax);
-        final posterHeight = desktop
-            ? DetailLayoutSolver.desktopHeroHeight(screenSize)
-            : math
-                  .min(
-                    screenSize.height * posterHeightRatio,
-                    screenSize.width / 1.55,
-                  )
-                  .clamp(posterHeightMin, posterHeightMax)
-                  .toDouble();
-        final collapseRange =
-            (posterHeight - media.padding.top - kToolbarHeight).clamp(
-              120.0,
-              360.0,
-            );
-
-        final item = _itemMap(_detail);
-        final season = _currentSeason();
-        final overview = (item['overview'] ?? season.overview)
-            .toString()
-            .trim();
-        final hasOverview = _hasMeaningfulText(overview);
-        final year = _year(season.releaseDate);
-        final rating = double.tryParse(season.voteAverage) ?? 0;
-        final title = widget.seriesTitle;
-        final playLabel = _playLabel();
-        final backdropRequestWidth =
-            (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
-                .clamp(720.0, 1200.0)
-                .round();
-
-        final backdropUrls = _imageCandidates(
-          widget.backdropPath,
-          width: backdropRequestWidth,
-        );
-        final posterUrls = _imageCandidates(season.poster, width: 560);
-        final expectedEpisodeCount = _expectedEpisodeCount();
-        // 集卡片图不走 _artworkReady 二次门控:集列表已由 _episodeItemsResolved 门控(未就绪
-        // 走占位条目),且数据应用经转场 gate 延迟到转场后才发生,此时一定要真封面。再用
-        // _artworkReady 二次门控会在集列表网络快于描述揭示时先渲染无图、待 _artworkReady 翻
-        // true 整批补图 → 肉眼可见的「刷新」。与季列表/演职员同理。
-        final episodeEntries = _episodeItemsResolved
-            ? _episodeCardEntries(_episodeItems, includeImages: true)
-            : _episodePlaceholderEntries(expectedEpisodeCount);
-        final episodeEmptyText = AppLocalizations.of(
-          context,
-        ).detailEpisodeEmpty;
-        final episodeDetailText = AppLocalizations.of(context).commonDetails;
-        final episodeTotalLabel = AppLocalizations.of(
-          context,
-        ).detailEpisodeTotal(_episodeItems.length);
-
-        final creditItems = _personCredits
-            .map(
-              (p) => CreditPersonItem(
-                personGuid: p.personGuid,
-                name: p.displayName,
-                subtitle: p.displaySubTitle,
-                images: mediaImageRequestForUrls(
-                  _imageCandidates(p.profilePath, width: 180),
-                  token: provider.token,
-                  accessCode: provider.accessCode,
-                  baseUrl: provider.baseUrl,
+          if (_error != null) {
+            return DetailStatusPage(
+              child: SafeArea(
+                child: AppErrorState(
+                  error: _error!,
+                  localeMap: _localeMap,
+                  onRetry: () =>
+                      _loadSeasonData(_selectedSeasonGuid, showLoading: true),
                 ),
               ),
-            )
-            .toList();
+            );
+          }
 
-        final posterWidth = desktop
-            ? DetailLayoutSolver.desktopPosterWidthFor(screenSize.width)
-            : (screenSize.width * (isLandscape ? 0.30 : 0.36)).clamp(
-                136.0,
-                isLandscape ? 182.0 : 188.0,
+          // 中立(Emby)展示路:飞牛 build 整段不进。
+          if (_neutralDisplayOnly && _neutralDetail != null) {
+            return _buildNeutralSeasonBody(colors, ambientTint);
+          }
+
+          final provider = context.read<NasProvider>();
+          final media = MediaQuery.of(context);
+          final screenSize = media.size;
+          final desktop = DetailLayoutSolver.usesDesktopLayout(
+            screenSize.width,
+          );
+          final textScale = media.textScaler.scale(1).clamp(1.0, 1.35);
+          final aspect = screenSize.height / screenSize.width;
+          final shortestSide = screenSize.shortestSide;
+          final isLandscape = screenSize.width > screenSize.height;
+          final isTablet = shortestSide >= 720.0;
+          final heroAdaptive = TvHeroAdaptive.resolve(
+            screenSize,
+            devicePixelRatio: media.devicePixelRatio,
+          );
+          final posterHeightRatio = isLandscape ? 0.42 : 0.31;
+          const heroImageFit = BoxFit.cover;
+          final heroImageAlignment = isLandscape
+              ? Alignment(heroAdaptive.imageAlignX, heroAdaptive.imageAlignY)
+              : Alignment(heroAdaptive.imageAlignX, -1.0);
+          final posterHeightMax = screenSize.height * 0.42;
+          final posterHeightMin = math.min(260.0, posterHeightMax);
+          final posterHeight = desktop
+              ? DetailLayoutSolver.desktopHeroHeight(screenSize)
+              : math
+                    .min(
+                      screenSize.height * posterHeightRatio,
+                      screenSize.width / 1.55,
+                    )
+                    .clamp(posterHeightMin, posterHeightMax)
+                    .toDouble();
+          final collapseRange =
+              (posterHeight - media.padding.top - kToolbarHeight).clamp(
+                120.0,
+                360.0,
               );
-        final posterCardHeight = posterWidth * 1.45;
-        final posterBridgeOverlap = (posterCardHeight * 0.45).clamp(52.0, 92.0);
-        final panelDropOffset = isLandscape
-            ? (posterHeight * _landscapePanelDropRatio).clamp(24.0, 80.0)
-            : (posterHeight * _portraitPanelDropRatio).clamp(8.0, 36.0);
-        final tallComp = ((aspect - 1.90) * 80.0).clamp(0.0, 36.0);
-        final tabletInsetComp = isTablet
-            ? (screenSize.height * (isLandscape ? 0.06 : 0.075)).clamp(
-                isLandscape ? 80.0 : 120.0,
-                isLandscape ? 220.0 : 280.0,
-              )
-            : 0.0;
-        final headerBodyTopPadding =
-            (posterCardHeight - posterBridgeOverlap + 12 - panelDropOffset)
-                .clamp(60.0, 360.0);
-        final baseTopContentInset =
-            media.padding.top +
-            kToolbarHeight +
-            (posterCardHeight * _topInsetPosterRatio) +
-            panelDropOffset +
-            tallComp +
-            tabletInsetComp;
-        final topContentInset = desktop
-            ? DetailLayoutSolver.desktopSeasonHeaderTop(
-                screenSize,
-                media.padding.top,
-              )
-            : baseTopContentInset;
-        const heroImageScale = 1.0;
-        final titleFontSize = isLandscape
-            ? (screenSize.width * 0.028).clamp(30.0, 38.0)
-            : 24.0;
-        final playLabelFontSize = desktop
-            ? 16.0
-            : (20.0 * textScale).clamp(18.0, 24.0);
 
-        final pageBody = _loading
-            ? DetailLoadingSkeleton(presentation: widget.presentation)
-            : Stack(
-                fit: StackFit.expand,
-                children: [
-                  ValueListenableBuilder<double>(
-                    valueListenable: _scrollOffsetNotifier,
-                    builder: (context, offset, _) {
-                      return ImmersiveDetailBackground(
-                        images: mediaImageRequestForUrls(
-                          backdropUrls,
-                          token: provider.token,
-                          accessCode: provider.accessCode,
-                          baseUrl: provider.baseUrl,
-                        ),
-                        // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
-                        scrollOffset: offset,
-                        posterHeight: posterHeight,
-                        imageScale: heroImageScale,
-                        imageFit: heroImageFit,
-                        imageAlignment: heroImageAlignment,
-                        parallaxFactor: 1.0,
-                        fillGapsWithImage: false,
-                        ambientTintOverride: ambientTint,
-                        transitionTintColor: heroFogBase,
-                        transitionBodyColor: colors.backgroundBase,
-                        overlayOpacity: 0.0,
-                        useDesktopReadingScrim: desktop,
-                      );
-                    },
+          final item = _itemMap(_detail);
+          final season = _currentSeason();
+          final overview = (item['overview'] ?? season.overview)
+              .toString()
+              .trim();
+          final hasOverview = _hasMeaningfulText(overview);
+          final year = _year(season.releaseDate);
+          final rating = double.tryParse(season.voteAverage) ?? 0;
+          final title = widget.seriesTitle;
+          final playLabel = _playLabel();
+          final backdropRequestWidth =
+              (_isPane
+                      ? screenSize.width * media.devicePixelRatio * 1.2
+                      : 1200.0)
+                  .clamp(720.0, 1200.0)
+                  .round();
+
+          final backdropUrls = _imageCandidates(
+            widget.backdropPath,
+            width: backdropRequestWidth,
+          );
+          final posterUrls = _imageCandidates(season.poster, width: 560);
+          final expectedEpisodeCount = _expectedEpisodeCount();
+          // 集卡片图不走 _artworkReady 二次门控:集列表已由 _episodeItemsResolved 门控(未就绪
+          // 走占位条目),且数据应用经转场 gate 延迟到转场后才发生,此时一定要真封面。再用
+          // _artworkReady 二次门控会在集列表网络快于描述揭示时先渲染无图、待 _artworkReady 翻
+          // true 整批补图 → 肉眼可见的「刷新」。与季列表/演职员同理。
+          final episodeEntries = _episodeItemsResolved
+              ? _episodeCardEntries(_episodeItems, includeImages: true)
+              : _episodePlaceholderEntries(expectedEpisodeCount);
+          final episodeEmptyText = AppLocalizations.of(
+            context,
+          ).detailEpisodeEmpty;
+          final episodeDetailText = AppLocalizations.of(context).commonDetails;
+          final episodeTotalLabel = AppLocalizations.of(
+            context,
+          ).detailEpisodeTotal(_episodeItems.length);
+
+          final creditItems = _personCredits
+              .map(
+                (p) => CreditPersonItem(
+                  personGuid: p.personGuid,
+                  name: p.displayName,
+                  subtitle: p.displaySubTitle,
+                  images: mediaImageRequestForUrls(
+                    _imageCandidates(p.profilePath, width: 180),
+                    token: provider.token,
+                    accessCode: provider.accessCode,
+                    baseUrl: provider.baseUrl,
                   ),
-                  CustomScrollView(
-                    controller: _scrollController,
-                    physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
+                ),
+              )
+              .toList();
+
+          final posterWidth = desktop
+              ? DetailLayoutSolver.desktopPosterWidthFor(screenSize.width)
+              : (screenSize.width * (isLandscape ? 0.30 : 0.36)).clamp(
+                  136.0,
+                  isLandscape ? 182.0 : 188.0,
+                );
+          final posterCardHeight = posterWidth * 1.45;
+          final posterBridgeOverlap = (posterCardHeight * 0.45).clamp(
+            52.0,
+            92.0,
+          );
+          final panelDropOffset = isLandscape
+              ? (posterHeight * _landscapePanelDropRatio).clamp(24.0, 80.0)
+              : (posterHeight * _portraitPanelDropRatio).clamp(8.0, 36.0);
+          final tallComp = ((aspect - 1.90) * 80.0).clamp(0.0, 36.0);
+          final tabletInsetComp = isTablet
+              ? (screenSize.height * (isLandscape ? 0.06 : 0.075)).clamp(
+                  isLandscape ? 80.0 : 120.0,
+                  isLandscape ? 220.0 : 280.0,
+                )
+              : 0.0;
+          final headerBodyTopPadding =
+              (posterCardHeight - posterBridgeOverlap + 12 - panelDropOffset)
+                  .clamp(60.0, 360.0);
+          final baseTopContentInset =
+              media.padding.top +
+              kToolbarHeight +
+              (posterCardHeight * _topInsetPosterRatio) +
+              panelDropOffset +
+              tallComp +
+              tabletInsetComp;
+          final topContentInset = desktop
+              ? DetailLayoutSolver.desktopSeasonHeaderTop(
+                  screenSize,
+                  media.padding.top,
+                )
+              : baseTopContentInset;
+          const heroImageScale = 1.0;
+          final titleFontSize = isLandscape
+              ? (screenSize.width * 0.028).clamp(30.0, 38.0)
+              : 24.0;
+          final playLabelFontSize = desktop
+              ? 16.0
+              : (20.0 * textScale).clamp(18.0, 24.0);
+
+          final pageBody = _loading
+              ? DetailLoadingSkeleton(presentation: widget.presentation)
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ValueListenableBuilder<double>(
+                      valueListenable: _scrollOffsetNotifier,
+                      builder: (context, offset, _) {
+                        return ImmersiveDetailBackground(
+                          images: mediaImageRequestForUrls(
+                            backdropUrls,
+                            token: provider.token,
+                            accessCode: provider.accessCode,
+                            baseUrl: provider.baseUrl,
+                          ),
+                          // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
+                          scrollOffset: offset,
+                          posterHeight: posterHeight,
+                          imageScale: heroImageScale,
+                          imageFit: heroImageFit,
+                          imageAlignment: heroImageAlignment,
+                          parallaxFactor: 1.0,
+                          fillGapsWithImage: false,
+                          ambientTintOverride: ambientTint,
+                          transitionTintColor: heroFogBase,
+                          transitionBodyColor: colors.backgroundBase,
+                          overlayOpacity: 0.0,
+                          useDesktopReadingScrim: desktop,
+                        );
+                      },
                     ),
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: topContentInset),
+                    CustomScrollView(
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
                       ),
-                      SliverToBoxAdapter(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(height: desktop ? 0 : 4),
-                            Container(
-                              color: Colors.transparent,
-                              padding: EdgeInsets.fromLTRB(
-                                DetailLayoutSolver.horizontalPadding(
-                                  screenSize.width,
-                                ),
-                                0,
-                                DetailLayoutSolver.horizontalPadding(
-                                  screenSize.width,
-                                ),
-                                20,
-                              ),
-                              child: TvSeasonDetailPanel.legacy(
-                                title: title,
-                                titleFontSize: titleFontSize,
-                                token: provider.token,
-                                accessCode: provider.accessCode,
-                                baseUrl: provider.baseUrl,
-                                ambientTint: ambientTint,
-                                posterUrls: posterUrls,
-                                posterWidth: posterWidth,
-                                posterCardHeight: posterCardHeight,
-                                posterBridgeOverlap: posterBridgeOverlap,
-                                panelDropOffset: panelDropOffset,
-                                headerBodyTopPadding: headerBodyTopPadding,
-                                headerMetaOpacity: _headerMetaOpacity,
-                                metaContent: AppTransitions.crossFadeSwitch(
-                                  switchKey: 'meta-$_selectedSeasonGuid',
-                                  duration: _seasonDataFadeDuration,
-                                  child: Column(
-                                    key: ValueKey<String>(
-                                      'meta-content-$_selectedSeasonGuid',
-                                    ),
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      _seasonNumberWidget(colors, season),
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        children: [
-                                          if (rating > 0)
-                                            Text(
-                                              AppLocalizations.of(
-                                                context,
-                                              ).detailRatingScore(
-                                                rating.toStringAsFixed(1),
-                                              ),
-                                              style: TextStyle(
-                                                color: const Color(0xFFF2D34B),
-                                                fontSize: desktop ? 14 : 17,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          if (rating > 0 && year.isNotEmpty)
-                                            Text(
-                                              '  /  ',
-                                              style: TextStyle(
-                                                color: colors.textSecondary,
-                                                fontSize: desktop ? 13 : 17,
-                                              ),
-                                            ),
-                                          if (year.isNotEmpty)
-                                            Text(
-                                              year,
-                                              style: TextStyle(
-                                                color: colors.textSecondary,
-                                                fontSize: desktop ? 13 : 17,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: topContentInset),
+                        ),
+                        SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(height: desktop ? 0 : 4),
+                              Container(
+                                color: Colors.transparent,
+                                padding: EdgeInsets.fromLTRB(
+                                  DetailLayoutSolver.horizontalPadding(
+                                    screenSize.width,
                                   ),
+                                  0,
+                                  DetailLayoutSolver.horizontalPadding(
+                                    screenSize.width,
+                                  ),
+                                  20,
                                 ),
-                                playLabel: playLabel,
-                                playLabelFontSize: playLabelFontSize,
-                                watched: _watched,
-                                downloaded: _isCurrentSeasonFullyDownloaded(),
-                                descriptionVisible: _descriptionVisible,
-                                switchDuration: _seasonDataFadeDuration,
-                                overview: overview,
-                                hasOverview: hasOverview,
-                                episodeSection: _seasonItems.isNotEmpty
-                                    ? TvEpisodeBrowserSection(
-                                        key: _episodeSectionKey,
-                                        title: AppLocalizations.of(
-                                          context,
-                                        ).detailEpisodeTitle,
-                                        totalLabel: !_episodeItemsResolved
-                                            ? (expectedEpisodeCount > 0
-                                                  ? AppLocalizations.of(
-                                                      context,
-                                                    ).detailEpisodeTotal(
-                                                      expectedEpisodeCount,
-                                                    )
-                                                  : AppLocalizations.of(
-                                                      context,
-                                                    ).commonLoading)
-                                            : episodeTotalLabel,
-                                        seasons: _seasonOptionEntries(),
-                                        episodes: episodeEntries,
-                                        selectedRangeIndex: _episodeRangeIndex,
-                                        rangeSize: _episodePageSize,
-                                        previewCount: 4,
-                                        emptyText: episodeEmptyText,
-                                        detailText: episodeDetailText,
-                                        token: provider.token,
-                                        accessCode: provider.accessCode,
-                                        baseUrl: provider.baseUrl,
-                                        mode: _episodePickerMode,
-                                        onSeasonSelected: _switchSeason,
-                                        onRangeSelected: (index) {
-                                          setState(
-                                            () => _episodeRangeIndex = index,
-                                          );
-                                        },
-                                        onEpisodeSelected:
-                                            _openEpisodeDetailByGuid,
-                                        onEpisodeLongPress: (episodeGuid) {
-                                          unawaited(
-                                            _showEpisodeCardActions(
-                                              episodeGuid,
-                                            ),
-                                          );
-                                        },
-                                        onEpisodeDetailTap: (episodeGuid) =>
-                                            _openEpisodeSummaryByGuid(
-                                              context,
-                                              episodeGuid,
-                                            ),
-                                        onOpenPicker: () =>
-                                            _openEpisodePicker(context),
-                                      )
-                                    : const SizedBox.shrink(),
-                                creditsSection:
-                                    (_creditsVisible && creditItems.isNotEmpty)
-                                    ? CreditsSection(
-                                        title: AppLocalizations.of(
-                                          context,
-                                        ).detailCastCrewTitle,
-                                        items: creditItems,
-                                        onTap: _openCreditPerson,
-                                      )
-                                    : null,
-                                linkSection:
-                                    (_imdbId.trim().isNotEmpty ||
-                                        _trimId.trim().isNotEmpty)
-                                    ? LinkSection(
-                                        imdbId: _imdbId,
-                                        tmdbId: _trimId,
-                                        onImdbTap: _openImdb,
-                                        onTmdbTap: _openTmdb,
-                                      )
-                                    : null,
-                                onPlayTap: _onPlayTap,
-                                onDownloadTap: _handleDownloadTap,
-                                onWatchedTap: _toggleWatched,
-                                onOverviewTap: () {
-                                  LongTextOverlayPage.show(
-                                    context,
-                                    title: title,
-                                    sectionTitle: AppLocalizations.of(
+                                child: TvSeasonDetailPanel.legacy(
+                                  title: title,
+                                  titleFontSize: titleFontSize,
+                                  token: provider.token,
+                                  accessCode: provider.accessCode,
+                                  baseUrl: provider.baseUrl,
+                                  ambientTint: ambientTint,
+                                  posterUrls: posterUrls,
+                                  posterWidth: posterWidth,
+                                  posterCardHeight: posterCardHeight,
+                                  posterBridgeOverlap: posterBridgeOverlap,
+                                  panelDropOffset: panelDropOffset,
+                                  headerBodyTopPadding: headerBodyTopPadding,
+                                  headerMetaOpacity: _headerMetaOpacity,
+                                  metaContent: AppTransitions.crossFadeSwitch(
+                                    switchKey: 'meta-$_selectedSeasonGuid',
+                                    duration: _seasonDataFadeDuration,
+                                    child: Column(
+                                      key: ValueKey<String>(
+                                        'meta-content-$_selectedSeasonGuid',
+                                      ),
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _seasonNumberWidget(colors, season),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            if (rating > 0)
+                                              Text(
+                                                AppLocalizations.of(
+                                                  context,
+                                                ).detailRatingScore(
+                                                  rating.toStringAsFixed(1),
+                                                ),
+                                                style: TextStyle(
+                                                  color: const Color(
+                                                    0xFFF2D34B,
+                                                  ),
+                                                  fontSize: desktop ? 14 : 17,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            if (rating > 0 && year.isNotEmpty)
+                                              Text(
+                                                '  /  ',
+                                                style: TextStyle(
+                                                  color: colors.textSecondary,
+                                                  fontSize: desktop ? 13 : 17,
+                                                ),
+                                              ),
+                                            if (year.isNotEmpty)
+                                              Text(
+                                                year,
+                                                style: TextStyle(
+                                                  color: colors.textSecondary,
+                                                  fontSize: desktop ? 13 : 17,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  playLabel: playLabel,
+                                  playLabelFontSize: playLabelFontSize,
+                                  watched: _watched,
+                                  downloaded: _isCurrentSeasonFullyDownloaded(),
+                                  descriptionVisible: _descriptionVisible,
+                                  switchDuration: _seasonDataFadeDuration,
+                                  overview: overview,
+                                  hasOverview: hasOverview,
+                                  episodeSection: _seasonItems.isNotEmpty
+                                      ? TvEpisodeBrowserSection(
+                                          key: _episodeSectionKey,
+                                          title: AppLocalizations.of(
+                                            context,
+                                          ).detailEpisodeTitle,
+                                          totalLabel: !_episodeItemsResolved
+                                              ? (expectedEpisodeCount > 0
+                                                    ? AppLocalizations.of(
+                                                        context,
+                                                      ).detailEpisodeTotal(
+                                                        expectedEpisodeCount,
+                                                      )
+                                                    : AppLocalizations.of(
+                                                        context,
+                                                      ).commonLoading)
+                                              : episodeTotalLabel,
+                                          seasons: _seasonOptionEntries(),
+                                          episodes: episodeEntries,
+                                          selectedRangeIndex:
+                                              _episodeRangeIndex,
+                                          rangeSize: _episodePageSize,
+                                          previewCount: 4,
+                                          emptyText: episodeEmptyText,
+                                          detailText: episodeDetailText,
+                                          token: provider.token,
+                                          accessCode: provider.accessCode,
+                                          baseUrl: provider.baseUrl,
+                                          mode: _episodePickerMode,
+                                          onSeasonSelected: _switchSeason,
+                                          onRangeSelected: (index) {
+                                            setState(
+                                              () => _episodeRangeIndex = index,
+                                            );
+                                          },
+                                          onEpisodeSelected:
+                                              _openEpisodeDetailByGuid,
+                                          onEpisodeLongPress: (episodeGuid) {
+                                            unawaited(
+                                              _showEpisodeCardActions(
+                                                episodeGuid,
+                                              ),
+                                            );
+                                          },
+                                          onEpisodeDetailTap: (episodeGuid) =>
+                                              _openEpisodeSummaryByGuid(
+                                                context,
+                                                episodeGuid,
+                                              ),
+                                          onOpenPicker: () =>
+                                              _openEpisodePicker(context),
+                                        )
+                                      : const SizedBox.shrink(),
+                                  creditsSection:
+                                      (_creditsVisible &&
+                                          creditItems.isNotEmpty)
+                                      ? CreditsSection(
+                                          title: AppLocalizations.of(
+                                            context,
+                                          ).detailCastCrewTitle,
+                                          items: creditItems,
+                                          onTap: _openCreditPerson,
+                                        )
+                                      : null,
+                                  linkSection:
+                                      (_imdbId.trim().isNotEmpty ||
+                                          _trimId.trim().isNotEmpty)
+                                      ? LinkSection(
+                                          imdbId: _imdbId,
+                                          tmdbId: _trimId,
+                                          onImdbTap: _openImdb,
+                                          onTmdbTap: _openTmdb,
+                                        )
+                                      : null,
+                                  onPlayTap: _onPlayTap,
+                                  onDownloadTap: _handleDownloadTap,
+                                  onWatchedTap: _toggleWatched,
+                                  onOverviewTap: () {
+                                    LongTextOverlayPage.show(
                                       context,
-                                    ).detailOverviewTitle,
-                                    content: overview,
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  ValueListenableBuilder<double>(
-                    valueListenable: _scrollOffsetNotifier,
-                    builder: (context, offset, _) {
-                      final collapseT = (offset / collapseRange).clamp(
-                        0.0,
-                        1.0,
-                      );
-                      final centerTitleOpacity = ((collapseT - 0.82) / 0.16)
-                          .clamp(0.0, 1.0);
-                      return DetailFloatingTopBar(
-                        ambientTint: ambientTint,
-                        onBack: () => unawaited(
-                          EmbeddedDetailLauncher.closeHostOrPop(context),
-                        ),
-                        onMore: () => unawaited(
-                          showDetailMoreActionsSheet(
-                            context,
-                            pageKey: _selectedSeasonGuid.trim().isNotEmpty
-                                ? _selectedSeasonGuid
-                                : widget.seasonItem.guid,
-                            pageTitle: '$title ${_seasonLabel(season)}',
-                            suggestedThemeName: context
-                                .read<AppThemeProvider>()
-                                .nextSavedThemeNameFromBase(
-                                  _suggestedThemeNameBase(season),
+                                      title: title,
+                                      sectionTitle: AppLocalizations.of(
+                                        context,
+                                      ).detailOverviewTitle,
+                                      content: overview,
+                                    );
+                                  },
                                 ),
-                            clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                              ),
+                            ],
                           ),
                         ),
-                        title: '$title ${_seasonLabel(season)}',
-                        titleOpacity: centerTitleOpacity,
-                        showBack: true,
-                      );
-                    },
+                      ],
+                    ),
+                    ValueListenableBuilder<double>(
+                      valueListenable: _scrollOffsetNotifier,
+                      builder: (context, offset, _) {
+                        final collapseT = (offset / collapseRange).clamp(
+                          0.0,
+                          1.0,
+                        );
+                        final centerTitleOpacity = ((collapseT - 0.82) / 0.16)
+                            .clamp(0.0, 1.0);
+                        return DetailFloatingTopBar(
+                          ambientTint: ambientTint,
+                          onBack: () => unawaited(
+                            EmbeddedDetailLauncher.closeHostOrPop(context),
+                          ),
+                          onMore: () => unawaited(
+                            showDetailMoreActionsSheet(
+                              context,
+                              pageKey: _selectedSeasonGuid.trim().isNotEmpty
+                                  ? _selectedSeasonGuid
+                                  : widget.seasonItem.guid,
+                              pageTitle: '$title ${_seasonLabel(season)}',
+                              suggestedThemeName: context
+                                  .read<AppThemeProvider>()
+                                  .nextSavedThemeNameFromBase(
+                                    _suggestedThemeNameBase(season),
+                                  ),
+                              clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                            ),
+                          ),
+                          title: '$title ${_seasonLabel(season)}',
+                          titleOpacity: centerTitleOpacity,
+                          showBack: true,
+                        );
+                      },
+                    ),
+                  ],
+                );
+          return Scaffold(
+            backgroundColor: colors.backgroundBase,
+            body: _isPane
+                ? pageBody
+                : AppTransitions.crossFadeSwitch(
+                    switchKey: 'page-state-${_loading ? 'loading' : 'ready'}',
+                    duration: _seasonDataFadeDuration,
+                    child: pageBody,
                   ),
-                ],
-              );
-        return Scaffold(
-          backgroundColor: colors.backgroundBase,
-          body: _isPane
-              ? pageBody
-              : AppTransitions.crossFadeSwitch(
-                  switchKey: 'page-state-${_loading ? 'loading' : 'ready'}',
-                  duration: _seasonDataFadeDuration,
-                  child: pageBody,
-                ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

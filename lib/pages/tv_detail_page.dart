@@ -84,6 +84,11 @@ class _TvDetailPageState extends State<TvDetailPage>
   );
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
+  // 路由门锚点：build 根无条件包 RouteGateAnchor(key: _gateKey)，_ModalScopeStatus
+  // 依赖只落在锚点叶子 element，弹窗开/关不再触发整页重建。存 final 字段：setState
+  // 重建与热重载都保留锚点 State；本页全部 gate 调用点共用同一 key。
+  final GlobalKey<RouteGateAnchorState> _gateKey =
+      GlobalKey<RouteGateAnchorState>();
   static const Duration _favoriteTapCooldown = Duration(milliseconds: 900);
   static const Duration _watchedTapCooldown = Duration(milliseconds: 900);
 
@@ -242,6 +247,43 @@ class _TvDetailPageState extends State<TvDetailPage>
     );
   }
 
+  /// 统一入口。锚点已挂载（正常路径）：经叶子句柄等待，页根不注册任何依赖。
+  /// 锚点未挂载（首帧竞态等不应发生的路径）：兜底走旧 API 保语义不破，且必须
+  /// 留下全模式可观测痕迹（docs/plans/route-gate-popup-jank-fix.md §3.4/§3.5）。
+  Future<void> _waitOwnTransition() {
+    final gate = _gateKey.currentState;
+    if (gate != null) {
+      return gate.waitTransition();
+    }
+    // 兜底被触发的瞬间，页根 element 会经 of(context) 重新注册 _ModalScopeStatus
+    // 依赖，整页重建无声复活——该痕迹不能只放在 assert 里（profile/release 零输出）。
+    // logSwallowedError 无 debug 门控、落盘可导出，可从导出日志核对兜底是否触发过。
+    unawaited(
+      logSwallowedError(
+        action: 'route gate anchor missing',
+        error: StateError(
+          'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of；'
+          '请确认锚点无条件包裹页面根',
+        ),
+        stackTrace: StackTrace.current,
+        source: 'route_transition_gate',
+      ),
+    );
+    assert(() {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: StateError(
+            'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of',
+          ),
+          library: 'fly_play',
+          context: ErrorDescription('while waiting route transition'),
+        ),
+      );
+      return true;
+    }());
+    return RouteTransitionGate.of(context);
+  }
+
   Future<void> _load() async {
     _deferredTimer?.cancel();
     _descriptionPopController.reset();
@@ -290,7 +332,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       // 把"骨架→正文"的整树替换推迟到转场结束后，避免它落在 380ms 转场窗口
       // 中段与 enter 动画叠加（网络通常已慢于转场，此处多为即时 resolve）。
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted) return;
       setState(() {
         _applyBaseDetail(detail);
@@ -318,7 +360,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       final backend = context.read<MediaBackendProvider>().backend;
       final detail = await backend.getItemDetail(widget.itemGuid);
       if (!mounted) return;
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted) return;
       setState(() {
         _neutralDisplayOnly = true;
@@ -388,7 +430,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       // initialItemDetail 快路径下该刷新在 initState 即发起，回包大概率落在
       // 380ms 进场转场内；网络照常并发，仅把整页重建推迟到转场结束后应用。
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted) return;
       setState(() {
         _applyBaseDetail(detail);
@@ -398,7 +440,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       });
     } catch (_) {
       if (!mounted) return;
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted) return;
       setState(() {
         _suppressGlobalThemeSyncUntilFullDetail = false;
@@ -489,7 +531,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   // 描述 pop 动画的 180ms 起始延迟永远等转场结束后再起，避免它落在 380ms
   // 转场窗口中段。
   Future<void> _scheduleDescriptionReveal() async {
-    await RouteTransitionGate.of(context);
+    await _waitOwnTransition();
     if (!mounted) return;
     _deferredTimer?.cancel();
     _deferredTimer = Timer(_deferredSectionStartDelay, () {
@@ -550,7 +592,7 @@ class _TvDetailPageState extends State<TvDetailPage>
 
     final seasonItems = await seasonItemsFuture;
     if (!mounted) return;
-    await RouteTransitionGate.of(context);
+    await _waitOwnTransition();
     if (!mounted) return;
     if (seasonItems != null) {
       seasonItems.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
@@ -1583,410 +1625,427 @@ class _TvDetailPageState extends State<TvDetailPage>
         dynamicThemeScopeEnabled &&
         allowRuntimeThemeSync &&
         !_suppressGlobalThemeSyncUntilFullDetail;
-    return DynamicPageThemeScope(
-      pageKey: dynamicThemeKey,
-      imageUrl: dynamicThemeImageUrl,
-      imageHeaders: dynamicThemeImages.headers,
-      enabled: dynamicThemeScopeEnabled,
-      allowLiveResolve: !deferArtwork,
-      syncGlobalTheme: syncGlobalTheme,
-      deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
-      intensity: dynamicThemeIntensity,
-      builder: (context, ambientTint) {
-        final colors = context.appColors;
-        if (_loading) {
-          return DetailLoadingSkeleton(
-            presentation: widget.presentation,
-            showPoster: false,
-            seriesHeader: true,
-          );
-        }
-        if (_error != null) {
-          return DetailStatusPage(
-            child: SafeArea(
-              child: AppErrorState(
-                error: _error!,
-                localeMap: _localeMap,
-                onRetry: _load,
-              ),
-            ),
-          );
-        }
-
-        // 中立(Emby)展示路:飞牛 build 整段不进。
-        if (_neutralDisplayOnly && _neutralDetail != null) {
-          return _buildNeutralBody(colors, ambientTint);
-        }
-
-        final provider = context.read<NasProvider>();
-        final layout = MediaLayoutProfile.of(context);
-        final media = MediaQuery.of(context);
-        final screenSize = media.size;
-        final desktop = DetailLayoutSolver.usesDesktopLayout(screenSize.width);
-        final horizontalPadding = DetailLayoutSolver.horizontalPadding(
-          screenSize.width,
-        );
-        final heroAdaptive = TvHeroAdaptive.resolve(
-          screenSize,
-          devicePixelRatio: media.devicePixelRatio,
-        );
-        final posterHeightMax = screenSize.height * 0.48;
-        final posterHeightMin = math.min(300.0, posterHeightMax);
-        final posterHeight = desktop
-            ? DetailLayoutSolver.desktopSeriesHeroHeight(screenSize)
-            : math
-                  .min(
-                    screenSize.height * heroAdaptive.posterHeightRatio,
-                    screenSize.width / 1.55,
-                  )
-                  .clamp(posterHeightMin, posterHeightMax)
-                  .toDouble();
-        final collapseRangeMax = math.max(1.0, posterHeight);
-        final collapseRange =
-            (posterHeight - media.padding.top - kToolbarHeight).clamp(
-              1.0,
-              collapseRangeMax,
+    return RouteGateAnchor(
+      key: _gateKey,
+      // 锚点必须无条件包裹页面根（不进任何条件分支）；child 原样传入，
+      // 勿包装/换 key，否则依赖翻转会连带重建被包子树（plan §3.3）。
+      child: DynamicPageThemeScope(
+        pageKey: dynamicThemeKey,
+        imageUrl: dynamicThemeImageUrl,
+        imageHeaders: dynamicThemeImages.headers,
+        enabled: dynamicThemeScopeEnabled,
+        allowLiveResolve: !deferArtwork,
+        syncGlobalTheme: syncGlobalTheme,
+        deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
+        intensity: dynamicThemeIntensity,
+        builder: (context, ambientTint) {
+          final colors = context.appColors;
+          if (_loading) {
+            return DetailLoadingSkeleton(
+              presentation: widget.presentation,
+              showPoster: false,
+              seriesHeader: true,
             );
-
-        final item = _detail['item'] is Map<String, dynamic>
-            ? _detail['item'] as Map<String, dynamic>
-            : _detail;
-
-        final displayState = _displayStateFor(item);
-        final title = _title(item);
-        final overview = displayState.overview;
-        final primaryText = _tvPrimaryLabel(item);
-        final seasons = _asInt(item['number_of_seasons']);
-        final localSeasons = _asInt(item['local_number_of_seasons']);
-        final seasonCount = localSeasons > 0 ? localSeasons : seasons;
-        final showSeasonPlaceholders = !_seasonItemsResolved && seasonCount > 0;
-        final seasonPlaceholderCount = seasonCount.clamp(1, 4);
-        final contentRating = (item['content_ratings'] ?? '').toString().trim();
-        final genreNames = _genreNamesForMeta(item['genres']);
-        final countryNames = PlayDetailFormatters.countryNamesFromCodes(
-          item['production_countries'] is List
-              ? item['production_countries'] as List
-              : const [],
-          locateMap: _locateMapZhCn,
-        );
-        final countryText = countryNames.isNotEmpty ? countryNames.first : '';
-        final ancestorName = (item['ancestor_name'] ?? '').toString().trim();
-        final hasMetaLine =
-            contentRating.isNotEmpty ||
-            genreNames.isNotEmpty ||
-            countryText.isNotEmpty ||
-            ancestorName.isNotEmpty;
-        final backdropRequestWidth =
-            (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
-                .clamp(720.0, 1200.0)
-                .round();
-        final logoRequestWidth =
-            (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
-                .clamp(480.0, 1200.0)
-                .round();
-
-        final heroImages = deferArtwork
-            ? MediaImageRequest.empty
-            : mediaImageRequestForUrls(
-                ApiUrlHelper.imageCandidates(
-                  provider.baseUrl,
-                  _heroBackdropsFor(item),
-                  width: backdropRequestWidth,
+          }
+          if (_error != null) {
+            return DetailStatusPage(
+              child: SafeArea(
+                child: AppErrorState(
+                  error: _error!,
+                  localeMap: _localeMap,
+                  onRetry: _load,
                 ),
-                token: provider.token,
-                accessCode: provider.accessCode,
-                baseUrl: provider.baseUrl,
-              );
-        final logoImages = deferArtwork
-            ? MediaImageRequest.empty
-            : mediaImageRequestForUrls(
-                ApiUrlHelper.imageCandidates(
-                  provider.baseUrl,
-                  (item['logos'] ?? '').toString(),
-                  width: logoRequestWidth,
-                ),
-                token: provider.token,
-                accessCode: provider.accessCode,
-                baseUrl: provider.baseUrl,
-              );
-        final heroTitleChild = deferArtwork
-            ? (displayState.showTitleFallback ? null : const SizedBox.shrink())
-            : (logoImages.isNotEmpty
-                  ? DetailHeroLogoTitle(
-                      images: logoImages,
-                      fallbackTitle: title,
-                      maxHeight: 124,
-                      maxWidth:
-                          screenSize.width -
-                          (DetailTokens.screenHorizontalPadding * 2),
-                    )
-                  : null);
-
-        return Scaffold(
-          backgroundColor: colors.backgroundBase,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              ValueListenableBuilder<double>(
-                valueListenable: _scrollOffsetNotifier,
-                builder: (context, offset, _) {
-                  return ImmersiveDetailBackground(
-                    images: heroImages,
-                    // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
-                    scrollOffset: offset,
-                    posterHeight: posterHeight,
-                    imageScale: heroAdaptive.imageScale * 1.04,
-                    imageFit: BoxFit.cover,
-                    imageAlignment: Alignment(
-                      heroAdaptive.imageAlignX,
-                      heroAdaptive.imageAlignY,
-                    ),
-                    fillGapsWithImage: false,
-                    overlayOpacity: 0.74,
-                    maxScrollZoom: 1.38,
-                    useDesktopReadingScrim: desktop,
-                    ambientTintOverride: ambientTint,
-                  );
-                },
               ),
-              CustomScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                slivers: [
-                  _buildSeriesHeroSliver(
-                    height: posterHeight,
-                    title: title,
-                    titleChild: heroTitleChild,
+            );
+          }
+
+          // 中立(Emby)展示路:飞牛 build 整段不进。
+          if (_neutralDisplayOnly && _neutralDetail != null) {
+            return _buildNeutralBody(colors, ambientTint);
+          }
+
+          final provider = context.read<NasProvider>();
+          final layout = MediaLayoutProfile.of(context);
+          final media = MediaQuery.of(context);
+          final screenSize = media.size;
+          final desktop = DetailLayoutSolver.usesDesktopLayout(
+            screenSize.width,
+          );
+          final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+            screenSize.width,
+          );
+          final heroAdaptive = TvHeroAdaptive.resolve(
+            screenSize,
+            devicePixelRatio: media.devicePixelRatio,
+          );
+          final posterHeightMax = screenSize.height * 0.48;
+          final posterHeightMin = math.min(300.0, posterHeightMax);
+          final posterHeight = desktop
+              ? DetailLayoutSolver.desktopSeriesHeroHeight(screenSize)
+              : math
+                    .min(
+                      screenSize.height * heroAdaptive.posterHeightRatio,
+                      screenSize.width / 1.55,
+                    )
+                    .clamp(posterHeightMin, posterHeightMax)
+                    .toDouble();
+          final collapseRangeMax = math.max(1.0, posterHeight);
+          final collapseRange =
+              (posterHeight - media.padding.top - kToolbarHeight).clamp(
+                1.0,
+                collapseRangeMax,
+              );
+
+          final item = _detail['item'] is Map<String, dynamic>
+              ? _detail['item'] as Map<String, dynamic>
+              : _detail;
+
+          final displayState = _displayStateFor(item);
+          final title = _title(item);
+          final overview = displayState.overview;
+          final primaryText = _tvPrimaryLabel(item);
+          final seasons = _asInt(item['number_of_seasons']);
+          final localSeasons = _asInt(item['local_number_of_seasons']);
+          final seasonCount = localSeasons > 0 ? localSeasons : seasons;
+          final showSeasonPlaceholders =
+              !_seasonItemsResolved && seasonCount > 0;
+          final seasonPlaceholderCount = seasonCount.clamp(1, 4);
+          final contentRating = (item['content_ratings'] ?? '')
+              .toString()
+              .trim();
+          final genreNames = _genreNamesForMeta(item['genres']);
+          final countryNames = PlayDetailFormatters.countryNamesFromCodes(
+            item['production_countries'] is List
+                ? item['production_countries'] as List
+                : const [],
+            locateMap: _locateMapZhCn,
+          );
+          final countryText = countryNames.isNotEmpty ? countryNames.first : '';
+          final ancestorName = (item['ancestor_name'] ?? '').toString().trim();
+          final hasMetaLine =
+              contentRating.isNotEmpty ||
+              genreNames.isNotEmpty ||
+              countryText.isNotEmpty ||
+              ancestorName.isNotEmpty;
+          final backdropRequestWidth =
+              (_isPane
+                      ? screenSize.width * media.devicePixelRatio * 1.2
+                      : 1200.0)
+                  .clamp(720.0, 1200.0)
+                  .round();
+          final logoRequestWidth =
+              (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
+                  .clamp(480.0, 1200.0)
+                  .round();
+
+          final heroImages = deferArtwork
+              ? MediaImageRequest.empty
+              : mediaImageRequestForUrls(
+                  ApiUrlHelper.imageCandidates(
+                    provider.baseUrl,
+                    _heroBackdropsFor(item),
+                    width: backdropRequestWidth,
                   ),
-                  SliverToBoxAdapter(
-                    child: Container(
-                      color: Colors.transparent,
-                      padding: EdgeInsets.fromLTRB(
-                        horizontalPadding,
-                        8,
-                        horizontalPadding,
-                        18,
+                  token: provider.token,
+                  accessCode: provider.accessCode,
+                  baseUrl: provider.baseUrl,
+                );
+          final logoImages = deferArtwork
+              ? MediaImageRequest.empty
+              : mediaImageRequestForUrls(
+                  ApiUrlHelper.imageCandidates(
+                    provider.baseUrl,
+                    (item['logos'] ?? '').toString(),
+                    width: logoRequestWidth,
+                  ),
+                  token: provider.token,
+                  accessCode: provider.accessCode,
+                  baseUrl: provider.baseUrl,
+                );
+          final heroTitleChild = deferArtwork
+              ? (displayState.showTitleFallback
+                    ? null
+                    : const SizedBox.shrink())
+              : (logoImages.isNotEmpty
+                    ? DetailHeroLogoTitle(
+                        images: logoImages,
+                        fallbackTitle: title,
+                        maxHeight: 124,
+                        maxWidth:
+                            screenSize.width -
+                            (DetailTokens.screenHorizontalPadding * 2),
+                      )
+                    : null);
+
+          return Scaffold(
+            backgroundColor: colors.backgroundBase,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                ValueListenableBuilder<double>(
+                  valueListenable: _scrollOffsetNotifier,
+                  builder: (context, offset, _) {
+                    return ImmersiveDetailBackground(
+                      images: heroImages,
+                      // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
+                      scrollOffset: offset,
+                      posterHeight: posterHeight,
+                      imageScale: heroAdaptive.imageScale * 1.04,
+                      imageFit: BoxFit.cover,
+                      imageAlignment: Alignment(
+                        heroAdaptive.imageAlignX,
+                        heroAdaptive.imageAlignY,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (hasMetaLine)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 2),
-                              child: _buildTvMetaLine(
-                                contentRating: contentRating,
-                                genreNames: genreNames,
-                                countryText: countryText,
-                                ancestorName: ancestorName,
-                              ),
-                            ),
-                          const SizedBox(height: 14),
-                          PlayControlRow(
-                            primaryText: primaryText,
-                            primaryEnabled: true,
-                            liked: _liked,
-                            watched: _watched,
-                            showDownload: false,
-                            onPrimaryTap: _launchPrimaryPlayback,
-                            onLikeTap: _toggleFavorite,
-                            onWatchedTap: _toggleWatched,
-                          ),
-                          const SizedBox(height: 12),
-                          if (displayState.showOverview)
-                            DetailDescriptionSection(
-                              text: overview,
-                              maxLines: desktop ? 3 : 4,
-                              baseFontSize: desktop ? 14 : 15,
-                              onMoreTap: () {
-                                LongTextOverlayPage.show(
-                                  context,
-                                  title: title,
-                                  sectionTitle: AppLocalizations.of(
-                                    context,
-                                  ).detailOverviewTitle,
-                                  content: overview,
-                                );
-                              },
-                            ),
-                          const SizedBox(height: 16),
-                          Text(
-                            AppLocalizations.of(
-                              context,
-                            ).detailTvSeasonCount(seasonCount),
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: desktop ? 24 : 30,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          if (_seasonItems.isNotEmpty)
-                            SizedBox(
-                              height: layout.homePosterRowHeight,
-                              child: ListView.separated(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: _seasonItems.length,
-                                separatorBuilder: (_, __) =>
-                                    SizedBox(width: layout.itemGap),
-                                itemBuilder: (context, index) {
-                                  final season = _seasonItems[index];
-                                  final rating = double.tryParse(
-                                    season.voteAverage,
-                                  );
-                                  return SizedBox(
-                                    width: layout.homePosterCardWidth,
-                                    child: MediaPosterCard(
-                                      // 季海报不走 deferArtwork 门控：季数据已在转场 gate 后
-                                      // 一次性落地。若再用 _artworkReady 二次门控，季列表
-                                      // 网络快于描述揭示定时器时会先渲染占位、待 _artworkReady
-                                      // 翻 true 整批换真海报 → 肉眼可见的「刷新」。与演职员同理。
-                                      images: mediaImageRequestForUrls(
-                                        _posterCandidates(
-                                          provider.baseUrl,
-                                          season.poster,
-                                          width: layout.homePosterRequestWidth,
-                                        ),
-                                        token: provider.token,
-                                        accessCode: provider.accessCode,
-                                        baseUrl: provider.baseUrl,
-                                      ),
-                                      title: _seasonTitle(season),
-                                      subtitle: _seasonSubtitle(season),
-                                      rating: (rating != null && rating > 0)
-                                          ? rating
-                                          : null,
-                                      resolutions: season.resolutions,
-                                      watched: season.watched == 1,
-                                      imageHeight: layout.homePosterImageHeight,
-                                      titleFontSize:
-                                          layout.homePosterTitleFontSize,
-                                      subtitleFontSize:
-                                          layout.homePosterSubtitleFontSize,
-                                      onTap: () {
-                                        AdaptiveDetailNavigator.open<void>(
-                                          context,
-                                          AdaptiveDetailRequest.season(
-                                            parentGuid: widget.itemGuid,
-                                            seriesTitle: title,
-                                            backdropPath: _heroBackdropsFor(
-                                              item,
-                                            ),
-                                            seasonItem: season,
-                                            initialSeasonItems: _seasonItems,
-                                          ),
-                                          presentation: _isPane
-                                              ? DetailPresentation.pane
-                                              : DetailPresentation.page,
-                                        );
-                                      },
-                                      onLongPress: () {
-                                        unawaited(
-                                          _showSeasonItemActions(season),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
-                            )
-                          else if (showSeasonPlaceholders)
-                            SizedBox(
-                              height: layout.homePosterRowHeight,
-                              child: ListView.separated(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: seasonPlaceholderCount,
-                                separatorBuilder: (_, __) =>
-                                    SizedBox(width: layout.itemGap),
-                                itemBuilder: (context, index) {
-                                  final seasonNumber = index + 1;
-                                  return SizedBox(
-                                    width: layout.homePosterCardWidth,
-                                    child: MediaPosterCard(
-                                      images: MediaImageRequest.empty,
-                                      title: AppLocalizations.of(
-                                        context,
-                                      ).detailSeasonNumber(seasonNumber),
-                                      subtitle: AppLocalizations.of(
-                                        context,
-                                      ).commonLoading,
-                                      imageHeight: layout.homePosterImageHeight,
-                                      titleFontSize:
-                                          layout.homePosterTitleFontSize,
-                                      subtitleFontSize:
-                                          layout.homePosterSubtitleFontSize,
-                                    ),
-                                  );
-                                },
-                              ),
-                            )
-                          else
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: colors.surface,
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Text(
-                                AppLocalizations.of(context).detailSeasonEmpty,
-                                style: TextStyle(
-                                  color: colors.textSecondary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
+                      fillGapsWithImage: false,
+                      overlayOpacity: 0.74,
+                      maxScrollZoom: 1.38,
+                      useDesktopReadingScrim: desktop,
+                      ambientTintOverride: ambientTint,
+                    );
+                  },
+                ),
+                CustomScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  slivers: [
+                    _buildSeriesHeroSliver(
+                      height: posterHeight,
+                      title: title,
+                      titleChild: heroTitleChild,
+                    ),
+                    SliverToBoxAdapter(
+                      child: Container(
+                        color: Colors.transparent,
+                        padding: EdgeInsets.fromLTRB(
+                          horizontalPadding,
+                          8,
+                          horizontalPadding,
+                          18,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (hasMetaLine)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 2),
+                                child: _buildTvMetaLine(
+                                  contentRating: contentRating,
+                                  genreNames: genreNames,
+                                  countryText: countryText,
+                                  ancestorName: ancestorName,
                                 ),
                               ),
+                            const SizedBox(height: 14),
+                            PlayControlRow(
+                              primaryText: primaryText,
+                              primaryEnabled: true,
+                              liked: _liked,
+                              watched: _watched,
+                              showDownload: false,
+                              onPrimaryTap: _launchPrimaryPlayback,
+                              onLikeTap: _toggleFavorite,
+                              onWatchedTap: _toggleWatched,
                             ),
-                          const SizedBox(height: 16),
-                          LinkSection(
-                            imdbId: _imdbId,
-                            tmdbId: _trimId,
-                            onImdbTap: _openImdb,
-                            onTmdbTap: _openTmdb,
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            if (displayState.showOverview)
+                              DetailDescriptionSection(
+                                text: overview,
+                                maxLines: desktop ? 3 : 4,
+                                baseFontSize: desktop ? 14 : 15,
+                                onMoreTap: () {
+                                  LongTextOverlayPage.show(
+                                    context,
+                                    title: title,
+                                    sectionTitle: AppLocalizations.of(
+                                      context,
+                                    ).detailOverviewTitle,
+                                    content: overview,
+                                  );
+                                },
+                              ),
+                            const SizedBox(height: 16),
+                            Text(
+                              AppLocalizations.of(
+                                context,
+                              ).detailTvSeasonCount(seasonCount),
+                              style: TextStyle(
+                                color: colors.textPrimary,
+                                fontSize: desktop ? 24 : 30,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (_seasonItems.isNotEmpty)
+                              SizedBox(
+                                height: layout.homePosterRowHeight,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: _seasonItems.length,
+                                  separatorBuilder: (_, __) =>
+                                      SizedBox(width: layout.itemGap),
+                                  itemBuilder: (context, index) {
+                                    final season = _seasonItems[index];
+                                    final rating = double.tryParse(
+                                      season.voteAverage,
+                                    );
+                                    return SizedBox(
+                                      width: layout.homePosterCardWidth,
+                                      child: MediaPosterCard(
+                                        // 季海报不走 deferArtwork 门控：季数据已在转场 gate 后
+                                        // 一次性落地。若再用 _artworkReady 二次门控，季列表
+                                        // 网络快于描述揭示定时器时会先渲染占位、待 _artworkReady
+                                        // 翻 true 整批换真海报 → 肉眼可见的「刷新」。与演职员同理。
+                                        images: mediaImageRequestForUrls(
+                                          _posterCandidates(
+                                            provider.baseUrl,
+                                            season.poster,
+                                            width:
+                                                layout.homePosterRequestWidth,
+                                          ),
+                                          token: provider.token,
+                                          accessCode: provider.accessCode,
+                                          baseUrl: provider.baseUrl,
+                                        ),
+                                        title: _seasonTitle(season),
+                                        subtitle: _seasonSubtitle(season),
+                                        rating: (rating != null && rating > 0)
+                                            ? rating
+                                            : null,
+                                        resolutions: season.resolutions,
+                                        watched: season.watched == 1,
+                                        imageHeight:
+                                            layout.homePosterImageHeight,
+                                        titleFontSize:
+                                            layout.homePosterTitleFontSize,
+                                        subtitleFontSize:
+                                            layout.homePosterSubtitleFontSize,
+                                        onTap: () {
+                                          AdaptiveDetailNavigator.open<void>(
+                                            context,
+                                            AdaptiveDetailRequest.season(
+                                              parentGuid: widget.itemGuid,
+                                              seriesTitle: title,
+                                              backdropPath: _heroBackdropsFor(
+                                                item,
+                                              ),
+                                              seasonItem: season,
+                                              initialSeasonItems: _seasonItems,
+                                            ),
+                                            presentation: _isPane
+                                                ? DetailPresentation.pane
+                                                : DetailPresentation.page,
+                                          );
+                                        },
+                                        onLongPress: () {
+                                          unawaited(
+                                            _showSeasonItemActions(season),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                ),
+                              )
+                            else if (showSeasonPlaceholders)
+                              SizedBox(
+                                height: layout.homePosterRowHeight,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: seasonPlaceholderCount,
+                                  separatorBuilder: (_, __) =>
+                                      SizedBox(width: layout.itemGap),
+                                  itemBuilder: (context, index) {
+                                    final seasonNumber = index + 1;
+                                    return SizedBox(
+                                      width: layout.homePosterCardWidth,
+                                      child: MediaPosterCard(
+                                        images: MediaImageRequest.empty,
+                                        title: AppLocalizations.of(
+                                          context,
+                                        ).detailSeasonNumber(seasonNumber),
+                                        subtitle: AppLocalizations.of(
+                                          context,
+                                        ).commonLoading,
+                                        imageHeight:
+                                            layout.homePosterImageHeight,
+                                        titleFontSize:
+                                            layout.homePosterTitleFontSize,
+                                        subtitleFontSize:
+                                            layout.homePosterSubtitleFontSize,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              )
+                            else
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: colors.surface,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Text(
+                                  AppLocalizations.of(
+                                    context,
+                                  ).detailSeasonEmpty,
+                                  style: TextStyle(
+                                    color: colors.textSecondary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 16),
+                            LinkSection(
+                              imdbId: _imdbId,
+                              tmdbId: _trimId,
+                              onImdbTap: _openImdb,
+                              onTmdbTap: _openTmdb,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              ValueListenableBuilder<double>(
-                valueListenable: _scrollOffsetNotifier,
-                builder: (context, offset, _) {
-                  final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
-                  final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
-                    0.0,
-                    1.0,
-                  );
-                  return DetailFloatingTopBar(
-                    ambientTint: ambientTint,
-                    onBack: () => unawaited(
-                      EmbeddedDetailLauncher.closeHostOrPop(context),
-                    ),
-                    onMore: () => unawaited(
-                      showDetailMoreActionsSheet(
-                        context,
-                        pageKey: widget.itemGuid,
-                        pageTitle: title,
-                        suggestedThemeName: context
-                            .read<AppThemeProvider>()
-                            .nextSavedThemeNameFromBase(
-                              _suggestedThemeNameBase(item),
-                            ),
-                        clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                  ],
+                ),
+                ValueListenableBuilder<double>(
+                  valueListenable: _scrollOffsetNotifier,
+                  builder: (context, offset, _) {
+                    final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
+                    final centerTitleOpacity = ((collapseT - 0.84) / 0.12)
+                        .clamp(0.0, 1.0);
+                    return DetailFloatingTopBar(
+                      ambientTint: ambientTint,
+                      onBack: () => unawaited(
+                        EmbeddedDetailLauncher.closeHostOrPop(context),
                       ),
-                    ),
-                    title: title,
-                    titleOpacity: centerTitleOpacity,
-                    showBack: true,
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
+                      onMore: () => unawaited(
+                        showDetailMoreActionsSheet(
+                          context,
+                          pageKey: widget.itemGuid,
+                          pageTitle: title,
+                          suggestedThemeName: context
+                              .read<AppThemeProvider>()
+                              .nextSavedThemeNameFromBase(
+                                _suggestedThemeNameBase(item),
+                              ),
+                          clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                        ),
+                      ),
+                      title: title,
+                      titleOpacity: centerTitleOpacity,
+                      showBack: true,
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

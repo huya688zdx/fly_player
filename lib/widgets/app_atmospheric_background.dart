@@ -165,6 +165,12 @@ class _AppAtmosphereSnapshot extends StatefulWidget {
 
 class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
   final GlobalKey _boundaryKey = GlobalKey();
+
+  /// 路由门锚点句柄：包住 build 返回整体（LayoutBuilder 外层，含尺寸非法帧
+  /// 的 `return widget.child` 早退分支——锚点任何帧都在场），独自承接
+  /// `_ModalScopeStatus` 依赖；截图前置判断与等待经同一句柄读取。
+  final GlobalKey<RouteGateAnchorState> _gateKey =
+      GlobalKey<RouteGateAnchorState>();
   ui.Image? _image;
   Size? _capturedSize;
   Size? _requestedSize;
@@ -208,10 +214,13 @@ class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       // 隐藏标签和转场首帧还没有可截图的绘制层，不算截图失败。
+      // isTransitioning/waitTransition 经锚点叶子句柄读取（依赖不落在本
+      // State element 上）；句柄 null → false / await null 立即完成，
+      // 等价 route == null 语义。
       if (Visibility.of(context) &&
           TickerMode.valuesOf(context).enabled &&
-          RouteTransitionGate.isTransitioning(context)) {
-        await RouteTransitionGate.of(context);
+          (_gateKey.currentState?.isTransitioning ?? false)) {
+        await _gateKey.currentState?.waitTransition();
         if (!mounted) return;
         await WidgetsBinding.instance.endOfFrame;
         if (!mounted) return;
@@ -270,36 +279,44 @@ class _AppAtmosphereSnapshotState extends State<_AppAtmosphereSnapshot> {
     super.dispose();
   }
 
+  // 包住 build 返回整体而非作为下方 Stack 的额外 child：build 在尺寸非法帧
+  // 经 `return widget.child` 早退、不经过 Stack——Stack 额外 child 形态的
+  // 锚点在该帧不在树，违反“任何帧都在场”；包根使锚点对 build 的所有分支
+  // 都在场。锚点 build 原样返回同一 LayoutBuilder 实例（子树 identical
+  // 短路零重建），勿在此包装/换 key/拼新 widget。
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final size = constraints.biggest;
-      if (!size.width.isFinite ||
-          !size.height.isFinite ||
-          size.width <= 0 ||
-          size.height <= 0) {
-        return widget.child;
-      }
-      if (Visibility.of(context) && TickerMode.valuesOf(context).enabled) {
-        _ensureSnapshot(size);
-      }
-      return Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          Opacity(
-            opacity: _image == null ? 1 : 0,
-            child: RepaintBoundary(key: _boundaryKey, child: widget.child),
-          ),
-          if (_image != null)
-            RawImage(
-              key: const ValueKey<String>('app-atmosphere-snapshot-image'),
-              image: _image,
-              fit: BoxFit.fill,
-              filterQuality: FilterQuality.low,
+  Widget build(BuildContext context) => RouteGateAnchor(
+    key: _gateKey,
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (!size.width.isFinite ||
+            !size.height.isFinite ||
+            size.width <= 0 ||
+            size.height <= 0) {
+          return widget.child;
+        }
+        if (Visibility.of(context) && TickerMode.valuesOf(context).enabled) {
+          _ensureSnapshot(size);
+        }
+        return Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            Opacity(
+              opacity: _image == null ? 1 : 0,
+              child: RepaintBoundary(key: _boundaryKey, child: widget.child),
             ),
-        ],
-      );
-    },
+            if (_image != null)
+              RawImage(
+                key: const ValueKey<String>('app-atmosphere-snapshot-image'),
+                image: _image,
+                fit: BoxFit.fill,
+                filterQuality: FilterQuality.low,
+              ),
+          ],
+        );
+      },
+    ),
   );
 }
 

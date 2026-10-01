@@ -101,6 +101,14 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   String? _registeredGlobalThemeKey;
   bool _holdingPreviousGlobalThemeWhileResolving = false;
 
+  /// 路由门锚点句柄：build 输出内（DynamicPageThemeSnapshot 的 child 处）
+  /// 包 `RouteGateAnchor` 叶子，独自承接 `_ModalScopeStatus` 依赖；
+  /// isTransitioning/waitTransition 经它读取，本 scope element 不再成为
+  /// 弹窗开/关通知的依赖者。三处调用点（didUpdateWidget/
+  /// _applyResolvedSeedSetState/_applyResolvedSeedAfterTransition）共用同一句柄。
+  final GlobalKey<RouteGateAnchorState> _gateAnchorKey =
+      GlobalKey<RouteGateAnchorState>();
+
   @override
   void initState() {
     super.initState();
@@ -173,8 +181,10 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
           // 数据到达触发的 props 变化常落在 380ms 进场转场内（详情接口
           // 100-400ms 返回），此处直接翻 _seed 会绕过 _applyResolvedSeedSetState
           // 的转场闸门，在转场中段引发整页 Theme 切换；转场中改为推迟应用。
+          // 经锚点叶子句柄读转场状态（不在本 scope element 上注册依赖）；
+          // 句柄 null → 视为未转场，对齐 ModalRoute.of == null 语义。
           if (_seed != cachedSeed &&
-              RouteTransitionGate.isTransitioning(context)) {
+              (_gateAnchorKey.currentState?.isTransitioning ?? false)) {
             _applyResolvedSeedSetState(cachedSeed);
           } else {
             _seed = cachedSeed;
@@ -391,7 +401,9 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     if (!mounted || _seed == seed) {
       return;
     }
-    if (RouteTransitionGate.isTransitioning(context)) {
+    // 与 didUpdateWidget 共用同一 _gateAnchorKey 句柄读转场状态；
+    // 句柄 null → 视为未转场，对齐 ModalRoute.of == null 语义。
+    if (_gateAnchorKey.currentState?.isTransitioning ?? false) {
       unawaited(
         _applyResolvedSeedAfterTransition(
           seed,
@@ -418,7 +430,9 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     required String imageUrl,
     required Map<String, String> imageHeaders,
   }) async {
-    await RouteTransitionGate.of(context);
+    // 经锚点叶子句柄等本路由转场结束（依赖不落在 scope element 上）；
+    // 句柄 null → await null 立即 resolve = 视为未转场。
+    await _gateAnchorKey.currentState?.waitTransition();
     if (!mounted ||
         !widget.enabled ||
         requestVersion != _requestVersion ||
@@ -833,8 +847,15 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     Widget child = DynamicPageThemeSnapshot(
       hasDynamicTheme: hasTheme,
       effectiveColors: effectiveColors,
-      child: Builder(
-        builder: (context) => widget.builder(context, ambientTint),
+      // 路由门锚点叶子：独自承接 ModalRoute.of 的 _ModalScopeStatus 依赖，
+      // 弹窗开/关通知只落在本锚点 element。锚点 build 原样返回同一 Builder
+      // 实例（子树 identical 短路零重建）；勿改此形态（包装/换 key/拼新
+      // widget 都会让整页重建问题原样复活）。
+      child: RouteGateAnchor(
+        key: _gateAnchorKey,
+        child: Builder(
+          builder: (context) => widget.builder(context, ambientTint),
+        ),
       ),
     );
     // 始终包一层 Theme（无 seed 时透传 parentTheme）：让 seed null→非 null

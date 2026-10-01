@@ -193,6 +193,12 @@ class _MediaListScreenState extends State<MediaListScreen>
   /// 桌面搜索弹层的图标本体锚点：弹层搜索框右缘钉在该图标右缘向左衍生。
   final LayerLink _searchAnchorLink = LayerLink();
 
+  /// 路由门锚点句柄：[_buildScreen] 返回根包 `RouteGateAnchor`，独自承接
+  /// `_ModalScopeStatus` 依赖，弹窗开/关不再触发首页整页重建。
+  /// 存 final 字段：setState 重建与热重载都保留锚点 State。
+  final GlobalKey<RouteGateAnchorState> _gateKey =
+      GlobalKey<RouteGateAnchorState>();
+
   int get _continueLimit =>
       widget.secondaryHost ? _secondaryContinueLimit : _fallbackContinueLimit;
 
@@ -887,6 +893,42 @@ class _MediaListScreenState extends State<MediaListScreen>
     }
   }
 
+  /// 统一入口。锚点已挂载（正常路径）：经叶子句柄等待，页根不注册任何依赖。
+  /// 锚点未挂载（首帧竞态等不应发生的路径）：兜底走旧 API 保语义不破，
+  /// 且必须留下全模式可观测痕迹——兜底被触发的瞬间，页根 element 会经
+  /// of(context) 重新注册依赖，整页重建无声复活，logSwallowedError 无
+  /// debug 门控、落盘可导出，可从导出日志确认兜底是否触发过。
+  Future<void> _waitOwnTransition() {
+    final gate = _gateKey.currentState;
+    if (gate != null) {
+      return gate.waitTransition();
+    }
+    unawaited(
+      logSwallowedError(
+        action: 'route gate anchor missing',
+        error: StateError(
+          'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of；'
+          '请确认锚点无条件包裹页面根',
+        ),
+        stackTrace: StackTrace.current,
+        source: 'route_transition_gate',
+      ),
+    );
+    assert(() {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: StateError(
+            'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of',
+          ),
+          library: 'fly_play',
+          context: ErrorDescription('while waiting route transition'),
+        ),
+      );
+      return true;
+    }());
+    return RouteTransitionGate.of(context);
+  }
+
   Future<void> _refreshContinueWatching() async {
     final refreshLoadKey = _lastLoadKey;
     final provider = context.read<NasProvider>();
@@ -927,7 +969,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       );
       // push 返回的 Future 在 pop 动画第一帧前就 resolve，回包大概率落在
       // 380ms pop 转场里；等转场结束再应用，且列表未变化时不整页重建。
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted || refreshLoadKey != _lastLoadKey) return;
       final oldContinueIds = _continueWatching.map((item) => item.guid).toSet();
       final itemsUnchanged = HomeDataSnapshot.itemsEqual(

@@ -76,6 +76,11 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   final ScrollController _scrollController = ScrollController();
   final DetailTopTip _topTip = DetailTopTip();
+  // 路由门锚点：build 根无条件包 RouteGateAnchor(key: _gateKey)，_ModalScopeStatus
+  // 依赖只落在锚点叶子 element，弹窗开/关不再触发整页重建。存 final 字段：setState
+  // 重建与热重载都保留锚点 State；本页全部 gate 调用点共用同一 key。
+  final GlobalKey<RouteGateAnchorState> _gateKey =
+      GlobalKey<RouteGateAnchorState>();
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
 
@@ -124,6 +129,43 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     _settingsMdbGuid = _resolveSettingsMdbGuid(detail);
   }
 
+  /// 统一入口。锚点已挂载（正常路径）：经叶子句柄等待，页根不注册任何依赖。
+  /// 锚点未挂载（首帧竞态等不应发生的路径）：兜底走旧 API 保语义不破，且必须
+  /// 留下全模式可观测痕迹（docs/plans/route-gate-popup-jank-fix.md §3.4/§3.5）。
+  Future<void> _waitOwnTransition() {
+    final gate = _gateKey.currentState;
+    if (gate != null) {
+      return gate.waitTransition();
+    }
+    // 兜底被触发的瞬间，页根 element 会经 of(context) 重新注册 _ModalScopeStatus
+    // 依赖，整页重建无声复活——该痕迹不能只放在 assert 里（profile/release 零输出）。
+    // logSwallowedError 无 debug 门控、落盘可导出，可从导出日志核对兜底是否触发过。
+    unawaited(
+      logSwallowedError(
+        action: 'route gate anchor missing',
+        error: StateError(
+          'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of；'
+          '请确认锚点无条件包裹页面根',
+        ),
+        stackTrace: StackTrace.current,
+        source: 'route_transition_gate',
+      ),
+    );
+    assert(() {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: StateError(
+            'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of',
+          ),
+          library: 'fly_play',
+          context: ErrorDescription('while waiting route transition'),
+        ),
+      );
+      return true;
+    }());
+    return RouteTransitionGate.of(context);
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -140,7 +182,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
           sortType: _sortType,
         );
         if (!mounted) return;
-        await RouteTransitionGate.of(context);
+        await _waitOwnTransition();
         if (!mounted) return;
         setState(() {
           _applyDetail(_neutralDetailToMap(neutral));
@@ -177,7 +219,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       );
       if (!mounted) return;
       // 把"骨架→正文"整树替换推迟到转场结束后，避免落在 380ms 转场窗口中段。
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted) return;
       setState(() {
         _applyDetail(detail);
@@ -1068,266 +1110,274 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       isPane: _isPane,
     );
 
-    return DynamicPageThemeScope(
-      pageKey: widget.itemGuid,
-      imageUrl: dynamicThemeImageUrl,
-      imageHeaders: dynamicThemeImages.headers,
-      enabled: dynamicThemeEnabled,
-      syncGlobalTheme: syncGlobalTheme,
-      deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,
-      intensity: dynamicThemeIntensity,
-      builder: (context, _) {
-        final colors = context.appColors;
-        if (_loading) {
-          return DetailLoadingSkeleton(presentation: widget.presentation);
-        }
-        if (_error != null) {
-          return DetailStatusPage(
-            child: SafeArea(
-              child: AppErrorState(
-                error: _error!,
-                localeMap: const <String, dynamic>{},
-                onRetry: _load,
+    return RouteGateAnchor(
+      key: _gateKey,
+      // 锚点必须无条件包裹页面根（不进任何条件分支）；child 原样传入，
+      // 勿包装/换 key，否则依赖翻转会连带重建被包子树（plan §3.3）。
+      child: DynamicPageThemeScope(
+        pageKey: widget.itemGuid,
+        imageUrl: dynamicThemeImageUrl,
+        imageHeaders: dynamicThemeImages.headers,
+        enabled: dynamicThemeEnabled,
+        syncGlobalTheme: syncGlobalTheme,
+        deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,
+        intensity: dynamicThemeIntensity,
+        builder: (context, _) {
+          final colors = context.appColors;
+          if (_loading) {
+            return DetailLoadingSkeleton(presentation: widget.presentation);
+          }
+          if (_error != null) {
+            return DetailStatusPage(
+              child: SafeArea(
+                child: AppErrorState(
+                  error: _error!,
+                  localeMap: const <String, dynamic>{},
+                  onRetry: _load,
+                ),
               ),
-            ),
-          );
-        }
+            );
+          }
 
-        final title = (_detail['title'] ?? '').toString().trim();
-        final crumb = _crumbText();
-        final path = (_detail['path'] ?? '').toString().trim();
+          final title = (_detail['title'] ?? '').toString().trim();
+          final crumb = _crumbText();
+          final path = (_detail['path'] ?? '').toString().trim();
 
-        return Scaffold(
-          backgroundColor: colors.backgroundBase,
-          body: SafeArea(
-            bottom: false,
-            child: CustomScrollView(
-              controller: _scrollController,
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                    DetailTokens.screenHorizontalPadding,
-                    8,
-                    DetailTokens.screenHorizontalPadding,
-                    0,
-                  ),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            _TopBarIconButton(
-                              icon: Icons.arrow_back_ios_new_rounded,
-                              onTap: () => unawaited(
-                                EmbeddedDetailLauncher.closeHostOrPop(context),
-                              ),
-                            ),
-                            const Spacer(),
-                            _TopBarIconButton(
-                              icon: Icons.more_horiz_rounded,
-                              onTap: () => unawaited(
-                                showDetailMoreActionsSheet(
-                                  context,
-                                  pageKey: widget.itemGuid,
-                                  pageTitle: title,
-                                  suggestedThemeName: context
-                                      .read<AppThemeProvider>()
-                                      .nextSavedThemeNameFromBase(
-                                        buildThemeSaveNameBase(
-                                          l10n: AppLocalizations.of(context),
-                                          title: title,
-                                        ),
-                                      ),
-                                  clearRuntimeBroadcastToMain:
-                                      !inPlayerPaneHost,
-                                  extraActions: <DetailMoreActionItem>[
-                                    DetailMoreActionItem(
-                                      icon: Icons.grid_view_rounded,
-                                      title: _l10n.collectionLayoutTitle,
-                                      subtitle: _l10n.collectionLayoutSubtitle,
-                                      onTap: (context) => _openLayoutSheet(),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        if (crumb.isNotEmpty) ...[
+          return Scaffold(
+            backgroundColor: colors.backgroundBase,
+            body: SafeArea(
+              bottom: false,
+              child: CustomScrollView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(
+                      DetailTokens.screenHorizontalPadding,
+                      8,
+                      DetailTokens.screenHorizontalPadding,
+                      0,
+                    ),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Row(
                             children: [
-                              Icon(
-                                Icons.folder_outlined,
-                                color: colors.textSecondary,
-                                size: 20,
+                              _TopBarIconButton(
+                                icon: Icons.arrow_back_ios_new_rounded,
+                                onTap: () => unawaited(
+                                  EmbeddedDetailLauncher.closeHostOrPop(
+                                    context,
+                                  ),
+                                ),
                               ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  crumb,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: colors.textSecondary,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w500,
+                              const Spacer(),
+                              _TopBarIconButton(
+                                icon: Icons.more_horiz_rounded,
+                                onTap: () => unawaited(
+                                  showDetailMoreActionsSheet(
+                                    context,
+                                    pageKey: widget.itemGuid,
+                                    pageTitle: title,
+                                    suggestedThemeName: context
+                                        .read<AppThemeProvider>()
+                                        .nextSavedThemeNameFromBase(
+                                          buildThemeSaveNameBase(
+                                            l10n: AppLocalizations.of(context),
+                                            title: title,
+                                          ),
+                                        ),
+                                    clearRuntimeBroadcastToMain:
+                                        !inPlayerPaneHost,
+                                    extraActions: <DetailMoreActionItem>[
+                                      DetailMoreActionItem(
+                                        icon: Icons.grid_view_rounded,
+                                        title: _l10n.collectionLayoutTitle,
+                                        subtitle:
+                                            _l10n.collectionLayoutSubtitle,
+                                        onTap: (context) => _openLayoutSheet(),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 18),
-                        ],
-                        Text(
-                          title,
-                          style: TextStyle(
-                            color: colors.textPrimary,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w600,
-                            height: 1.08,
-                          ),
-                        ),
-                        if (_secondaryLine().isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            _secondaryLine(),
-                            style: TextStyle(
-                              color: colors.textMuted,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 22),
-                        PlayControlRow(
-                          primaryText: _primaryText(),
-                          primaryEnabled: _primaryPlayableItem() != null,
-                          liked: _liked,
-                          watched: _watched,
-                          onPrimaryTap: _playPrimary,
-                          onLikeTap: _toggleFavorite,
-                          onWatchedTap: _toggleWatched,
-                        ),
-                        if (path.isNotEmpty) ...[
-                          const SizedBox(height: 16),
-                          Text(
-                            path,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: colors.textMuted.withValues(alpha: 0.82),
-                              fontSize: 14,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 22),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Row(
-                                children: [
-                                  desktopTapDropdownWrapper(
-                                    dropdownKey: _sortDropdownKey,
-                                    spec: _sortDropdownSpec,
-                                    child: InkWell(
-                                      onTap: _onSortTriggerTap,
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Row(
-                                        children: [
-                                          Text(
-                                            _sortLabelFor(_sortColumn),
-                                            style: TextStyle(
-                                              color: colors.textPrimary,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Icon(
-                                            _sortType == 'ASC'
-                                                ? Icons.arrow_upward
-                                                : Icons.arrow_downward,
-                                            size: 16,
-                                            color: colors.textSecondary,
-                                          ),
-                                        ],
-                                      ),
+                          const SizedBox(height: 20),
+                          if (crumb.isNotEmpty) ...[
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.folder_outlined,
+                                  color: colors.textSecondary,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    crumb,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: colors.surfaceStrong,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      '${_items.length}',
-                                      style: TextStyle(
-                                        color: colors.textSecondary,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 10),
-                            desktopTapDropdownWrapper(
-                              dropdownKey: _layoutDropdownKey,
-                              spec: _layoutDropdownSpec,
-                              child: _CollectionToolButton(
-                                icon: Icons.grid_view_rounded,
-                                active:
-                                    _viewType != MediaCollectionViewType.list,
-                                onTap: _onLayoutTriggerTap,
-                              ),
+                            const SizedBox(height: 18),
+                          ],
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w600,
+                              height: 1.08,
                             ),
-                            const SizedBox(width: 10),
-                            _CollectionToolButton(
-                              icon: Icons.filter_alt_outlined,
-                              active:
-                                  _selectedResolutionFilter != null ||
-                                  _selectedWatchedFilter != null,
-                              onTap: _openFilterSheet,
+                          ),
+                          if (_secondaryLine().isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              _secondaryLine(),
+                              style: TextStyle(
+                                color: colors.textMuted,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 10),
-                      ],
+                          const SizedBox(height: 22),
+                          PlayControlRow(
+                            primaryText: _primaryText(),
+                            primaryEnabled: _primaryPlayableItem() != null,
+                            liked: _liked,
+                            watched: _watched,
+                            onPrimaryTap: _playPrimary,
+                            onLikeTap: _toggleFavorite,
+                            onWatchedTap: _toggleWatched,
+                          ),
+                          if (path.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              path,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: colors.textMuted.withValues(alpha: 0.82),
+                                fontSize: 14,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 22),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    desktopTapDropdownWrapper(
+                                      dropdownKey: _sortDropdownKey,
+                                      spec: _sortDropdownSpec,
+                                      child: InkWell(
+                                        onTap: _onSortTriggerTap,
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Row(
+                                          children: [
+                                            Text(
+                                              _sortLabelFor(_sortColumn),
+                                              style: TextStyle(
+                                                color: colors.textPrimary,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Icon(
+                                              _sortType == 'ASC'
+                                                  ? Icons.arrow_upward
+                                                  : Icons.arrow_downward,
+                                              size: 16,
+                                              color: colors.textSecondary,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: colors.surfaceStrong,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        '${_items.length}',
+                                        style: TextStyle(
+                                          color: colors.textSecondary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              desktopTapDropdownWrapper(
+                                dropdownKey: _layoutDropdownKey,
+                                spec: _layoutDropdownSpec,
+                                child: _CollectionToolButton(
+                                  icon: Icons.grid_view_rounded,
+                                  active:
+                                      _viewType != MediaCollectionViewType.list,
+                                  onTap: _onLayoutTriggerTap,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              _CollectionToolButton(
+                                icon: Icons.filter_alt_outlined,
+                                active:
+                                    _selectedResolutionFilter != null ||
+                                    _selectedWatchedFilter != null,
+                                onTap: _openFilterSheet,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                    DetailTokens.screenHorizontalPadding,
-                    0,
-                    DetailTokens.screenHorizontalPadding,
-                    24,
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(
+                      DetailTokens.screenHorizontalPadding,
+                      0,
+                      DetailTokens.screenHorizontalPadding,
+                      24,
+                    ),
+                    sliver: MediaCollectionBrowserSliver(
+                      items: _items,
+                      baseUrl: _isFeiniuBackend ? provider.baseUrl : '',
+                      token: _isFeiniuBackend ? provider.token : '',
+                      accessCode: _isFeiniuBackend ? provider.accessCode : '',
+                      viewType: _viewType,
+                      onItemTap: _openItemDetail,
+                      onItemLongPress: _showItemActions,
+                      onItemMoreTap: _showItemActions,
+                    ),
                   ),
-                  sliver: MediaCollectionBrowserSliver(
-                    items: _items,
-                    baseUrl: _isFeiniuBackend ? provider.baseUrl : '',
-                    token: _isFeiniuBackend ? provider.token : '',
-                    accessCode: _isFeiniuBackend ? provider.accessCode : '',
-                    viewType: _viewType,
-                    onItemTap: _openItemDetail,
-                    onItemLongPress: _showItemActions,
-                    onItemMoreTap: _showItemActions,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

@@ -133,6 +133,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   static const Duration _deferredSectionStepDelay = Duration(milliseconds: 110);
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
+  // 路由门锚点：build 根无条件包 RouteGateAnchor(key: _gateKey)，_ModalScopeStatus
+  // 依赖只落在锚点叶子 element，弹窗开/关不再触发整页重建。存 final 字段：setState
+  // 重建与热重载都保留锚点 State；本页全部 gate 调用点共用同一 key。
+  final GlobalKey<RouteGateAnchorState> _gateKey =
+      GlobalKey<RouteGateAnchorState>();
   final PlayDetailDownloadSheetController _downloadSheetController =
       const PlayDetailDownloadSheetController();
   final DownloadTaskService _downloadTaskService = DownloadTaskService.instance;
@@ -1466,6 +1471,43 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
   }
 
+  /// 统一入口。锚点已挂载（正常路径）：经叶子句柄等待，页根不注册任何依赖。
+  /// 锚点未挂载（首帧竞态等不应发生的路径）：兜底走旧 API 保语义不破，且必须
+  /// 留下全模式可观测痕迹（docs/plans/route-gate-popup-jank-fix.md §3.4/§3.5）。
+  Future<void> _waitOwnTransition() {
+    final gate = _gateKey.currentState;
+    if (gate != null) {
+      return gate.waitTransition();
+    }
+    // 兜底被触发的瞬间，页根 element 会经 of(context) 重新注册 _ModalScopeStatus
+    // 依赖，整页重建无声复活——该痕迹不能只放在 assert 里（profile/release 零输出）。
+    // logSwallowedError 无 debug 门控、落盘可导出，可从导出日志核对兜底是否触发过。
+    unawaited(
+      logSwallowedError(
+        action: 'route gate anchor missing',
+        error: StateError(
+          'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of；'
+          '请确认锚点无条件包裹页面根',
+        ),
+        stackTrace: StackTrace.current,
+        source: 'route_transition_gate',
+      ),
+    );
+    assert(() {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: StateError(
+            'RouteGateAnchor 未挂载，回退 RouteTransitionGate.of',
+          ),
+          library: 'fly_play',
+          context: ErrorDescription('while waiting route transition'),
+        ),
+      );
+      return true;
+    }());
+    return RouteTransitionGate.of(context);
+  }
+
   Future<void> _load() async {
     _entryActionTimer?.cancel();
     _deferredSectionTimer?.cancel();
@@ -1543,7 +1585,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         );
         // 骨架→正文整树替换等转场结束再应用，避免落在 380ms 转场窗口内
         // （对齐 tv_detail 中立分支的既有闸门模式）。
-        await RouteTransitionGate.of(context);
+        await _waitOwnTransition();
         if (!mounted) return;
         setState(() {
           _detail = localizedDetail;
@@ -1590,7 +1632,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
       // 骨架→正文的整树替换 + 入场动画等转场结束再做，避免与 380ms
       // enter 动画同窗叠加（对齐 Phase-2 与 tv_detail 的既有闸门模式）。
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted) return;
       setState(() {
         _data = info;
@@ -1734,7 +1776,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       if (!mounted || _playerRouteActive) return;
       MediaLanguageMapper.mergeLanguageMap(languageMap);
       // 轨道/地区数据就绪后等转场结束再应用，避免转场窗口内的整树重建。
-      await RouteTransitionGate.of(context);
+      await _waitOwnTransition();
       if (!mounted || _playerRouteActive) return;
       setState(() {
         _streamTrackData = trackData;
@@ -3183,801 +3225,823 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
       return true;
     }());
-    return DynamicPageThemeScope(
-      pageKey: dynamicThemeKey,
-      imageUrl: dynamicThemeImageUrl,
-      imageHeaders: dynamicThemeImages.headers,
-      enabled: dynamicThemeScopeEnabled,
-      allowLiveResolve: !deferHeroArtwork && dynamicThemeImageUrl.isNotEmpty,
-      syncGlobalTheme: syncGlobalTheme,
-      deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
-      intensity: dynamicThemeIntensity,
-      builder: (context, ambientTint) {
-        final colors = context.appColors;
-        // Persistent background layer — lives OUTSIDE the loading↔ready
-        // crossFade so the backdrop image is never rebuilt/reloaded (and never
-        // double-fades) when _loading flips. It reads the live scroll offset so
-        // parallax still works once the ready content scrolls.
-        final persistentProvider = context.read<NasProvider>();
-        final persistentMedia = MediaQuery.of(context);
-        final persistentBackdropWidth =
-            (_isPane
-                    ? persistentMedia.size.width *
-                          persistentMedia.devicePixelRatio *
-                          1.2
-                    : 1200.0)
-                .clamp(720.0, 1200.0)
-                .round();
-        // 图源经 DetailArtworkResolver 统一解析:Emby 的 _detail 引用是完整 api_key 直链
-        // (直接用),飞牛的 _persistentHeroPath 是相对路径(走 imageCandidates + NAS token)。
-        // 两分支同一入口,输出与旧内联逻辑逐字节等价。
-        final persistentResolver = DetailArtworkResolver(
-          baseUrl: _neutralDisplayOnly ? '' : persistentProvider.baseUrl,
-          token: _neutralDisplayOnly ? '' : persistentProvider.token,
-          accessCode: _neutralDisplayOnly ? '' : persistentProvider.accessCode,
-        );
-        final persistentHeroPath = _neutralDisplayOnly
-            ? ''
-            : _persistentHeroPath();
-        final persistentHeroImages = _neutralDisplayOnly
-            ? persistentResolver.resolveRefs(<MediaImageRef>[
-                if (_detail != null) _detail!.backdropImage,
-                if (_detail != null) _detail!.primaryImage,
-              ])
-            : (persistentHeroPath.isEmpty
+    return RouteGateAnchor(
+      key: _gateKey,
+      // 锚点必须无条件包裹页面根（不进任何条件分支）；child 原样传入，
+      // 勿包装/换 key，否则依赖翻转会连带重建被包子树（plan §3.3）。
+      child: DynamicPageThemeScope(
+        pageKey: dynamicThemeKey,
+        imageUrl: dynamicThemeImageUrl,
+        imageHeaders: dynamicThemeImages.headers,
+        enabled: dynamicThemeScopeEnabled,
+        allowLiveResolve: !deferHeroArtwork && dynamicThemeImageUrl.isNotEmpty,
+        syncGlobalTheme: syncGlobalTheme,
+        deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
+        intensity: dynamicThemeIntensity,
+        builder: (context, ambientTint) {
+          final colors = context.appColors;
+          // Persistent background layer — lives OUTSIDE the loading↔ready
+          // crossFade so the backdrop image is never rebuilt/reloaded (and never
+          // double-fades) when _loading flips. It reads the live scroll offset so
+          // parallax still works once the ready content scrolls.
+          final persistentProvider = context.read<NasProvider>();
+          final persistentMedia = MediaQuery.of(context);
+          final persistentBackdropWidth =
+              (_isPane
+                      ? persistentMedia.size.width *
+                            persistentMedia.devicePixelRatio *
+                            1.2
+                      : 1200.0)
+                  .clamp(720.0, 1200.0)
+                  .round();
+          // 图源经 DetailArtworkResolver 统一解析:Emby 的 _detail 引用是完整 api_key 直链
+          // (直接用),飞牛的 _persistentHeroPath 是相对路径(走 imageCandidates + NAS token)。
+          // 两分支同一入口,输出与旧内联逻辑逐字节等价。
+          final persistentResolver = DetailArtworkResolver(
+            baseUrl: _neutralDisplayOnly ? '' : persistentProvider.baseUrl,
+            token: _neutralDisplayOnly ? '' : persistentProvider.token,
+            accessCode: _neutralDisplayOnly
+                ? ''
+                : persistentProvider.accessCode,
+          );
+          final persistentHeroPath = _neutralDisplayOnly
+              ? ''
+              : _persistentHeroPath();
+          final persistentHeroImages = _neutralDisplayOnly
+              ? persistentResolver.resolveRefs(<MediaImageRef>[
+                  if (_detail != null) _detail!.backdropImage,
+                  if (_detail != null) _detail!.primaryImage,
+                ])
+              : (persistentHeroPath.isEmpty
+                    ? MediaImageRequest.empty
+                    : persistentResolver.resolvePath(
+                        persistentHeroPath,
+                        width: persistentBackdropWidth,
+                      ));
+          final persistentPosterHeight = _backdropHeroHeight(
+            persistentMedia.size,
+          );
+          final persistentImageAlignment = _backdropImageAlignment(
+            persistentMedia.size,
+          );
+          final persistentImageScale = _backdropImageScale(
+            persistentMedia.size,
+          );
+          final persistentBackground = ValueListenableBuilder<double>(
+            valueListenable: _scrollOffsetNotifier,
+            builder: (context, offset, _) {
+              return ImmersiveDetailBackground(
+                images: persistentHeroImages,
+                // 低清铺底已全链路停用（实机决策 2026-07-26）：360 小图放大到大半屏
+                // 高糊感明显，慢网下"糊图期"数秒，比纯色等待更差；Emby 侧拿海报垫
+                // backdrop 更是两张图跳变。hero 就绪前保持主题底色，一次淡入到位。
+                // 组件的垫底/就绪卸载机制保留，将来有"同图小宽度"引用可直接启用。
+                scrollOffset: offset,
+                posterHeight: persistentPosterHeight,
+                imageScale: persistentImageScale,
+                imageFit: BoxFit.cover,
+                imageAlignment: persistentImageAlignment,
+                parallaxFactor: 1.0,
+                overlayOpacity: 0.62,
+                useDesktopReadingScrim: DetailLayoutSolver.usesDesktopLayout(
+                  persistentMedia.size.width,
+                ),
+                ambientTintOverride: ambientTint,
+              );
+            },
+          );
+          late final Widget pageBody;
+          if (_loading) {
+            final initial = widget.initialItemDetail;
+            if (initial == null) {
+              pageBody = DetailLoadingSkeleton(
+                presentation: widget.presentation,
+                showPoster: false,
+              );
+            } else {
+              final provider = context.read<NasProvider>();
+              final artworkResolver = DetailArtworkResolver(
+                baseUrl: _neutralDisplayOnly ? '' : provider.baseUrl,
+                token: _neutralDisplayOnly ? '' : provider.token,
+                accessCode: _neutralDisplayOnly ? '' : provider.accessCode,
+              );
+              final media = MediaQuery.of(context);
+              final logoRequestWidth =
+                  (_isPane ? media.size.width * media.devicePixelRatio : 1200.0)
+                      .clamp(480.0, 1200.0)
+                      .round();
+              final rawItem = initial['item'];
+              final item = rawItem is Map<String, dynamic> ? rawItem : initial;
+              final initialItemType = (item['type'] ?? '')
+                  .toString()
+                  .trim()
+                  .toLowerCase();
+              final fallbackTitle = formatPlayerTitle(
+                seriesTitle:
+                    (item['tv_title'] ?? '').toString().trim().isNotEmpty
+                    ? (item['tv_title'] ?? '').toString()
+                    : (item['display_title'] ?? item['title'] ?? '').toString(),
+                episodeTitle: (item['title'] ?? '').toString(),
+                seasonNumber: _asInt(item['season_number']),
+                episodeNumber: _asInt(item['episode_number']),
+                fallbackTitle: (item['display_title'] ?? item['title'] ?? '')
+                    .toString(),
+                l10n: AppLocalizations.of(context),
+              );
+              final initialEpisodeTitle = (item['title'] ?? '')
+                  .toString()
+                  .trim();
+              final initialDisplayTitle =
+                  (item['display_title'] ?? item['title'] ?? '')
+                      .toString()
+                      .trim();
+              final title =
+                  initialItemType == 'episode' && initialEpisodeTitle.isNotEmpty
+                  ? initialEpisodeTitle
+                  : (initialDisplayTitle.isNotEmpty
+                        ? initialDisplayTitle
+                        : fallbackTitle);
+              final logoImages = deferAuxiliaryArtwork
                   ? MediaImageRequest.empty
-                  : persistentResolver.resolvePath(
-                      persistentHeroPath,
-                      width: persistentBackdropWidth,
-                    ));
-        final persistentPosterHeight = _backdropHeroHeight(
-          persistentMedia.size,
-        );
-        final persistentImageAlignment = _backdropImageAlignment(
-          persistentMedia.size,
-        );
-        final persistentImageScale = _backdropImageScale(persistentMedia.size);
-        final persistentBackground = ValueListenableBuilder<double>(
-          valueListenable: _scrollOffsetNotifier,
-          builder: (context, offset, _) {
-            return ImmersiveDetailBackground(
-              images: persistentHeroImages,
-              // 低清铺底已全链路停用（实机决策 2026-07-26）：360 小图放大到大半屏
-              // 高糊感明显，慢网下"糊图期"数秒，比纯色等待更差；Emby 侧拿海报垫
-              // backdrop 更是两张图跳变。hero 就绪前保持主题底色，一次淡入到位。
-              // 组件的垫底/就绪卸载机制保留，将来有"同图小宽度"引用可直接启用。
-              scrollOffset: offset,
-              posterHeight: persistentPosterHeight,
-              imageScale: persistentImageScale,
-              imageFit: BoxFit.cover,
-              imageAlignment: persistentImageAlignment,
-              parallaxFactor: 1.0,
-              overlayOpacity: 0.62,
-              useDesktopReadingScrim: DetailLayoutSolver.usesDesktopLayout(
-                persistentMedia.size.width,
+                  : artworkResolver.resolvePath(
+                      (item['logos'] ?? '').toString(),
+                      width: logoRequestWidth,
+                    );
+              final episodeHeroSubtitle =
+                  ((item['type'] ?? '').toString().trim().toLowerCase() ==
+                      'episode')
+                  ? [
+                      if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
+                        (item['tv_title'] ?? '').toString().trim(),
+                      if (_asInt(item['season_number']) == 0)
+                        AppLocalizations.of(context).detailSeasonSpecial
+                      else if (_asInt(item['season_number']) > 0)
+                        AppLocalizations.of(
+                          context,
+                        ).detailSeasonNumber(_asInt(item['season_number'])),
+                      if (_asInt(item['episode_number']) > 0)
+                        AppLocalizations.of(
+                          context,
+                        ).detailEpisodeNumber(_asInt(item['episode_number'])),
+                    ].join(' · ')
+                  : '';
+              final initialHeroTitleChild = initialItemType != 'episode'
+                  ? (deferAuxiliaryArtwork
+                        ? const SizedBox.shrink()
+                        : (logoImages.isNotEmpty
+                              ? DetailHeroLogoTitle(
+                                  images: logoImages,
+                                  fallbackTitle: title,
+                                  maxHeight: 112,
+                                  maxWidth:
+                                      media.size.width -
+                                      (DetailTokens.screenHorizontalPadding *
+                                          2),
+                                  fallbackFontSize: 28,
+                                )
+                              : null))
+                  : null;
+              final posterHeight = _backdropHeroHeight(media.size);
+              final layout = DetailLayoutSolver.solve(
+                screenSize: media.size,
+                safePadding: media.padding,
+                posterHeight: posterHeight,
+              );
+              pageBody = Scaffold(
+                backgroundColor: Colors.transparent,
+                body: CustomScrollView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  slivers: [
+                    _constrainDesktopSliver(
+                      media.size.width,
+                      SliverToBoxAdapter(
+                        child: DetailHeroOverlay(
+                          height: layout.infoStart,
+                          title: title,
+                          subtitle: episodeHeroSubtitle,
+                          titleFontSize: initialItemType == 'episode'
+                              ? 28
+                              : null,
+                          bottomInset: initialItemType == 'episode' ? 20 : 36,
+                          titleChild: initialHeroTitleChild,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+          } else if (_neutralDisplayOnly && _detail != null && _error == null) {
+            // 中立后端(Emby)展示体:复用本页 hero/meta/描述/演职员组件,从 _detail 渲染。
+            pageBody = _buildNeutralBody(colors, ambientTint);
+          } else if (_error != null || _data == null) {
+            pageBody = DetailStatusPage(
+              child: SafeArea(
+                child: AppErrorState(
+                  error: _error!,
+                  localeMap: _localeMap,
+                  onRetry: _load,
+                ),
               ),
-              ambientTintOverride: ambientTint,
-            );
-          },
-        );
-        late final Widget pageBody;
-        if (_loading) {
-          final initial = widget.initialItemDetail;
-          if (initial == null) {
-            pageBody = DetailLoadingSkeleton(
-              presentation: widget.presentation,
-              showPoster: false,
             );
           } else {
             final provider = context.read<NasProvider>();
+            // logo / 海报 / 演职员头像图源经同一 resolver 解析(飞牛相对路径 → imageCandidates +
+            // NAS token,Emby 直链直接用)。为 S2-6 统一两分支铺路;飞牛输出逐字节等价。
             final artworkResolver = DetailArtworkResolver(
-              baseUrl: _neutralDisplayOnly ? '' : provider.baseUrl,
-              token: _neutralDisplayOnly ? '' : provider.token,
-              accessCode: _neutralDisplayOnly ? '' : provider.accessCode,
+              baseUrl: provider.baseUrl,
+              token: provider.token,
+              accessCode: provider.accessCode,
             );
+            final data = _data!;
+            final item = data.item;
+            // 展示快照（Phase 5 详情页迁移）：与 _data 同 setState 构造，_data 非空即非空。
+            // 本期仅迁可证逐字段等价的展示项；题材行/演职员/角标/播放态仍读旧源（各有等价坑或属播放半）。
+            final detail = _detail!;
             final media = MediaQuery.of(context);
+            final screenSize = media.size;
+            final horizontalPadding = DetailLayoutSolver.horizontalPadding(
+              screenSize.width,
+            );
             final logoRequestWidth =
-                (_isPane ? media.size.width * media.devicePixelRatio : 1200.0)
+                (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
                     .clamp(480.0, 1200.0)
                     .round();
-            final rawItem = initial['item'];
-            final item = rawItem is Map<String, dynamic> ? rawItem : initial;
-            final initialItemType = (item['type'] ?? '')
-                .toString()
-                .trim()
-                .toLowerCase();
-            final fallbackTitle = formatPlayerTitle(
-              seriesTitle: (item['tv_title'] ?? '').toString().trim().isNotEmpty
-                  ? (item['tv_title'] ?? '').toString()
-                  : (item['display_title'] ?? item['title'] ?? '').toString(),
-              episodeTitle: (item['title'] ?? '').toString(),
-              seasonNumber: _asInt(item['season_number']),
-              episodeNumber: _asInt(item['episode_number']),
-              fallbackTitle: (item['display_title'] ?? item['title'] ?? '')
-                  .toString(),
-              l10n: AppLocalizations.of(context),
+
+            final posterHeight = _backdropHeroHeight(screenSize);
+            final layout = DetailLayoutSolver.solve(
+              screenSize: screenSize,
+              safePadding: media.padding,
+              posterHeight: posterHeight,
             );
-            final initialEpisodeTitle = (item['title'] ?? '').toString().trim();
-            final initialDisplayTitle =
-                (item['display_title'] ?? item['title'] ?? '')
-                    .toString()
-                    .trim();
-            final title =
-                initialItemType == 'episode' && initialEpisodeTitle.isNotEmpty
-                ? initialEpisodeTitle
-                : (initialDisplayTitle.isNotEmpty
-                      ? initialDisplayTitle
-                      : fallbackTitle);
+
+            final collapseRange =
+                (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
+                  1.0,
+                  layout.infoStart,
+                );
+
+            final selectedOption =
+                (_selectedStreamIndex != null &&
+                    _selectedStreamIndex! >= 0 &&
+                    _selectedStreamIndex! < _streamOptions.length)
+                ? _streamOptions[_selectedStreamIndex!]
+                : null;
+
+            final effectiveDuration =
+                (selectedOption != null && selectedOption.duration > 0)
+                ? selectedOption.duration
+                : item.duration;
+            final sourceTs = data.ts > 0 ? data.ts : item.watchedTs;
+            final effectiveTs = sourceTs.clamp(0, effectiveDuration);
+            final remainSeconds = (effectiveDuration - effectiveTs).clamp(
+              0,
+              effectiveDuration,
+            );
+            final playbackCompleted =
+                effectiveDuration > 0 &&
+                (remainSeconds <= 0 || _watched || item.isWatched == 1);
+            final showProgress = effectiveTs > 0 && remainSeconds > 0;
+
+            final resolvedPlayText = playbackCompleted
+                ? AppLocalizations.of(context).playerReplayAction
+                : effectiveTs > 0
+                ? AppLocalizations.of(context).detailContinuePlay
+                : AppLocalizations.of(context).detailPlay;
+            final metaLineA = PlayDetailFormatters.metaLineA(
+              item,
+              genreMap: _genresMapZhCn,
+              locateMap: _locateMapZhCn,
+            );
+            final metaLineB = [
+              PlayDetailFormatters.formatDuration(
+                effectiveDuration,
+                AppLocalizations.of(context),
+              ),
+              item.ancestorName,
+            ].where((e) => e.isNotEmpty).join(' / ');
+
+            final resolutionOptions = _streamOptions
+                .map((e) => e.label)
+                .where((e) => e.trim().isNotEmpty)
+                .toList();
+            final showResolutionSelector = resolutionOptions.length > 1;
+
+            final itemType = item.type.trim().toLowerCase();
+            // 复刻 PlayItem.displayTitle 语义（tvTitle 非空优先，否则 title），逐字段等价：
+            // detail.title==item.title、detail.secondaryTitle==item.tvTitle。不走 MediaDetail.
+            // displayTitle 以避免其「皆空回退 'Unknown'」与旧 ''（空串）的差异。
+            final detailTitle =
+                (itemType == 'episode' && detail.title.trim().isNotEmpty)
+                ? detail.title.trim()
+                : (detail.secondaryTitle.trim().isNotEmpty
+                      ? detail.secondaryTitle.trim()
+                      : detail.title);
+            final heroInfoBlockReservedHeight = _heroInfoBlockReservedHeight(
+              screenSize,
+              canPlay: item.canPlay == 1,
+            );
+            final reserveHeroInfoBlockHeight =
+                _isPane || !_heroAsyncSectionsResolved;
             final logoImages = deferAuxiliaryArtwork
                 ? MediaImageRequest.empty
-                : artworkResolver.resolvePath(
-                    (item['logos'] ?? '').toString(),
+                : artworkResolver.resolveRef(
+                    detail.logoImage,
                     width: logoRequestWidth,
                   );
-            final episodeHeroSubtitle =
-                ((item['type'] ?? '').toString().trim().toLowerCase() ==
-                    'episode')
-                ? [
-                    if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
-                      (item['tv_title'] ?? '').toString().trim(),
-                    if (_asInt(item['season_number']) == 0)
-                      AppLocalizations.of(context).detailSeasonSpecial
-                    else if (_asInt(item['season_number']) > 0)
-                      AppLocalizations.of(
-                        context,
-                      ).detailSeasonNumber(_asInt(item['season_number'])),
-                    if (_asInt(item['episode_number']) > 0)
-                      AppLocalizations.of(
-                        context,
-                      ).detailEpisodeNumber(_asInt(item['episode_number'])),
-                  ].join(' · ')
-                : '';
-            final initialHeroTitleChild = initialItemType != 'episode'
+            final heroTitleChild = itemType != 'episode'
                 ? (deferAuxiliaryArtwork
                       ? const SizedBox.shrink()
                       : (logoImages.isNotEmpty
                             ? DetailHeroLogoTitle(
                                 images: logoImages,
-                                fallbackTitle: title,
+                                fallbackTitle: detailTitle,
                                 maxHeight: 112,
                                 maxWidth:
-                                    media.size.width -
+                                    screenSize.width -
                                     (DetailTokens.screenHorizontalPadding * 2),
-                                fallbackFontSize: 28,
                               )
                             : null))
                 : null;
-            final posterHeight = _backdropHeroHeight(media.size);
-            final layout = DetailLayoutSolver.solve(
-              screenSize: media.size,
-              safePadding: media.padding,
-              posterHeight: posterHeight,
-            );
-            pageBody = Scaffold(
-              backgroundColor: Colors.transparent,
-              body: CustomScrollView(
-                physics: const NeverScrollableScrollPhysics(),
-                slivers: [
-                  _constrainDesktopSliver(
-                    media.size.width,
-                    SliverToBoxAdapter(
-                      child: DetailHeroOverlay(
-                        height: layout.infoStart,
-                        title: title,
-                        subtitle: episodeHeroSubtitle,
-                        titleFontSize: initialItemType == 'episode' ? 28 : null,
-                        bottomInset: initialItemType == 'episode' ? 20 : 36,
-                        titleChild: initialHeroTitleChild,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-        } else if (_neutralDisplayOnly && _detail != null && _error == null) {
-          // 中立后端(Emby)展示体:复用本页 hero/meta/描述/演职员组件,从 _detail 渲染。
-          pageBody = _buildNeutralBody(colors, ambientTint);
-        } else if (_error != null || _data == null) {
-          pageBody = DetailStatusPage(
-            child: SafeArea(
-              child: AppErrorState(
-                error: _error!,
-                localeMap: _localeMap,
-                onRetry: _load,
-              ),
-            ),
-          );
-        } else {
-          final provider = context.read<NasProvider>();
-          // logo / 海报 / 演职员头像图源经同一 resolver 解析(飞牛相对路径 → imageCandidates +
-          // NAS token,Emby 直链直接用)。为 S2-6 统一两分支铺路;飞牛输出逐字节等价。
-          final artworkResolver = DetailArtworkResolver(
-            baseUrl: provider.baseUrl,
-            token: provider.token,
-            accessCode: provider.accessCode,
-          );
-          final data = _data!;
-          final item = data.item;
-          // 展示快照（Phase 5 详情页迁移）：与 _data 同 setState 构造，_data 非空即非空。
-          // 本期仅迁可证逐字段等价的展示项；题材行/演职员/角标/播放态仍读旧源（各有等价坑或属播放半）。
-          final detail = _detail!;
-          final media = MediaQuery.of(context);
-          final screenSize = media.size;
-          final horizontalPadding = DetailLayoutSolver.horizontalPadding(
-            screenSize.width,
-          );
-          final logoRequestWidth =
-              (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
-                  .clamp(480.0, 1200.0)
-                  .round();
+            final episodeHeroSubtitle = _episodeHeroSubtitle(item);
 
-          final posterHeight = _backdropHeroHeight(screenSize);
-          final layout = DetailLayoutSolver.solve(
-            screenSize: screenSize,
-            safePadding: media.padding,
-            posterHeight: posterHeight,
-          );
+            String? selectedKey;
+            if (_selectedStreamIndex != null &&
+                _selectedStreamIndex! >= 0 &&
+                _selectedStreamIndex! < resolutionOptions.length) {
+              selectedKey =
+                  '${_selectedStreamIndex!}:${resolutionOptions[_selectedStreamIndex!]}';
+            }
 
-          final collapseRange =
-              (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
-                1.0,
-                layout.infoStart,
-              );
-
-          final selectedOption =
-              (_selectedStreamIndex != null &&
-                  _selectedStreamIndex! >= 0 &&
-                  _selectedStreamIndex! < _streamOptions.length)
-              ? _streamOptions[_selectedStreamIndex!]
-              : null;
-
-          final effectiveDuration =
-              (selectedOption != null && selectedOption.duration > 0)
-              ? selectedOption.duration
-              : item.duration;
-          final sourceTs = data.ts > 0 ? data.ts : item.watchedTs;
-          final effectiveTs = sourceTs.clamp(0, effectiveDuration);
-          final remainSeconds = (effectiveDuration - effectiveTs).clamp(
-            0,
-            effectiveDuration,
-          );
-          final playbackCompleted =
-              effectiveDuration > 0 &&
-              (remainSeconds <= 0 || _watched || item.isWatched == 1);
-          final showProgress = effectiveTs > 0 && remainSeconds > 0;
-
-          final resolvedPlayText = playbackCompleted
-              ? AppLocalizations.of(context).playerReplayAction
-              : effectiveTs > 0
-              ? AppLocalizations.of(context).detailContinuePlay
-              : AppLocalizations.of(context).detailPlay;
-          final metaLineA = PlayDetailFormatters.metaLineA(
-            item,
-            genreMap: _genresMapZhCn,
-            locateMap: _locateMapZhCn,
-          );
-          final metaLineB = [
-            PlayDetailFormatters.formatDuration(
-              effectiveDuration,
-              AppLocalizations.of(context),
-            ),
-            item.ancestorName,
-          ].where((e) => e.isNotEmpty).join(' / ');
-
-          final resolutionOptions = _streamOptions
-              .map((e) => e.label)
-              .where((e) => e.trim().isNotEmpty)
-              .toList();
-          final showResolutionSelector = resolutionOptions.length > 1;
-
-          final itemType = item.type.trim().toLowerCase();
-          // 复刻 PlayItem.displayTitle 语义（tvTitle 非空优先，否则 title），逐字段等价：
-          // detail.title==item.title、detail.secondaryTitle==item.tvTitle。不走 MediaDetail.
-          // displayTitle 以避免其「皆空回退 'Unknown'」与旧 ''（空串）的差异。
-          final detailTitle =
-              (itemType == 'episode' && detail.title.trim().isNotEmpty)
-              ? detail.title.trim()
-              : (detail.secondaryTitle.trim().isNotEmpty
-                    ? detail.secondaryTitle.trim()
-                    : detail.title);
-          final heroInfoBlockReservedHeight = _heroInfoBlockReservedHeight(
-            screenSize,
-            canPlay: item.canPlay == 1,
-          );
-          final reserveHeroInfoBlockHeight =
-              _isPane || !_heroAsyncSectionsResolved;
-          final logoImages = deferAuxiliaryArtwork
-              ? MediaImageRequest.empty
-              : artworkResolver.resolveRef(
-                  detail.logoImage,
-                  width: logoRequestWidth,
-                );
-          final heroTitleChild = itemType != 'episode'
-              ? (deferAuxiliaryArtwork
-                    ? const SizedBox.shrink()
-                    : (logoImages.isNotEmpty
-                          ? DetailHeroLogoTitle(
-                              images: logoImages,
-                              fallbackTitle: detailTitle,
-                              maxHeight: 112,
-                              maxWidth:
-                                  screenSize.width -
-                                  (DetailTokens.screenHorizontalPadding * 2),
-                            )
-                          : null))
-              : null;
-          final episodeHeroSubtitle = _episodeHeroSubtitle(item);
-
-          String? selectedKey;
-          if (_selectedStreamIndex != null &&
-              _selectedStreamIndex! >= 0 &&
-              _selectedStreamIndex! < resolutionOptions.length) {
-            selectedKey =
-                '${_selectedStreamIndex!}:${resolutionOptions[_selectedStreamIndex!]}';
-          }
-
-          final capabilityLabels = () {
-            if (selectedOption != null) {
+            final capabilityLabels = () {
+              if (selectedOption != null) {
+                return <String>[
+                      selectedOption.resolutionType,
+                      selectedOption.colorRangeType,
+                      _currentAudioTypeForBadges(),
+                    ]
+                    .map(CapabilityBadgeMapper.normalize)
+                    .where((e) => e.isNotEmpty)
+                    .toList();
+              }
               return <String>[
-                    selectedOption.resolutionType,
-                    selectedOption.colorRangeType,
-                    _currentAudioTypeForBadges(),
+                    ...item.resolutions,
+                    ...item.colorRanges,
+                    ...item.audioTypes,
                   ]
                   .map(CapabilityBadgeMapper.normalize)
                   .where((e) => e.isNotEmpty)
+                  .toSet()
                   .toList();
-            }
-            return <String>[
-                  ...item.resolutions,
-                  ...item.colorRanges,
-                  ...item.audioTypes,
-                ]
-                .map(CapabilityBadgeMapper.normalize)
-                .where((e) => e.isNotEmpty)
-                .toSet()
-                .toList();
-          }();
-          final subtitleTracks = _currentSubtitleTracks();
-          final audioTracks = _currentAudioTracks();
-          final showSubtitleArrow = subtitleTracks.isNotEmpty;
-          final showAudioArrow = audioTracks.length > 1;
-          final subtitleLabel =
-              PlayDetailTrackSelector.subtitleLabelForCurrentMedia(
-                selectedSubtitleGuid: _selectedSubtitleGuid,
-                subtitleTracks: subtitleTracks,
-                l10n: AppLocalizations.of(context),
-              );
-          final audioLabel = PlayDetailTrackSelector.audioLabelForCurrentMedia(
-            selectedAudioGuid: _selectedAudioGuid,
-            audioTracks: audioTracks,
-            selectedOption: selectedOption,
-            l10n: AppLocalizations.of(context),
-          );
+            }();
+            final subtitleTracks = _currentSubtitleTracks();
+            final audioTracks = _currentAudioTracks();
+            final showSubtitleArrow = subtitleTracks.isNotEmpty;
+            final showAudioArrow = audioTracks.length > 1;
+            final subtitleLabel =
+                PlayDetailTrackSelector.subtitleLabelForCurrentMedia(
+                  selectedSubtitleGuid: _selectedSubtitleGuid,
+                  subtitleTracks: subtitleTracks,
+                  l10n: AppLocalizations.of(context),
+                );
+            final audioLabel =
+                PlayDetailTrackSelector.audioLabelForCurrentMedia(
+                  selectedAudioGuid: _selectedAudioGuid,
+                  audioTracks: audioTracks,
+                  selectedOption: selectedOption,
+                  l10n: AppLocalizations.of(context),
+                );
 
-          // 桌面悬停弹窗：与选轨 sheet 共用条目构建（悬停弹出、点选直接落地；
-          // 点开模态 sheet 前由 DetailSelectorRow 先收起弹窗）。
-          final selectorL10n = AppLocalizations.of(context);
-          final subtitleHoverPopup = showSubtitleArrow
-              ? DesktopHoverDropdownSpec.single(
-                  title: selectorL10n.playerSubtitleSelectTitle,
-                  items: PlayDetailSheetController.subtitleItems(
-                    subtitleTracks: subtitleTracks,
-                    l10n: selectorL10n,
-                    onLocalSubtitleDelete: _deleteHoverManualSubtitle,
-                  ),
-                  selectedId: PlayDetailSheetController.subtitleSelectedIdOf(
-                    _selectedSubtitleGuid,
-                  ),
-                  onSelected: _applyHoverSubtitleSelection,
-                )
-              : null;
-          final audioSheetItems = PlayDetailSheetController.audioItems(
-            audioTracks: audioTracks,
-            l10n: selectorL10n,
-          );
-          final audioHoverPopup = showAudioArrow
-              ? DesktopHoverDropdownSpec.single(
-                  title: selectorL10n.playerAudioSelectTitle,
-                  items: audioSheetItems,
-                  selectedId: PlayDetailSheetController.audioSelectedIdOf(
-                    selectedAudioGuid: _selectedAudioGuid,
-                    items: audioSheetItems,
-                  ),
-                  onSelected: (id) {
-                    if (!mounted) return;
-                    setState(() => _selectedAudioGuid = id);
-                  },
-                )
-              : null;
-
-          final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
-          final localDownloadedFile = _localDownloadedFileInfoSnapshot;
-          final currentFile =
-              localDownloadedFile ??
-              ((currentMediaGuid.isNotEmpty)
-                  ? _streamTrackData?.fileForMedia(currentMediaGuid)
-                  : null);
-          final currentVideo = (currentMediaGuid.isNotEmpty)
-              ? _streamTrackData?.videoForMedia(currentMediaGuid)
-              : null;
-          final currentAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
-            selectedAudioGuid: _selectedAudioGuid,
-            audioTracks: audioTracks,
-          );
-          final currentSubtitle =
-              PlayDetailTrackSelector.selectedOrFirstSubtitle(
-                selectedSubtitleGuid: _selectedSubtitleGuid,
-                subtitleTracks: subtitleTracks,
-              );
-          // 演职员读公共详情快照 detail.people；显示文案经 CreditPersonPresenter 复刻飞牛
-          // displayName/displaySubTitle 语义（显示逻辑留 UI 层、不进中立模型）。
-          // detail.people 与 _personCredits 同源（_rebuildDetail 用 credits: _personCredits）。
-          // 头像不走 deferAuxiliaryArtwork 门控:演职员区块本身已被 _loadDeferredSections
-          // 延迟到列表就绪后才显示(_creditsVisible && creditItems.isNotEmpty),此时一定要真
-          // 头像。若再用 _heroAsyncSectionsResolved 二次门控,Phase 2 慢于演职员列表时会先渲染
-          // 占位图标、待 Phase 2 完成整页重建再整批换真照片 → 肉眼可见的「跳闪」。与 Emby 路径对齐。
-          final creditItems = detail.people
-              .map(
-                (e) => CreditPersonItem(
-                  personGuid: e.id,
-                  name: CreditPersonPresenter.displayName(
-                    e,
-                    AppLocalizations.of(context),
-                  ),
-                  subtitle: CreditPersonPresenter.displaySubTitle(
-                    e,
-                    AppLocalizations.of(context),
-                  ),
-                  images: artworkResolver.resolveRef(e.avatar, width: 180),
-                ),
-              )
-              .toList();
-
-          pageBody = Scaffold(
-            backgroundColor: Colors.transparent,
-            body: Stack(
-              fit: StackFit.expand,
-              children: [
-                CustomScrollView(
-                  controller: _scrollController,
-                  physics: const BouncingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
-                  ),
-                  slivers: [
-                    _buildHeroSliver(
-                      height: layout.infoStart,
-                      title: detailTitle,
-                      subtitle: episodeHeroSubtitle,
-                      titleFontSize: itemType == 'episode' ? 28 : null,
-                      bottomInset: itemType == 'episode' ? 20 : 36,
-                      titleChild: heroTitleChild,
+            // 桌面悬停弹窗：与选轨 sheet 共用条目构建（悬停弹出、点选直接落地；
+            // 点开模态 sheet 前由 DetailSelectorRow 先收起弹窗）。
+            final selectorL10n = AppLocalizations.of(context);
+            final subtitleHoverPopup = showSubtitleArrow
+                ? DesktopHoverDropdownSpec.single(
+                    title: selectorL10n.playerSubtitleSelectTitle,
+                    items: PlayDetailSheetController.subtitleItems(
+                      subtitleTracks: subtitleTracks,
+                      l10n: selectorL10n,
+                      onLocalSubtitleDelete: _deleteHoverManualSubtitle,
                     ),
-                    SliverToBoxAdapter(
-                      child: Container(
-                        color: Colors.transparent,
-                        padding: EdgeInsets.fromLTRB(
-                          horizontalPadding,
-                          8,
-                          horizontalPadding,
-                          10,
-                        ),
-                        child: AnimatedSize(
-                          duration: _asyncContentFadeDuration,
-                          curve: Curves.easeOut,
-                          alignment: Alignment.topCenter,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              minHeight: reserveHeroInfoBlockHeight
-                                  ? heroInfoBlockReservedHeight
-                                  : 0.0,
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                FadeTransition(
-                                  opacity: _headerMetaOpacity,
-                                  child: _asyncFadeSwitcher(
-                                    DetailMetaLines(
-                                      metaLineA: metaLineA,
-                                      metaLineB: metaLineB,
-                                    ),
-                                    switchKey: 'meta:$metaLineA|$metaLineB',
-                                  ),
-                                ),
-                                _buildSelectorActionLayout(
-                                  selector: FadeTransition(
-                                    opacity: _headerSelectorOpacity,
+                    selectedId: PlayDetailSheetController.subtitleSelectedIdOf(
+                      _selectedSubtitleGuid,
+                    ),
+                    onSelected: _applyHoverSubtitleSelection,
+                  )
+                : null;
+            final audioSheetItems = PlayDetailSheetController.audioItems(
+              audioTracks: audioTracks,
+              l10n: selectorL10n,
+            );
+            final audioHoverPopup = showAudioArrow
+                ? DesktopHoverDropdownSpec.single(
+                    title: selectorL10n.playerAudioSelectTitle,
+                    items: audioSheetItems,
+                    selectedId: PlayDetailSheetController.audioSelectedIdOf(
+                      selectedAudioGuid: _selectedAudioGuid,
+                      items: audioSheetItems,
+                    ),
+                    onSelected: (id) {
+                      if (!mounted) return;
+                      setState(() => _selectedAudioGuid = id);
+                    },
+                  )
+                : null;
+
+            final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
+            final localDownloadedFile = _localDownloadedFileInfoSnapshot;
+            final currentFile =
+                localDownloadedFile ??
+                ((currentMediaGuid.isNotEmpty)
+                    ? _streamTrackData?.fileForMedia(currentMediaGuid)
+                    : null);
+            final currentVideo = (currentMediaGuid.isNotEmpty)
+                ? _streamTrackData?.videoForMedia(currentMediaGuid)
+                : null;
+            final currentAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
+              selectedAudioGuid: _selectedAudioGuid,
+              audioTracks: audioTracks,
+            );
+            final currentSubtitle =
+                PlayDetailTrackSelector.selectedOrFirstSubtitle(
+                  selectedSubtitleGuid: _selectedSubtitleGuid,
+                  subtitleTracks: subtitleTracks,
+                );
+            // 演职员读公共详情快照 detail.people；显示文案经 CreditPersonPresenter 复刻飞牛
+            // displayName/displaySubTitle 语义（显示逻辑留 UI 层、不进中立模型）。
+            // detail.people 与 _personCredits 同源（_rebuildDetail 用 credits: _personCredits）。
+            // 头像不走 deferAuxiliaryArtwork 门控:演职员区块本身已被 _loadDeferredSections
+            // 延迟到列表就绪后才显示(_creditsVisible && creditItems.isNotEmpty),此时一定要真
+            // 头像。若再用 _heroAsyncSectionsResolved 二次门控,Phase 2 慢于演职员列表时会先渲染
+            // 占位图标、待 Phase 2 完成整页重建再整批换真照片 → 肉眼可见的「跳闪」。与 Emby 路径对齐。
+            final creditItems = detail.people
+                .map(
+                  (e) => CreditPersonItem(
+                    personGuid: e.id,
+                    name: CreditPersonPresenter.displayName(
+                      e,
+                      AppLocalizations.of(context),
+                    ),
+                    subtitle: CreditPersonPresenter.displaySubTitle(
+                      e,
+                      AppLocalizations.of(context),
+                    ),
+                    images: artworkResolver.resolveRef(e.avatar, width: 180),
+                  ),
+                )
+                .toList();
+
+            pageBody = Scaffold(
+              backgroundColor: Colors.transparent,
+              body: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CustomScrollView(
+                    controller: _scrollController,
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                    slivers: [
+                      _buildHeroSliver(
+                        height: layout.infoStart,
+                        title: detailTitle,
+                        subtitle: episodeHeroSubtitle,
+                        titleFontSize: itemType == 'episode' ? 28 : null,
+                        bottomInset: itemType == 'episode' ? 20 : 36,
+                        titleChild: heroTitleChild,
+                      ),
+                      SliverToBoxAdapter(
+                        child: Container(
+                          color: Colors.transparent,
+                          padding: EdgeInsets.fromLTRB(
+                            horizontalPadding,
+                            8,
+                            horizontalPadding,
+                            10,
+                          ),
+                          child: AnimatedSize(
+                            duration: _asyncContentFadeDuration,
+                            curve: Curves.easeOut,
+                            alignment: Alignment.topCenter,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: reserveHeroInfoBlockHeight
+                                    ? heroInfoBlockReservedHeight
+                                    : 0.0,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  FadeTransition(
+                                    opacity: _headerMetaOpacity,
                                     child: _asyncFadeSwitcher(
-                                      DetailSelectorRow(
-                                        subtitleLabel: subtitleLabel,
-                                        audioLabel: audioLabel,
-                                        capabilityLabels: capabilityLabels,
-                                        showSubtitleArrow: showSubtitleArrow,
-                                        showAudioArrow: showAudioArrow,
-                                        subtitleExpanded:
-                                            _subtitleSelectorExpanded,
-                                        audioExpanded: _audioSelectorExpanded,
-                                        subtitleHoverPopup: subtitleHoverPopup,
-                                        audioHoverPopup: audioHoverPopup,
-                                        onSubtitleOpenChanged: (open) {
-                                          if (!mounted) return;
-                                          setState(() {
-                                            _subtitleSelectorExpanded = open;
-                                          });
-                                          if (open) {
-                                            // 打开前刷新本地字幕元数据，原生壳刚导入的
-                                            // 字幕立即可见（不阻塞弹出，刷新后原位更新）。
-                                            unawaited(
-                                              _refreshManualSubtitleEntries(),
+                                      DetailMetaLines(
+                                        metaLineA: metaLineA,
+                                        metaLineB: metaLineB,
+                                      ),
+                                      switchKey: 'meta:$metaLineA|$metaLineB',
+                                    ),
+                                  ),
+                                  _buildSelectorActionLayout(
+                                    selector: FadeTransition(
+                                      opacity: _headerSelectorOpacity,
+                                      child: _asyncFadeSwitcher(
+                                        DetailSelectorRow(
+                                          subtitleLabel: subtitleLabel,
+                                          audioLabel: audioLabel,
+                                          capabilityLabels: capabilityLabels,
+                                          showSubtitleArrow: showSubtitleArrow,
+                                          showAudioArrow: showAudioArrow,
+                                          subtitleExpanded:
+                                              _subtitleSelectorExpanded,
+                                          audioExpanded: _audioSelectorExpanded,
+                                          subtitleHoverPopup:
+                                              subtitleHoverPopup,
+                                          audioHoverPopup: audioHoverPopup,
+                                          onSubtitleOpenChanged: (open) {
+                                            if (!mounted) return;
+                                            setState(() {
+                                              _subtitleSelectorExpanded = open;
+                                            });
+                                            if (open) {
+                                              // 打开前刷新本地字幕元数据，原生壳刚导入的
+                                              // 字幕立即可见（不阻塞弹出，刷新后原位更新）。
+                                              unawaited(
+                                                _refreshManualSubtitleEntries(),
+                                              );
+                                            }
+                                          },
+                                          onAudioOpenChanged: (open) {
+                                            if (!mounted) return;
+                                            setState(
+                                              () =>
+                                                  _audioSelectorExpanded = open,
                                             );
-                                          }
-                                        },
-                                        onAudioOpenChanged: (open) {
-                                          if (!mounted) return;
-                                          setState(
-                                            () => _audioSelectorExpanded = open,
+                                          },
+                                          onSubtitleTap: showSubtitleArrow
+                                              ? () =>
+                                                    _showSubtitleSheet(context)
+                                              : null,
+                                          onAudioTap: showAudioArrow
+                                              ? () => _showAudioSheet(context)
+                                              : null,
+                                        ),
+                                        switchKey:
+                                            'selector:$subtitleLabel|$audioLabel|${capabilityLabels.join(",")}',
+                                      ),
+                                    ),
+                                    actions: AnimatedBuilder(
+                                      animation: _actionsPopController,
+                                      builder: (context, child) {
+                                        return Opacity(
+                                          opacity: _actionsOpacity.value,
+                                          child: Transform.translate(
+                                            offset: Offset(
+                                              0,
+                                              _actionsTranslateY.value,
+                                            ),
+                                            child: Transform.scale(
+                                              scale: _actionsScale.value,
+                                              alignment: Alignment.topCenter,
+                                              child: child,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      child: AnimatedBuilder(
+                                        animation: _downloadTaskService,
+                                        builder: (context, _) {
+                                          final downloaded =
+                                              _downloadedRecordForCurrentItem() !=
+                                              null;
+                                          return PlayActionBar(
+                                            progress:
+                                                PlayDetailFormatters.progress(
+                                                  effectiveDuration,
+                                                  effectiveTs,
+                                                ),
+                                            remainText:
+                                                PlayDetailFormatters.remainText(
+                                                  effectiveDuration,
+                                                  effectiveTs,
+                                                  AppLocalizations.of(context),
+                                                ),
+                                            showProgress: showProgress,
+                                            primaryText: resolvedPlayText,
+                                            primaryEnabled: item.canPlay == 1,
+                                            liked: _liked,
+                                            watched: _watched,
+                                            downloaded: downloaded,
+                                            onPrimaryTap: _openPlayer,
+                                            onLikeTap: _toggleFavorite,
+                                            onDownloadTap: _handleDownloadTap,
+                                            onWatchedTap: _toggleWatched,
                                           );
                                         },
-                                        onSubtitleTap: showSubtitleArrow
-                                            ? () => _showSubtitleSheet(context)
-                                            : null,
-                                        onAudioTap: showAudioArrow
-                                            ? () => _showAudioSheet(context)
-                                            : null,
                                       ),
-                                      switchKey:
-                                          'selector:$subtitleLabel|$audioLabel|${capabilityLabels.join(",")}',
                                     ),
                                   ),
-                                  actions: AnimatedBuilder(
+                                  AnimatedBuilder(
                                     animation: _actionsPopController,
                                     builder: (context, child) {
                                       return Opacity(
-                                        opacity: _actionsOpacity.value,
+                                        opacity: showResolutionSelector
+                                            ? _resolutionOpacity.value
+                                            : 1.0,
                                         child: Transform.translate(
                                           offset: Offset(
                                             0,
-                                            _actionsTranslateY.value,
+                                            showResolutionSelector
+                                                ? _resolutionTranslateY.value
+                                                : 0,
                                           ),
                                           child: Transform.scale(
-                                            scale: _actionsScale.value,
+                                            scale: showResolutionSelector
+                                                ? _resolutionScale.value
+                                                : 1.0,
                                             alignment: Alignment.topCenter,
                                             child: child,
                                           ),
                                         ),
                                       );
                                     },
-                                    child: AnimatedBuilder(
-                                      animation: _downloadTaskService,
-                                      builder: (context, _) {
-                                        final downloaded =
-                                            _downloadedRecordForCurrentItem() !=
-                                            null;
-                                        return PlayActionBar(
-                                          progress:
-                                              PlayDetailFormatters.progress(
-                                                effectiveDuration,
-                                                effectiveTs,
-                                              ),
-                                          remainText:
-                                              PlayDetailFormatters.remainText(
-                                                effectiveDuration,
-                                                effectiveTs,
-                                                AppLocalizations.of(context),
-                                              ),
-                                          showProgress: showProgress,
-                                          primaryText: resolvedPlayText,
-                                          primaryEnabled: item.canPlay == 1,
-                                          liked: _liked,
-                                          watched: _watched,
-                                          downloaded: downloaded,
-                                          onPrimaryTap: _openPlayer,
-                                          onLikeTap: _toggleFavorite,
-                                          onDownloadTap: _handleDownloadTap,
-                                          onWatchedTap: _toggleWatched,
-                                        );
-                                      },
+                                    child: _asyncFadeSwitcher(
+                                      showResolutionSelector
+                                          ? DetailResolutionSection(
+                                              options: resolutionOptions,
+                                              selected: selectedKey,
+                                              onSelected: (index) {
+                                                setState(() {
+                                                  _selectedStreamIndex = index;
+                                                  _syncTrackSelectionForCurrentMedia();
+                                                });
+                                              },
+                                            )
+                                          : const SizedBox.shrink(),
+                                      // 仅在「选项集合 / 是否显示」变化时淡入淡出；
+                                      // 切换选中项不应触发整条 chip 的交叉淡变（会"闪"），
+                                      // 故 switchKey 不含 selectedKey——选中态在原子树内就地更新。
+                                      switchKey:
+                                          'resolution:${showResolutionSelector ? resolutionOptions.join(",") : "empty"}',
                                     ),
                                   ),
-                                ),
-                                AnimatedBuilder(
-                                  animation: _actionsPopController,
-                                  builder: (context, child) {
-                                    return Opacity(
-                                      opacity: showResolutionSelector
-                                          ? _resolutionOpacity.value
-                                          : 1.0,
-                                      child: Transform.translate(
-                                        offset: Offset(
-                                          0,
-                                          showResolutionSelector
-                                              ? _resolutionTranslateY.value
-                                              : 0,
-                                        ),
-                                        child: Transform.scale(
-                                          scale: showResolutionSelector
-                                              ? _resolutionScale.value
-                                              : 1.0,
-                                          alignment: Alignment.topCenter,
-                                          child: child,
-                                        ),
+                                  if (item.playError.isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      AppLocalizations.of(
+                                        context,
+                                      ).detailPlaybackError(item.playError),
+                                      style: const TextStyle(
+                                        color: Colors.redAccent,
                                       ),
-                                    );
-                                  },
-                                  child: _asyncFadeSwitcher(
-                                    showResolutionSelector
-                                        ? DetailResolutionSection(
-                                            options: resolutionOptions,
-                                            selected: selectedKey,
-                                            onSelected: (index) {
-                                              setState(() {
-                                                _selectedStreamIndex = index;
-                                                _syncTrackSelectionForCurrentMedia();
-                                              });
-                                            },
-                                          )
-                                        : const SizedBox.shrink(),
-                                    // 仅在「选项集合 / 是否显示」变化时淡入淡出；
-                                    // 切换选中项不应触发整条 chip 的交叉淡变（会"闪"），
-                                    // 故 switchKey 不含 selectedKey——选中态在原子树内就地更新。
-                                    switchKey:
-                                        'resolution:${showResolutionSelector ? resolutionOptions.join(",") : "empty"}',
-                                  ),
-                                ),
-                                if (item.playError.isNotEmpty) ...[
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    AppLocalizations.of(
-                                      context,
-                                    ).detailPlaybackError(item.playError),
-                                    style: const TextStyle(
-                                      color: Colors.redAccent,
                                     ),
-                                  ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    _buildDescriptionSliver(
-                      colors: colors,
-                      text: detail.overview,
-                      overlayTitle: detailTitle,
-                      bottomPadding: media.padding.bottom + 18,
-                    ),
-                    if (_creditsVisible && creditItems.isNotEmpty)
-                      _buildCreditsSliver(
+                      _buildDescriptionSliver(
                         colors: colors,
-                        items: creditItems,
-                        onTap: _openCreditPerson,
+                        text: detail.overview,
+                        overlayTitle: detailTitle,
+                        bottomPadding: media.padding.bottom + 18,
                       ),
-                    if (_fileInfoVisible)
-                      SliverToBoxAdapter(
-                        child: _sectionReveal(
-                          child: Container(
-                            color: Colors.transparent,
-                            padding: EdgeInsets.fromLTRB(
-                              horizontalPadding,
-                              8,
-                              horizontalPadding,
-                              20,
-                            ),
-                            child: FileInfoSection(
-                              file: currentFile,
-                              authorizedDirs: _authorizedDirs,
-                              title: AppLocalizations.of(
-                                context,
-                              ).detailFileInfoTitle,
-                              locationLabel: AppLocalizations.of(
-                                context,
-                              ).detailFileLocation,
-                              sizeLabel: AppLocalizations.of(
-                                context,
-                              ).detailFileSize,
-                              createdAtLabel: AppLocalizations.of(
-                                context,
-                              ).detailFileCreatedAt,
-                              addedAtLabel: AppLocalizations.of(
-                                context,
-                              ).detailFileAddedAt,
-                              toggleToFriendlyLabel: AppLocalizations.of(
-                                context,
-                              ).detailFileConvert,
-                              toggleToRawLabel: '/vol',
+                      if (_creditsVisible && creditItems.isNotEmpty)
+                        _buildCreditsSliver(
+                          colors: colors,
+                          items: creditItems,
+                          onTap: _openCreditPerson,
+                        ),
+                      if (_fileInfoVisible)
+                        SliverToBoxAdapter(
+                          child: _sectionReveal(
+                            child: Container(
+                              color: Colors.transparent,
+                              padding: EdgeInsets.fromLTRB(
+                                horizontalPadding,
+                                8,
+                                horizontalPadding,
+                                20,
+                              ),
+                              child: FileInfoSection(
+                                file: currentFile,
+                                authorizedDirs: _authorizedDirs,
+                                title: AppLocalizations.of(
+                                  context,
+                                ).detailFileInfoTitle,
+                                locationLabel: AppLocalizations.of(
+                                  context,
+                                ).detailFileLocation,
+                                sizeLabel: AppLocalizations.of(
+                                  context,
+                                ).detailFileSize,
+                                createdAtLabel: AppLocalizations.of(
+                                  context,
+                                ).detailFileCreatedAt,
+                                addedAtLabel: AppLocalizations.of(
+                                  context,
+                                ).detailFileAddedAt,
+                                toggleToFriendlyLabel: AppLocalizations.of(
+                                  context,
+                                ).detailFileConvert,
+                                toggleToRawLabel: '/vol',
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    if (_videoInfoVisible)
-                      SliverToBoxAdapter(
-                        child: _sectionReveal(
-                          child: Container(
-                            color: Colors.transparent,
-                            padding: EdgeInsets.fromLTRB(
-                              horizontalPadding,
-                              8,
-                              horizontalPadding,
-                              20,
-                            ),
-                            child: VideoInfoSection(
-                              lines: feiniuVideoInfoLines(
-                                currentVideo,
-                                currentAudio,
-                                currentSubtitle,
+                      if (_videoInfoVisible)
+                        SliverToBoxAdapter(
+                          child: _sectionReveal(
+                            child: Container(
+                              color: Colors.transparent,
+                              padding: EdgeInsets.fromLTRB(
+                                horizontalPadding,
+                                8,
+                                horizontalPadding,
+                                20,
                               ),
-                              onViewAll: () => _showMediaInfoDetail(context),
+                              child: VideoInfoSection(
+                                lines: feiniuVideoInfoLines(
+                                  currentVideo,
+                                  currentAudio,
+                                  currentSubtitle,
+                                ),
+                                onViewAll: () => _showMediaInfoDetail(context),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    if (_linkVisible &&
-                        (_imdbId.trim().isNotEmpty ||
-                            _trimId.trim().isNotEmpty))
-                      _buildLinkSliver(colors: colors),
-                  ],
-                ),
-                ValueListenableBuilder<double>(
-                  valueListenable: _scrollOffsetNotifier,
-                  builder: (context, offset, _) {
-                    final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
-                    final centerTitleOpacity = ((collapseT - 0.84) / 0.12)
-                        .clamp(0.0, 1.0);
-                    return DetailFloatingTopBar(
-                      ambientTint: ambientTint,
-                      onBack: () => unawaited(
-                        EmbeddedDetailLauncher.closeHostOrPop(context),
-                      ),
-                      onMore: () => unawaited(
-                        showDetailMoreActionsSheet(
-                          context,
-                          pageKey: dynamicThemeKey,
-                          pageTitle: detailTitle,
-                          suggestedThemeName: context
-                              .read<AppThemeProvider>()
-                              .nextSavedThemeNameFromBase(
-                                _suggestedThemeNameBase(item, detailTitle),
-                              ),
-                          clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                      if (_linkVisible &&
+                          (_imdbId.trim().isNotEmpty ||
+                              _trimId.trim().isNotEmpty))
+                        _buildLinkSliver(colors: colors),
+                    ],
+                  ),
+                  ValueListenableBuilder<double>(
+                    valueListenable: _scrollOffsetNotifier,
+                    builder: (context, offset, _) {
+                      final collapseT = (offset / collapseRange).clamp(
+                        0.0,
+                        1.0,
+                      );
+                      final centerTitleOpacity = ((collapseT - 0.84) / 0.12)
+                          .clamp(0.0, 1.0);
+                      return DetailFloatingTopBar(
+                        ambientTint: ambientTint,
+                        onBack: () => unawaited(
+                          EmbeddedDetailLauncher.closeHostOrPop(context),
                         ),
-                      ),
-                      title: detailTitle,
-                      titleOpacity: centerTitleOpacity,
-                      showBack: true,
-                    );
-                  },
-                ),
-              ],
-            ),
-          );
-        }
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            // Persistent backdrop: stays mounted across loading→ready so it
-            // never reloads or double-fades. Only the foreground content
-            // crossfades on top of it.
-            RepaintBoundary(child: persistentBackground),
-            AppTransitions.crossFadeSwitch(
-              switchKey: 'detail-${_loading ? 'loading' : 'ready'}',
-              duration: AppTransitions.switchDuration,
-              child: pageBody,
-            ),
-            if (_loading && widget.initialItemDetail != null)
-              DetailFloatingTopBar(
-                onBack: () =>
-                    unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
-                onMore: () {},
-                title: '',
-                titleOpacity: 0,
-                showMore: false,
+                        onMore: () => unawaited(
+                          showDetailMoreActionsSheet(
+                            context,
+                            pageKey: dynamicThemeKey,
+                            pageTitle: detailTitle,
+                            suggestedThemeName: context
+                                .read<AppThemeProvider>()
+                                .nextSavedThemeNameFromBase(
+                                  _suggestedThemeNameBase(item, detailTitle),
+                                ),
+                            clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                          ),
+                        ),
+                        title: detailTitle,
+                        titleOpacity: centerTitleOpacity,
+                        showBack: true,
+                      );
+                    },
+                  ),
+                ],
               ),
-          ],
-        );
-      },
+            );
+          }
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              // Persistent backdrop: stays mounted across loading→ready so it
+              // never reloads or double-fades. Only the foreground content
+              // crossfades on top of it.
+              RepaintBoundary(child: persistentBackground),
+              AppTransitions.crossFadeSwitch(
+                switchKey: 'detail-${_loading ? 'loading' : 'ready'}',
+                duration: AppTransitions.switchDuration,
+                child: pageBody,
+              ),
+              if (_loading && widget.initialItemDetail != null)
+                DetailFloatingTopBar(
+                  onBack: () =>
+                      unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
+                  onMore: () {},
+                  title: '',
+                  titleOpacity: 0,
+                  showMore: false,
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
