@@ -495,8 +495,20 @@ void main() {
         introStart: const Duration(seconds: 30),
         introEnd: const Duration(seconds: 125),
         outroStart: const Duration(seconds: 1290),
+        outroEnd: null,
       ),
     );
+  });
+
+  test('ED 后还有章节时片尾只跳到下一章节起点', () {
+    final bounds = desktopChapterSkipBounds(const [
+      DesktopPlayerChapter(title: 'OP', position: Duration(seconds: 30)),
+      DesktopPlayerChapter(title: '正片', position: Duration(seconds: 125)),
+      DesktopPlayerChapter(title: 'ED', position: Duration(seconds: 1290)),
+      DesktopPlayerChapter(title: '预告', position: Duration(seconds: 1380)),
+    ], const Duration(minutes: 24));
+    expect(bounds.outroStart, const Duration(seconds: 1290));
+    expect(bounds.outroEnd, const Duration(seconds: 1380));
   });
 
   test('普通编号章节不猜测片头片尾范围', () {
@@ -508,7 +520,12 @@ void main() {
           position: Duration(seconds: 90),
         ),
       ], const Duration(minutes: 24)),
-      (introStart: null, introEnd: null, outroStart: null),
+      (
+        introStart: null,
+        introEnd: null,
+        outroStart: null,
+        outroEnd: null,
+      ),
     );
   });
 

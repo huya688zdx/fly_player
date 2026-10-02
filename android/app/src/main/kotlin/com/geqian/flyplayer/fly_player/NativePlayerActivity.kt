@@ -1499,15 +1499,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var skipCard: LinearLayout
     private lateinit var skipText: TextView
     private var skipAction: (() -> Unit)? = null
+    // 取消按钮：不再自动跳过（本次播放不提示）；与 skipAction 一样由 updateIntroOutroSkip 驱动。
+    private var skipCancelAction: (() -> Unit)? = null
     private val bookmarks = mutableListOf<Bookmark>()
     private var markerView: ProgressMarkerView? = null
     private var chapterPositionsMs: List<Long> = emptyList()
     private var chaptersFetched = false
     private var chapterList: List<Map<String, Any?>> = emptyList()
     private var chapterFetchAttempt = 0
-    private var inferredIntroStartMs = 0L
-    private var inferredIntroEndMs = 0L
-    private var inferredOutroStartMs = 0L
+    // 固定时长跳过独立开关（对齐桌面端：同时开启章节识别时优先使用章节）。
+    private var fixedDurationSkipEnabled = false
+    // 跳过提示出现时的播放位置：倒计时基于播放位置推进（暂停时倒计时随之冻结），归零自动跳过。
+    private var introPromptShownPosMs = -1L
+    private var outroPromptShownPosMs = -1L
+    // 手动 seek 检测的上一次采样（墙钟/位置）：位置跳变 = 用户拖动或跳转，落在提示窗口内则抑制。
+    private var lastSkipSampleWallMs = 0L
+    private var lastSkipTickPosMs = 0L
 
     private data class PanelItem(
         val title: String,
@@ -2815,12 +2822,41 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun updateProgressMarkers() {
         val view = markerView ?: return
-        if (!chaptersFetched && this::playerSurface.isInitialized && playerSurface.state.visualPlaybackReady) {
-            chaptersFetched = true
-            chapterPositionsMs = playerSurface.getChapters()
-                .mapNotNull { (it["timeMs"] as? Number)?.toLong() }
-        }
+        ensureChaptersFetched()
         view.invalidate()
+    }
+
+    /**
+     * 起播就绪后读取 mpv 章节（含标题）：进度条标记与章节/片头片尾推断共用。
+     * 网络流的首帧常早于 mkv 章节原子解析完成（chapter-list 为空），
+     * 对齐桌面端 DesktopPlaybackChapters：读空后 2.5s 补读一次。
+     */
+    private fun ensureChaptersFetched() {
+        if (chaptersFetched || !this::playerSurface.isInitialized || !playerSurface.state.visualPlaybackReady) {
+            return
+        }
+        chaptersFetched = true
+        applyChapters(playerSurface.getChapters())
+        if (chapterList.isEmpty() && chapterFetchAttempt == 0) {
+            chapterFetchAttempt = 1
+            window?.decorView?.postDelayed({
+                // 换集会把 chaptersFetched/chapterFetchAttempt 复位，新条目走自己的读取流程。
+                if (!isFinishing && !isDestroyed && chaptersFetched && chapterList.isEmpty() &&
+                    this::playerSurface.isInitialized && playerSurface.state.visualPlaybackReady
+                ) {
+                    val retried = playerSurface.getChapters()
+                    if (retried.isNotEmpty()) applyChapters(retried)
+                }
+            }, 2_500L)
+        }
+    }
+
+    private fun applyChapters(chapters: List<Map<String, Any?>>) {
+        chapterList = chapters
+        chapterPositionsMs = chapters.mapNotNull { (it["timeMs"] as? Number)?.toLong() }
+        markerView?.invalidate()
+        // 章节迟到时刷新已打开的面板（片头片尾状态行、章节列表）。
+        if (panelVisible && chapterList.isNotEmpty()) renderTopPanel()
     }
 
     /**
@@ -3244,12 +3280,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         chapterFetchAttempt = 0
         chapterPositionsMs = emptyList()
         chapterList = emptyList()
-        inferredIntroStartMs = -1
-        inferredIntroEndMs = -1
-        inferredOutroStartMs = -1
         loadBookmarksForCurrent() // 换集重载当前条目的书签（按 itemGuid::mediaGuid 分组）
         introSkipDismissed = false
         outroSkipDismissed = false
+        introPromptShownPosMs = -1L
+        outroPromptShownPosMs = -1L
+        lastSkipSampleWallMs = 0L
+        lastSkipTickPosMs = 0L
         clearCompletion()
         // 同一会话内换源的起播位置是当前进度，不是重新打开时的历史续播位。
         if (nativePanelShouldOfferResumeOnLoad(previousItemGuid, nextItemGuid, isInSessionSwitch)) {
@@ -7245,7 +7282,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ),
         )
 
-        // 片头/片尾跳过提示（右下，按设置时长在窗口内出现）
+        // 片头/片尾跳过提示（右下，提前倒计时秒数出现，倒计时结束自动跳过；✕ 取消则不跳）
         skipText = TextView(this).apply {
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
@@ -7258,6 +7295,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             visibility = View.GONE
             addView(skipText)
             addView(promptButton(localizedString(R.string.player_text_0065), ACCENT, false) { skipAction?.invoke() })
+            addView(promptButton("✕", TEXT_DIM, false) { skipCancelAction?.invoke() })
         }
         layer.addView(
             skipCard,
@@ -7320,21 +7358,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             args = mapOf(
                 "guid" to guid,
                 "itemGuid" to (loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty()),
-                // 关闭片头片尾跳过时清除服务端配置（对齐官方模式语义：off → null）。
-                "introSeconds" to if (introOutroEnabled) effectiveIntroSkipSec() else null,
-                "outroSeconds" to if (introOutroEnabled) effectiveOutroSkipSec() else null,
+                // 服务端配置只描述固定时长（对齐桌面端：固定时长开关关闭 → null 清除）。
+                "introSeconds" to if (fixedDurationSkipEnabled) introMaxSec else null,
+                "outroSeconds" to if (fixedDurationSkipEnabled) outroMaxSec else null,
             ),
             onResult = {},
             onError = {},
         )
     }
 
-    /** 片头片尾跳过：按设置时长窗口在 [updateOverlays] 里驱动显隐。 */
+    /**
+     * 片头片尾跳过提示：总开关开启且识别到范围（章节名识别或已开启的固定时长兜底）才显示。
+     * 提示在范围起点前 [skipCountdownSec] 秒弹出并显示倒计时；倒计时结束自动跳过，
+     * 点“跳过”立即跳，点 ✕ 取消则本次播放不再提示。暂停时倒计时随之冻结。
+     * 仅自然播放进入范围才触发：检测到位置跳变（用户拖动/跳转）落在窗口内时不弹、不自动跳。
+     * 片尾自动跳过的目标：ED 章节后还有内容时只跳到下一章节边界；ED 是最后一章才进下一集流程。
+     */
     private fun updateIntroOutroSkip(state: MpvPlayerState) {
         if (!this::skipCard.isInitialized) return
         if (isLiveChannel()) {
             skipCard.visibility = View.GONE
             skipAction = null
+            skipCancelAction = null
             return
         }
         val dur = state.durationMs
@@ -7342,38 +7387,120 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
             return
         }
-        val pos = state.positionMs
-        // 有章节推断到的片头/片尾区间则精确跳转（跳到章节边界）；否则退回按设置时长上限的窗口。
-        // 固定时长优先用飞牛按条目配置（秒），无配置时退回本地设置。
         if (loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty() != introOutroConfigItemGuid) {
             requestIntroOutroConfig()
         }
-        val introEndMs = if (inferredIntroEndMs > 0) inferredIntroEndMs else effectiveIntroSkipSec() * 1000L
-        val introShowFromMs = if (inferredIntroStartMs >= 0) maxOf(2_000L, inferredIntroStartMs) else 2_000L
-        val outroStartMs = if (inferredOutroStartMs >= 0) inferredOutroStartMs else dur - effectiveOutroSkipSec() * 1000L
+        // 总开关关闭：不显示任何跳过提示（固定时长窗口也不再出现）。
+        if (!introOutroEnabled) {
+            if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
+            return
+        }
+        val pos = state.positionMs
+        val bounds = nativeChapterSkipBounds(
+            chapterList,
+            dur,
+            chapterEnabled = true,
+            fixedDurationEnabled = fixedDurationSkipEnabled,
+            introSeconds = effectiveIntroSkipSec(),
+            outroSeconds = effectiveOutroSkipSec(),
+        )
+        val countdownMs = skipCountdownSec * 1000L
+        val introEndMs = bounds.introEndMs
+        val outroStartMs = bounds.outroStartMs
+        val outroEndMs = bounds.outroEndMs
+        // 提前量：提示在范围起点前 countdownSec 弹出；起点太近（固定片头从 0 开始）则起播 2s 后弹出。
+        val introShowFromMs = introEndMs?.let {
+            maxOf(2_000L, (bounds.introStartMs ?: 0L) - countdownMs)
+        } ?: Long.MAX_VALUE
+        val outroShowFromMs = outroStartMs?.let { maxOf(2_000L, it - countdownMs) } ?: Long.MAX_VALUE
+        val outroLimitMs = outroEndMs ?: dur
+
+        // 手动 seek 检测：位置变化量与「采样间隔 × 倍速」的期望值不符（跳变）→ 是用户拖动/跳转。
+        // 落点在哪个提示窗口内就压掉哪个窗口（不弹、不自动跳）；自然播放进入不受影响。
+        val sampleWallMs = state.positionSampleTimeNs / 1_000_000L
+        val userSeeked = run {
+            val wallDeltaMs = sampleWallMs - lastSkipSampleWallMs
+            val posDeltaMs = pos - lastSkipTickPosMs
+            val expectedPosDeltaMs = (wallDeltaMs * state.speed).toLong()
+            val seeked = lastSkipSampleWallMs > 0L &&
+                wallDeltaMs > 0L &&
+                wallDeltaMs <= 8_000L &&
+                abs(posDeltaMs) >= 1_000L &&
+                abs(posDeltaMs - expectedPosDeltaMs) > 2_500L
+            lastSkipSampleWallMs = sampleWallMs
+            lastSkipTickPosMs = pos
+            seeked
+        }
+        if (userSeeked) {
+            if (introEndMs != null && pos >= introShowFromMs && pos < introEndMs) introSkipDismissed = true
+            if (outroStartMs != null && pos >= outroShowFromMs && pos < outroLimitMs) outroSkipDismissed = true
+        }
+
         when {
-            // 片头窗口：起播 2s（或片头章节起点）后到片头结束边界内
-            !introSkipDismissed && pos in introShowFromMs until introEndMs -> {
-                skipText.text = localizedString(R.string.player_text_0066)
-                skipAction = {
+            // 片头：提示弹出后开始倒计时，倒计时归零（最晚到片头起点）自动跳到片头结束。
+            !introSkipDismissed && introEndMs != null && pos >= introShowFromMs && pos < introEndMs -> {
+                if (introPromptShownPosMs < 0) introPromptShownPosMs = pos
+                val autoSkipAtMs = maxOf(bounds.introStartMs ?: 0L, introPromptShownPosMs + countdownMs)
+                    .coerceAtMost(introEndMs)
+                val remainingSec = ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
+                if (remainingSec <= 0) {
                     introSkipDismissed = true
                     skipCard.visibility = View.GONE
                     seekPlayer(introEndMs)
+                } else {
+                    skipText.text = "${localizedString(R.string.player_text_0066)} ${remainingSec}s"
+                    skipAction = {
+                        introSkipDismissed = true
+                        skipCard.visibility = View.GONE
+                        seekPlayer(introEndMs)
+                    }
+                    skipCancelAction = {
+                        introSkipDismissed = true
+                        skipCard.visibility = View.GONE
+                    }
+                    if (skipCard.visibility != View.VISIBLE) skipCard.visibility = View.VISIBLE
                 }
-                if (skipCard.visibility != View.VISIBLE) skipCard.visibility = View.VISIBLE
             }
-            // 片尾窗口：进入片尾上限后（且不在最后几秒触发完成前）
-            !outroSkipDismissed && outroStartMs > introEndMs && pos >= outroStartMs -> {
-                val hasNext = hasNextEpisode()
-                skipText.text = if (hasNext) localizedString(R.string.player_text_0067) else localizedString(R.string.player_text_0068)
-                skipAction = {
+            // 片尾：提前弹出并倒计时，归零自动跳到下一章节边界（ED 后无内容则进下一集流程）。
+            !outroSkipDismissed && outroStartMs != null && pos >= outroShowFromMs && pos < outroLimitMs -> {
+                if (outroPromptShownPosMs < 0) outroPromptShownPosMs = pos
+                val autoSkipAtMs = maxOf(outroStartMs, outroPromptShownPosMs + countdownMs)
+                    .coerceAtMost(outroLimitMs)
+                val remainingSec = ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
+                val skipOutroTarget: () -> Unit = {
+                    if (outroEndMs != null) seekPlayer(outroEndMs)
+                    else if (hasNextEpisode()) playNextEpisode() else seekPlayer(dur)
+                }
+                if (remainingSec <= 0) {
                     outroSkipDismissed = true
                     skipCard.visibility = View.GONE
-                    if (hasNext) playNextEpisode() else seekPlayer(dur)
+                    skipOutroTarget()
+                } else {
+                    val hasNext = hasNextEpisode()
+                    skipText.text = when {
+                        outroEndMs != null -> localizedString(R.string.player_text_0068)
+                        hasNext -> localizedString(R.string.player_text_0067)
+                        else -> localizedString(R.string.player_text_0068)
+                    }
+                    skipText.text = "${skipText.text} ${remainingSec}s"
+                    skipAction = {
+                        outroSkipDismissed = true
+                        skipCard.visibility = View.GONE
+                        skipOutroTarget()
+                    }
+                    skipCancelAction = {
+                        outroSkipDismissed = true
+                        skipCard.visibility = View.GONE
+                    }
+                    if (skipCard.visibility != View.VISIBLE) skipCard.visibility = View.VISIBLE
                 }
-                if (skipCard.visibility != View.VISIBLE) skipCard.visibility = View.VISIBLE
             }
-            else -> if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
+            else -> {
+                // 离开窗口（ seek 走远等）：收起并复位出现时刻，重新进入窗口会再次提示。
+                introPromptShownPosMs = -1L
+                outroPromptShownPosMs = -1L
+                if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
+            }
         }
     }
 
@@ -7839,31 +7966,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ),
         )
         addPanelRow(panelSectionHeader(localizedString(R.string.player_text_0077)))
+        // 章节列表有数据时并入播放分组（独立成卡会在视觉上与播放项割裂）。
         addPanelRow(
             panelCardGroup(
-                panelNavRow(localizedString(R.string.player_text_0078), playbackBehaviorSummary()) {
-                    pushPanel(PanelPage(localizedString(R.string.player_text_0078)) { buildPlaybackBehaviorSettingsPage() })
-                },
-                panelNavRow(localizedString(R.string.player_text_0079)) {
-                    pushPanel(PanelPage(localizedString(R.string.player_text_0079)) { buildIntroOutroPage() })
-                },
-                panelNavRow(localizedString(R.string.player_text_0080)) {
-                    pushPanel(PanelPage(localizedString(R.string.player_text_0080)) { buildBookmarkPage() })
-                },
-                panelNavRow(localizedString(R.string.player_text_0081)) {
-                    pushPanel(PanelPage(localizedString(R.string.player_text_0081)) { buildTrackInfoPage() })
-                },
+                *buildList {
+                    add(
+                        panelNavRow(localizedString(R.string.player_text_0078), playbackBehaviorSummary()) {
+                            pushPanel(PanelPage(localizedString(R.string.player_text_0078)) { buildPlaybackBehaviorSettingsPage() })
+                        },
+                    )
+                    add(
+                        panelNavRow(localizedString(R.string.player_text_0079)) {
+                            pushPanel(PanelPage(localizedString(R.string.player_text_0079)) { buildIntroOutroPage() })
+                        },
+                    )
+                    add(
+                        panelNavRow(localizedString(R.string.player_text_0080)) {
+                            pushPanel(PanelPage(localizedString(R.string.player_text_0080)) { buildBookmarkPage() })
+                        },
+                    )
+                    add(
+                        panelNavRow(localizedString(R.string.player_text_0081)) {
+                            pushPanel(PanelPage(localizedString(R.string.player_text_0081)) { buildTrackInfoPage() })
+                        },
+                    )
+                    if (chapterList.isNotEmpty()) {
+                        add(
+                            panelNavRow(localizedString(R.string.player_text_0082), chapterList.size.toString()) {
+                                pushPanel(PanelPage(localizedString(R.string.player_text_0082)) { buildChapterPage() })
+                            },
+                        )
+                    }
+                }.toTypedArray(),
             ),
         )
-        if (chapterList.isNotEmpty()) {
-            addPanelRow(
-                panelCardGroup(
-                    panelNavRow(localizedString(R.string.player_text_0082), chapterList.size.toString()) {
-                        pushPanel(PanelPage(localizedString(R.string.player_text_0082)) { buildChapterPage() })
-                    },
-                ),
-            )
-        }
         addPanelRow(panelSectionHeader(localizedString(R.string.player_tools_section)))
         addPanelRow(
             panelCardGroup(
@@ -8117,17 +8253,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val io = settingsStore.loadMap(
             NativePlayerSettingsStore.KEY_INTRO_OUTRO,
             linkedMapOf(
-                "enabled" to false, "introMaxSec" to 120, "outroMaxSec" to 120,
+                "enabled" to false, "fixedDurationEnabled" to false,
+                "introMaxSec" to 120, "outroMaxSec" to 120,
                 "introMaxMin" to 2, "outroMaxMin" to 2, "skipCountdownSec" to 5,
             ),
         )
         introOutroEnabled = (io["enabled"] as? Boolean) ?: false
+        fixedDurationSkipEnabled = (io["fixedDurationEnabled"] as? Boolean) ?: false
         // 固定时长单位为秒；旧版本按分钟存储，缺秒键时一次性换算。
         introMaxSec = (io["introMaxSec"] as? Number)?.toInt()
             ?: ((io["introMaxMin"] as? Number)?.toInt() ?: 2) * 60
         outroMaxSec = (io["outroMaxSec"] as? Number)?.toInt()
             ?: ((io["outroMaxMin"] as? Number)?.toInt() ?: 2) * 60
-        skipCountdownSec = (io["skipCountdownSec"] as? Number)?.toInt() ?: 5
+        skipCountdownSec = ((io["skipCountdownSec"] as? Number)?.toInt() ?: 5).coerceIn(2, 10)
         // 截图设置与 Flutter 端共享同一份偏好（FlutterSharedPreferences），两端互通不漂移。
         screenshotIncludeSubtitles = loadSharedScreenshotIncludeSubtitles()
         screenshotSaveMode = loadSharedScreenshotSaveMode()
@@ -8370,7 +8508,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun persistIntroOutro() = settingsStore.saveMap(
         NativePlayerSettingsStore.KEY_INTRO_OUTRO,
         linkedMapOf<String, Any?>(
-            "enabled" to introOutroEnabled, "introMaxSec" to introMaxSec,
+            "enabled" to introOutroEnabled, "fixedDurationEnabled" to fixedDurationSkipEnabled,
+            "introMaxSec" to introMaxSec,
             "outroMaxSec" to outroMaxSec,
             // 旧版本按分钟读取；保留一份换算值便于版本回退。
             "introMaxMin" to (introMaxSec / 60).coerceAtLeast(1),
@@ -9588,31 +9727,74 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(panelToggle(localizedString(R.string.player_text_0275), introOutroEnabled) { v ->
             introOutroEnabled = v; persistIntroOutro(); pushIntroOutroConfig(); renderTopPanel()
         })
-        if (introOutroEnabled) {
+        // 固定时长独立开关（对齐桌面端：同时开启章节识别时优先使用章节）。
+        addPanelRow(panelToggle("固定时长跳过", fixedDurationSkipEnabled) { v ->
+            fixedDurationSkipEnabled = v; persistIntroOutro(); pushIntroOutroConfig(); renderTopPanel()
+        })
+        if (fixedDurationSkipEnabled) {
             // 固定片头/片尾时长按秒设置（对齐飞牛 play.setConfigByItem 的 skip_opening/skip_ending）。
-            // 拖动只改本地态，松手（onCommit）才回传服务器，避免拖动过程连续请求。
-            addPanelRow(panelSlider(localizedString(R.string.player_text_0276), 0f, 600f, effectiveIntroSkipSec().toFloat(), steps = 120, format = { skipSecondsLabel(it.toInt()) }, onCommit = { pushIntroOutroConfig() }) { v ->
+            // 拖动只改本地态，松手（onCommit）才回传服务器并刷新状态行，避免拖动过程连续请求。
+            addPanelRow(panelSlider(localizedString(R.string.player_text_0276), 0f, 600f, effectiveIntroSkipSec().toFloat(), steps = 120, format = { skipSecondsLabel(it.toInt()) }, onCommit = { pushIntroOutroConfig(); renderTopPanel() }) { v ->
                 introMaxSec = v.toInt()
                 if (hasServerIntroOutroConfig()) serverIntroSkipSec = introMaxSec
                 persistIntroOutro()
             })
-            addPanelRow(panelSlider(localizedString(R.string.player_text_0277), 0f, 600f, effectiveOutroSkipSec().toFloat(), steps = 120, format = { skipSecondsLabel(it.toInt()) }, onCommit = { pushIntroOutroConfig() }) { v ->
+            addPanelRow(panelSlider(localizedString(R.string.player_text_0277), 0f, 600f, effectiveOutroSkipSec().toFloat(), steps = 120, format = { skipSecondsLabel(it.toInt()) }, onCommit = { pushIntroOutroConfig(); renderTopPanel() }) { v ->
                 outroMaxSec = v.toInt()
                 if (hasServerIntroOutroConfig()) serverOutroSkipSec = outroMaxSec
                 persistIntroOutro()
             })
+        }
+        if (introOutroEnabled) {
+            // 提示出现后 N 秒未操作自动收起（本次窗口不再提示）。
             addPanelRow(panelSlider(localizedString(R.string.player_text_0278), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { localizedString(R.string.player_seconds_format, it.toInt()) }) { v ->
                 skipCountdownSec = v.toInt(); persistIntroOutro()
             })
         }
         addPanelRow(panelSectionHeader("章节与固定时长"))
-        // This section describes the pre-existing local chapter/fixed fallback.
-        addPanelRow(TextView(this).apply {
-            text = localizedString(R.string.player_no_intro_outro_detected)
+        addPanelRow(introOutroStatusRow(intro = true))
+        addPanelRow(introOutroStatusRow(intro = false))
+    }
+
+    /** “当前片头/片尾”状态行：显示实际生效的范围与来源；未识别到时按桌面端口径说明原因。 */
+    private fun introOutroStatusRow(intro: Boolean): View {
+        ensureChaptersFetched()
+        val dur = if (this::playerSurface.isInitialized) playerSurface.state.durationMs else 0L
+        val bounds = nativeChapterSkipBounds(
+            chapterList,
+            dur,
+            chapterEnabled = introOutroEnabled,
+            fixedDurationEnabled = fixedDurationSkipEnabled,
+            introSeconds = effectiveIntroSkipSec(),
+            outroSeconds = effectiveOutroSkipSec(),
+        )
+        val label = if (intro) "当前片头" else "当前片尾"
+        val sideLabel = if (intro) "片头" else "片尾"
+        val start = if (intro) bounds.introStartMs else bounds.outroStartMs
+        val end = if (intro) bounds.introEndMs else (bounds.outroEndMs ?: dur)
+        val statusText = when {
+            start == null || end == null || end <= start -> when {
+                !introOutroEnabled && !fixedDurationSkipEnabled ->
+                    "$label：章节识别与固定时长跳过均已关闭，不提示跳过。"
+                dur <= 0L -> "$label：正在等待视频时长和章节信息。"
+                !fixedDurationSkipEnabled && chapterList.isEmpty() ->
+                    "$label：当前未读取到章节；未启用固定时长跳过。"
+                !fixedDurationSkipEnabled ->
+                    "$label：未识别到${sideLabel}章节；未启用固定时长跳过。"
+                else -> "$label：当前跳过范围无效或片头片尾范围重叠，不提示跳过。"
+            }
+            else -> {
+                val fromChapter = if (intro) bounds.introFromChapter else bounds.outroFromChapter
+                val basis = if (fromChapter) "章节识别" else "固定时长"
+                "$label：$basis · ${formatTime(start)}–${formatTime(end)}"
+            }
+        }
+        return TextView(this).apply {
+            text = statusText
             setTextColor(TEXT_DIM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding(dp(12), dp(10), dp(12), dp(10))
-        })
+        }
     }
 
     /** 固定时长标签：整分钟显示分钟，其余显示秒；0 表示该侧不提示。 */

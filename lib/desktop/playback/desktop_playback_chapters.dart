@@ -36,7 +36,9 @@ class DesktopIntroOutroConfig {
 }
 
 /// 只根据明确的片头/片尾名称识别；普通编号章节不猜测跳过范围。
-({Duration? introStart, Duration? introEnd, Duration? outroStart})
+/// [outroEnd] = ED 章节之后若还有其他章节，取下一章节起点（ED 后有正片/彩蛋时只跳片尾曲本身）；
+/// ED 是最后一个章节时为 null，此时跳过会走到文件结尾。
+({Duration? introStart, Duration? introEnd, Duration? outroStart, Duration? outroEnd})
 desktopChapterSkipBounds(
   List<DesktopPlayerChapter> chapters,
   Duration duration,
@@ -44,6 +46,7 @@ desktopChapterSkipBounds(
   Duration? introStart;
   Duration? introEnd;
   Duration? outroStart;
+  var outroIndex = -1;
   for (var index = 0; index < chapters.length; index++) {
     final chapter = chapters[index];
     final start = chapter.position;
@@ -59,17 +62,32 @@ desktopChapterSkipBounds(
     }
     if (outroStart == null && _outroChapterTitle.hasMatch(chapter.title)) {
       outroStart = start;
+      outroIndex = index;
     }
   }
-  return (introStart: introStart, introEnd: introEnd, outroStart: outroStart);
+  Duration? outroEnd;
+  if (outroIndex >= 0 && outroIndex + 1 < chapters.length) {
+    final end = chapters[outroIndex + 1].position;
+    if (outroStart != null && end > outroStart && end < duration) {
+      outroEnd = end;
+    }
+  }
+  return (
+    introStart: introStart,
+    introEnd: introEnd,
+    outroStart: outroStart,
+    outroEnd: outroEnd,
+  );
 }
 
 /// 设置页和播放提示共用实际生效的范围；固定时长必须单独开启。
 /// 固定时长单位为秒，与飞牛 `play.setConfigByItem` 的 skip_opening/skip_ending 一致。
+/// [outroEnd] 非空时片尾跳过只到该边界（ED 章节后有其他内容），为空时覆盖到文件结尾。
 ({
   Duration? introStart,
   Duration? introEnd,
   Duration? outroStart,
+  Duration? outroEnd,
   bool introFromChapter,
   bool outroFromChapter,
 })
@@ -88,6 +106,7 @@ desktopPlaybackSkipBounds(
   var introStart = detected.introStart;
   var introEnd = detected.introEnd;
   var outroStart = detected.outroStart;
+  var outroEnd = detected.outroEnd;
   if (fixedDurationEnabled && duration > Duration.zero) {
     if (introEnd == null && introSeconds > 0) {
       introStart = Duration.zero;
@@ -105,13 +124,19 @@ desktopPlaybackSkipBounds(
       (outroStart <= Duration.zero || outroStart >= duration)) {
     outroStart = null;
   }
+  if (outroEnd != null &&
+      (outroStart == null || outroEnd <= outroStart || outroEnd >= duration)) {
+    outroEnd = null;
+  }
   if (introEnd != null && outroStart != null && introEnd >= outroStart) {
     introStart = introEnd = outroStart = null;
+    outroEnd = null;
   }
   return (
     introStart: introStart,
     introEnd: introEnd,
     outroStart: outroStart,
+    outroEnd: outroEnd,
     introFromChapter: detected.introEnd != null,
     outroFromChapter: detected.outroStart != null,
   );

@@ -1556,7 +1556,9 @@ class _DesktopPlaybackSettingsPanelState
     Widget statusCard({required bool intro}) {
       final label = intro ? '片头' : '片尾';
       final start = intro ? bounds.introStart : bounds.outroStart;
-      final end = intro ? bounds.introEnd : widget.duration;
+      final end = intro
+          ? bounds.introEnd
+          : (bounds.outroEnd ?? widget.duration);
       final fromChapter = intro
           ? bounds.introFromChapter
           : bounds.outroFromChapter;
@@ -1582,13 +1584,19 @@ class _DesktopPlaybackSettingsPanelState
       final basis = fromChapter ? '章节识别' : '固定时长';
       final target = intro
           ? '跳到 ${_duration(end)}'
+          : bounds.outroEnd != null
+          ? '跳到 ${_duration(end)}'
           : widget.hasNextEpisode
           ? '播放下一集'
           : '跳到视频结束';
       return _SettingsStatusCard(
         title: '当前$label',
         value: '$basis · ${_duration(start)}–${_duration(end)}',
-        description: intro ? '点击后$target。' : '点击后$target，片尾起点之后的内容会一并跳过。',
+        description: intro
+            ? '点击后$target。'
+            : bounds.outroEnd != null
+            ? '点击后$target，继续播放片尾后的内容。'
+            : '点击后$target，片尾起点之后的内容会一并跳过。',
       );
     }
 

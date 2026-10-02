@@ -1120,6 +1120,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       if (target != null) await _seekTo(target);
       return;
     }
+    // ED 章节后还有内容时只跳过片尾曲本身（到下一章节边界），不进入下一集。
+    final outroEnd = _skipBounds.outroEnd;
+    if (outroEnd != null) {
+      await _seekTo(outroEnd);
+      return;
+    }
     final next = _nextEpisode;
     if (next != null) {
       await _showNextEpisode();
@@ -4416,6 +4422,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                             child: Text(
                               kind == _SkipPromptKind.intro
                                   ? '跳到 ${_formatDuration(bounds.introEnd ?? Duration.zero)}'
+                                  : bounds.outroEnd != null
+                                  ? '跳到 ${_formatDuration(bounds.outroEnd!)}'
                                   : hasNext
                                   ? '播放下一集'
                                   : '跳到视频结束',
