@@ -815,6 +815,35 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     setState(() => _filterPanelOpen = false);
   }
 
+  bool _filterSheetOpen = false;
+
+  /// 手机端（Android/iOS）保持原有筛选弹层；桌面端才使用内联面板。
+  /// 重入守卫：快速连点（或 await _loadMeta 期间再次点击）会叠出多个筛选弹窗。
+  Future<void> _openFilterSheet() async {
+    if (_filterSheetOpen) return;
+    _filterSheetOpen = true;
+    try {
+      if (!_metaLoaded) await _loadMeta();
+      if (!mounted) return;
+      final result = await AppCatalogFilterSheet.show(
+        context,
+        sections: _buildFilterSections(),
+      );
+      if (!mounted || result == null) return;
+      setState(() {
+        _selection
+          ..clear()
+          ..addAll(<String, Set<String>>{
+            for (final entry in result.entries)
+              entry.key: entry.value.map((value) => '$value').toSet(),
+          });
+      });
+      _fetch();
+    } finally {
+      _filterSheetOpen = false;
+    }
+  }
+
   /// 内联面板点选：立即更新选择，防抖后刷新列表。
   void _handleFilterOptionSelected(
     AppCatalogFilterSection section,
@@ -998,7 +1027,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                   child: _CategoryToolButton(
                     icon: Icons.filter_alt_outlined,
                     active: _hasActiveFilters || _filterPanelOpen,
-                    onTap: _toggleFilterPanel,
+                    // 项目约定：桌面布局分支必须先过 isDesktopPlatform，
+                    // Android/iOS 保持原有筛选弹层，仅桌面端用内联面板。
+                    onTap: DesktopEnvironment.isDesktopPlatform
+                        ? _toggleFilterPanel
+                        : _openFilterSheet,
                   ),
                 ),
               ],
