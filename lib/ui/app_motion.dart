@@ -23,6 +23,8 @@ class AppMotion {
   static const Curve sheetEnterCurve = Curves.easeOutCubic;
   static const Curve sheetExitCurve = Curves.easeInCubic;
 
+  // 弹层入场位移：手机平台横竖屏统一从下方滑入（平台门在
+  // app_sheet_transitions.dart），桌面端横屏取 landscape、竖屏取 portrait。
   static const Offset sheetLandscapeOffset = Offset(0.08, 0);
   static const Offset sheetPortraitOffset = Offset(0, 0.12);
   static const Offset sheetForwardOffset = Offset(0.12, 0);

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../desktop/desktop_environment.dart';
 import 'app_motion.dart';
 import 'app_popup_theme.dart';
 
@@ -227,7 +228,7 @@ class _AdaptiveSheetTransition extends StatefulWidget {
 class _AdaptiveSheetTransitionState extends State<_AdaptiveSheetTransition> {
   late CurvedAnimation _curved;
   late Animation<Offset> _offset;
-  bool _isLandscape = false;
+  bool _slideFromBelow = true;
 
   @override
   void initState() {
@@ -237,17 +238,20 @@ class _AdaptiveSheetTransitionState extends State<_AdaptiveSheetTransition> {
       curve: AppMotion.sheetEnterCurve,
       reverseCurve: AppMotion.sheetExitCurve,
     );
-    _offset = _buildOffsetTween(_isLandscape).animate(_curved);
+    _offset = _buildOffsetTween(_slideFromBelow).animate(_curved);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // 手机平台横竖屏统一从下方入场；桌面端保持横屏从右、竖屏从下。
     final media = MediaQuery.of(context);
-    final isLandscape = media.size.width > media.size.height;
-    if (isLandscape != _isLandscape) {
-      _isLandscape = isLandscape;
-      _offset = _buildOffsetTween(_isLandscape).animate(_curved);
+    final slideFromBelow =
+        !DesktopEnvironment.isDesktopPlatform ||
+        media.size.width <= media.size.height;
+    if (slideFromBelow != _slideFromBelow) {
+      _slideFromBelow = slideFromBelow;
+      _offset = _buildOffsetTween(_slideFromBelow).animate(_curved);
     }
   }
 
@@ -261,14 +265,14 @@ class _AdaptiveSheetTransitionState extends State<_AdaptiveSheetTransition> {
         curve: AppMotion.sheetEnterCurve,
         reverseCurve: AppMotion.sheetExitCurve,
       );
-      _offset = _buildOffsetTween(_isLandscape).animate(_curved);
+      _offset = _buildOffsetTween(_slideFromBelow).animate(_curved);
     }
   }
 
-  Tween<Offset> _buildOffsetTween(bool isLandscape) {
-    final begin = isLandscape
-        ? AppMotion.sheetLandscapeOffset
-        : AppMotion.sheetPortraitOffset;
+  Tween<Offset> _buildOffsetTween(bool slideFromBelow) {
+    final begin = slideFromBelow
+        ? AppMotion.sheetPortraitOffset
+        : AppMotion.sheetLandscapeOffset;
     return Tween<Offset>(begin: begin, end: Offset.zero);
   }
 
