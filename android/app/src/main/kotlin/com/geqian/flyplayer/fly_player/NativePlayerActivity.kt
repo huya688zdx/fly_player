@@ -27,6 +27,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.LruCache
@@ -1515,6 +1516,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 手动 seek 检测的上一次采样（墙钟/位置）：位置跳变 = 用户拖动或跳转，落在提示窗口内则抑制。
     private var lastSkipSampleWallMs = 0L
     private var lastSkipTickPosMs = 0L
+    // seekPlayer 置位：最近的 seek 来自用户（进度条/横拖手势/章节/书签/媒体会话）。
+    // seek 异步完成：等位置落到目标附近才消费——落点在提示窗口内则不弹、不自动跳；
+    // 自动跳过自己的 seek 会立即清除标记。
+    private var skipUserSeekPending = false
+    private var skipUserSeekTargetMs = 0L
+    private var skipUserSeekWallMs = 0L
 
     private data class PanelItem(
         val title: String,
@@ -3287,6 +3294,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         outroPromptShownPosMs = -1L
         lastSkipSampleWallMs = 0L
         lastSkipTickPosMs = 0L
+        skipUserSeekPending = false
         clearCompletion()
         // 同一会话内换源的起播位置是当前进度，不是重新打开时的历史续播位。
         if (nativePanelShouldOfferResumeOnLoad(previousItemGuid, nextItemGuid, isInSessionSwitch)) {
@@ -7424,14 +7432,30 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val expectedPosDeltaMs = (wallDeltaMs * state.speed).toLong()
             val seeked = lastSkipSampleWallMs > 0L &&
                 wallDeltaMs > 0L &&
-                wallDeltaMs <= 8_000L &&
+                wallDeltaMs <= 60_000L &&
                 abs(posDeltaMs) >= 1_000L &&
                 abs(posDeltaMs - expectedPosDeltaMs) > 2_500L
             lastSkipSampleWallMs = sampleWallMs
             lastSkipTickPosMs = pos
             seeked
         }
-        if (userSeeked) {
+        // seekPlayer 统一入口打标记：等位置真正落到目标附近（seek 异步完成，期间可能缓冲数秒），
+        // 落点在提示窗口内则不弹、不自动跳；落点在窗口外不影响自然播放的后续提示。
+        if (skipUserSeekPending) {
+            val landed = abs(pos - skipUserSeekTargetMs) <= 2_500L
+            val expired = SystemClock.elapsedRealtime() - skipUserSeekWallMs > 15_000L
+            if (landed || expired) {
+                skipUserSeekPending = false
+                if (landed) {
+                    if (introEndMs != null && pos >= introShowFromMs && pos < introEndMs) introSkipDismissed = true
+                    if (outroStartMs != null && pos >= outroShowFromMs && pos < outroLimitMs) outroSkipDismissed = true
+                }
+            } else {
+                // seek 进行中（位置还是旧值）：不处理提示，等待落点。
+                if (skipCard.visibility == View.VISIBLE) skipCard.visibility = View.GONE
+                return
+            }
+        } else if (userSeeked) {
             if (introEndMs != null && pos >= introShowFromMs && pos < introEndMs) introSkipDismissed = true
             if (outroStartMs != null && pos >= outroShowFromMs && pos < outroLimitMs) outroSkipDismissed = true
         }
@@ -7447,12 +7471,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     introSkipDismissed = true
                     skipCard.visibility = View.GONE
                     seekPlayer(introEndMs)
+                    skipUserSeekPending = false // 自己的自动跳过不算用户 seek
                 } else {
                     skipText.text = "${localizedString(R.string.player_text_0066)} ${remainingSec}s"
                     skipAction = {
                         introSkipDismissed = true
                         skipCard.visibility = View.GONE
                         seekPlayer(introEndMs)
+                        skipUserSeekPending = false
                     }
                     skipCancelAction = {
                         introSkipDismissed = true
@@ -7475,6 +7501,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     outroSkipDismissed = true
                     skipCard.visibility = View.GONE
                     skipOutroTarget()
+                    skipUserSeekPending = false // 自己的自动跳过不算用户 seek
                 } else {
                     val hasNext = hasNextEpisode()
                     skipText.text = when {
@@ -7487,6 +7514,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         outroSkipDismissed = true
                         skipCard.visibility = View.GONE
                         skipOutroTarget()
+                        skipUserSeekPending = false
                     }
                     skipCancelAction = {
                         outroSkipDismissed = true
@@ -10522,6 +10550,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun seekPlayer(positionMs: Long) {
+        skipUserSeekPending = true
+        skipUserSeekTargetMs = positionMs
+        skipUserSeekWallMs = SystemClock.elapsedRealtime()
         if (!isLiveChannel()) playerSurface.seek(positionMs)
     }
 
