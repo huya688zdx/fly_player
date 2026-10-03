@@ -40,6 +40,7 @@ import 'poster_browse_large_layout.dart';
 import 'poster_browse_loader.dart';
 import 'poster_browse_mobile_layout.dart';
 import 'poster_browse_orientation_controller.dart';
+import 'poster_browse_row_artwork_warmup.dart';
 import 'poster_browse_rows.dart';
 import 'poster_browse_screen_policy.dart';
 import 'poster_browse_session_key.dart';
@@ -262,6 +263,13 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       });
 
       if (hasContinueWatching) {
+        unawaited(
+          _warmContinueWatchingRow(
+            rowIndex: 0,
+            loadGeneration: generation,
+            loadKey: loadKey,
+          ),
+        );
         unawaited(_settle(rowIndex: 0, itemIndex: 0));
         return;
       }
@@ -660,6 +668,63 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     } finally {
       _enrichmentRunning = false;
     }
+  }
+
+  /// 继续观看整行的后台素材补全：每项完成后立即提交显示，
+  /// 不需要用户点击卡片就能看到剧集/电影的季海报。
+  /// 首帧先让路（等 endOfFrame），避免挤占首屏加载；队列内部限并发 2。
+  Future<void> _warmContinueWatchingRow({
+    required int rowIndex,
+    required int loadGeneration,
+    required String loadKey,
+  }) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (rowIndex < 0 || rowIndex >= _rows.length) return;
+    final row = _rows[rowIndex];
+    if (row.kind != PosterBrowseRowKind.continueWatching || row.items.isEmpty) {
+      return;
+    }
+    final enricher = _enricher;
+    if (enricher == null) return;
+
+    bool isActive() {
+      return _isCurrentLoad(generation: loadGeneration, loadKey: loadKey) &&
+          identical(enricher, _enricher);
+    }
+
+    await const PosterBrowseRowArtworkWarmup(maxConcurrent: 2).run(
+      items: row.items,
+      centerIndex: 0,
+      load: (card) => _loadEnrichment(
+        enricher: enricher,
+        card: card,
+        loadKey: loadKey,
+        isActive: isActive,
+      ),
+      isActive: isActive,
+      onLoaded: (card, enrichment) {
+        if (!isActive()) return;
+        final display = _displayBuilder.build(
+          card: card,
+          itemDetail: enrichment.itemDetail,
+          seriesDetail: enrichment.seriesDetail,
+          season: enrichment.season,
+          resolvedSeriesId: enrichment.resolvedSeriesId,
+        );
+        setState(() => _displayById[card.id] = display);
+      },
+      onError: (card, error, stackTrace) {
+        unawaited(
+          logSwallowedError(
+            action: 'poster browse warm continue watching artwork',
+            error: error,
+            stackTrace: stackTrace,
+            source: 'poster_browse_screen',
+            id: card.id,
+          ),
+        );
+      },
+    );
   }
 
   PosterBrowseBackgroundSpec _backgroundSpec() {
