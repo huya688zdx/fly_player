@@ -256,25 +256,36 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         if (loadArgs.isNullOrBlank()) {
                             result.error("invalid_args", "missing loadArgs", null)
                         } else {
-                            val intent =
-                                Intent(this, NativePlayerActivity::class.java).apply {
-                                    if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
-                                        // 分屏态：同栈复用前台原生壳 → onNewIntent 原地换片（副栏选片即走此路）。
-                                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                                    } else {
-                                        // 全屏态：独立 task 强制全屏（维持原行为）。
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                                    }
-                                    putExtra(NativePlayerActivity.EXTRA_LOAD_ARGS, loadArgs)
-                                    call.argument<String>("danmakuFile")
-                                        ?.takeIf { it.isNotBlank() }
-                                        ?.let {
-                                            putExtra(NativePlayerActivity.EXTRA_DANMAKU_FILE, it)
+                            val danmakuFile = call.argument<String>("danmakuFile")
+                            // 分屏态优先进程内就地换片：副栏与播放器同进程，把新 loadArgs 直接
+                            // 递给存活的原生壳（等价 onNewIntent），不经过 startActivity——
+                            // REORDER_TO_FRONT 启动嵌入中的主栏会被部分系统（MuMu Android 15
+                            // 实测必现）解读为任务重排，拆散 Activity 嵌入并销毁播放器任务，
+                            // 表现为副栏一点播放就退出播放。无存活实例时回退原启动路径。
+                            val dispatchedInPlace =
+                                ParallelWindowCoordinator.isNativeSplitPlayerVisible() &&
+                                    NativePlayerActivity.dispatchInPlaceLoad(loadArgs, danmakuFile)
+                            if (!dispatchedInPlace) {
+                                val intent =
+                                    Intent(this, NativePlayerActivity::class.java).apply {
+                                        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
+                                            // 分屏态：同栈复用前台原生壳 → onNewIntent 原地换片（副栏选片即走此路）。
+                                            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                        } else {
+                                            // 全屏态：独立 task 强制全屏（维持原行为）。
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                                         }
-                                }
-                            startActivity(intent)
+                                        putExtra(NativePlayerActivity.EXTRA_LOAD_ARGS, loadArgs)
+                                        danmakuFile
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?.let {
+                                                putExtra(NativePlayerActivity.EXTRA_DANMAKU_FILE, it)
+                                            }
+                                    }
+                                startActivity(intent)
+                            }
                             result.success(null)
                         }
                     }

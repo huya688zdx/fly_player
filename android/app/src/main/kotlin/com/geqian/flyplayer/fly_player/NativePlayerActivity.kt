@@ -1125,6 +1125,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             retainedPlayer.get()?.takeIf { it.playbackParked }?.finishAndRemoveTask()
         }
 
+        /**
+         * 分屏副栏点播放的进程内就地换片：把新 loadArgs 直接递给存活的播放器实例，
+         * 走与 [onNewIntent] 完全相同的接线（applyIncomingPlaybackIntent）。
+         *
+         * 不发起 Activity 启动的原因：副栏（嵌入 secondary）以 REORDER_TO_FRONT 启动
+         * 嵌入中的主栏播放器，部分系统（MuMu Android 15 实测必现）会解读为任务重排，
+         * 拆散 Activity 嵌入并销毁播放器任务——表现为副栏一点播放就退出播放。
+         * 进程内递参与系统任务管理完全解耦，不受各 OEM WM 差异影响。
+         *
+         * 返回 false 表示本进程没有可用的播放器实例（调用方回退 startActivity 路径）。
+         */
+        fun dispatchInPlaceLoad(loadArgsJson: String, danmakuFile: String?): Boolean {
+            val player = retainedPlayer.get() ?: return false
+            if (player.isFinishing || player.isDestroyed) return false
+            player.runOnUiThread { player.acceptInPlacePlayback(loadArgsJson, danmakuFile) }
+            return true
+        }
+
         const val TAG = "NativePlayerActivity"
         const val EXTRA_LOAD_ARGS = "loadArgs"
         const val EXTRA_DANMAKU_PAYLOAD = "danmakuPayload"
@@ -3026,8 +3044,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * singleTask 复用：选集后 host 用同一 Intent 启动方式再次 startActivity，会走这里而非
      * 新建实例。重读 loadArgs + 弹幕，原地换源（不重建 Activity / surface / 控制层）。
      */
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
+    /**
+     * onNewIntent 与分屏副栏进程内换片共用的同一接线：读 loadArgs、同集跳过、代际失效、
+     * 弹幕异步解析后 applyLoadArgs 原地换片（不重建 Activity / surface / 控制层）。
+     */
+    private fun applyIncomingPlaybackIntent(intent: Intent?) {
         val wasParked = playbackParked
         playbackParked = false
         warmResumePending = false
@@ -3059,6 +3080,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             applyLoadArgs(loadArgs, danmakuPayload)
             setControlsVisible(true)
         }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        applyIncomingPlaybackIntent(intent)
+    }
+
+    /**
+     * 进程内换片入口（[companion dispatchInPlaceLoad] 调用，主线程）：把新 loadArgs 装进
+     * 与启动路径同构的 Intent 后复用 onNewIntent 接线——setIntent 换当前 Intent，弹幕
+     * 内联/文件 extra 与新参同步生效，后续读 intent 的路径行为与真实启动一致。
+     */
+    private fun acceptInPlacePlayback(loadArgsJson: String, danmakuFile: String?) {
+        val intent = Intent(this, NativePlayerActivity::class.java).apply {
+            putExtra(EXTRA_LOAD_ARGS, loadArgsJson)
+            if (!danmakuFile.isNullOrBlank()) putExtra(EXTRA_DANMAKU_FILE, danmakuFile)
+        }
+        applyIncomingPlaybackIntent(intent)
     }
 
     private fun canKeepCurrentPlayback(loadArgs: Map<String, Any?>, wasParked: Boolean): Boolean {
