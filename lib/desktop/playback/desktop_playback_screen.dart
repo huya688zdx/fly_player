@@ -137,6 +137,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   static const String _outroMaxSecondsPrefKey = 'player_intro_outro_outro_sec';
   static const String _fixedDurationSkipPrefKey =
       'player_intro_outro_fixed_duration_enabled';
+  static const String _introOutroAutoSkipPrefKey =
+      'player_intro_outro_auto_skip';
+  static const String _skipCountdownPrefKey = 'player_skip_countdown_seconds';
   static const String _subDelayPrefKey = 'player_subtitle_delay_seconds';
   static const String _subPosPrefKey = 'player_subtitle_position';
   static const String _subScalePrefKey = 'player_subtitle_scale';
@@ -240,6 +243,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   int _introMaxSeconds = 120;
   int _outroMaxSeconds = 120;
   bool _fixedDurationSkipEnabled = false;
+  // 倒计时结束自动跳过（默认开启）；关闭后仅提示跳过，由用户手动点击。
+  bool _introOutroAutoSkip = true;
+  int _skipCountdownSeconds = 5;
   // 飞牛按条目（play.setConfigByItem）保存跳过配置的 guid；空表示尚未获取或后端不支持。
   String _introOutroConfigGuid = '';
   String _introOutroConfigLoadedItemGuid = '';
@@ -249,6 +255,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       ValueNotifier<_SkipPromptKind?>(null);
   bool _introSkipDismissed = false;
   bool _outroSkipDismissed = false;
+  // 提示出现时的播放位置：自动跳过倒计时基于出现位置推进（暂停即冻结），对齐安卓。
+  Duration? _skipPromptShownPosition;
   // 字幕样式：默认值对齐安卓 NativeSubtitleStyleSettings（延迟 0 / 位置 92 / 缩放 1.0）。
   double _subtitleDelaySeconds = 0;
   int _subtitlePosition = 92;
@@ -458,6 +466,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       );
       _fixedDurationSkipEnabled =
           prefs.getBool(_fixedDurationSkipPrefKey) ?? false;
+      _introOutroAutoSkip = prefs.getBool(_introOutroAutoSkipPrefKey) ?? true;
+      _skipCountdownSeconds = (prefs.getInt(_skipCountdownPrefKey) ?? 5)
+          .clamp(2, 10);
       _subtitleDelaySeconds = prefs.getDouble(_subDelayPrefKey) ?? 0;
       _subtitlePosition = prefs.getInt(_subPosPrefKey) ?? 92;
       _subtitleScale = prefs.getDouble(_subScalePrefKey) ?? 1;
@@ -1035,9 +1046,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   void _onChaptersChanged() {
     if (!mounted) return;
     _updateView(() {});
-    _skipPromptKindNotifier.value = _computeSkipPromptKind(
-      _player.state.position,
-    );
+    _updateSkipPromptKind(_computeSkipPromptKind(_player.state.position));
   }
 
   get _skipBounds => desktopPlaybackSkipBounds(
@@ -1071,9 +1080,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         }
       }
     }
+    // 自动跳过：倒计时归零自动执行（位置越过窗口终点的同一拍也能触发，对齐安卓）。
+    _maybeAutoSkip(position, _skipPromptKindNotifier.value);
     final kind = _computeSkipPromptKind(position);
-    if (kind == _skipPromptKindNotifier.value) return;
-    _skipPromptKindNotifier.value = kind;
+    _updateSkipPromptKind(kind, atPosition: position);
   }
 
   _SkipPromptKind? _computeSkipPromptKind(Duration position) {
@@ -1090,25 +1100,58 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final introStart = bounds.introStart;
     final introEnd = bounds.introEnd;
     final outroStart = bounds.outroStart;
+    // 自动跳过时提前一个倒计时弹出（对齐安卓）；手动模式在范围起点弹出。
+    final showLead = _introOutroAutoSkip
+        ? Duration(seconds: _skipCountdownSeconds)
+        : Duration.zero;
+    const twoSeconds = Duration(seconds: 2);
     if (!_introSkipDismissed &&
-        introStart != null &&
         introEnd != null &&
-        position >= const Duration(seconds: 2) &&
-        position >= introStart &&
+        position >= twoSeconds &&
+        position >= (introStart ?? Duration.zero) - showLead &&
         position < introEnd) {
       return _SkipPromptKind.intro;
     }
-    if (!_outroSkipDismissed && outroStart != null && position >= outroStart) {
+    if (!_outroSkipDismissed &&
+        outroStart != null &&
+        position >= (outroStart - showLead < twoSeconds ? twoSeconds : outroStart - showLead)) {
       return _SkipPromptKind.outro;
     }
     return null;
+  }
+
+  /// 更新提示可见状态并记录出现位置（自动跳过倒计时基于出现位置推进，对齐安卓）。
+  void _updateSkipPromptKind(_SkipPromptKind? kind, {Duration? atPosition}) {
+    if (_skipPromptKindNotifier.value == kind) return;
+    _skipPromptKindNotifier.value = kind;
+    _skipPromptShownPosition = kind == null
+        ? null
+        : (atPosition ?? _player.state.position);
+  }
+
+  /// 自动跳过开启时倒计时归零自动执行；跳过目标与手动点击一致
+  /// （片尾 ED 后有内容时只跳到下一章节边界）。倒计时基于播放位置，暂停即冻结。
+  void _maybeAutoSkip(Duration position, _SkipPromptKind? kind) {
+    if (!_introOutroAutoSkip || kind == null) return;
+    final shown = _skipPromptShownPosition;
+    if (shown == null) return;
+    final autoSkipAt = desktopSkipAutoAdvanceAt(
+      intro: kind == _SkipPromptKind.intro,
+      bounds: _skipBounds,
+      shownPosition: shown,
+      countdownSeconds: _skipCountdownSeconds,
+      duration: _player.state.duration,
+    );
+    if (autoSkipAt != null && position >= autoSkipAt) {
+      unawaited(_skipIntroOrOutro());
+    }
   }
 
   void _dismissSkipPrompt() {
     final kind = _skipPromptKindNotifier.value;
     if (kind == _SkipPromptKind.intro) _introSkipDismissed = true;
     if (kind == _SkipPromptKind.outro) _outroSkipDismissed = true;
-    _skipPromptKindNotifier.value = null;
+    _updateSkipPromptKind(null);
   }
 
   Future<void> _skipIntroOrOutro() async {
@@ -1157,6 +1200,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     required int introMaxSeconds,
     required int outroMaxSeconds,
     required bool fixedDurationEnabled,
+    bool? autoSkip,
+    int? countdownSeconds,
   }) async {
     if (mounted) {
       _updateView(() {
@@ -1170,9 +1215,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           _skipSecondsMax,
         );
         _fixedDurationSkipEnabled = fixedDurationEnabled;
-        _skipPromptKindNotifier.value = _computeSkipPromptKind(
-          _player.state.position,
-        );
+        if (autoSkip != null) _introOutroAutoSkip = autoSkip;
+        if (countdownSeconds != null) {
+          _skipCountdownSeconds = countdownSeconds.clamp(2, 10);
+        }
+        _updateSkipPromptKind(_computeSkipPromptKind(_player.state.position));
       });
     }
     final prefs = await SharedPreferences.getInstance();
@@ -1180,6 +1227,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     await prefs.setInt(_introMaxSecondsPrefKey, _introMaxSeconds);
     await prefs.setInt(_outroMaxSecondsPrefKey, _outroMaxSeconds);
     await prefs.setBool(_fixedDurationSkipPrefKey, fixedDurationEnabled);
+    if (autoSkip != null) {
+      await prefs.setBool(_introOutroAutoSkipPrefKey, autoSkip);
+    }
+    if (countdownSeconds != null) {
+      await prefs.setInt(_skipCountdownPrefKey, _skipCountdownSeconds);
+    }
     // 与飞牛官方片头片尾配置保持同步；固定时长关闭时清除服务端配置（对齐旧版官方模式语义）。
     unawaited(_pushIntroOutroConfig());
   }
@@ -1205,9 +1258,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         if (outro != null && outro >= 0) {
           _outroMaxSeconds = outro.clamp(_skipSecondsMin, _skipSecondsMax);
         }
-        _skipPromptKindNotifier.value = _computeSkipPromptKind(
-          _player.state.position,
-        );
+        _updateSkipPromptKind(_computeSkipPromptKind(_player.state.position));
       });
     } catch (_) {
       // 拉取失败不阻塞播放，保持本地偏好。
@@ -1784,7 +1835,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _toastTimer?.cancel();
     _introSkipDismissed = false;
     _outroSkipDismissed = false;
-    _skipPromptKindNotifier.value = null;
+    _updateSkipPromptKind(null);
     if (!mounted) return;
     _updateView(() {
       _playbackCompleted = false;
@@ -2091,7 +2142,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         if (!_isCurrentSourceChange(generation)) return;
         _updateView(() => _abLoopStart = position);
         _cancelAutoNext(suppress: false);
-        _skipPromptKindNotifier.value = null;
+        _updateSkipPromptKind(null);
         _showPlayerMessage(
           _l10n.playerAbLoopPointSet(_formatDuration(position)),
         );
@@ -2826,6 +2877,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           introMaxSeconds: _introMaxSeconds,
           outroMaxSeconds: _outroMaxSeconds,
           fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
+          introOutroAutoSkip: _introOutroAutoSkip,
+          skipCountdownSeconds: _skipCountdownSeconds,
           hasNextEpisode: _nextEpisode != null,
           subtitleDelaySeconds: _subtitleDelaySeconds,
           subtitlePosition: _subtitlePosition,
@@ -3343,6 +3396,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           introMaxSeconds: _introMaxSeconds,
           outroMaxSeconds: _outroMaxSeconds,
           fixedDurationSkipEnabled: _fixedDurationSkipEnabled,
+          introOutroAutoSkip: _introOutroAutoSkip,
+          skipCountdownSeconds: _skipCountdownSeconds,
           hasNextEpisode: _nextEpisode != null,
           subtitleDelaySeconds: _subtitleDelaySeconds,
           subtitlePosition: _subtitlePosition,
@@ -3943,6 +3998,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                                     _source.url,
                                   ).isScheme('file'),
                                   chapters: _chapters,
+                                  skipBounds: _skipBounds,
                                   seekThumbnails: _source.seekThumbnails,
                                   seekThumbnailBifUrl:
                                       _source.seekThumbnailBifUrl,
@@ -4400,14 +4456,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                             size: 19,
                           ),
                           const SizedBox(width: 9),
-                          Text(
-                            message ?? '',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                          _buildSkipPromptMessage(kind, message),
                           const SizedBox(width: 10),
                           TextButton(
                             onPressed: () => unawaited(_skipIntroOrOutro()),
@@ -4443,6 +4492,41 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           },
         ),
       ),
+    );
+  }
+
+  /// 提示卡文案；自动跳过开启时附带剩余秒数（随播放位置推进，暂停即冻结）。
+  Widget _buildSkipPromptMessage(_SkipPromptKind? kind, String? message) {
+    const style = TextStyle(
+      color: Colors.white,
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+    );
+    if (kind == null || message == null || !_introOutroAutoSkip) {
+      return Text(message ?? '', style: style);
+    }
+    final shown = _skipPromptShownPosition;
+    return StreamBuilder<Duration>(
+      stream: _player.stream.position,
+      initialData: _player.state.position,
+      builder: (context, snapshot) {
+        String suffix = '';
+        if (shown != null) {
+          final autoSkipAt = desktopSkipAutoAdvanceAt(
+            intro: kind == _SkipPromptKind.intro,
+            bounds: _skipBounds,
+            shownPosition: shown,
+            countdownSeconds: _skipCountdownSeconds,
+            duration: _player.state.duration,
+          );
+          if (autoSkipAt != null) {
+            final position = snapshot.data ?? _player.state.position;
+            final remaining = (autoSkipAt - position).inSeconds.clamp(0, 99);
+            suffix = ' · ${remaining}s 后自动跳过';
+          }
+        }
+        return Text('$message$suffix', style: style);
+      },
     );
   }
 

@@ -570,6 +570,162 @@ void main() {
     expect(fixedOnly.introFromChapter, isFalse);
   });
 
+  DesktopPlaybackSkipBounds boundsForAutoAdvance() => desktopPlaybackSkipBounds(
+    const [
+      DesktopPlayerChapter(title: 'OP', position: Duration(seconds: 30)),
+      DesktopPlayerChapter(title: '正片', position: Duration(seconds: 125)),
+      DesktopPlayerChapter(title: 'ED', position: Duration(seconds: 1300)),
+      DesktopPlayerChapter(title: '预告', position: Duration(seconds: 1400)),
+    ],
+    const Duration(minutes: 24),
+    chapterEnabled: true,
+    fixedDurationEnabled: false,
+    introSeconds: 120,
+    outroSeconds: 120,
+  );
+
+  test('自动跳过时间点为出现位置加倒计时', () {
+    final at = desktopSkipAutoAdvanceAt(
+      intro: true,
+      bounds: boundsForAutoAdvance(),
+      shownPosition: const Duration(seconds: 88),
+      countdownSeconds: 5,
+      duration: const Duration(minutes: 24),
+    );
+    expect(at, const Duration(seconds: 93));
+  });
+
+  test('自动跳过不早于范围起点也不越过范围终点', () {
+    final bounds = boundsForAutoAdvance();
+    // 出现位置 + 倒计时早于片头起点时，等到片头起点才自动跳。
+    expect(
+      desktopSkipAutoAdvanceAt(
+        intro: true,
+        bounds: bounds,
+        shownPosition: const Duration(seconds: 20),
+        countdownSeconds: 5,
+        duration: const Duration(minutes: 24),
+      ),
+      const Duration(seconds: 30),
+    );
+    // 片头剩余区间比倒计时短时，在片头终点执行。
+    expect(
+      desktopSkipAutoAdvanceAt(
+        intro: true,
+        bounds: bounds,
+        shownPosition: const Duration(seconds: 120),
+        countdownSeconds: 10,
+        duration: const Duration(minutes: 24),
+      ),
+      const Duration(seconds: 125),
+    );
+    // 片尾倒计时归零在 ED 起点后 5 秒触发，跳过目标由 outroEnd 决定。
+    expect(
+      desktopSkipAutoAdvanceAt(
+        intro: false,
+        bounds: bounds,
+        shownPosition: const Duration(seconds: 1296),
+        countdownSeconds: 5,
+        duration: const Duration(minutes: 24),
+      ),
+      const Duration(seconds: 1301),
+    );
+    // ED 是最后一章时覆盖到文件结尾，归零点最晚不超过结尾。
+    final lastEd = desktopPlaybackSkipBounds(
+      const [
+        DesktopPlayerChapter(title: 'OP', position: Duration(seconds: 30)),
+        DesktopPlayerChapter(title: '正片', position: Duration(seconds: 125)),
+        DesktopPlayerChapter(title: 'ED', position: Duration(seconds: 1300)),
+      ],
+      const Duration(minutes: 24),
+      chapterEnabled: true,
+      fixedDurationEnabled: false,
+      introSeconds: 120,
+      outroSeconds: 120,
+    );
+    expect(
+      desktopSkipAutoAdvanceAt(
+        intro: false,
+        bounds: lastEd,
+        shownPosition: const Duration(seconds: 1438),
+        countdownSeconds: 5,
+        duration: const Duration(minutes: 24),
+      ),
+      const Duration(minutes: 24),
+    );
+  });
+
+  test('未识别到范围时自动跳过时间点为空', () {
+    final empty = desktopPlaybackSkipBounds(
+      const [],
+      const Duration(minutes: 24),
+      chapterEnabled: true,
+      fixedDurationEnabled: false,
+      introSeconds: 120,
+      outroSeconds: 120,
+    );
+    expect(
+      desktopSkipAutoAdvanceAt(
+        intro: true,
+        bounds: empty,
+        shownPosition: Duration.zero,
+        countdownSeconds: 5,
+        duration: const Duration(minutes: 24),
+      ),
+      isNull,
+    );
+    expect(
+      desktopSkipAutoAdvanceAt(
+        intro: false,
+        bounds: empty,
+        shownPosition: Duration.zero,
+        countdownSeconds: 5,
+        duration: const Duration(minutes: 24),
+      ),
+      isNull,
+    );
+  });
+
+  test('拖动落点只在贴近标记时轻微吸附', () {
+    const markers = [
+      Duration(seconds: 30),
+      Duration(seconds: 125),
+      Duration(seconds: 1300),
+    ];
+    // 3 秒内贴到标记。
+    expect(
+      snapSeekTargetToMarkers(
+        const Duration(seconds: 123, milliseconds: 500),
+        markers,
+      ),
+      const Duration(seconds: 125),
+    );
+    expect(
+      snapSeekTargetToMarkers(
+        const Duration(seconds: 31, milliseconds: 800),
+        markers,
+      ),
+      const Duration(seconds: 30),
+    );
+    // 超出 3 秒保持原落点，微调不受吸附影响。
+    expect(
+      snapSeekTargetToMarkers(const Duration(minutes: 2), markers),
+      const Duration(minutes: 2),
+    );
+    expect(
+      snapSeekTargetToMarkers(
+        const Duration(seconds: 1303, milliseconds: 1),
+        markers,
+      ),
+      const Duration(seconds: 1303, milliseconds: 1),
+    );
+    // 无标记时原样返回。
+    expect(
+      snapSeekTargetToMarkers(const Duration(minutes: 1), const []),
+      const Duration(minutes: 1),
+    );
+  });
+
   test('进度固定采样媒体身份，最终上报完成后再释放服务端会话', () async {
     final firstReport = Completer<void>();
     final released = Completer<void>();
@@ -1005,6 +1161,8 @@ void main() {
               introMaxSeconds: 120,
               outroMaxSeconds: 120,
               fixedDurationSkipEnabled: fixedEnabled,
+              introOutroAutoSkip: true,
+              skipCountdownSeconds: 5,
               hasNextEpisode: true,
               subtitleDelaySeconds: 0,
               subtitlePosition: 92,
@@ -1021,6 +1179,8 @@ void main() {
                     required introMaxSeconds,
                     required outroMaxSeconds,
                     required bool fixedDurationEnabled,
+                    bool? autoSkip,
+                    int? countdownSeconds,
                   }) async {
                     setState(() => fixedEnabled = fixedDurationEnabled);
                   },
@@ -1069,15 +1229,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('不提示跳过'), findsNWidgets(2));
     expect(find.text('固定片头时长'), findsNothing);
-    expect(find.text('跳过倒计时'), findsNothing);
+    // 自动跳过默认开启：开关与倒计时滑杆随总开关出现，与固定时长无关。
+    expect(find.text('倒计时结束自动跳过'), findsOneWidget);
+    expect(find.text('跳过倒计时'), findsOneWidget);
     await tester.tap(find.text('固定时长跳过'));
     await tester.pumpAndSettle();
     expect(find.text('固定片头时长'), findsOneWidget);
-    await tester.ensureVisible(find.text('当前片头'));
+    // 页面新增自动跳过开关与倒计时滑杆后，状态卡片超出懒加载列表已构建范围，先滚动再断言。
+    final settingsScrollable = find
+        .descendant(
+          of: find.byType(DesktopPlaybackSettingsPanel),
+          matching: find.byType(Scrollable),
+        )
+        .last;
+    await tester.scrollUntilVisible(find.text('当前片头'), 80, scrollable: settingsScrollable);
     await tester.pumpAndSettle();
     expect(find.text('固定时长 · 00:00–02:00'), findsOneWidget);
     expect(find.text('点击后跳到 02:00。'), findsOneWidget);
-    await tester.ensureVisible(find.text('当前片尾'));
+    await tester.scrollUntilVisible(find.text('当前片尾'), 80, scrollable: settingsScrollable);
     await tester.pumpAndSettle();
     expect(find.text('固定时长 · 22:00–24:00'), findsOneWidget);
     expect(find.text('点击后播放下一集，片尾起点之后的内容会一并跳过。'), findsOneWidget);

@@ -83,6 +83,16 @@ desktopChapterSkipBounds(
 /// 设置页和播放提示共用实际生效的范围；固定时长必须单独开启。
 /// 固定时长单位为秒，与飞牛 `play.setConfigByItem` 的 skip_opening/skip_ending 一致。
 /// [outroEnd] 非空时片尾跳过只到该边界（ED 章节后有其他内容），为空时覆盖到文件结尾。
+typedef DesktopPlaybackSkipBounds =
+    ({
+      Duration? introStart,
+      Duration? introEnd,
+      Duration? outroStart,
+      Duration? outroEnd,
+      bool introFromChapter,
+      bool outroFromChapter,
+    });
+
 ({
   Duration? introStart,
   Duration? introEnd,
@@ -140,6 +150,54 @@ desktopPlaybackSkipBounds(
     introFromChapter: detected.introEnd != null,
     outroFromChapter: detected.outroStart != null,
   );
+}
+
+/// 自动跳过模式下的执行时间点：提示出现位置 + 倒计时，但不早于范围起点、
+/// 不晚于范围终点（范围比倒计时短时在终点执行）。倒计时基于播放位置，暂停即冻结。
+/// 桌面端与安卓 nativeSkipAutoAdvanceAtMs 语义一致。
+Duration? desktopSkipAutoAdvanceAt({
+  required bool intro,
+  required DesktopPlaybackSkipBounds bounds,
+  required Duration shownPosition,
+  required int countdownSeconds,
+  required Duration duration,
+}) {
+  final lead = Duration(seconds: countdownSeconds);
+  if (intro) {
+    final end = bounds.introEnd;
+    if (end == null) return null;
+    final start = bounds.introStart ?? Duration.zero;
+    var at = shownPosition + lead;
+    if (start > at) at = start;
+    if (at > end) at = end;
+    return at;
+  }
+  final start = bounds.outroStart;
+  if (start == null) return null;
+  var at = shownPosition + lead;
+  if (start > at) at = start;
+  final end = bounds.outroEnd ?? duration;
+  if (at > end) at = end;
+  return at;
+}
+
+/// 拖动进度条的轻微吸附：落点距章节线或跳过窗口边界不足 [radius] 时贴到该标记，
+/// 只在很靠近时生效，远离标记的微调不受影响。无命中时原样返回。
+Duration snapSeekTargetToMarkers(
+  Duration target,
+  Iterable<Duration> markers, {
+  Duration radius = const Duration(seconds: 3),
+}) {
+  Duration? best;
+  var bestDelta = radius;
+  for (final marker in markers) {
+    final delta = (marker - target).abs();
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = marker;
+    }
+  }
+  return best ?? target;
 }
 
 /// 每个媒体只读一次章节，文件头尚未就绪时最多补读一次。

@@ -168,4 +168,90 @@ class NativeChapterSkipBoundsTest {
         assertNull(bounds.introEndMs)
         assertNull(bounds.outroStartMs)
     }
+
+    private fun bounds() = nativeChapterSkipBounds(
+        listOf(
+            chapter(30_000, "OP"),
+            chapter(125_000, "正片"),
+            chapter(1_300_000, "ED"),
+            chapter(1_400_000, "预告"),
+        ),
+        durationMs = 1_440_000,
+        chapterEnabled = true,
+        fixedDurationEnabled = false,
+        introSeconds = 120,
+        outroSeconds = 120,
+    )
+
+    @Test
+    fun autoAdvanceWaitsForCountdownFromShownPosition() {
+        // 提示在 88s 出现：倒计时 5s 归零点 = 出现位置 + 5s（在片头区间内）。
+        val at = nativeSkipAutoAdvanceAtMs(
+            intro = true, bounds(), shownPosMs = 88_000L, countdownMs = 5_000L, durationMs = 1_440_000,
+        )
+        assertEquals(93_000L, at)
+    }
+
+    @Test
+    fun autoAdvanceNeverBeforeWindowStartAndNeverPastWindowEnd() {
+        // 出现位置 + 倒计时早于片头起点时，等到起点才自动跳。
+        val early = nativeSkipAutoAdvanceAtMs(
+            intro = true, bounds(), shownPosMs = 20_000L, countdownMs = 5_000L, durationMs = 1_440_000,
+        )
+        assertEquals(30_000L, early)
+        // 片头剩余区间比倒计时短时，在片头终点执行。
+        val short = nativeSkipAutoAdvanceAtMs(
+            intro = true, bounds(), shownPosMs = 120_000L, countdownMs = 10_000L, durationMs = 1_440_000,
+        )
+        assertEquals(125_000L, short)
+    }
+
+    @Test
+    fun autoAdvanceOutroTriggersAfterCountdownAndCoversToFileEnd() {
+        // 片尾倒计时归零在 ED 起点后 5 秒触发；跳过目标（outroEnd）由跳过范围决定。
+        val at = nativeSkipAutoAdvanceAtMs(
+            intro = false, bounds(), shownPosMs = 1_296_000L, countdownMs = 5_000L, durationMs = 1_440_000,
+        )
+        assertEquals(1_301_000L, at)
+        // ED 是最后一章时覆盖到文件结尾，归零点最晚不超过结尾。
+        val lastEd = nativeChapterSkipBounds(
+            listOf(chapter(30_000, "OP"), chapter(125_000, "正片"), chapter(1_300_000, "ED")),
+            durationMs = 1_440_000,
+            chapterEnabled = true,
+            fixedDurationEnabled = false,
+            introSeconds = 120,
+            outroSeconds = 120,
+        )
+        val toEnd = nativeSkipAutoAdvanceAtMs(
+            intro = false, lastEd, shownPosMs = 1_438_000L, countdownMs = 5_000L, durationMs = 1_440_000,
+        )
+        assertEquals(1_440_000L, toEnd)
+    }
+
+    @Test
+    fun missingSideRangeReturnsNullForAutoAdvance() {
+        val empty = nativeChapterSkipBounds(
+            emptyList(),
+            durationMs = 1_440_000,
+            chapterEnabled = true,
+            fixedDurationEnabled = false,
+            introSeconds = 120,
+            outroSeconds = 120,
+        )
+        assertNull(nativeSkipAutoAdvanceAtMs(true, empty, 0L, 5_000L, 1_440_000))
+        assertNull(nativeSkipAutoAdvanceAtMs(false, empty, 0L, 5_000L, 1_440_000))
+    }
+
+    @Test
+    fun seekSnapsOnlyWithinSmallRadius() {
+        val markers = listOf(30_000L, 125_000L, 1_300_000L)
+        // 3 秒内贴到标记。
+        assertEquals(125_000L, snapSeekTargetMs(123_500L, markers))
+        assertEquals(30_000L, snapSeekTargetMs(31_800L, markers))
+        // 超出 3 秒保持原落点，微调不受吸附影响。
+        assertEquals(120_000L, snapSeekTargetMs(120_000L, markers))
+        assertEquals(1_303_001L, snapSeekTargetMs(1_303_001L, markers))
+        // 无标记时原样返回。
+        assertEquals(60_000L, snapSeekTargetMs(60_000L, emptyList()))
+    }
 }

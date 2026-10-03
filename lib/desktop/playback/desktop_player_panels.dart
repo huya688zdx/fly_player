@@ -1091,6 +1091,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required this.introMaxSeconds,
     required this.outroMaxSeconds,
     required this.fixedDurationSkipEnabled,
+    required this.introOutroAutoSkip,
+    required this.skipCountdownSeconds,
     required this.hasNextEpisode,
     required this.subtitleDelaySeconds,
     required this.subtitlePosition,
@@ -1136,6 +1138,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
   final int introMaxSeconds;
   final int outroMaxSeconds;
   final bool fixedDurationSkipEnabled;
+  final bool introOutroAutoSkip;
+  final int skipCountdownSeconds;
   final bool hasNextEpisode;
   final double subtitleDelaySeconds;
   final int subtitlePosition;
@@ -1145,6 +1149,8 @@ class DesktopPlaybackSettingsPanel extends StatefulWidget {
     required int introMaxSeconds,
     required int outroMaxSeconds,
     required bool fixedDurationEnabled,
+    bool? autoSkip,
+    int? countdownSeconds,
   })
   onIntroOutroChanged;
   final Future<void> Function({
@@ -1644,6 +1650,33 @@ class _DesktopPlaybackSettingsPanelState
         ),
       );
     }
+    if (widget.introOutroEnabled || widget.fixedDurationSkipEnabled) {
+      // 自动跳过子开关（默认开启，对齐安卓）：关闭后仅弹出提示，由用户手动点击跳过。
+      children.add(
+        _SettingsSwitchTile(
+          title: '倒计时结束自动跳过',
+          subtitle: '开启后提前弹出并倒计时，归零自动跳过；关闭仅提示',
+          value: widget.introOutroAutoSkip,
+          onChanged: (value) => _setIntroOutro(autoSkip: value),
+        ),
+      );
+      if (widget.introOutroAutoSkip) {
+        children.add(
+          _SettingsSliderTile(
+            title: '跳过倒计时',
+            subtitle: '提示提前弹出的秒数，倒计时归零自动跳过',
+            valueLabel: '${widget.skipCountdownSeconds} 秒',
+            value: widget.skipCountdownSeconds.toDouble(),
+            min: 2,
+            max: 10,
+            divisions: 8,
+            onChanged: (_) {},
+            onChangeEnd: (value) =>
+                _setIntroOutro(countdownSeconds: value.round()),
+          ),
+        );
+      }
+    }
     children.add(statusCard(intro: true));
     children.add(statusCard(intro: false));
     return _settingsList(children);
@@ -1664,6 +1697,8 @@ class _DesktopPlaybackSettingsPanelState
     int? introMaxSeconds,
     int? outroMaxSeconds,
     bool? fixedDurationEnabled,
+    bool? autoSkip,
+    int? countdownSeconds,
   }) async {
     await widget.onIntroOutroChanged(
       enabled: enabled ?? widget.introOutroEnabled,
@@ -1671,6 +1706,8 @@ class _DesktopPlaybackSettingsPanelState
       outroMaxSeconds: outroMaxSeconds ?? widget.outroMaxSeconds,
       fixedDurationEnabled:
           fixedDurationEnabled ?? widget.fixedDurationSkipEnabled,
+      autoSkip: autoSkip ?? widget.introOutroAutoSkip,
+      countdownSeconds: countdownSeconds ?? widget.skipCountdownSeconds,
     );
   }
 

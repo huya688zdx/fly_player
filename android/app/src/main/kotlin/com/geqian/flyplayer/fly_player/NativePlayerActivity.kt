@@ -1513,6 +1513,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var introOutroConfigGuid = ""
     private var introOutroConfigItemGuid = ""
     private var skipCountdownSec = 5
+    // 倒计时结束自动跳过（默认开启）；关闭后仅提示跳过，由用户手动点击。
+    private var introOutroAutoSkip = true
     private var introSkipDismissed = false
     private var outroSkipDismissed = false
     private lateinit var skipCard: LinearLayout
@@ -2852,6 +2854,31 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     /**
+     * 拖动进度条的轻微吸附：落点距章节线或跳过窗口边界不足 3 秒时贴到该标记，
+     * 便于对准章节与片头片尾边界；远离标记的微调不受影响（底部进度条与横拖手势共用）。
+     */
+    private fun snapSeekTarget(targetMs: Long): Long {
+        if (lastDurationMs <= 0) return targetMs
+        val candidates = mutableListOf<Long>()
+        candidates.addAll(chapterPositionsMs)
+        if (introOutroEnabled) {
+            val bounds = nativeChapterSkipBounds(
+                chapterList,
+                lastDurationMs,
+                chapterEnabled = true,
+                fixedDurationEnabled = fixedDurationSkipEnabled,
+                introSeconds = effectiveIntroSkipSec(),
+                outroSeconds = effectiveOutroSkipSec(),
+            )
+            bounds.introStartMs?.let { candidates.add(it) }
+            bounds.introEndMs?.let { candidates.add(it) }
+            bounds.outroStartMs?.let { candidates.add(it) }
+            bounds.outroEndMs?.let { candidates.add(it) }
+        }
+        return snapSeekTargetMs(targetMs, candidates)
+    }
+
+    /**
      * 起播就绪后读取 mpv 章节（含标题）：进度条标记与章节/片头片尾推断共用。
      * 网络流的首帧常早于 mkv 章节原子解析完成（chapter-list 为空），
      * 对齐桌面端 DesktopPlaybackChapters：读空后 2.5s 补读一次。
@@ -2914,6 +2941,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             isAntiAlias = true
             color = ACCENT
         }
+        // 跳过范围区带：琥珀色半透明，与白色章节刻度、accent AB 区带区分。
+        private val skipPaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            color = (0x59 shl 24) or (0xFFB74D.toInt() and 0xFFFFFF)
+        }
 
         override fun onDraw(canvas: android.graphics.Canvas) {
             val dur = lastDurationMs
@@ -2925,6 +2957,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val cy = height / 2f
             fun xFor(ms: Long): Float = left + span * (ms.coerceIn(0L, dur).toFloat() / dur)
 
+            // 片头/片尾跳过范围（章节识别或固定时长，总开关开启时）：区带样式，与章节刻度区分。
+            if (introOutroEnabled) {
+                val bounds = nativeChapterSkipBounds(
+                    chapterList,
+                    dur,
+                    chapterEnabled = true,
+                    fixedDurationEnabled = fixedDurationSkipEnabled,
+                    introSeconds = effectiveIntroSkipSec(),
+                    outroSeconds = effectiveOutroSkipSec(),
+                )
+                bounds.introStartMs?.let { start ->
+                    bounds.introEndMs?.let { end ->
+                        if (end > start) canvas.drawRect(xFor(start), cy - dp(3), xFor(end), cy + dp(3), skipPaint)
+                    }
+                }
+                bounds.outroStartMs?.let { start ->
+                    val end = bounds.outroEndMs ?: dur
+                    if (end > start) canvas.drawRect(xFor(start), cy - dp(3), xFor(end), cy + dp(3), skipPaint)
+                }
+            }
             if (abRepeatMode == 2 && abLoopEndMs > abLoopStartMs) {
                 canvas.drawRect(xFor(abLoopStartMs), cy - dp(3), xFor(abLoopEndMs), cy + dp(3), abPaint)
             }
@@ -3932,39 +3984,39 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             thumbOffset = dp(8)
             setPadding(dp(12), dp(14), dp(12), dp(14))
             var lastHapticProgress = progress
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                    if (fromUser && lastDurationMs > 0) {
-                        val bucket = progress / 10
-                        if (bucket != lastHapticProgress / 10) {
-                            lastHapticProgress = progress
-                            hapticTick()
+                    setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                        override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
+                            if (fromUser && lastDurationMs > 0) {
+                                val bucket = progress / 10
+                                if (bucket != lastHapticProgress / 10) {
+                                    lastHapticProgress = progress
+                                    hapticTick()
+                                }
+                                val targetMs = snapSeekTarget(lastDurationMs * progress / 1000)
+                                positionLabel.text = formatTime(targetMs)
+                                // 拖动底部进度条同样弹出缩略图预览浮层（与横拖手势一致）。
+                                showSeekPreview(targetMs, lastDurationMs)
+                            }
                         }
-                        val targetMs = lastDurationMs * progress / 1000
-                        positionLabel.text = formatTime(targetMs)
-                        // 拖动底部进度条同样弹出缩略图预览浮层（与横拖手势一致）。
-                        showSeekPreview(targetMs, lastDurationMs)
-                    }
-                }
-                override fun onStartTrackingTouch(sb: SeekBar) {
-                    if (isLiveChannel()) return
-                    userSeeking = true
-                    lastHapticProgress = sb.progress
-                    hapticTick()
-                    cancelControlsAutoHide()
-                }
-                override fun onStopTrackingTouch(sb: SeekBar) {
-                    if (isLiveChannel()) return
-                    userSeeking = false
-                    hapticTick()
-                    if (lastDurationMs > 0) {
-                        val targetMs = lastDurationMs * sb.progress / 1000
-                        seekPlayer(targetMs)
-                    }
-                    hideSeekPreview()
-                    scheduleControlsAutoHide()
-                }
-            })
+                        override fun onStartTrackingTouch(sb: SeekBar) {
+                            if (isLiveChannel()) return
+                            userSeeking = true
+                            lastHapticProgress = sb.progress
+                            hapticTick()
+                            cancelControlsAutoHide()
+                        }
+                        override fun onStopTrackingTouch(sb: SeekBar) {
+                            if (isLiveChannel()) return
+                            userSeeking = false
+                            hapticTick()
+                            if (lastDurationMs > 0) {
+                                val targetMs = snapSeekTarget(lastDurationMs * sb.progress / 1000)
+                                seekPlayer(targetMs)
+                            }
+                            hideSeekPreview()
+                            scheduleControlsAutoHide()
+                        }
+                    })
         }
         // 进度条 + 标记叠层（章节线 / AB 区间 / 书签点）。不拦触摸。
         markerView = ProgressMarkerView(this).apply {
@@ -7416,7 +7468,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /**
      * 片头片尾跳过提示：总开关开启且识别到范围（章节名识别或已开启的固定时长兜底）才显示。
-     * 提示在范围起点前 [skipCountdownSec] 秒弹出并显示倒计时；倒计时结束自动跳过，
+     * 自动跳过开启（[introOutroAutoSkip]，默认开）时提示在范围起点前 [skipCountdownSec] 秒弹出
+     * 并显示倒计时，倒计时结束自动跳过；关闭时在范围起点弹出、不倒计时不自动跳，等用户点击。
      * 点“跳过”立即跳，点 ✕ 取消则本次播放不再提示。暂停时倒计时随之冻结。
      * 仅自然播放进入范围才触发：检测到位置跳变（用户拖动/跳转）落在窗口内时不弹、不自动跳。
      * 片尾自动跳过的目标：ED 章节后还有内容时只跳到下一章节边界；ED 是最后一章才进下一集流程。
@@ -7455,11 +7508,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val introEndMs = bounds.introEndMs
         val outroStartMs = bounds.outroStartMs
         val outroEndMs = bounds.outroEndMs
-        // 提前量：提示在范围起点前 countdownSec 弹出；起点太近（固定片头从 0 开始）则起播 2s 后弹出。
+        // 提前量：自动跳过时提示在范围起点前 countdownSec 弹出；手动模式在范围起点弹出。
+        // 起点太近（固定片头从 0 开始）则起播 2s 后弹出。
         val introShowFromMs = introEndMs?.let {
-            maxOf(2_000L, (bounds.introStartMs ?: 0L) - countdownMs)
+            if (introOutroAutoSkip) maxOf(2_000L, (bounds.introStartMs ?: 0L) - countdownMs)
+            else maxOf(2_000L, bounds.introStartMs ?: 0L)
         } ?: Long.MAX_VALUE
-        val outroShowFromMs = outroStartMs?.let { maxOf(2_000L, it - countdownMs) } ?: Long.MAX_VALUE
+        val outroShowFromMs = outroStartMs?.let {
+            if (introOutroAutoSkip) maxOf(2_000L, it - countdownMs) else it
+        } ?: Long.MAX_VALUE
         val outroLimitMs = outroEndMs ?: dur
 
         // 手动 seek 检测：位置变化量与「采样间隔 × 倍速」的期望值不符（跳变）→ 是用户拖动/跳转。
@@ -7500,11 +7557,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
 
         when {
-            // 片头：提示弹出后开始倒计时，倒计时归零（最晚到片头起点）自动跳到片头结束。
+            // 片头：提示弹出后开始倒计时，倒计时归零（最晚到片头起点）自动跳到片头结束；
+            // 关闭自动跳过时不倒计时，按钮保留到片头结束，由用户点击。
             !introSkipDismissed && introEndMs != null && pos >= introShowFromMs && pos < introEndMs -> {
                 if (introPromptShownPosMs < 0) introPromptShownPosMs = pos
-                val autoSkipAtMs = maxOf(bounds.introStartMs ?: 0L, introPromptShownPosMs + countdownMs)
-                    .coerceAtMost(introEndMs)
+                val autoSkipAtMs = if (introOutroAutoSkip) {
+                    nativeSkipAutoAdvanceAtMs(intro = true, bounds, introPromptShownPosMs, countdownMs, dur)
+                        ?: introEndMs
+                } else {
+                    Long.MAX_VALUE
+                }
                 val remainingSec = ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
                 if (remainingSec <= 0) {
                     introSkipDismissed = true
@@ -7512,7 +7574,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     seekPlayer(introEndMs)
                     skipUserSeekPending = false // 自己的自动跳过不算用户 seek
                 } else {
-                    skipText.text = "${localizedString(R.string.player_text_0066)} ${remainingSec}s"
+                    skipText.text = localizedString(R.string.player_text_0066) +
+                        if (introOutroAutoSkip) " ${remainingSec}s" else ""
                     skipAction = {
                         introSkipDismissed = true
                         skipCard.visibility = View.GONE
@@ -7526,11 +7589,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     if (skipCard.visibility != View.VISIBLE) skipCard.visibility = View.VISIBLE
                 }
             }
-            // 片尾：提前弹出并倒计时，归零自动跳到下一章节边界（ED 后无内容则进下一集流程）。
+            // 片尾：提前弹出并倒计时，归零自动跳到下一章节边界（ED 后无内容则进下一集流程）；
+            // 关闭自动跳过时按钮保留到片尾结束，由用户点击。
             !outroSkipDismissed && outroStartMs != null && pos >= outroShowFromMs && pos < outroLimitMs -> {
                 if (outroPromptShownPosMs < 0) outroPromptShownPosMs = pos
-                val autoSkipAtMs = maxOf(outroStartMs, outroPromptShownPosMs + countdownMs)
-                    .coerceAtMost(outroLimitMs)
+                val autoSkipAtMs = if (introOutroAutoSkip) {
+                    nativeSkipAutoAdvanceAtMs(intro = false, bounds, outroPromptShownPosMs, countdownMs, dur)
+                        ?: outroLimitMs
+                } else {
+                    Long.MAX_VALUE
+                }
                 val remainingSec = ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
                 val skipOutroTarget: () -> Unit = {
                     if (outroEndMs != null) seekPlayer(outroEndMs)
@@ -7548,7 +7616,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         hasNext -> localizedString(R.string.player_text_0067)
                         else -> localizedString(R.string.player_text_0068)
                     }
-                    skipText.text = "${skipText.text} ${remainingSec}s"
+                    if (introOutroAutoSkip) skipText.text = "${skipText.text} ${remainingSec}s"
                     skipAction = {
                         outroSkipDismissed = true
                         skipCard.visibility = View.GONE
@@ -8333,6 +8401,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         outroMaxSec = (io["outroMaxSec"] as? Number)?.toInt()
             ?: ((io["outroMaxMin"] as? Number)?.toInt() ?: 2) * 60
         skipCountdownSec = ((io["skipCountdownSec"] as? Number)?.toInt() ?: 5).coerceIn(2, 10)
+        introOutroAutoSkip = (io["autoSkip"] as? Boolean) ?: true
         // 截图设置与 Flutter 端共享同一份偏好（FlutterSharedPreferences），两端互通不漂移。
         screenshotIncludeSubtitles = loadSharedScreenshotIncludeSubtitles()
         screenshotSaveMode = loadSharedScreenshotSaveMode()
@@ -8582,6 +8651,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             "introMaxMin" to (introMaxSec / 60).coerceAtLeast(1),
             "outroMaxMin" to (outroMaxSec / 60).coerceAtLeast(1),
             "skipCountdownSec" to skipCountdownSec,
+            "autoSkip" to introOutroAutoSkip,
         ),
     )
 
@@ -9813,10 +9883,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             })
         }
         if (introOutroEnabled) {
-            // 提示出现后 N 秒未操作自动收起（本次窗口不再提示）。
-            addPanelRow(panelSlider(localizedString(R.string.player_text_0278), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { localizedString(R.string.player_seconds_format, it.toInt()) }) { v ->
-                skipCountdownSec = v.toInt(); persistIntroOutro()
+            // 自动跳过子开关（默认开启）：关闭后仅弹出提示，由用户手动点击跳过。
+            addPanelRow(panelToggle("倒计时结束自动跳过", introOutroAutoSkip, subtitle = "开启后提前弹出并倒计时，归零自动跳过；关闭仅提示") { v ->
+                introOutroAutoSkip = v; persistIntroOutro(); renderTopPanel()
             })
+            if (introOutroAutoSkip) {
+                // 提前弹出的秒数与倒计时长度；关闭自动跳过后不提前弹出，该项随之隐藏。
+                addPanelRow(panelSlider(localizedString(R.string.player_text_0278), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { localizedString(R.string.player_seconds_format, it.toInt()) }) { v ->
+                    skipCountdownSec = v.toInt(); persistIntroOutro()
+                })
+            }
         }
         addPanelRow(panelSectionHeader("章节与固定时长"))
         addPanelRow(introOutroStatusRow(intro = true))
@@ -10313,7 +10389,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     // 全屏宽对应 ±120 秒 seek 量。
                     val deltaMs = (dx / w * 120_000L).toLong()
                     gestureSeekTargetMs =
-                        (gestureSeekStartMs + deltaMs).coerceIn(0L, durationMs)
+                        snapSeekTarget((gestureSeekStartMs + deltaMs).coerceIn(0L, durationMs))
                     val bucket = gestureSeekTargetMs / 5_000L
                     if (bucket != gestureSeekHapticBucket) {
                         gestureSeekHapticBucket = bucket

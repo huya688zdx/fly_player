@@ -33,6 +33,7 @@ class DesktopPlayerControls extends StatefulWidget {
     required this.showBuffer,
     this.isLive = false,
     this.chapters = const [],
+    this.skipBounds,
     this.seekThumbnails = const [],
     this.seekThumbnailBifUrl = '',
     this.thumbnailHeaders = const {},
@@ -99,6 +100,7 @@ class DesktopPlayerControls extends StatefulWidget {
   final Player player;
   final bool showBuffer;
   final List<DesktopPlayerChapter> chapters;
+  final DesktopPlaybackSkipBounds? skipBounds;
   final List<MpvSeekThumbnail> seekThumbnails;
   final String seekThumbnailBifUrl;
   final Map<String, String> thumbnailHeaders;
@@ -348,19 +350,20 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    if (!widget.isLive)
-                      SizedBox(
-                        height: 26,
-                        child: _DesktopTimeline(
-                          position: position,
-                          duration: duration,
-                          buffered: widget.showBuffer ? buffer : Duration.zero,
-                          chapters: widget.chapters,
-                          thumbnails: _thumbnails,
-                          accent: colors.accent,
-                          onSeek: widget.onSeek,
+                      if (!widget.isLive)
+                        SizedBox(
+                          height: 26,
+                          child: _DesktopTimeline(
+                            position: position,
+                            duration: duration,
+                            buffered: widget.showBuffer ? buffer : Duration.zero,
+                            chapters: widget.chapters,
+                            skipBounds: widget.skipBounds,
+                            thumbnails: _thumbnails,
+                            accent: colors.accent,
+                            onSeek: widget.onSeek,
+                          ),
                         ),
-                      ),
                     SizedBox(height: compact ? 2 : 4),
                     Row(
                       children: <Widget>[
@@ -780,12 +783,14 @@ class _DesktopTimeline extends StatefulWidget {
     required this.thumbnails,
     required this.accent,
     required this.onSeek,
+    this.skipBounds,
   });
 
   final Duration position;
   final Duration duration;
   final Duration buffered;
   final List<DesktopPlayerChapter> chapters;
+  final DesktopPlaybackSkipBounds? skipBounds;
   final DesktopSeekThumbnails thumbnails;
   final Color accent;
   final Future<void> Function(Duration) onSeek;
@@ -822,32 +827,66 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
     return (dx / width).clamp(0, 1).toDouble();
   }
 
+  /// 吸附候选：章节线与跳过窗口边界（片头起点/终点、片尾起点/终点）。
+  List<Duration> get _snapMarkers {
+    final markers = <Duration>[
+      for (final chapter in widget.chapters) chapter.position,
+    ];
+    final bounds = widget.skipBounds;
+    if (bounds != null) {
+      for (final edge in <Duration?>[
+        bounds.introStart,
+        bounds.introEnd,
+        bounds.outroStart,
+        bounds.outroEnd,
+      ]) {
+        if (edge != null) markers.add(edge);
+      }
+    }
+    return markers;
+  }
+
+  Duration _snapTarget(Duration target) =>
+      snapSeekTargetToMarkers(target, _snapMarkers);
+
+  double _snapFraction(double fraction) {
+    if (_durationMs <= 0) return fraction;
+    final snapped = _snapTarget(
+      Duration(milliseconds: (fraction * _durationMs).round()),
+    );
+    return (snapped.inMilliseconds / _durationMs).clamp(0, 1).toDouble();
+  }
+
   void _begin(double dx, double width) {
     setState(() {
       _dragging = true;
-      _dragValue = _fraction(dx, width);
+      _dragValue = _snapFraction(_fraction(dx, width));
     });
   }
 
   void _update(double dx, double width) {
     if (!_dragging) return;
-    setState(() => _dragValue = _fraction(dx, width));
+    setState(() => _dragValue = _snapFraction(_fraction(dx, width)));
   }
 
   void _end({double? tapFraction}) {
     // 单击使用松开位置，不依赖可能已被拖动取消回调清掉的状态。
     if (tapFraction == null && !_dragging) return;
-    final target = Duration(
-      milliseconds:
-          ((tapFraction ?? _dragValue) * widget.duration.inMilliseconds)
-              .round(),
+    final target = _snapTarget(
+      Duration(
+        milliseconds:
+            ((tapFraction ?? _dragValue) * widget.duration.inMilliseconds)
+                .round(),
+      ),
     );
     setState(() => _dragging = false);
     unawaited(widget.onSeek(target));
   }
 
   String _tipLabel(double width) {
-    final fraction = _dragging ? _dragValue : _fraction(_hoverDx, width);
+    final fraction = _dragging
+        ? _dragValue
+        : _snapFraction(_fraction(_hoverDx, width));
     final target = Duration(milliseconds: (fraction * _durationMs).round());
     final safe = target < Duration.zero ? Duration.zero : target;
     final hours = safe.inHours;
@@ -928,6 +967,7 @@ class _DesktopTimelineState extends State<_DesktopTimeline> {
                       accent: widget.accent,
                       chapters: widget.chapters,
                       duration: widget.duration,
+                      skipBounds: widget.skipBounds,
                     ),
                     size: Size(width, constraints.maxHeight),
                   ),
@@ -999,6 +1039,7 @@ class _TimelinePainter extends CustomPainter {
     required this.accent,
     required this.chapters,
     required this.duration,
+    this.skipBounds,
   });
 
   final double position;
@@ -1007,6 +1048,7 @@ class _TimelinePainter extends CustomPainter {
   final Color accent;
   final List<DesktopPlayerChapter> chapters;
   final Duration duration;
+  final DesktopPlaybackSkipBounds? skipBounds;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1041,6 +1083,27 @@ class _TimelinePainter extends CustomPainter {
         Paint()..color = accent,
       );
     }
+    // 片头/片尾跳过范围区带：琥珀色半透明，与白色章节刻度区分（对齐安卓进度条）。
+    final bounds = skipBounds;
+    if (bounds != null && duration > Duration.zero) {
+      final bandPaint = Paint()..color = const Color(0x59FFB74D);
+      void band(Duration? start, Duration? end) {
+        if (start == null || end == null || end <= start) return;
+        if (start >= duration) return;
+        final x0 =
+            size.width * start.inMilliseconds / duration.inMilliseconds;
+        final x1 =
+            size.width * end.inMilliseconds.clamp(0, duration.inMilliseconds) /
+            duration.inMilliseconds;
+        canvas.drawRect(
+          Rect.fromLTRB(x0, top - 1, x1, top + trackHeight + 1),
+          bandPaint,
+        );
+      }
+
+      band(bounds.introStart, bounds.introEnd);
+      band(bounds.outroStart, bounds.outroEnd ?? duration);
+    }
     if (duration > Duration.zero) {
       final markerPaint = Paint()..color = Colors.white.withValues(alpha: 0.85);
       for (final chapter in chapters) {
@@ -1073,7 +1136,8 @@ class _TimelinePainter extends CustomPainter {
         oldDelegate.emphasized != emphasized ||
         oldDelegate.chapters != chapters ||
         oldDelegate.duration != duration ||
-        oldDelegate.accent != accent;
+        oldDelegate.accent != accent ||
+        oldDelegate.skipBounds != skipBounds;
   }
 }
 

@@ -1,5 +1,7 @@
 package com.geqian.flyplayer.fly_player
 
+import kotlin.math.abs
+
 /**
  * 片头/片尾跳过范围（毫秒）；null 表示该侧未识别到，不提示跳过。
  * [outroEndMs] = ED 章节之后若还有其他章节，取下一章节起点（ED 后有正片/彩蛋时只跳片尾曲本身）；
@@ -110,4 +112,48 @@ fun nativeChapterSkipBounds(
         introFromChapter = introFromChapter,
         outroFromChapter = outroFromChapter,
     )
+}
+
+/**
+ * 自动跳过模式下的执行时间点（毫秒）：提示出现位置 + 倒计时，但不早于范围起点、
+ * 不晚于范围终点（范围比倒计时短时在终点执行）。倒计时基于播放位置，暂停即冻结。
+ * 与桌面端 desktopSkipAutoAdvanceAt 语义一致；该侧未识别到范围时返回 null。
+ */
+fun nativeSkipAutoAdvanceAtMs(
+    intro: Boolean,
+    bounds: NativeChapterSkipBounds,
+    shownPosMs: Long,
+    countdownMs: Long,
+    durationMs: Long,
+): Long? {
+    if (intro) {
+        val endMs = bounds.introEndMs ?: return null
+        val startMs = bounds.introStartMs ?: 0L
+        return maxOf(startMs, shownPosMs + countdownMs).coerceAtMost(endMs)
+    }
+    val startMs = bounds.outroStartMs ?: return null
+    val endMs = bounds.outroEndMs ?: durationMs
+    return maxOf(startMs, shownPosMs + countdownMs).coerceAtMost(endMs)
+}
+
+/**
+ * 拖动进度条的轻微吸附：落点距章节线或跳过窗口边界不足 [radiusMs] 时贴到该标记，
+ * 只在很靠近时生效，远离标记的微调不受影响。无命中时原样返回（与桌面端
+ * snapSeekTargetToMarkers 语义一致）。
+ */
+fun snapSeekTargetMs(
+    targetMs: Long,
+    markerCandidatesMs: List<Long>,
+    radiusMs: Long = 3_000L,
+): Long {
+    var bestMs = targetMs
+    var bestDelta = radiusMs
+    for (marker in markerCandidatesMs) {
+        val delta = abs(marker - targetMs)
+        if (delta < bestDelta) {
+            bestDelta = delta
+            bestMs = marker
+        }
+    }
+    return bestMs
 }
