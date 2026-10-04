@@ -50,6 +50,7 @@ class NativePlayerActivityPanelModelsTest {
             R.string.player_current_speed -> "当前网速 ${formatArgs[0]}"
             R.string.player_current_speed_resume -> "当前网速 ${formatArgs[0]} · 预计恢复 ${formatArgs[1]}秒"
             R.string.player_quality_switching -> "正在为您切换至 ${formatArgs[0]}${formatArgs[1]} 画质，请稍等..."
+            R.string.player_pip_subtitle_format -> "${formatArgs[0]} · ${formatArgs[1]}"
                 else -> getString(resId)
             }
         }
@@ -69,6 +70,38 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals("1.5x", nativePanelPlaybackSpeedLabel(1.5))
         assertEquals("2.0x", nativePanelPlaybackSpeedLabel(2.0))
         assertEquals("0.75x", nativePanelPlaybackSpeedLabel(0.75))
+    }
+
+    @Test
+    fun pipActionKeysFiveForVodAndPlayPauseOnlyForLive() {
+        // 点播固定五键「上一集 / -15s / 播停 / +15s / 下一集」，顺序即系统遥控条排布。
+        assertEquals(
+            listOf(
+                NativePanelPipActionKey.PREVIOUS,
+                NativePanelPipActionKey.SEEK_BACK,
+                NativePanelPipActionKey.PLAY_PAUSE,
+                NativePanelPipActionKey.SEEK_FORWARD,
+                NativePanelPipActionKey.NEXT,
+            ),
+            nativePanelPipActionKeys(isLiveChannel = false),
+        )
+        // 直播频道只保留播停，不出现换集/快进快退键。
+        assertEquals(
+            listOf(NativePanelPipActionKey.PLAY_PAUSE),
+            nativePanelPipActionKeys(isLiveChannel = true),
+        )
+    }
+
+    @Test
+    fun pipSubtitleShowsSeriesAndEpisodeWithFallbacks() {
+        // 剧名 + 集名 → 「剧名 · 集名」。
+        assertEquals("悬疑剧 · 第3集", nativePanelPipSubtitle(testContext, "悬疑剧", "第3集"))
+        // 电影/单视频：剧名与集名同名 → 退化为单值，不重复展示。
+        assertEquals("海边的电影", nativePanelPipSubtitle(testContext, "海边的电影", "海边的电影"))
+        // 剧名缺失 → 只显示集名。
+        assertEquals("第1集", nativePanelPipSubtitle(testContext, "", "第1集"))
+        // 两者皆空（含纯空白剧名）→ 空副标题，调用方跳过 setSubtitle。
+        assertEquals("", nativePanelPipSubtitle(testContext, " ", ""))
     }
 
     @Test

@@ -36,6 +36,7 @@
     <string name="player_split_start_failed">分屏启动失败</string>
     <string name="player_split_unavailable_window">当前窗口不支持分屏，已恢复全屏</string>
     <string name="player_last_episode">已经是最后一集了</string>
+    <string name="player_first_episode">已经是第一集了</string>
     <string name="player_danmaku_enabled">弹幕已开启</string>
     <string name="player_danmaku_disabled">弹幕已关闭</string>
     <string name="player_subtitle_load_failed">字幕加载失败</string>
@@ -96,8 +97,14 @@
     <string name="player_volume_percent">音量 %1$d%%</string>
     <string name="player_media_action_rewind">后退</string>
     <string name="player_media_action_rewind_10s">后退10秒</string>
+    <string name="player_media_action_rewind_15s">后退15秒</string>
     <string name="player_media_action_forward">快进</string>
     <string name="player_media_action_forward_10s">快进10秒</string>
+    <string name="player_media_action_forward_15s">快进15秒</string>
+    <string name="player_media_action_previous">上一集</string>
+    <string name="player_media_action_next">下一集</string>
+    <!-- PiP 标题栏副标题：剧名 · 集名 -->
+    <string name="player_pip_subtitle_format">%1$s · %2$s</string>
     <string name="player_locked_unlock_hint">已锁定，点按锁图标解锁</string>
     <string name="player_coming_soon_format">「%1$s」即将支持</string>
     <string name="player_versions_count">%1$d 个版本</string>

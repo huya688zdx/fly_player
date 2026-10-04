@@ -20,6 +20,7 @@ object NativeMediaCommandCoordinator {
         fun onMediaSeekTo(positionMs: Long)
         fun onMediaSeekBy(deltaMs: Long)
         fun onMediaNext()
+        fun onMediaPrevious()
     }
 
     const val ACTION_PLAY = "com.geqian.flyplayer.fly_player.media.PLAY"
@@ -28,9 +29,15 @@ object NativeMediaCommandCoordinator {
     const val ACTION_FORWARD = "com.geqian.flyplayer.fly_player.media.FORWARD"
     const val ACTION_REWIND = "com.geqian.flyplayer.fly_player.media.REWIND"
     const val ACTION_NEXT = "com.geqian.flyplayer.fly_player.media.NEXT"
+    const val ACTION_PREVIOUS = "com.geqian.flyplayer.fly_player.media.PREVIOUS"
+    const val ACTION_SEEK_BACK_15S = "com.geqian.flyplayer.fly_player.media.SEEK_BACK_15S"
+    const val ACTION_SEEK_FWD_15S = "com.geqian.flyplayer.fly_player.media.SEEK_FWD_15S"
 
-    /** ±10s 快进/快退步长。 */
+    /** ±10s 快进/快退步长（通知/线控/媒体会话语义，保持不变）。 */
     const val SEEK_STEP_MS = 10_000L
+
+    /** 画中画五键的 ±15s 步长（悬浮小窗方案阶段 1；与通知 10s 语义解耦）。 */
+    const val PIP_SEEK_STEP_MS = 15_000L
 
     private val mainHandler = android.os.Handler(Looper.getMainLooper())
 
@@ -59,7 +66,10 @@ object NativeMediaCommandCoordinator {
             ACTION_TOGGLE -> post { handler.onMediaTogglePlayPause() }
             ACTION_FORWARD -> post { handler.onMediaSeekBy(SEEK_STEP_MS) }
             ACTION_REWIND -> post { handler.onMediaSeekBy(-SEEK_STEP_MS) }
+            ACTION_SEEK_FWD_15S -> post { handler.onMediaSeekBy(PIP_SEEK_STEP_MS) }
+            ACTION_SEEK_BACK_15S -> post { handler.onMediaSeekBy(-PIP_SEEK_STEP_MS) }
             ACTION_NEXT -> post { handler.onMediaNext() }
+            ACTION_PREVIOUS -> post { handler.onMediaPrevious() }
         }
     }
 

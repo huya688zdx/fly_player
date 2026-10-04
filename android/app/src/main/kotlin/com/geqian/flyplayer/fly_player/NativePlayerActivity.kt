@@ -601,6 +601,46 @@ internal fun nativePanelShouldOfferResumeOnLoad(
     isInSessionSwitch: Boolean,
 ): Boolean = !isInSessionSwitch || previousItemGuid.isEmpty() || previousItemGuid != nextItemGuid
 
+/** PiP 遥控条按键位次（悬浮小窗方案阶段 1 的五键遥控）。 */
+internal enum class NativePanelPipActionKey {
+    PREVIOUS,
+    SEEK_BACK,
+    PLAY_PAUSE,
+    SEEK_FORWARD,
+    NEXT,
+}
+
+/**
+ * PiP 遥控条按键编排：点播固定五键「上一集 / -15s / 播停 / +15s / 下一集」
+ * （系统对 PiP action 上限即 5，窄窗下由系统自行截取）；直播频道只保留播停。
+ */
+internal fun nativePanelPipActionKeys(isLiveChannel: Boolean): List<NativePanelPipActionKey> =
+    if (isLiveChannel) {
+        listOf(NativePanelPipActionKey.PLAY_PAUSE)
+    } else {
+        listOf(
+            NativePanelPipActionKey.PREVIOUS,
+            NativePanelPipActionKey.SEEK_BACK,
+            NativePanelPipActionKey.PLAY_PAUSE,
+            NativePanelPipActionKey.SEEK_FORWARD,
+            NativePanelPipActionKey.NEXT,
+        )
+    }
+
+/**
+ * PiP 标题栏副标题：「剧名 · 集名」；剧名缺失或与集名同名（电影/单视频）时退化为单值。
+ * 数据源为 loadArgs 既有字段（seriesTitle / 单集 title），无需额外递参。
+ */
+internal fun nativePanelPipSubtitle(context: Context, seriesTitle: String, episodeTitle: String): String {
+    val series = seriesTitle.trim()
+    val episode = episodeTitle.trim()
+    return when {
+        series.isEmpty() -> episode
+        episode.isEmpty() || episode == series -> series
+        else -> context.localizedString(R.string.player_pip_subtitle_format, series, episode)
+    }
+}
+
 private fun nativePanelBestWeakNetworkTarget(
     sorted: List<IndexedValue<Map<String, Any?>>>,
     currentQuality: Map<String, Any?>,
@@ -1458,6 +1498,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // OnBackInvokedCallback（API 33+）；用 Any? 持有，避免旧设备类加载该 API 类型。
     private var backInvokedCallback: Any? = null
     private var inPipMode = false
+    // PiP 态下已重打过 params 的播停态：仅在翻转时重打，避免状态回调 ~1s 一次的无效 IPC。
+    private var lastPipPausedRefreshed = false
     // 离开 PiP 后是否还在等待前台恢复：X 关闭/划走会先退 PiP 再走 onStop（无 onResume），
     // 用它区分「用户关掉小窗」和「点展开回全屏」，前者应在后台暂停播放。
     private var pipExitAwaitingResume = false
@@ -2638,6 +2680,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return episodes[currentIndex + 1]["itemGuid"]?.toString()?.takeIf { it.isNotEmpty() }
     }
 
+    /** 上一集三件套（对称 [playNextEpisode]/[nextEpisodeGuidOrNull]），供 PiP/媒体会话上一集键走同一条换片链路。 */
+    private fun playPrevEpisode(autoPlayAfterLoad: Boolean = true) {
+        val prevGuid = prevEpisodeGuidOrNull()
+        if (prevGuid != null) {
+            requestEpisode(prevGuid, autoPlayAfterLoad = autoPlayAfterLoad)
+        } else {
+            showTransientHint(localizedString(R.string.player_first_episode))
+        }
+    }
+
+    private fun prevEpisodeGuidOrNull(): String? {
+        val episodes = episodeList()
+        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        val currentIndex = episodes.indexOfFirst { it["itemGuid"]?.toString() == currentGuid }
+        if (currentIndex <= 0) return null
+        return episodes[currentIndex - 1]["itemGuid"]?.toString()?.takeIf { it.isNotEmpty() }
+    }
+
     private fun setDanmakuEnabled(enabled: Boolean) {
         danmakuEnabled = enabled
         danmakuSettings["enabled"] = enabled
@@ -3441,6 +3501,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (this::audioFocus.isInitialized && mediaSessionStarted) {
             updateMediaSession(playerSurface.state)
         }
+        // 换集/换源后同步 PiP 副标题（剧名·集名）与画面比例；PiP 内切集时遥控条文案即时跟上，
+        // 非 PiP 时也为下次进入小窗种好参数。
+        updatePipParams()
     }
 
     // ---- 沉浸式（隐藏系统栏，content 铺满，看齐 Flutter 播放器全屏观感） ----
@@ -7732,6 +7795,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return nextEpisodeGuidOrNull() != null
     }
 
+    private fun hasPrevEpisode(): Boolean {
+        if (isLiveChannel()) return false
+        return prevEpisodeGuidOrNull() != null
+    }
+
     private fun isInsideAutoNextPromptWindow(state: MpvPlayerState): Boolean {
         if (state.durationMs <= 0L || state.positionMs <= 0L) return false
         val remainingMs = state.durationMs - state.positionMs
@@ -10251,6 +10319,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         seekBar.isEnabled = !isLiveChannel()
         speedMotion?.setIconState(label = nativePanelPlaybackSpeedLabel(state.speed).replace("x", "×"))
         refreshPlayPauseIcon(state.paused)
+        // PiP 态播停翻转时重打 params，遥控条的播停图标才会跟着翻（非 PiP 时零开销）。
+        if (inPipMode && lastPipPausedRefreshed != state.paused) {
+            lastPipPausedRefreshed = state.paused
+            updatePipParams()
+        }
 
         // 自适应性能阶梯反馈（级别由内核根据真实掉帧升降，强设备不掉帧则恒为 0）。
         handlePerformanceFallbackLevel(state.performanceFallbackLevel)
@@ -10772,6 +10845,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
+    override fun onMediaPrevious() {
+        if (hasPrevEpisode()) {
+            playPrevEpisode()
+        } else {
+            showTransientHint(localizedString(R.string.player_first_episode))
+        }
+    }
+
     // ---- MediaSession 前台服务推送 ----
 
     /** 当前会话副标题：剧集名（与单集标题不同时）。 */
@@ -10795,6 +10876,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             durationMs = state.durationMs,
             speed = state.speed.toFloat(),
             canNext = hasNextEpisode(),
+            canPrev = hasPrevEpisode(),
         )
         mediaSessionStarted = true
     }
@@ -10828,35 +10910,52 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun pipRemoteActions(): List<RemoteAction> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return emptyList()
         val paused = playerSurface.state.paused
-        val rewind = RemoteAction(
-            Icon.createWithResource(this, android.R.drawable.ic_media_rew),
-            localizedString(R.string.player_media_action_rewind),
-            localizedString(R.string.player_media_action_rewind_10s),
-            pipCommandIntent(NativeMediaCommandCoordinator.ACTION_REWIND, 41),
-        )
-        val playPause = if (paused) {
-            RemoteAction(
-                Icon.createWithResource(this, android.R.drawable.ic_media_play),
-                localizedString(R.string.notification_action_play),
-                localizedString(R.string.notification_action_play),
-                pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PLAY, 42),
-            )
-        } else {
-            RemoteAction(
-                Icon.createWithResource(this, android.R.drawable.ic_media_pause),
-                localizedString(R.string.notification_action_pause),
-                localizedString(R.string.notification_action_pause),
-                pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PAUSE, 43),
-            )
+        // requestCode 按键位增量分配（41 起，与通知侧 21-25 错开）；键位固定，每次重建码位不变。
+        return nativePanelPipActionKeys(isLiveChannel()).mapIndexed { index, key ->
+            val requestCode = 41 + index
+            when (key) {
+                NativePanelPipActionKey.PREVIOUS -> RemoteAction(
+                    Icon.createWithResource(this, android.R.drawable.ic_media_previous),
+                    localizedString(R.string.player_media_action_previous),
+                    localizedString(R.string.player_media_action_previous),
+                    pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PREVIOUS, requestCode),
+                )
+                NativePanelPipActionKey.SEEK_BACK -> RemoteAction(
+                    Icon.createWithResource(this, android.R.drawable.ic_media_rew),
+                    localizedString(R.string.player_media_action_rewind),
+                    localizedString(R.string.player_media_action_rewind_15s),
+                    pipCommandIntent(NativeMediaCommandCoordinator.ACTION_SEEK_BACK_15S, requestCode),
+                )
+                NativePanelPipActionKey.PLAY_PAUSE ->
+                    if (paused) {
+                        RemoteAction(
+                            Icon.createWithResource(this, android.R.drawable.ic_media_play),
+                            localizedString(R.string.notification_action_play),
+                            localizedString(R.string.notification_action_play),
+                            pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PLAY, requestCode),
+                        )
+                    } else {
+                        RemoteAction(
+                            Icon.createWithResource(this, android.R.drawable.ic_media_pause),
+                            localizedString(R.string.notification_action_pause),
+                            localizedString(R.string.notification_action_pause),
+                            pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PAUSE, requestCode),
+                        )
+                    }
+                NativePanelPipActionKey.SEEK_FORWARD -> RemoteAction(
+                    Icon.createWithResource(this, android.R.drawable.ic_media_ff),
+                    localizedString(R.string.player_media_action_forward),
+                    localizedString(R.string.player_media_action_forward_15s),
+                    pipCommandIntent(NativeMediaCommandCoordinator.ACTION_SEEK_FWD_15S, requestCode),
+                )
+                NativePanelPipActionKey.NEXT -> RemoteAction(
+                    Icon.createWithResource(this, android.R.drawable.ic_media_next),
+                    localizedString(R.string.player_media_action_next),
+                    localizedString(R.string.player_media_action_next),
+                    pipCommandIntent(NativeMediaCommandCoordinator.ACTION_NEXT, requestCode),
+                )
+            }
         }
-        if (isLiveChannel()) return listOf(playPause)
-        val forward = RemoteAction(
-            Icon.createWithResource(this, android.R.drawable.ic_media_ff),
-            localizedString(R.string.player_media_action_forward),
-            localizedString(R.string.player_media_action_forward_10s),
-            pipCommandIntent(NativeMediaCommandCoordinator.ACTION_FORWARD, 44),
-        )
-        return listOf(rewind, playPause, forward)
     }
 
     private fun buildPipParams(): PictureInPictureParams {
@@ -10868,8 +10967,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setAutoEnterEnabled(!playbackParked && pipAutoEnter && !playerSurface.state.paused)
         }
+        // API 33+ 画中画标题下方显示「剧名 · 集名」；电影/直播退化为单值，纯空则不出副标题。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val subtitle = pipSubtitle()
+            if (subtitle.isNotEmpty()) builder.setSubtitle(subtitle)
+        }
         return builder.build()
     }
+
+    private fun pipSubtitle(): String =
+        nativePanelPipSubtitle(
+            context = this,
+            seriesTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty(),
+            episodeTitle = mediaTitle,
+        )
 
     /** 刷新 PIP 参数（播停切换时更新小窗按钮图标 + 自动进入开关）。 */
     private fun updatePipParams() {

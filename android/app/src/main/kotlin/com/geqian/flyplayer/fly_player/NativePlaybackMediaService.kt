@@ -85,6 +85,11 @@ class NativePlaybackMediaService : Service() {
 
                     override fun onSkipToNext() = NativeMediaCommandCoordinator.dispatchNext()
 
+                    override fun onSkipToPrevious() =
+                        NativeMediaCommandCoordinator.dispatchAction(
+                            NativeMediaCommandCoordinator.ACTION_PREVIOUS,
+                        )
+
                     override fun onSeekTo(pos: Long) =
                         NativeMediaCommandCoordinator.dispatchSeekTo(pos)
 
@@ -136,7 +141,8 @@ class NativePlaybackMediaService : Service() {
                         prev.durationMs != next.durationMs ||
                         prev.isPlaying != next.isPlaying ||
                         prev.playbackState != next.playbackState ||
-                        prev.canNext != next.canNext
+                        prev.canNext != next.canNext ||
+                        prev.canPrev != next.canPrev
                     if (heavy) {
                         pushSession(next)
                         startForegroundCompat(buildNotification(next))
@@ -210,7 +216,8 @@ class NativePlaybackMediaService : Service() {
             PlaybackStateCompat.ACTION_FAST_FORWARD or
             PlaybackStateCompat.ACTION_REWIND or
             (if (s.durationMs > 0L) PlaybackStateCompat.ACTION_SEEK_TO else 0L) or
-            (if (s.canNext) PlaybackStateCompat.ACTION_SKIP_TO_NEXT else 0L)
+            (if (s.canNext) PlaybackStateCompat.ACTION_SKIP_TO_NEXT else 0L) or
+            (if (s.canPrev) PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS else 0L)
         val speed = if (s.playbackState == PlaybackStateCompat.STATE_PLAYING) {
             s.speed.coerceAtLeast(0.1f)
         } else 0f
@@ -420,6 +427,7 @@ class NativePlaybackMediaService : Service() {
         val durationMs: Long,
         val speed: Float,
         val canNext: Boolean,
+        val canPrev: Boolean,
     ) {
         companion object {
             fun fromIntent(intent: Intent): SessionState? {
@@ -441,6 +449,7 @@ class NativePlaybackMediaService : Service() {
                     durationMs = intent.getLongExtra("durationMs", 0L),
                     speed = intent.getFloatExtra("speed", 1f),
                     canNext = intent.getBooleanExtra("canNext", false),
+                    canPrev = intent.getBooleanExtra("canPrev", false),
                 )
             }
         }
@@ -469,6 +478,7 @@ class NativePlaybackMediaService : Service() {
             durationMs: Long,
             speed: Float,
             canNext: Boolean,
+            canPrev: Boolean,
         ) {
             val intent = Intent(context, NativePlaybackMediaService::class.java).apply {
                 action = ACTION_UPDATE
@@ -485,6 +495,7 @@ class NativePlaybackMediaService : Service() {
                 putExtra("durationMs", durationMs)
                 putExtra("speed", speed)
                 putExtra("canNext", canNext)
+                putExtra("canPrev", canPrev)
             }
             ContextCompat.startForegroundService(context, intent)
         }
