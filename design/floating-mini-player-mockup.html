@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  悬浮小窗 · 交互参考稿（纯前端模拟 / 零外部依赖）
+  交互规范依据：docs/plans/floating-mini-player.md
+  · 安卓 = 方案 3.2~3.6：自绘悬浮窗（拖动 / 边缘吸附 / 控制层 /
+    接下来播放 / 边缘拖拽自由缩放 / 弹幕开关），进小窗 = 回桌面不暂停
+  · PC   = 方案 4 候选 A：主窗口缩为置顶迷你窗（顶部居中 + 置顶）
+  · 右下角 FPS 实测表 = 方案 5.1 P1/P4/P6 的前端可感知类比
+  双击本文件即可在浏览器演示，无任何网络请求。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>悬浮小窗 · 交互参考稿</title>
+<style>
+/* ========== 0. 设计令牌（对齐 lib/theme/app_theme.dart 的夜色底 + 品牌蓝） ========== */
+:root{
+  --bg:#070b12;
+  --panel:#0c1320;
+  --panel2:#111a2a;
+  --line:#1d2942;
+  --ink:#e8eef8;
+  --ink-dim:#8fa0bd;
+  --ink-faint:#66779a;
+  --accent:#3a82f7;
+  --accent-2:#74b8c8;
+  --good:#59c98b;
+  --warn:#e4be8b;
+  --bad:#e2607a;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{min-height:100%}
+body{
+  font-family:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+  color:var(--ink);
+  background:
+    radial-gradient(1100px 600px at 82% -10%, rgba(58,130,247,.13), transparent 55%),
+    radial-gradient(900px 520px at -10% 110%, rgba(116,184,200,.09), transparent 50%),
+    var(--bg);
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit}
+button{cursor:pointer}
+::selection{background:rgba(58,130,247,.35)}
+
+/* ========== 1. 顶栏与标签页 ========== */
+.masthead{
+  display:flex;align-items:center;gap:26px;flex-wrap:wrap;
+  padding:14px 28px;border-bottom:1px solid #17223a;
+  background:rgba(9,14,25,.82);backdrop-filter:blur(10px);
+  position:sticky;top:0;z-index:50;
+}
+.brand{display:flex;align-items:center;gap:13px}
+.brand .logo{
+  width:40px;height:40px;border-radius:12px;flex:none;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  display:grid;place-items:center;font-weight:700;font-size:19px;color:#fff;
+  box-shadow:0 6px 18px rgba(58,130,247,.35), inset 0 1px 0 rgba(255,255,255,.35);
+}
+.brand h1{font-size:17px;letter-spacing:.5px}
+.brand p{font-size:11.5px;color:var(--ink-faint);margin-top:3px}
+.tabs{display:flex;gap:5px;background:#0d1526;border:1px solid var(--line);padding:4px;border-radius:12px;margin-left:auto}
+.tab{
+  padding:8px 20px;border-radius:9px;border:0;background:transparent;
+  color:var(--ink-dim);font-size:13.5px;letter-spacing:1px;transition:.18s;
+}
+.tab:hover{color:var(--ink)}
+.tab.active{
+  background:linear-gradient(135deg,#3a82f7,#2f6cd8);color:#fff;
+  box-shadow:0 4px 14px rgba(58,130,247,.4);
+}
+
+/* ========== 2. 面板 / 舞台 / 说明栏 ========== */
+.panel{display:none}
+.panel.active{display:block}
+.stage-wrap{display:flex;gap:28px;align-items:flex-start;justify-content:center;padding:28px 30px 96px;flex-wrap:wrap}
+.notes{
+  width:308px;flex:none;
+  background:rgba(13,20,34,.72);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;font-size:12.5px;color:#a7b6d2;line-height:1.8;
+}
+.notes h3{font-size:13.5px;color:var(--ink);margin-bottom:10px;padding-left:10px;border-left:3px solid var(--accent)}
+.notes ol{padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.notes .k{
+  font-style:normal;font-weight:600;font-size:11.5px;color:#9cc2ff;
+  background:rgba(58,130,247,.14);border:1px solid rgba(58,130,247,.3);
+  border-radius:6px;padding:1px 7px;white-space:nowrap;
+}
+.notes em{font-style:normal;color:#cfe0ff}
+.notes .tip{margin-top:12px;font-size:11.5px;color:var(--ink-faint);border-top:1px dashed #22304a;padding-top:10px}
+
+/* ========== 3. 通用按钮 / 图标 ========== */
+[data-icon]{display:inline-flex;line-height:0}
+[data-icon] svg{width:16px;height:16px}
+.btn-accent{
+  display:inline-flex;align-items:center;gap:7px;
+  background:linear-gradient(135deg,#3a82f7,#2f6cd8);color:#fff;border:0;
+  border-radius:18px;padding:9px 16px;font-size:13px;letter-spacing:.5px;
+  box-shadow:0 6px 18px rgba(58,130,247,.3);transition:.18s;
+}
+.btn-accent:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.btn-accent [data-icon] svg{width:15px;height:15px}
+.cbtn{
+  width:30px;height:30px;border-radius:50%;flex:none;
+  background:rgba(10,15,24,.55);border:1px solid rgba(255,255,255,.15);
+  color:#eaf1fc;display:grid;place-items:center;transition:.15s;
+  backdrop-filter:blur(3px);
+}
+.cbtn:hover{background:rgba(40,58,90,.75)}
+.cbtn [data-icon] svg{width:16px;height:16px}
+.cbtn.big{width:44px;height:44px}
+.cbtn.big [data-icon] svg{width:23px;height:23px}
+.cbtn.on{color:#8fbcff;border-color:rgba(58,130,247,.75);box-shadow:0 0 10px rgba(58,130,247,.35)}
+.fill{display:block;height:100%;width:0%;background:linear-gradient(90deg,#5ea1ff,#3a82f7);border-radius:2px}
+
+/* ========== 4. 视频占位（CSS 动画渐变，无真实视频） ========== */
+.video-skin{
+  position:relative;overflow:hidden;--hue:210;
+  background:
+    radial-gradient(120% 90% at 18% 12%, hsl(var(--hue) 62% 33% / .85), transparent 62%),
+    radial-gradient(130% 100% at 86% 84%, hsl(calc(var(--hue) + 46) 68% 29% / .8), transparent 58%),
+    linear-gradient(150deg, hsl(var(--hue) 44% 19%), hsl(calc(var(--hue) + 30) 52% 9%) 60%, hsl(calc(var(--hue) - 20) 38% 6%));
+}
+.video-skin .sheen{
+  position:absolute;top:-10%;bottom:-10%;left:-55%;width:55%;pointer-events:none;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.085),transparent);
+  animation:sheen 5.4s linear infinite;
+}
+@keyframes sheen{from{transform:translateX(-15%)}to{transform:translateX(330%)}}
+/* 「播放中」律动条：暂停时停住，直观反馈播停状态 */
+.eq{position:absolute;left:10px;bottom:12px;display:flex;gap:3px;align-items:flex-end;height:14px;z-index:3}
+.eq i{width:3px;height:100%;border-radius:2px;background:#8fbcff;transform-origin:bottom;animation:eq .9s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:.15s}
+.eq i:nth-child(3){animation-delay:.32s}
+@keyframes eq{0%,100%{transform:scaleY(.25)}50%{transform:scaleY(1)}}
+.paused .eq i{animation-play-state:paused;transform:scaleY(.25)}
+.seek-flick{
+  position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);
+  font-weight:700;font-size:16px;color:#fff;opacity:0;pointer-events:none;z-index:4;
+  text-shadow:0 2px 8px rgba(0,0,0,.8);
+}
+.seek-flick.run{animation:flick .75s ease-out}
+@keyframes flick{0%{opacity:0;transform:translate(-50%,-26%)}25%{opacity:1}100%{opacity:0;transform:translate(-50%,-120%)}}
+.load-veil{
+  position:absolute;inset:0;z-index:5;display:none;place-items:center;
+  background:rgba(4,7,12,.42);
+}
+.load-veil.show{display:grid}
+.load-veil i{
+  width:26px;height:26px;border-radius:50%;
+  border:2.5px solid rgba(255,255,255,.22);border-top-color:#8fbcff;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.skl{height:10px;border-radius:5px;background:linear-gradient(90deg,#16203a,#22304a,#16203a);background-size:200% 100%;animation:shimmer 2.6s linear infinite}
+@keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+
+/* ========== 5. 安卓：手机框 ========== */
+.stage-android{display:flex;gap:28px;align-items:flex-start}
+.phone{
+  flex:none;width:386px;border-radius:48px;padding:13px;position:relative;
+  background:linear-gradient(160deg,#2b3446,#0c1018 42%);
+  box-shadow:0 36px 90px rgba(0,0,0,.55), inset 0 0 0 2px #05070c;
+}
+.phone::after{ /* 前摄像头挖孔 */
+  content:'';position:absolute;top:24px;left:50%;transform:translateX(-50%);
+  width:104px;height:20px;background:#05070c;border-radius:11px;z-index:45;
+}
+.phone-screen{position:relative;width:360px;height:760px;border-radius:36px;overflow:hidden;background:#0a0f1a;user-select:none}
+.statusbar{
+  position:absolute;top:0;left:0;right:0;height:34px;z-index:20;
+  display:flex;justify-content:space-between;align-items:center;padding:0 20px;
+  font-size:12px;font-weight:600;color:#eef3fb;text-shadow:0 1px 3px rgba(0,0,0,.6);
+  pointer-events:none;
+}
+
+/* ---- 5.1 应用播放页（全屏态） ---- */
+.app-page{position:absolute;inset:0;z-index:5;background:#0a0f1a}
+.player-area{width:100%;aspect-ratio:16/9;cursor:pointer}
+.video-top{
+  position:absolute;top:0;left:0;right:0;height:58px;z-index:3; /* 底部对齐，避开状态栏挖孔 */
+  display:flex;align-items:flex-end;padding:0 12px 5px;
+  background:linear-gradient(180deg,rgba(4,7,12,.6),transparent);
+  font-size:12px;color:#e6edf9;text-shadow:0 1px 3px rgba(0,0,0,.7);
+}
+.video-note{
+  position:absolute;inset:0;z-index:2;display:grid;place-content:center;gap:4px;
+  text-align:center;pointer-events:none;
+}
+.video-note b{font-size:12px;font-weight:600;color:rgba(255,255,255,.5);letter-spacing:2px}
+.video-note span{font-size:10px;color:rgba(255,255,255,.3)}
+.video-bottom{position:absolute;left:0;right:0;bottom:0;z-index:3;padding:6px 12px 8px;background:linear-gradient(0deg,rgba(4,7,12,.55),transparent)}
+.bar{height:3.5px;border-radius:2px;background:rgba(255,255,255,.16);overflow:hidden}
+.time-row{display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:rgba(255,255,255,.72);font-variant-numeric:tabular-nums}
+.page-body{padding:15px 16px;display:flex;flex-direction:column;gap:13px}
+.enter-row{display:flex;align-items:center;gap:11px}
+.enter-hint{font-size:11px;color:var(--ink-faint);line-height:1.45}
+.show-title{font-size:17.5px;font-weight:700;color:#eef3fb}
+.show-title .tags{font-size:11px;color:#7387ab;font-weight:400;margin-left:9px;letter-spacing:1px}
+.ep-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;max-height:168px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(120,150,200,.4) transparent}
+.ep-grid::-webkit-scrollbar{width:4px}
+.ep-grid::-webkit-scrollbar-thumb{background:rgba(120,150,200,.35);border-radius:2px}
+.chip{
+  height:28px;border-radius:7px;background:#141d31;border:1px solid var(--line);
+  color:#9fb0cc;font-size:11.5px;transition:.15s;
+}
+.chip:hover{border-color:#33507f;color:#cfe0ff}
+.chip.on{background:rgba(58,130,247,.18);border-color:var(--accent);color:#bcd4ff;font-weight:600}
+.skl-group{display:flex;flex-direction:column;gap:9px;margin-top:2px}
+
+/* ---- 5.2 模拟桌面（Launcher，体现「回桌面仍在播」） ---- */
+.launcher{
+  position:absolute;inset:0;z-index:10;
+  display:flex;flex-direction:column;align-items:center;padding-top:48px;
+  background:
+    radial-gradient(140% 90% at 72% 8%, rgba(58,130,247,.28), transparent 55%),
+    radial-gradient(120% 80% at 18% 92%, rgba(117,197,180,.2), transparent 52%),
+    linear-gradient(170deg,#0b1322,#0a0f1b);
+}
+.lk-clock{font-size:46px;font-weight:200;letter-spacing:2px;text-shadow:0 2px 14px rgba(0,0,0,.5)}
+.lk-date{font-size:12px;color:#93a5c4;margin:3px 0 24px;letter-spacing:1px}
+.lk-search{
+  width:76%;height:34px;border-radius:17px;margin-bottom:26px;
+  background:rgba(255,255,255,.08);backdrop-filter:blur(6px);
+  display:grid;place-items:center;font-size:12px;color:#8fa0bd;
+}
+.lk-grid{display:grid;grid-template-columns:repeat(4,66px);gap:16px 6px;justify-items:center}
+.aicon{width:60px;text-align:center;font-size:10.5px;color:#dbe4f5;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.aicon i{
+  display:grid;place-items:center;width:46px;height:46px;border-radius:13px;margin:0 auto 5px;
+  font-style:normal;font-size:18px;font-weight:600;color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.28), 0 5px 12px rgba(0,0,0,.35);
+}
+.aicon:active i{transform:scale(.93)}
+.lk-dock{
+  margin-top:auto;margin-bottom:18px;display:flex;gap:14px;padding:10px 15px;
+  background:rgba(255,255,255,.07);border-radius:22px;backdrop-filter:blur(8px);
+}
+
+/* ---- 5.3 悬浮小窗（对应 TYPE_APPLICATION_OVERLAY 的自绘窗口） ---- */
+.float-win{
+  position:absolute;left:0;top:0;z-index:40;
+  display:flex;flex-direction:column;overflow:hidden;
+  border-radius:14px;border:1px solid rgba(255,255,255,.1);background:#000;
+  box-shadow:0 16px 44px rgba(0,0,0,.55), 0 3px 10px rgba(0,0,0,.45);
+  will-change:transform;touch-action:none;cursor:grab;
+  transition:transform .3s cubic-bezier(.22,.9,.26,1),
+             width .3s cubic-bezier(.22,.9,.26,1),
+             height .3s cubic-bezier(.22,.9,.26,1),
+             box-shadow .2s;
+}
+.float-win.dragging{
+  cursor:grabbing;
+  box-shadow:0 34px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(58,130,247,.35);
+  transition:box-shadow .2s; /* 拖动中关闭位移/尺寸过渡，保证 1:1 跟手 */
+}
+.float-win.dragging .fw-controls{opacity:0}
+.fw-video{flex:1;min-height:0;position:relative}
+.fw-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.15);z-index:6}
+/* 定格帧覆盖层：进/出小窗的 surface 交接瞬间以定格图盖住 detach→attach 空洞
+   （方案 3.3 流程 2 / 5.2：交接必然伴随 destroy→重建，连续性由定格图兜底，P3 <200ms） */
+.freeze-veil{position:absolute;inset:0;z-index:6;display:none;place-items:center;background:rgba(4,7,12,.45)}
+.freeze-veil.show{display:grid}
+.freeze-veil span{
+  font-size:10.5px;color:rgba(255,255,255,.88);letter-spacing:1px;
+  background:rgba(10,16,28,.82);border:1px solid rgba(255,255,255,.2);
+  border-radius:6px;padding:3px 9px;
+}
+.frozen .sheen{animation-play-state:paused} /* 定格：渐变扫光暂停，示意画面冻结 */
+/* 弹幕层：CSS 动画横向飘过；关闭开关后 display:none（零渲染成本） */
+.fw-danmaku{position:absolute;inset:0;overflow:hidden;z-index:2;pointer-events:none}
+.dm{
+  position:absolute;left:100%;white-space:nowrap;line-height:1.4;
+  text-shadow:0 1px 3px rgba(0,0,0,.85);will-change:transform;
+  animation-name:dmFly;animation-timing-function:linear;animation-iteration-count:infinite;
+}
+@keyframes dmFly{from{transform:translateX(0)}to{transform:translateX(calc(-100% - var(--fw-vw,300px)))}}
+.paused .dm{animation-play-state:paused}
+/* 控制层：单击小窗呼出 */
+.fw-controls{
+  position:absolute;inset:0;z-index:7;display:flex;flex-direction:column;
+  justify-content:space-between;padding:6px;opacity:0;pointer-events:none;transition:opacity .18s;
+  background:linear-gradient(180deg,rgba(4,7,12,.62),rgba(4,7,12,.12) 32% 68%,rgba(4,7,12,.68));
+}
+.fw-controls.show{opacity:1;pointer-events:auto}
+.fwc-top{display:flex;align-items:center;gap:6px}
+.fwc-top .cbtn{width:26px;height:26px}
+.fwc-top .cbtn [data-icon] svg{width:14px;height:14px}
+.marq{flex:1;min-width:0;overflow:hidden;white-space:nowrap;font-size:11px;color:#e6edf9;text-shadow:0 1px 3px rgba(0,0,0,.75)}
+.marq .marq-in{display:inline-block}
+.marq.run .marq-in{animation:marq 12s linear infinite}
+@keyframes marq{to{transform:translateX(-50%)}}
+.fwc-center{display:flex;justify-content:center;align-items:center;gap:13px}
+.fwc-bottom{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.fwc-hint{flex:1;text-align:center;font-size:10px;color:rgba(255,255,255,.42);letter-spacing:1px;pointer-events:none}
+/* 边缘缩放把手：贴边内侧热区（对齐系统画中画的边缘自由缩放手感），低于控制层层级 */
+.rz{position:absolute;z-index:6;touch-action:none}
+.rz[data-rz="n"]{top:0;left:12px;right:12px;height:9px;cursor:ns-resize}
+.rz[data-rz="s"]{bottom:0;left:12px;right:12px;height:9px;cursor:ns-resize}
+.rz[data-rz="e"]{right:0;top:12px;bottom:12px;width:9px;cursor:ew-resize}
+.rz[data-rz="w"]{left:0;top:12px;bottom:12px;width:9px;cursor:ew-resize}
+.rz.c{width:15px;height:15px;z-index:6}
+.rz[data-rz="ne"]{top:0;right:0;cursor:nesw-resize}
+.rz[data-rz="nw"]{top:0;left:0;cursor:nwse-resize}
+.rz[data-rz="se"]{bottom:0;right:0;cursor:nwse-resize}
+.rz[data-rz="sw"]{bottom:0;left:0;cursor:nesw-resize}
+.float-win.resizing{transition:none;cursor:inherit}
+/* 锁定态：只保留解锁按钮 */
+.float-win.locked .fwc-center,
+.float-win.locked .fwc-bottom,
+.float-win.locked .marq,
+.float-win.locked #btnEpList,
+.float-win.locked #btnCloseFloat{display:none}
+.float-win.locked #btnLock{color:#8fbcff;border-color:rgba(58,130,247,.75)}
+/* 接下来播放条（方案 3.5：进程内就地换片） */
+.fw-next{
+  flex:none;height:40px;display:flex;align-items:center;gap:8px;padding:0 8px;
+  background:#0d1626;border-top:1px solid rgba(255,255,255,.07);transition:opacity .18s;
+}
+.fwn-label{
+  flex:none;font-size:10px;color:#8fbcff;border:1px solid rgba(58,130,247,.5);
+  border-radius:4px;padding:1.5px 5px;letter-spacing:1px;
+}
+.fwn-title{flex:1;min-width:0;font-size:12px;color:#cfdaee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn-swap{
+  flex:none;width:30px;height:30px;padding:0;border:0;border-radius:50%;
+  background:linear-gradient(135deg,#3a82f7,#2f6cd8);color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 3px 10px rgba(58,130,247,.35);
+}
+.btn-swap svg{width:15px;height:15px}
+.btn-swap:hover{filter:brightness(1.15)}
+/* 小窗内选集面板（盖在接下来播放条上方）：标题行 + 可滚动网格，长剧集不截断 */
+.fw-eps{
+  position:absolute;left:0;right:0;bottom:40px;z-index:9;
+  display:flex;flex-direction:column;max-height:64%;
+  background:rgba(7,11,19,.96);border-top:1px solid rgba(255,255,255,.09);
+  border-radius:10px 10px 0 0;overflow:hidden;
+}
+.fwe-head{
+  flex:none;display:flex;align-items:center;justify-content:space-between;
+  padding:5px 8px;font-size:10.5px;color:#8fbcff;letter-spacing:1px;
+  border-bottom:1px solid rgba(255,255,255,.07);
+}
+.fwe-head .cbtn{width:22px;height:22px}
+.fwe-grid{
+  overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:8px;
+  scrollbar-width:thin;scrollbar-color:rgba(120,150,200,.4) transparent;
+}
+.fwe-grid::-webkit-scrollbar{width:4px}
+.fwe-grid::-webkit-scrollbar-thumb{background:rgba(120,150,200,.35);border-radius:2px}
+.fw-eps .chip{height:24px;font-size:10.5px}
+
+/* ---- 5.4 Toast ---- */
+.toast{
+  position:absolute;left:50%;bottom:20px;transform:translate(-50%,10px);
+  max-width:86%;z-index:70;pointer-events:none;
+  background:rgba(10,16,28,.92);border:1px solid rgba(255,255,255,.12);
+  color:#e6edf9;font-size:11.5px;line-height:1.5;text-align:center;
+  padding:8px 14px;border-radius:10px;opacity:0;transition:.25s;
+  box-shadow:0 10px 30px rgba(0,0,0,.5);
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ========== 6. PC：模拟桌面 ========== */
+.stage-pc{display:flex;flex-direction:column;gap:22px;align-items:center;min-width:100%}
+.desktop{
+  position:relative;width:min(1150px,100%);height:648px;overflow:hidden;
+  border-radius:16px;border:1px solid var(--line);user-select:none;
+  background:
+    radial-gradient(900px 500px at 76% 16%, rgba(58,130,247,.17), transparent 60%),
+    radial-gradient(760px 500px at 16% 88%, rgba(116,184,200,.13), transparent 55%),
+    linear-gradient(160deg,#0a101d,#0d1526 55%,#080d17);
+}
+.desk-icons{position:absolute;left:16px;top:16px;display:flex;flex-direction:column;gap:16px;z-index:1}
+.dicon{width:70px;text-align:center;font-size:11px;color:#c9d6ee;text-shadow:0 1px 4px #000}
+.dicon i{
+  display:grid;place-items:center;width:42px;height:42px;margin:0 auto 5px;border-radius:10px;
+  background:linear-gradient(150deg,rgba(58,130,247,.25),rgba(58,130,247,.08));
+  border:1px solid rgba(140,170,230,.25);color:#bcd4ff;font-style:normal;
+}
+.dicon i svg{width:20px;height:20px}
+/* 通用窗口 */
+.win{
+  position:absolute;display:flex;flex-direction:column;overflow:hidden;
+  background:#0e1524;border:1px solid #26314a;border-radius:10px;
+  box-shadow:0 24px 60px rgba(0,0,0,.5);touch-action:normal;
+}
+.win.dragging{box-shadow:0 36px 84px rgba(0,0,0,.62);transition:none}
+.win.ghost{visibility:hidden}
+.win-titlebar{
+  flex:none;height:38px;display:flex;align-items:center;gap:9px;padding:0 10px;
+  background:linear-gradient(180deg,#151f34,#0f1728);cursor:grab;touch-action:none;
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+.win-titlebar.dragging,.win.dragging .win-titlebar{cursor:grabbing}
+.win-appicon{
+  flex:none;width:20px;height:20px;border-radius:5px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#3a82f7,#74b8c8);color:#fff;font-size:11px;font-weight:700;
+}
+.win-title{flex:1;min-width:0;font-size:12.5px;color:#c6d2e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.win-btns{display:flex;gap:2px}
+.win-btns b{width:28px;height:22px;display:grid;place-items:center;border-radius:5px;color:#8fa0bd;font-weight:600;font-size:12px}
+.win-btns b:hover{background:rgba(255,255,255,.09);color:#fff}
+.win-btns b.danger:hover{background:var(--bad);color:#fff}
+.pc-main{left:48px;top:34px;width:680px;z-index:20}
+.pc-video{flex:1;min-height:0;aspect-ratio:16/9;cursor:pointer} /* aspect-ratio 撑起窗口内容高度 */
+.pc-body{flex:none;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 15px;background:#0b1120}
+.pc-ep-tag{font-size:11.5px;color:#7387ab;font-weight:400;margin-left:9px}
+.skl-line{height:9px;border-radius:5px;background:#18233c;margin-top:8px}
+/* 「其他应用」假窗口（浅色便签风，演示置顶遮挡的被遮挡方） */
+.fake-app{width:384px;right:64px;top:88px;z-index:10;border-color:#c9c2b2;box-shadow:0 26px 60px rgba(0,0,0,.55)}
+.fake-app .win-titlebar{background:linear-gradient(180deg,#efe9db,#e4ddcc);border-bottom:1px solid #d4ccba}
+.fake-app .win-appicon{background:linear-gradient(135deg,#d0a36b,#b9834a)}
+.fake-app .win-title{color:#5a5244}
+.fake-app .win-btns b{color:#8b8271}
+.fake-app .win-btns b:hover{background:rgba(0,0,0,.08);color:#3b3630}
+.fake-body{background:#f6f2e9;color:#4a443a;height:224px;padding:12px 16px;font-size:11px}
+.fake-hint{
+  font-size:11px;line-height:1.65;color:#8a6d3b;background:#f3e6c4;border:1px dashed #d8c288;
+  border-radius:8px;padding:7px 10px;margin-bottom:10px;
+}
+.fline{height:9px;border-radius:4px;background:#e0d8c6;margin:10px 0}
+.fline.hl{background:#e8d49a}
+/* 置顶迷你窗（方案 4 候选 A） */
+.pc-mini{
+  left:0;top:0;width:360px;z-index:900;border-radius:12px;
+  border-color:rgba(120,160,255,.4);touch-action:none;cursor:grab;
+  box-shadow:0 30px 74px rgba(0,0,0,.62), 0 0 0 1px rgba(58,130,247,.28);
+  transition:box-shadow .2s;
+}
+.pc-mini.dragging{cursor:grabbing;box-shadow:0 40px 90px rgba(0,0,0,.7), 0 0 0 1px rgba(58,130,247,.5);transition:none}
+.pm-titlebar{
+  flex:none;height:30px;display:flex;align-items:center;gap:8px;padding:0 8px;
+  background:#101a2e;cursor:grab;touch-action:none;border-bottom:1px solid rgba(255,255,255,.06);
+}
+.pm-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 9px var(--accent)}
+.pm-pin{
+  flex:none;font-size:9.5px;color:#8fbcff;border:1px solid rgba(58,130,247,.5);
+  border-radius:4px;padding:1px 5px;letter-spacing:1px;
+}
+.pc-mini .marq{font-size:11px}
+.pc-mini .cbtn{width:24px;height:24px;background:rgba(255,255,255,.06)}
+.pc-mini .cbtn [data-icon] svg{width:14px;height:14px}
+.pc-mini .cbtn.big{width:33px;height:33px}
+.pc-mini .cbtn.big [data-icon] svg{width:18px;height:18px}
+.pm-video{flex:1;min-height:0;cursor:pointer}
+.pm-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.16);z-index:6}
+.pm-controls{
+  flex:none;height:44px;display:flex;align-items:center;gap:5px;padding:0 8px;
+  background:#0d1526;border-top:1px solid rgba(255,255,255,.06);
+}
+.pm-time{margin-left:auto;font-size:10.5px;color:#8fa0bd;font-variant-numeric:tabular-nums;padding-right:3px}
+/* 任务栏 */
+.taskbar{
+  position:absolute;left:0;right:0;bottom:0;height:46px;z-index:800;
+  display:flex;align-items:center;gap:10px;padding:0 14px;
+  background:rgba(10,16,28,.74);backdrop-filter:blur(12px);
+  border-top:1px solid rgba(255,255,255,.07);
+}
+.tb-start{
+  width:32px;height:32px;border-radius:8px;border:0;display:grid;place-items:center;
+  background:transparent;color:#bcd4ff;
+}
+.tb-start:hover{background:rgba(255,255,255,.09)}
+.papp{
+  width:28px;height:28px;border-radius:7px;display:grid;place-items:center;
+  color:#fff;font-size:12px;font-weight:700;box-shadow:inset 0 1px 0 rgba(255,255,255,.25);
+}
+.tb-right{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:11.5px;color:#c6d2e8;font-variant-numeric:tabular-nums;text-align:right}
+.tb-right .tb-date{color:#7f92b3;font-size:10.5px}
+
+/* ========== 7. FPS 实测表（右下角常驻） ========== */
+.fps-meter{
+  position:fixed;right:18px;bottom:18px;z-index:999;width:226px;
+  background:rgba(8,12,20,.85);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.1);border-radius:14px;
+  padding:11px 13px;box-shadow:0 16px 44px rgba(0,0,0,.5);
+  font-variant-numeric:tabular-nums;
+}
+.fps-head{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;letter-spacing:.5px}
+.fps-dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+.fps-sub{margin-left:auto;font-size:9.5px;font-weight:400;color:var(--ink-faint);letter-spacing:.3px}
+.fps-meter canvas{display:block;width:198px;height:46px;margin:9px 0 8px;border-radius:7px;background:rgba(255,255,255,.035)}
+.fps-stats{display:flex;gap:6px}
+.fps-stat{flex:1;text-align:center;background:rgba(255,255,255,.04);border-radius:8px;padding:5px 2px}
+.fps-stat b{display:block;font-size:15px;line-height:1.15}
+.fps-stat b.warn{color:var(--warn)}
+.fps-stat b.bad{color:var(--bad)}
+.fps-stat span{font-size:9px;color:var(--ink-faint);letter-spacing:.5px}
+.fps-stat:first-child b{color:#7ee2a8}
+.fps-foot{margin-top:8px;font-size:9.5px;color:var(--ink-faint);text-align:center;letter-spacing:.3px}
+</style>
+</head>
+<body>
+
+<!-- ===================== 顶栏：两个标签页 ===================== -->
+<header class="masthead">
+  <div class="brand">
+    <div class="logo">飞</div>
+    <div>
+      <h1>悬浮小窗 · 交互参考稿</h1>
+      <p>交互规范依据 docs/plans/floating-mini-player.md · 纯前端模拟 · 零外部依赖，双击即开</p>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-panel="panelAndroid">安卓手机版</button>
+    <button class="tab" data-panel="panelPc">PC 桌面版</button>
+  </nav>
+</header>
+
+<main>
+<!-- ===================== 安卓面板 ===================== -->
+<section class="panel active" id="panelAndroid">
+  <div class="stage-wrap stage-android">
+    <div class="phone">
+      <div class="phone-screen" id="phoneScreen">
+        <div class="statusbar">
+          <span data-clock>21:07</span>
+          <svg width="46" height="12" viewBox="0 0 46 12" fill="currentColor" aria-hidden="true"><rect x="0" y="6" width="2.5" height="6" rx="1"/><rect x="4" y="4" width="2.5" height="8" rx="1"/><rect x="8" y="2" width="2.5" height="10" rx="1"/><rect x="12" y="0" width="2.5" height="12" rx="1" opacity=".35"/><path d="M20 4.7a8 8 0 0 1 10 0l-1.7 2.1a5.4 5.4 0 0 0-6.6 0z" opacity=".9"/><circle cx="25" cy="9.6" r="1.7"/><rect x="34" y="1.5" width="10" height="9" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".9"/><rect x="35.6" y="3.1" width="5.6" height="5.8" rx="1"/><rect x="44.6" y="4" width="1.4" height="4" rx=".7" opacity=".7"/></svg>
+        </div>
+
+        <!-- 应用播放页（全屏态） -->
+        <div class="app-page" id="appPage">
+          <div class="player-area video-skin" id="phoneVideo" data-eq="android" data-load="android">
+            <div class="sheen"></div>
+            <div class="video-note"><b>视频占位</b><span>CSS 渐变动画 · 无真实视频</span></div>
+            <div class="video-top"><span id="phoneEpTitle">第 3 集 · 雾都疑云</span></div>
+            <div class="eq"><i></i><i></i><i></i></div>
+            <span class="seek-flick" data-seek="android"></span>
+            <div class="load-veil"><i></i></div>
+            <div class="video-bottom">
+              <div class="bar"><i class="fill" data-fill="android"></i></div>
+              <div class="time-row"><span data-tcur="android">06:12</span><span>24:12</span></div>
+            </div>
+          </div>
+          <div class="page-body">
+            <div class="enter-row">
+              <button class="btn-accent" id="btnEnterFloat"><i data-icon="pin"></i>进小窗</button>
+              <span class="enter-hint">收缩为悬浮小窗，退到桌面继续播<br>（方案 3.4：不 park、不暂停）</span>
+            </div>
+            <div class="show-title">雾都列车<span class="tags">悬疑 · 全 26 集 · 4K HDR</span></div>
+            <div class="ep-grid" id="epGrid"></div>
+            <div class="skl-group">
+              <div class="skl" style="width:92%"></div>
+              <div class="skl" style="width:78%"></div>
+              <div class="skl" style="width:85%"></div>
+              <div class="skl" style="width:56%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 模拟桌面：进小窗后应用退到后台（moveTaskToBack），悬浮窗悬浮于其上 -->
+        <div class="launcher" id="launcher" hidden>
+          <div class="lk-clock" data-clock>21:07</div>
+          <div class="lk-date" data-date>10月4日 周六</div>
+          <div class="lk-search">搜索应用与内容</div>
+          <div class="lk-grid" id="lkGrid"></div>
+          <div class="lk-dock" id="lkDock"></div>
+        </div>
+
+        <!-- 悬浮小窗：视频 + 控制层 + 接下来播放条 -->
+        <div class="float-win" id="floatWin" hidden>
+          <!-- 边缘缩放把手：贴边内侧热区，拖动自由等比缩放（方案 3.2，替代档位） -->
+          <div class="rz" data-rz="n" title="拖动缩放"></div>
+          <div class="rz" data-rz="s" title="拖动缩放"></div>
+          <div class="rz" data-rz="e" title="拖动缩放"></div>
+          <div class="rz" data-rz="w" title="拖动缩放"></div>
+          <div class="rz c" data-rz="ne" title="拖动缩放"></div>
+          <div class="rz c" data-rz="nw" title="拖动缩放"></div>
+          <div class="rz c" data-rz="se" title="拖动缩放"></div>
+          <div class="rz c" data-rz="sw" title="拖动缩放"></div>
+          <div class="fw-video video-skin" id="fwVideo" data-eq="android" data-load="android">
+            <div class="sheen"></div>
+            <div class="fw-danmaku" id="fwDanmaku"></div>
+            <div class="eq"><i></i><i></i><i></i></div>
+            <span class="seek-flick" data-seek="android"></span>
+            <div class="load-veil"><i></i></div>
+            <div class="fw-progress"><i class="fill" data-fill="android"></i></div>
+            <div class="freeze-veil" id="fwFreeze"><span>定格帧 · 覆盖交接空洞（P3 &lt;200ms）</span></div>
+            <!-- 控制层：单击小窗呼出 -->
+            <div class="fw-controls" id="fwControls">
+              <div class="fwc-top">
+                <button class="cbtn" id="btnLock" data-icon="lock" title="锁定控制层"></button>
+                <div class="marq" id="fwMarq"><span class="marq-in">第 3 集 · 雾都疑云</span></div>
+                <button class="cbtn" id="btnEpList" data-icon="list" title="选集"></button>
+                <button class="cbtn" id="btnCloseFloat" data-icon="close" title="关闭小窗"></button>
+              </div>
+              <div class="fwc-center">
+                <button class="cbtn" id="btnBack15" data-icon="back15" title="后退 15s"></button>
+                <button class="cbtn big" id="btnPlayFloat" data-icon="pause" title="播放 / 暂停"></button>
+                <button class="cbtn" id="btnFwd15" data-icon="fwd15" title="前进 15s"></button>
+              </div>
+              <div class="fwc-bottom">
+                <button class="cbtn" id="btnExpand" data-icon="expand" title="展开回全屏"></button>
+                <span class="fwc-hint">拖边缘可缩放</span>
+                <button class="cbtn on" id="btnDanmaku" data-icon="dm" title="弹幕开关"></button>
+              </div>
+            </div>
+          </div>
+          <div class="fw-next" id="fwNext">
+            <span class="fwn-label">接下来</span>
+            <span class="fwn-title" id="fwNextTitle">第 4 集 · 第七车厢</span>
+            <button class="btn-swap" id="btnSwap" data-icon="next" title="播放下一集"></button>
+          </div>
+          <div class="fw-eps" id="fwEps" hidden>
+            <div class="fwe-head">
+              <span id="fweCount">选集</span>
+              <button class="cbtn" id="btnCloseEps" data-icon="close" title="收起选集"></button>
+            </div>
+            <div class="fwe-grid" id="fweGrid"></div>
+          </div>
+        </div>
+
+        <div class="toast" id="toastAndroid"></div>
+      </div>
+    </div>
+
+    <aside class="notes">
+      <h3>安卓 · 交互演示清单</h3>
+      <ol>
+        <li><b class="k">进小窗</b>：播放页一键收缩为悬浮小窗，应用退到「桌面」，<em>播放不中断</em>（方案 3.4）；交接空洞由<em>定格图</em>覆盖（P3 预算 &lt;200ms，方案 5.2）。真机悬浮窗需 <em>API 26+</em> 与悬浮窗权限，低版本 / 未授权自动回退系统画中画（方案 3.2）。</li>
+        <li><b class="k">拖动</b>：按住小窗自由拖动，可拖出屏幕边（模拟 FLAG_LAYOUT_NO_LIMITS）；<em>松手吸附左 / 右边缘</em>（方案 3.2）。</li>
+        <li><b class="k">边缘缩放</b>：拖小窗<em>任意边缘 / 角</em>自由等比缩放（对齐系统画中画手感，无档位），宽 160px 至屏宽 72%；松手吸附并按新尺寸重设 android-surface-size（方案 3.3）。</li>
+        <li><b class="k">单击小窗</b>呼出控制层：中央播停大按钮、±15s、锁定、选集、弹幕开关、关闭、<em>展开回全屏</em>（方案 0 / 3.5）。</li>
+        <li><b class="k">接下来播放</b>：点<em>「下一集」图标</em>模拟进程内就地换片——标题与进度重置（方案 3.5 dispatchInPlaceLoad）；小窗内也可点选集换集——<em>选集面板可滚动</em>（26 集演示长剧集不截断），打开自动定位当前集。</li>
+        <li><b class="k">弹幕</b>：CSS 动画横向飘过；关闭后完全停止渲染（方案 5.3 零弹幕成本）；暂停时弹幕同步停住。</li>
+        <li><b class="k">FPS 实测表</b>：右下角常驻，<em>拖动小窗时观察流畅度</em>（方案 5.1 P1/P4 的前端可感知版本）。</li>
+      </ol>
+      <p class="tip">视频画面为 CSS 渐变动画占位；标签页切换不丢状态；全部交互纯前端模拟。</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ===================== PC 面板 ===================== -->
+<section class="panel" id="panelPc">
+  <div class="stage-wrap stage-pc">
+    <div class="desktop" id="desktop">
+      <div class="desk-icons">
+        <div class="dicon"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/></svg></i>此电脑</div>
+        <div class="dicon"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 7h14M9.5 7V5h5v2M7 7l1 13h8l1-13M10.3 10.5v6M13.7 10.5v6"/></svg></i>回收站</div>
+      </div>
+
+      <!-- 主窗口：播放页 -->
+      <div class="win pc-main" id="pcMain" style="z-index:20">
+        <div class="win-titlebar" data-drag>
+          <span class="win-appicon">飞</span>
+          <span class="win-title" id="pcWinTitle">飞影播放器 — 雾都列车 · 第 3 集 雾都疑云</span>
+          <span class="win-btns"><b title="最小化">—</b><b title="最大化">▢</b><b class="danger" title="关闭">✕</b></span>
+        </div>
+        <div class="pc-video video-skin" id="pcVideo" data-eq="pc" data-load="pc">
+          <div class="sheen"></div>
+          <div class="video-note"><b>视频占位</b><span>CSS 渐变动画 · 无真实视频</span></div>
+          <div class="eq"><i></i><i></i><i></i></div>
+          <span class="seek-flick" data-seek="pc"></span>
+          <div class="load-veil"><i></i></div>
+          <div class="video-bottom">
+            <div class="bar"><i class="fill" data-fill="pc"></i></div>
+            <div class="time-row"><span data-tcur="pc">01:58</span><span>24:12</span></div>
+          </div>
+        </div>
+        <div class="pc-body">
+          <div style="min-width:0">
+            <div class="show-title" style="font-size:15.5px">雾都列车<span class="pc-ep-tag" id="pcEpTag">第 3 集 · 雾都疑云</span></div>
+            <div class="skl-line" style="width:220px"></div>
+          </div>
+          <button class="btn-accent" id="btnPcMini"><i data-icon="pin"></i>进小窗 · 置顶迷你</button>
+        </div>
+      </div>
+
+      <!-- 「其他应用」假窗口：置顶遮挡演示的被遮挡方 -->
+      <div class="win fake-app" id="fakeApp" style="z-index:10">
+        <div class="win-titlebar" data-drag>
+          <span class="win-appicon">记</span>
+          <span class="win-title">备忘录 — 今晚开会前必读</span>
+          <span class="win-btns"><b title="最小化">—</b><b title="最大化">▢</b><b class="danger" title="关闭">✕</b></span>
+        </div>
+        <div class="fake-body">
+          <p class="fake-hint">我是「其他应用」：点我标题栏可把我置前，或把迷你窗拖到我身上试试——<b>迷你窗永远在最上层</b>（模拟 setAlwaysOnTop / HWND_TOPMOST）。</p>
+          <div class="fline" style="width:86%"></div>
+          <div class="fline" style="width:70%"></div>
+          <div class="fline hl" style="width:78%"></div>
+          <div class="fline" style="width:64%"></div>
+          <div class="fline" style="width:82%"></div>
+          <div class="fline" style="width:40%"></div>
+        </div>
+      </div>
+
+      <!-- 置顶迷你窗：精简标题栏 + 视频缩略 + 迷你控制条 -->
+      <div class="win pc-mini" id="pcMini" hidden>
+        <div class="pm-titlebar">
+          <span class="pm-dot"></span>
+          <span class="pm-pin">置顶</span>
+          <div class="marq" id="pmMarq"><span class="marq-in">第 3 集 · 雾都疑云</span></div>
+          <button class="cbtn" id="btnPcClose" data-icon="close" title="关闭迷你窗"></button>
+        </div>
+        <div class="pm-video video-skin" id="pmVideo" data-eq="pc" data-load="pc">
+          <div class="sheen"></div>
+          <div class="eq"><i></i><i></i><i></i></div>
+          <span class="seek-flick" data-seek="pc"></span>
+          <div class="load-veil"><i></i></div>
+          <div class="pm-progress"><i class="fill" data-fill="pc"></i></div>
+        </div>
+        <div class="pm-controls">
+          <button class="cbtn" id="btnPcPrev" data-icon="prev" title="上一集"></button>
+          <button class="cbtn" id="btnPcBack15" data-icon="back15" title="后退 15s"></button>
+          <button class="cbtn big" id="btnPcPlay" data-icon="pause" title="播放 / 暂停"></button>
+          <button class="cbtn" id="btnPcFwd15" data-icon="fwd15" title="前进 15s"></button>
+          <button class="cbtn" id="btnPcNext" data-icon="next" title="下一集"></button>
+          <span class="pm-time" data-tcur="pc">01:58</span>
+          <button class="cbtn" id="btnPcRestore" data-icon="expand" title="还原主窗口"></button>
+        </div>
+      </div>
+
+      <!-- 任务栏（迷你窗可盖在其上，体现置顶） -->
+      <div class="taskbar">
+        <button class="tb-start" title="开始"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6.4" height="6.4" rx="1.4"/><rect x="8.6" y="1" width="6.4" height="6.4" rx="1.4"/><rect x="1" y="8.6" width="6.4" height="6.4" rx="1.4"/><rect x="8.6" y="8.6" width="6.4" height="6.4" rx="1.4"/></svg></button>
+        <span class="papp" style="background:linear-gradient(135deg,#3a82f7,#2f6cd8)">飞</span>
+        <span class="papp" style="background:linear-gradient(135deg,#d0a36b,#b9834a)">记</span>
+        <span class="papp" style="background:linear-gradient(135deg,#8aac94,#5f8168)">网</span>
+        <span class="papp" style="background:linear-gradient(135deg,#d95b77,#a83f58)">音</span>
+        <div class="tb-right"><span data-clock>21:07</span><span class="tb-date" data-fulldate>2026/10/04</span></div>
+      </div>
+
+      <div class="toast" id="toastPc"></div>
+    </div>
+
+    <aside class="notes">
+      <h3>PC · 交互演示清单</h3>
+      <ol>
+        <li><b class="k">进小窗</b>：主窗口缩为<em>顶部居中</em>的置顶迷你窗（方案 4 候选 A：保存窗口态 → 缩尺寸 → setAlwaysOnTop）。</li>
+        <li><b class="k">拖动</b>：迷你窗整体任意拖动（对应 windowManager.startDragging 先例），主窗口 / 备忘录也可拖标题栏。</li>
+        <li><b class="k">置顶遮挡</b>：点「备忘录」标题栏置前，或将迷你窗拖到它 / 任务栏上面——迷你窗<em>永远在最上层</em>。</li>
+        <li><b class="k">迷你控制条</b>：上一集 / −15s / 播停 / +15s / 下一集 / 还原；点视频缩略区也可播停；标题栏 ✕ 关闭（关闭即暂停，主窗口还原）。</li>
+        <li><b class="k">FPS 实测表</b>：右下角常驻，拖动迷你窗时观察流畅度（方案 5.1 P6 的前端类比）。</li>
+      </ol>
+      <p class="tip">PC 迷你窗形态对标方案 1.2 的 ExternalPlaybackMiniHost（360 宽系紧凑形态的扩展）。</p>
+    </aside>
+  </div>
+</section>
+</main>
+
+<!-- ===================== FPS 实测表（常驻右下角） ===================== -->
+<div class="fps-meter">
+  <div class="fps-head"><span class="fps-dot"></span>FPS 实测<span class="fps-sub">requestAnimationFrame</span></div>
+  <canvas id="fpsCanvas"></canvas>
+  <div class="fps-stats">
+    <div class="fps-stat"><b id="fpsNow">--</b><span>当前 FPS</span></div>
+    <div class="fps-stat"><b id="fpsAvg">--</b><span>平均帧 ms</span></div>
+    <div class="fps-stat"><b id="fpsPeak">--</b><span>峰值 ms</span></div>
+  </div>
+  <div class="fps-foot">拖动小窗 / 弹幕运行时观察流畅度（绿 ≤16.7ms · 黄 ≤33ms · 红 更高）</div>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ================= 小工具 ================= */
+var $  = function(s, r){ return (r||document).querySelector(s); };
+var $$ = function(s, r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); };
+function clamp(v,a,b){ return Math.min(b, Math.max(a, v)); }
+function pad2(n){ return (n<10?'0':'')+n; }
+function fmt(s){ s=Math.max(0,Math.floor(s)); return pad2(Math.floor(s/60))+':'+pad2(s%60); }
+function hueOf(ep){ return (ep*47+196)%360; }
+function setHue(el,ep){ if(el) el.style.setProperty('--hue', hueOf(ep)); }
+function relRect(el, container){
+  var a=el.getBoundingClientRect(), b=container.getBoundingClientRect();
+  return { x:a.left-b.left, y:a.top-b.top, w:a.width, h:a.height };
+}
+
+/* ================= 内联 SVG 图标库（零外部资源） ================= */
+var ICONS = {
+  play:'<svg viewBox="0 0 24 24"><path d="M8 5.2v13.6L19 12z" fill="currentColor"/></svg>',
+  pause:'<svg viewBox="0 0 24 24"><path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" fill="currentColor"/></svg>',
+  back15:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a7.5 7.5 0 1 1-7.1 5.1"/><path d="M5.4 4.4v5h5"/><text x="12" y="15.6" font-size="7.4" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">15</text></svg>',
+  fwd15:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(24,0) scale(-1,1)"><path d="M12 5a7.5 7.5 0 1 1-7.1 5.1"/><path d="M5.4 4.4v5h5"/></g><text x="12" y="15.6" font-size="7.4" text-anchor="middle" fill="currentColor" stroke="none" font-weight="700">15</text></svg>',
+  close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>',
+  expand:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>',
+  lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>',
+  unlock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5.5" y="10.5" width="13" height="9" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 6.8-1.3"/></svg>',
+  dm:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.5h17v10.5h-9.2L7 19.5v-3.5H3.5z"/><path d="M7.5 9.5h9M7.5 12.3h5.5"/></svg>',
+  prev:'<svg viewBox="0 0 24 24"><path d="M6 5h2.4v14H6zM18 5.4v13.2L9.6 12z" fill="currentColor"/></svg>',
+  next:'<svg viewBox="0 0 24 24"><path d="M15.6 5H18v14h-2.4zM6 5.4v13.2L14.4 12z" fill="currentColor"/></svg>',
+  pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v8M8.8 8.7L12 12l3.2-3.3"/><rect x="5" y="14" width="14" height="6.5" rx="1.6"/></svg>',
+  list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h.01M4 12h.01M4 18h.01M8.5 6H20M8.5 12H20M8.5 18H20"/></svg>'
+};
+/* 把 data-icon 占位元素替换为图标 */
+$$('[data-icon]').forEach(function(el){ var t=ICONS[el.getAttribute('data-icon')]; if(t) el.innerHTML=t; });
+
+/* ================= 剧集数据与播放状态 ================= */
+var SHOW = '雾都列车';
+var EPISODES = ['起雾的站台','夜行班车','雾都疑云','第七车厢','末班信号','断线的风','隧道尽头','晚点七分钟','平行快车','查票员来了','终点站之前','黎明发车','折返的信号','夜雾道岔','最后一节车厢','静音车厢','渡桥之上','未寄出的车票','雪夜调度','平行轨道','老站长的记事本','隧道回声','末班车之后','候车室的钟','双线区间','黎明到站'];
+var DUR = 1452; /* 24:12，两平台共用片长 */
+var states = {
+  android:{ playing:true, time:372, ep:2, danmaku:true, locked:false, floatMode:false },
+  pc:{ playing:true, time:118, ep:2, miniMode:false }
+};
+
+/* ================= 元素引用 ================= */
+var phoneScreen=$('#phoneScreen'), appPage=$('#appPage'), launcher=$('#launcher'),
+    playerArea=$('#phoneVideo'), floatWin=$('#floatWin'), fwVideo=$('#fwVideo'),
+    fwControls=$('#fwControls'), fwDanmaku=$('#fwDanmaku'), fwNext=$('#fwNext'), fwEps=$('#fwEps'),
+    desktop=$('#desktop'), pcMain=$('#pcMain'), fakeApp=$('#fakeApp'), pcMini=$('#pcMini'),
+    toastA=$('#toastAndroid'), toastP=$('#toastPc');
+var fwFreeze=$('#fwFreeze'); /* 悬浮窗交接定格帧覆盖层 */
+
+/* ================= Toast ================= */
+var toastTimer={};
+function toast(el, text, ms){
+  if(!el) return;
+  el.textContent=text; el.classList.add('show');
+  clearTimeout(toastTimer[el.id]);
+  toastTimer[el.id]=setTimeout(function(){ el.classList.remove('show'); }, ms||2800);
+}
+
+/* ================= 跑马灯：内容溢出才滚动（内容重复两份实现无缝循环） ================= */
+function setMarq(box, text){
+  var inner=box && box.querySelector('.marq-in');
+  if(!inner) return;
+  inner.textContent=text;
+  if(inner.getBoundingClientRect().width > box.getBoundingClientRect().width){
+    inner.textContent = text + '　·　' + text + '　·　';
+    box.classList.add('run');
+  }else{
+    box.classList.remove('run');
+  }
+}
+
+/* ================= 弹幕：CSS 动画横向飘过（悬浮窗内） ================= */
+var DM_TEXTS=['前方高能预警','这运镜绝了','打卡','BGM 也太好听了吧','哈哈哈哈哈哈','导演功力深厚','男主稳住','泪目了','下一集更炸','追剧小分队','神回','这波操作满分','坐等更新','弹幕护体'];
+var DM_COLORS=['#ffffff','#a2d4df','#ffd9e2','#c9d8ff'];
+function buildDanmaku(){
+  for(var i=0;i<14;i++){
+    var sp=document.createElement('span');
+    sp.className='dm';
+    sp.textContent=DM_TEXTS[i%DM_TEXTS.length];
+    sp.style.top=(4+(i%4)*24)+'px';                 /* 四条轨道循环 */
+    sp.style.color=DM_COLORS[i%DM_COLORS.length];
+    sp.style.fontSize=(10.5+(i%3)*1.3)+'px';
+    var dur=7+((i*2.3)%6);                          /* 7~13s 随机档 */
+    sp.style.animationDuration=dur.toFixed(2)+'s';
+    sp.style.animationDelay=(-((i*1.9)%dur)).toFixed(2)+'s'; /* 负延迟：初始即满屏 */
+    fwDanmaku.appendChild(sp);
+  }
+}
+
+/* ================= FLIP 飞行动画（进/出小窗的连续收缩） ================= */
+function applyRect(el,r){
+  el.style.transform='translate('+r.x+'px,'+r.y+'px)';
+  el.style.width=r.w+'px'; el.style.height=r.h+'px';
+}
+function fly(el, from, to, ms){
+  ms=ms||440;
+  return new Promise(function(res){
+    el.style.transition='none';
+    applyRect(el, from);
+    void el.offsetWidth; /* 强制回流，保证起始帧生效 */
+    var ease='cubic-bezier(.22,.86,.22,1)';
+    el.style.transition='transform '+ms+'ms '+ease+', width '+ms+'ms '+ease+', height '+ms+'ms '+ease;
+    applyRect(el, to);
+    var done=false;
+    function fin(){ if(done) return; done=true; el.style.transition=''; res(); }
+    el.addEventListener('transitionend', fin, {once:true});
+    setTimeout(fin, ms+100);
+  });
+}
+
+/* ================= 通用播放动作 ================= */
+function updatePlayBtns(){
+  $('#btnPlayFloat').innerHTML = states.android.playing ? ICONS.pause : ICONS.play;
+  $('#btnPcPlay').innerHTML    = states.pc.playing    ? ICONS.pause : ICONS.play;
+  /* 「播放中」律动条与弹幕随播停暂停 */
+  $$('.video-skin').forEach(function(v){
+    var plat=v.getAttribute('data-eq');
+    if(plat) v.classList.toggle('paused', !states[plat].playing);
+  });
+}
+function seekFlick(plat, text){
+  var host=$('[data-seek="'+plat+'"]'); if(!host) return;
+  host.textContent=text;
+  host.classList.remove('run'); void host.offsetWidth; host.classList.add('run');
+}
+function seekBy(plat, delta){
+  var s=states[plat];
+  s.time=clamp(s.time+delta, 0, DUR);
+  seekFlick(plat, (delta>0?'+':'−')+Math.abs(delta)+'s');
+}
+function togglePlay(plat){ states[plat].playing=!states[plat].playing; updatePlayBtns(); }
+function flashLoading(plat){
+  $$('[data-load="'+plat+'"]').forEach(function(el){
+    el.classList.add('show');
+    setTimeout(function(){ el.classList.remove('show'); }, 650);
+  });
+}
+/* 模拟 dispatchInPlaceLoad：就地换片 = 换标题 + 进度归零 + 不重载整页 */
+function switchEpisode(plat, ep){
+  var s=states[plat];
+  ep=((ep%EPISODES.length)+EPISODES.length)%EPISODES.length;
+  if(ep===s.ep){ toast(plat==='android'?toastA:toastP, '已是当前一集（第 '+(ep+1)+' 集）'); return; }
+  s.ep=ep; s.time=0; s.playing=true;
+  flashLoading(plat);
+  if(plat==='android') renderAndroid(); else renderPc();
+  updatePlayBtns();
+  toast(plat==='android'?toastA:toastP,
+    '已就地换片 → 第 '+(ep+1)+' 集 · '+EPISODES[ep]+'（模拟 dispatchInPlaceLoad：标题与进度已重置，页面未重载）');
+}
+
+/* ================= 渲染（全屏页 / 悬浮窗 / PC 各处同步） ================= */
+function epLabel(ep){ return '第 '+(ep+1)+' 集 · '+EPISODES[ep]; }
+function renderAndroid(){
+  var s=states.android, label=epLabel(s.ep);
+  $('#phoneEpTitle').textContent=label;
+  setMarq($('#fwMarq'), label);
+  setHue($('#phoneVideo'), s.ep);
+  setHue($('#fwVideo'), s.ep);
+  $$('#epGrid .chip').forEach(function(c,i){ c.classList.toggle('on', i===s.ep); });
+  $$('#fwEps .chip').forEach(function(c,i){ c.classList.toggle('on', i===s.ep); });
+  $('#fwNextTitle').textContent=epLabel((s.ep+1)%EPISODES.length);
+}
+function renderPc(){
+  var s=states.pc, label=epLabel(s.ep);
+  $('#pcWinTitle').textContent='飞影播放器 — '+SHOW+' · '+EPISODES[s.ep];
+  $('#pcEpTag').textContent=label;
+  setMarq($('#pmMarq'), label);
+  setHue($('#pcVideo'), s.ep);
+  setHue($('#pmVideo'), s.ep);
+}
+
+/* 播放时钟：250ms 步进，进度条与时间码全处同步 */
+setInterval(function(){
+  ['android','pc'].forEach(function(k){
+    var s=states[k];
+    if(s.playing){ s.time+=0.25; if(s.time>=DUR) s.time=0; }
+    $$('[data-fill="'+k+'"]').forEach(function(i){ i.style.width=(s.time/DUR*100)+'%'; });
+    $$('[data-tcur="'+k+'"]').forEach(function(e){ e.textContent=fmt(s.time); });
+  });
+},250);
+
+/* 状态栏 / 桌面时钟 */
+function tickClock(){
+  var d=new Date(), t=pad2(d.getHours())+':'+pad2(d.getMinutes());
+  $$('[data-clock]').forEach(function(e){ e.textContent=t; });
+  $$('[data-date]').forEach(function(e){ e.textContent=(d.getMonth()+1)+'月'+d.getDate()+'日 周'+'日一二三四五六'[d.getDay()]; });
+  $$('[data-fulldate]').forEach(function(e){ e.textContent=d.getFullYear()+'/'+pad2(d.getMonth()+1)+'/'+pad2(d.getDate()); });
+}
+tickClock(); setInterval(tickClock, 15000);
+
+/* ==========================================================
+   安卓：悬浮小窗（方案 3.2 拖动+吸附 / 3.5 控制层+接下来播放）
+   ========================================================== */
+var MIN_W=160, MAX_W_RATIO=0.72, NEXT_H=40;   /* 自由缩放：宽下限 / 上限占屏宽比（方案 3.2） */
+var fs={ x:0, y:0, w:248, side:'R' };   /* 悬浮窗位置状态（w = 用户拖出的自由尺寸） */
+var ctlTimer=null, epsTimer=null, aDrag=null;
+
+function screenW(){ return phoneScreen.clientWidth; }
+function screenH(){ return phoneScreen.clientHeight; }
+function floatH(w){ return Math.round(w*9/16)+NEXT_H; }
+function maxFloatW(){ return Math.min(480, Math.round(screenW()*MAX_W_RATIO)); }
+function applyFloatVars(){
+  floatWin.style.width=fs.w+'px';
+  floatWin.style.height=floatH(fs.w)+'px';
+  floatWin.style.setProperty('--fw-vw', fs.w+'px'); /* 供弹幕位移距离使用 */
+}
+/* 按吸附边落位（带过渡 = 吸附动画） */
+function placeFloat(){
+  fs.w=clamp(fs.w, MIN_W, maxFloatW());
+  var h=floatH(fs.w);
+  fs.y=clamp(fs.y, 6, screenH()-h-6);
+  fs.x=(fs.side==='L') ? 8 : screenW()-fs.w-8;
+  applyFloatVars();
+  floatWin.style.transform='translate('+fs.x+'px,'+fs.y+'px)';
+}
+/* 交接定格：进/出小窗瞬间由定格图覆盖 detach→attach 空洞（方案 3.3 流程 2 / 5.2 P3） */
+function setHandoffFreeze(on){
+  fwVideo.classList.toggle('frozen', on);
+  fwFreeze.classList.toggle('show', on);
+}
+
+/* 进小窗：视频区 FLIP 收缩为悬浮窗，应用页同时切到「桌面」（moveTaskToBack 意象） */
+function enterFloat(){
+  var s=states.android;
+  if(s.floatMode) return;
+  s.floatMode=true;
+  var vr=relRect(playerArea, phoneScreen);   /* 先量视频区（此时应用页仍可见） */
+  appPage.hidden=true; launcher.hidden=false; /* 应用退后台，桌面亮出 */
+  var to={ x:screenW()-fs.w-8, y:clamp(140,6,screenH()-floatH(fs.w)-6), w:fs.w, h:floatH(fs.w) };
+  fs.x=to.x; fs.y=to.y; fs.side='R';
+  floatWin.hidden=false;
+  applyFloatVars();
+  setHandoffFreeze(true); /* 交接：detach→attach 空洞以定格图覆盖（P3 <200ms 预算，方案 5.2） */
+  fly(floatWin, {x:vr.x, y:vr.y, w:vr.w, h:vr.h}, to, 480).then(function(){
+    setHandoffFreeze(false);
+    toast(toastA, '已进入悬浮小窗：自由拖动，松手吸附左/右边缘；单击小窗呼出控制层');
+  });
+}
+/* 展开回全屏：先亮出应用页，小窗飞回视频区后移除 */
+function expandFloat(){
+  var s=states.android;
+  if(!s.floatMode) return;
+  s.floatMode=false;
+  hideControls();
+  appPage.hidden=false; launcher.hidden=true;
+  var vr=relRect(playerArea, phoneScreen);
+  setHandoffFreeze(true); /* 逆向交接同样以定格图覆盖（方案 3.3 流程 3） */
+  fly(floatWin, {x:fs.x, y:fs.y, w:fs.w, h:floatH(fs.w)}, vr, 440).then(function(){
+    setHandoffFreeze(false);
+    floatWin.hidden=true;
+  });
+}
+/* 关闭小窗：直接收起回播放页（真机路径：能力缺失/关闭将回退系统画中画） */
+function closeFloat(){
+  var s=states.android;
+  if(!s.floatMode) return;
+  s.floatMode=false;
+  hideControls();
+  floatWin.hidden=true;
+  appPage.hidden=false; launcher.hidden=true;
+  toast(toastA, '悬浮窗已关闭，回到播放页（真机上未授权 / API 26 以下 / 失败场景将自动回退系统画中画，方案 3.2/3.3）');
+}
+
+/* 控制层显隐：显示后 2.8s 自动收起（暂停时保持） */
+function showControls(ms){
+  fwControls.classList.add('show');
+  armHide(ms||2800);
+}
+function hideControls(){
+  fwControls.classList.remove('show');
+  clearTimeout(ctlTimer);
+}
+function armHide(ms){
+  clearTimeout(ctlTimer);
+  ctlTimer=setTimeout(function(){ if(states.android.playing) hideControls(); }, ms);
+}
+function toggleControls(){
+  if(fwControls.classList.contains('show')) hideControls();
+  else showControls(states.android.locked ? 1600 : 2800);
+}
+
+/* 悬浮窗拖动：自由拖（可拖出屏边），松手按中心点吸附左/右边缘 */
+floatWin.addEventListener('pointerdown', function(e){
+  if(!states.android.floatMode) return;
+  if(e.target.closest('button') || e.target.closest('.fw-eps') || e.target.closest('.rz')) return; /* 按钮/选集/缩放把手不触发拖动 */
+  e.preventDefault();
+  floatWin.setPointerCapture(e.pointerId);
+  aDrag={ px:e.clientX, py:e.clientY, x:fs.x, y:fs.y, moved:false };
+});
+floatWin.addEventListener('pointermove', function(e){
+  if(!aDrag) return;
+  var dx=e.clientX-aDrag.px, dy=e.clientY-aDrag.py;
+  if(!aDrag.moved && Math.hypot(dx,dy)>7){
+    aDrag.moved=true;
+    floatWin.classList.add('dragging');   /* 关闭过渡 + 放大 + 加投影 */
+    hideControls();
+  }
+  if(!aDrag.moved) return;
+  var h=floatH(fs.w);
+  /* 模拟 FLAG_LAYOUT_NO_LIMITS：允许拖出屏边，但保留 56px 可见 */
+  fs.x=clamp(aDrag.x+dx, -fs.w+56, screenW()-56);
+  fs.y=clamp(aDrag.y+dy, 6, screenH()-h-6);
+  floatWin.style.transform='translate('+fs.x+'px,'+fs.y+'px) scale(1.03)';
+});
+function aDragEnd(){
+  if(!aDrag) return;
+  var moved=aDrag.moved; aDrag=null;
+  if(!moved){ toggleControls(); return; }  /* 原地松手 = 单击：呼出/收起控制层 */
+  floatWin.classList.remove('dragging');
+  fs.side=(fs.x+fs.w/2 < screenW()/2) ? 'L' : 'R'; /* 窗口中心在左半屏→贴左，否则贴右 */
+  placeFloat();                            /* 过渡自动播放吸附动画 */
+}
+floatWin.addEventListener('pointerup', aDragEnd);
+floatWin.addEventListener('pointercancel', aDragEnd);
+
+/* 安卓侧按钮接线 */
+$('#btnEnterFloat').addEventListener('click', enterFloat);
+$('#btnExpand').addEventListener('click', expandFloat);
+$('#btnCloseFloat').addEventListener('click', closeFloat);
+$('#btnPlayFloat').addEventListener('click', function(){
+  togglePlay('android');
+  if(fwControls.classList.contains('show')) armHide(states.android.playing?2800:60000);
+});
+$('#btnBack15').addEventListener('click', function(){ seekBy('android',-15); });
+$('#btnFwd15').addEventListener('click', function(){ seekBy('android',15); });
+$('#btnSwap').addEventListener('click', function(){ switchEpisode('android', states.android.ep+1); });
+$('#btnLock').addEventListener('click', function(){
+  var s=states.android;
+  s.locked=!s.locked;
+  floatWin.classList.toggle('locked', s.locked);
+  $('#btnLock').innerHTML=s.locked?ICONS.unlock:ICONS.lock;
+  toast(toastA, s.locked?'已锁定控制层：单击小窗仅显示解锁按钮':'已解锁');
+  if(s.locked) showControls(1600);
+});
+$('#btnDanmaku').addEventListener('click', function(){
+  var s=states.android;
+  s.danmaku=!s.danmaku;
+  fwDanmaku.style.display=s.danmaku?'':'none';   /* 关闭 = 完全不渲染（零弹幕成本） */
+  $('#btnDanmaku').classList.toggle('on', s.danmaku);
+  toast(toastA, s.danmaku?'弹幕已开启':'弹幕已关闭——悬浮窗态零弹幕成本（方案 5.3）');
+});
+$('#btnEpList').addEventListener('click', function(){
+  var open=fwEps.hidden;
+  fwEps.hidden=!open;
+  fwNext.style.opacity=open?'0.25':'';
+  clearTimeout(epsTimer);
+  if(open){
+    /* 长剧集：打开即定位当前集（滚动容器 + 当前高亮，方案 3.5） */
+    var cur=$('#fweGrid .chip.on');
+    if(cur) cur.scrollIntoView({block:'center'});
+    epsTimer=setTimeout(function(){ fwEps.hidden=true; fwNext.style.opacity=''; }, 6000);
+  }
+});
+$('#btnCloseEps').addEventListener('click', function(){
+  fwEps.hidden=true; fwNext.style.opacity='';
+});
+/* 悬浮窗缩放：拖边缘 / 角自由等比缩放（对齐系统画中画手感），松手吸附并按新尺寸重设 surface */
+var aRz=null;
+floatWin.addEventListener('pointerdown', function(e){
+  var h=e.target.closest('.rz');
+  if(!h || !states.android.floatMode) return;
+  e.preventDefault();
+  floatWin.setPointerCapture(e.pointerId);
+  aRz={ mode:h.getAttribute('data-rz'), px:e.clientX, py:e.clientY, x:fs.x, y:fs.y, w:fs.w };
+  floatWin.classList.add('resizing');   /* 关闭宽高过渡，1:1 跟手 */
+  hideControls();
+});
+floatWin.addEventListener('pointermove', function(e){
+  if(!aRz) return;
+  var m=aRz.mode, dx=e.clientX-aRz.px, dy=e.clientY-aRz.py, dw;
+  if(m==='e') dw=dx;
+  else if(m==='w') dw=-dx;
+  else if(m==='s') dw=dy*16/9;
+  else if(m==='n') dw=-dy*16/9;
+  else {  /* 角：取水平 / 垂直推导出的更大宽度，保持 16:9 */
+    dw=Math.max(m.indexOf('e')>=0?dx:-dx, (m.indexOf('s')>=0?dy:-dy)*16/9);
+  }
+  fs.w=Math.round(clamp(aRz.w+dw, MIN_W, maxFloatW()));
+  /* 被拖的对边保持不动：西 / 北向缩放时反向补偿位置 */
+  if(m==='w'||m.indexOf('w')>=0) fs.x=aRz.x+(aRz.w-fs.w);
+  if(m==='n'||m.indexOf('n')>=0) fs.y=aRz.y+(floatH(aRz.w)-floatH(fs.w));
+  fs.y=clamp(fs.y, 6, screenH()-floatH(fs.w)-6);
+  applyFloatVars();
+  floatWin.style.transform='translate('+fs.x+'px,'+fs.y+'px)';
+});
+function aRzEnd(){
+  if(!aRz) return;
+  aRz=null;
+  floatWin.classList.remove('resizing');
+  fs.side=(fs.x+fs.w/2 < screenW()/2) ? 'L' : 'R';
+  placeFloat();   /* 过渡自动播放吸附动画；真实实现松手重设 android-surface-size（方案 3.3） */
+  toast(toastA, '已缩放：宽 '+fs.w+'px（自由尺寸，方案 3.2）');
+}
+floatWin.addEventListener('pointerup', aRzEnd);
+floatWin.addEventListener('pointercancel', aRzEnd);
+/* 全屏页视频：单击 = 播/停 */
+playerArea.addEventListener('click', function(){ if(appPage.hidden) return; togglePlay('android'); });
+
+/* ==========================================================
+   PC：置顶迷你窗（方案 4 候选 A：主窗口缩尺寸 + setAlwaysOnTop）
+   ========================================================== */
+var ps={ x:0, y:0, w:360, h:0 };  /* 迷你窗位置状态 */
+var zTop=30;
+
+function raiseWin(el){ el.style.zIndex=++zTop; } /* 普通窗口点击置前（始终低于迷你窗 z=900） */
+
+/* 通用窗口拖动（标题栏 / 整窗），pos 为位置状态对象 */
+function makeDraggable(el, opts){
+  var handle=opts.handle ? el.querySelector(opts.handle) : el;
+  var d=null;
+  handle.addEventListener('pointerdown', function(e){
+    if(e.target.closest('button')) return;
+    if(!opts.fixedZ) raiseWin(el);
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    d={ px:e.clientX, py:e.clientY, x:opts.pos.x, y:opts.pos.y, moved:false };
+  });
+  el.addEventListener('pointermove', function(e){
+    if(!d) return;
+    var dx=e.clientX-d.px, dy=e.clientY-d.py;
+    if(!d.moved && Math.hypot(dx,dy)>6){ d.moved=true; el.classList.add('dragging'); }
+    if(!d.moved) return;
+    opts.pos.x=d.x+dx; opts.pos.y=d.y+dy;
+    clampWin(el, opts.pos, opts.overTaskbar);
+    el.style.transform='translate('+opts.pos.x+'px,'+opts.pos.y+'px)';
+  });
+  function up(e){
+    if(!d) return;
+    var moved=d.moved; d=null;
+    el.classList.remove('dragging');
+    if(!moved && opts.onClick) opts.onClick(e);
+  }
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+}
+function clampWin(el, pos, overTaskbar){
+  var w=el.offsetWidth, h=el.offsetHeight;
+  pos.x=clamp(pos.x, 4, desktop.clientWidth-w-4);
+  pos.y=clamp(pos.y, 4, desktop.clientHeight-h-(overTaskbar?2:48)); /* 默认不低于任务栏 */
+}
+/* 主窗口 / 备忘录：拖标题栏 */
+makeDraggable(pcMain,  { handle:'.win-titlebar', pos:{x:0,y:0} });
+makeDraggable(fakeApp, { handle:'.win-titlebar', pos:{x:0,y:0} });
+/* 迷你窗：整窗可拖 + 单击视频缩略区播停 */
+makeDraggable(pcMini, {
+  pos:ps, fixedZ:true, overTaskbar:true,   /* 置顶窗可盖住任务栏 */
+  onClick:function(e){ if(e.target.closest('.pm-video')) togglePlay('pc'); }
+});
+
+/* 进小窗：主窗口 → 顶部居中置顶迷你窗 */
+function pcEnterMini(){
+  var s=states.pc;
+  if(s.miniMode) return;
+  s.miniMode=true;
+  var from=relRect(pcMain, desktop);   /* 先量主窗口 */
+  pcMain.classList.add('ghost');       /* 主窗口隐去（保布局） */
+  var w=360, h=30+Math.round((w-2)*9/16)+44;  /* 标题栏 + 16:9 视频 + 控制条 */
+  var to={ x:Math.round((desktop.clientWidth-w)/2), y:14, w:w, h:h }; /* topCenter + 下移 */
+  ps.x=to.x; ps.y=to.y; ps.w=w; ps.h=h;
+  pcMini.hidden=false;
+  fly(pcMini, from, to, 480).then(function(){
+    toast(toastP, '已缩为置顶迷你窗：始终位于普通窗口与任务栏之上（模拟 setAlwaysOnTop + 顶部居中）');
+  });
+}
+/* 还原：迷你窗飞回主窗口矩形 */
+function pcRestore(){
+  var s=states.pc;
+  if(!s.miniMode) return;
+  s.miniMode=false;
+  pcMain.classList.remove('ghost');
+  var to=relRect(pcMain, desktop);
+  fly(pcMini, {x:ps.x, y:ps.y, w:ps.w, h:ps.h}, to, 440).then(function(){
+    pcMini.hidden=true;
+  });
+}
+/* 关闭迷你窗：主窗口还原 + 播放暂停 */
+function pcClose(){
+  var s=states.pc;
+  if(!s.miniMode) return;
+  s.miniMode=false;
+  pcMini.hidden=true;
+  pcMain.classList.remove('ghost');
+  s.playing=false;
+  updatePlayBtns();
+  toast(toastP, '迷你窗已关闭，播放暂停（主窗口已还原）');
+}
+
+/* PC 侧按钮接线 */
+$('#btnPcMini').addEventListener('click', pcEnterMini);
+$('#btnPcRestore').addEventListener('click', pcRestore);
+$('#btnPcClose').addEventListener('click', pcClose);
+$('#btnPcPlay').addEventListener('click', function(){ togglePlay('pc'); });
+$('#btnPcBack15').addEventListener('click', function(){ seekBy('pc',-15); });
+$('#btnPcFwd15').addEventListener('click', function(){ seekBy('pc',15); });
+$('#btnPcNext').addEventListener('click', function(){ switchEpisode('pc', states.pc.ep+1); });
+$('#btnPcPrev').addEventListener('click', function(){ switchEpisode('pc', states.pc.ep-1); });
+$('#pcVideo').addEventListener('click', function(){ togglePlay('pc'); });
+$$('.win-btns b').forEach(function(b){
+  b.addEventListener('click', function(e){ e.stopPropagation(); toast(toastP, '演示窗口：不支持真的最小化 / 关闭哦'); });
+});
+
+/* ==========================================================
+   静态内容构建与标签页
+   ========================================================== */
+/* 全屏页集数网格 + 小窗内选集面板 */
+function buildChips(host, short){
+  EPISODES.forEach(function(_, i){
+    var b=document.createElement('button');
+    b.className='chip';
+    b.textContent=short ? (i+1) : '第'+(i+1)+'集';
+    b.addEventListener('click', function(){
+      switchEpisode('android', i);
+      fwEps.hidden=true; fwNext.style.opacity='';
+    });
+    host.appendChild(b);
+  });
+}
+buildChips($('#epGrid'), false);
+buildChips($('#fweGrid'), true);
+$('#fweCount').textContent = '选集 · 全 ' + EPISODES.length + ' 集';
+
+/* 桌面图标：点任意图标提示「悬浮窗悬浮于任意应用之上」 */
+function buildIcon(host, ch, grad, label){
+  var d=document.createElement('div');
+  d.className='aicon';
+  d.innerHTML='<i style="background:'+grad+'">'+ch+'</i>'+label;
+  d.addEventListener('click', function(){ toast(toastA, '演示桌面：真实场景中，悬浮窗在任意应用上层都可拖动、可播'); });
+  host.appendChild(d);
+}
+[['相','linear-gradient(135deg,#5f8168,#3d5a45)','相册'],
+ ['时','linear-gradient(135deg,#6b6fe8,#4a4db8)','时钟'],
+ ['设','linear-gradient(135deg,#8b93a8,#5a6172)','设置'],
+ ['商','linear-gradient(135deg,#3a82f7,#2b5cb0)','应用商店'],
+ ['网','linear-gradient(135deg,#74b8c8,#4b8795)','浏览器'],
+ ['音','linear-gradient(135deg,#d95b77,#a83f58)','音乐'],
+ ['邮','linear-gradient(135deg,#d0a36b,#a3763f)','邮件'],
+ ['日','linear-gradient(135deg,#75c5b4,#4b9182)','日历'],
+ ['天','linear-gradient(135deg,#63a0ff,#3f6fc4)','天气'],
+ ['机','linear-gradient(135deg,#9ea4ff,#6d72c9)','相机'],
+ ['记','linear-gradient(135deg,#e4be8b,#b18a54)','备忘录'],
+ ['算','linear-gradient(135deg,#8fa0bd,#5f6f8c)','计算器']
+].forEach(function(a){ buildIcon($('#lkGrid'), a[0], a[1], a[2]); });
+[['话','linear-gradient(135deg,#59c98b,#3a8f60)','电话'],
+ ['信','linear-gradient(135deg,#74b8c8,#4b8795)','短信'],
+ ['飞','linear-gradient(135deg,#3a82f7,#2f6cd8)','飞影播放'],
+ ['拍','linear-gradient(135deg,#d79579,#a86a52)','相机']
+].forEach(function(a){ buildIcon($('#lkDock'), a[0], a[1], a[2]); });
+
+/* 标签页切换（各自状态保留，切换不重置） */
+$$('.tab').forEach(function(t){
+  t.addEventListener('click', function(){
+    $$('.tab').forEach(function(x){ x.classList.toggle('active', x===t); });
+    $$('.panel').forEach(function(p){ p.classList.toggle('active', p.id===t.getAttribute('data-panel')); });
+  });
+});
+
+/* 视口变化：把悬浮窗 / 迷你窗拉回可视范围 */
+window.addEventListener('resize', function(){
+  if(states.android.floatMode && !floatWin.hidden){
+    placeFloat();   /* placeFloat 内部把自由尺寸钳回新的可视范围 */
+  }
+  if(states.pc.miniMode && !pcMini.hidden){
+    clampWin(pcMini, ps, true);
+    pcMini.style.transform='translate('+ps.x+'px,'+ps.y+'px)';
+  }
+});
+
+/* ==========================================================
+   FPS 实测表：requestAnimationFrame 逐帧采样（右下角常驻）
+   ========================================================== */
+var RING=180, ringBuf=new Float64Array(RING), ri=0, filled=0, lastT=-1;
+function rafLoop(t){
+  if(lastT<0){ lastT=t; requestAnimationFrame(rafLoop); return; } /* 首帧只记基准（-1 哨兵，时间戳 0 也不会卡住） */
+  var d=t-lastT; lastT=t;
+  if(d<=0||d>1000){ requestAnimationFrame(rafLoop); return; } /* 跳过异常间隔：零/负或 >1s（后台切回/调试暂停），防峰值污染 */
+  ringBuf[ri]=d; ri=(ri+1)%RING;
+  if(filled<RING) filled++;
+  requestAnimationFrame(rafLoop);
+}
+requestAnimationFrame(rafLoop);
+
+var cv=$('#fpsCanvas'), CW=198, CH=46;
+var dpr=Math.min(2, window.devicePixelRatio||1);
+cv.width=CW*dpr; cv.height=CH*dpr;
+var cx=cv.getContext('2d'); cx.scale(dpr,dpr);
+
+setInterval(function(){
+  var N=Math.min(filled,120);
+  if(!N) return;
+  var sum=0, peak=0, ds=[];
+  for(var i=0;i<N;i++){
+    var d=ringBuf[(ri-1-i+RING)%RING];
+    ds.push(d); sum+=d; if(d>peak) peak=d;
+  }
+  var fps=1000*N/sum, avg=sum/N;
+  $('#fpsNow').textContent=Math.round(fps);
+  $('#fpsAvg').textContent=avg.toFixed(1);
+  var pk=$('#fpsPeak');
+  pk.textContent=peak.toFixed(1);
+  pk.className= peak>33.4 ? 'bad' : (peak>17.5 ? 'warn' : '');
+  /* 迷你柱状图：最早 → 最新，按 50ms 满量程 */
+  cx.clearRect(0,0,CW,CH);
+  var n=ds.length, bw=CW/n;
+  for(var j=0;j<n;j++){
+    var dd=ds[n-1-j];
+    var hh=clamp(dd,0,50)/50*CH;
+    cx.fillStyle = dd<=17.5 ? 'rgba(89,201,139,.85)' : (dd<=33.4 ? 'rgba(228,190,139,.9)' : 'rgba(226,96,122,.95)');
+    cx.fillRect(j*bw, CH-hh, Math.max(1,bw-0.6), hh);
+  }
+  var gy=CH-16.7/50*CH; /* 16.7ms 参考线（60Hz） */
+  cx.strokeStyle='rgba(255,255,255,.3)';
+  cx.setLineDash([3,3]);
+  cx.beginPath(); cx.moveTo(0,gy); cx.lineTo(CW,gy); cx.stroke();
+  cx.setLineDash([]);
+},300);
+
+/* ================= 启动 ================= */
+buildDanmaku();
+renderAndroid();
+renderPc();
+updatePlayBtns();
+document.body.setAttribute('data-boot','ok'); /* 自检标记：脚本完整执行到底 */
+})();
+</script>
+</body>
+</html>
