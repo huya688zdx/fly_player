@@ -825,6 +825,19 @@ internal class EqualizerView(context: Context, barColor: Int) : View(context) {
     }
 }
 
+/** 选集封面底部播放进度条：对齐桌面端 DesktopEpisodePoster（3dp 高，63A0FF 蓝，白色轨道衬底）。 */
+internal class EpisodeProgressView(context: Context, private val fraction: Float) : View(context) {
+    private val trackPaint = android.graphics.Paint().apply { color = 0x33FFFFFF.toInt() }
+    private val fillPaint = android.graphics.Paint().apply { color = 0xFF63A0FF.toInt() }
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val h = height.toFloat()
+        canvas.drawRect(0f, 0f, width.toFloat(), h, trackPaint)
+        val w = width * fraction.coerceIn(0f, 1f)
+        if (w > 0f) canvas.drawRect(0f, 0f, w, h, fillPaint)
+    }
+}
+
 /**
  * 渐进原生化阶段 1 的纯原生播放壳 Activity。
  *
@@ -5290,16 +5303,34 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             val thumbWidth = dp(140)
             val thumbHeight = (thumbWidth * 9 / 16)
+            // 选集播放进度（对齐桌面端 _EpisodeCard）：续播秒数 ÷ 时长，已观看不显示、>0 才画。
+            val watched = (episode["watched"] as? Number)?.toInt() ?: 0
+            val durationSec = (episode["duration"] as? Number)?.toLong() ?: 0L
+            val resumeTs = (episode["ts"] as? Number)?.toLong() ?: 0L
+            val watchedTs = if (resumeTs > 0) resumeTs else (episode["watchedTs"] as? Number)?.toLong() ?: 0L
+            val progressFraction = if (durationSec > 0 && watched != 1) {
+                (watchedTs.toDouble() / durationSec).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+            // 封面统一用 FrameLayout 承载并按 8dp 圆角裁剪，底部才能叠加进度条。
+            val thumbWrap = FrameLayout(this).apply {
+                clipToOutline = true
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: Outline) {
+                        outline.setRoundRect(0, 0, view.width, view.height, dp(8).toFloat())
+                    }
+                }
+            }
+            thumbWrap.addView(
+                thumbnail,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
             if (isSelected) {
                 // 播放中条目：整张封面盖一层淡黑遮罩，律动条居中悬浮（无底衬块）。
-                val thumbWrap = FrameLayout(this)
-                thumbWrap.addView(
-                    thumbnail,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                    ),
-                )
                 thumbWrap.addView(
                     View(this).apply {
                         isClickable = false
@@ -5317,10 +5348,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     EqualizerView(this, ACCENT),
                     FrameLayout.LayoutParams(dp(56), dp(28)).apply { gravity = Gravity.CENTER },
                 )
-                itemView.addView(thumbWrap, LinearLayout.LayoutParams(thumbWidth, thumbHeight))
-            } else {
-                itemView.addView(thumbnail, LinearLayout.LayoutParams(thumbWidth, thumbHeight))
             }
+            if (progressFraction > 0) {
+                thumbWrap.addView(
+                    EpisodeProgressView(this, progressFraction.toFloat()),
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        dp(3),
+                    ).apply { gravity = Gravity.BOTTOM },
+                )
+            }
+            itemView.addView(thumbWrap, LinearLayout.LayoutParams(thumbWidth, thumbHeight))
 
             val posterUrl = resolveImageUrl(episode["poster"]?.toString())
             if (posterUrl.isNotEmpty()) {
@@ -5395,7 +5433,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 ).apply { topMargin = dp(6) },
             )
 
-            val watched = (episode["watched"] as? Number)?.toInt() ?: 0
             val statusStr = if (isSelected) localizedString(R.string.player_text_0012) else if (watched == 1) localizedString(R.string.player_text_0013) else ""
             if (statusStr.isNotEmpty()) {
                 val statusText = TextView(this).apply {
