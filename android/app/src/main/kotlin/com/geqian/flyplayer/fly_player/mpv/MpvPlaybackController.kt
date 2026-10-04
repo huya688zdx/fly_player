@@ -1265,7 +1265,10 @@ class MpvPlaybackController(
         }
         // 暂停时 mpv 更新 surface 尺寸后不会自动重绘，BufferQueue 里残留旧尺寸的缓冲
         // → 画面错位/撕裂（继续播放才恢复）。防抖后精确 seek 到当前暂停位置强制按新尺寸
-        // 重绘同一帧：不能用 frame-step（每次前进一帧，反复 resize 画面会一点点往前走）。
+        // 重绘同一帧。必须走裸 seek 命令、不能走 seekTo/queueSeek：seek 落地跟踪依赖
+        // seeking 边沿或位置推进来完成，暂停下位置永不推进、零位移 seek 的边沿又可能
+        // 整个丢失 → phase 永久 SEEKING、转圈常驻；裸命令不进跟踪，seeking 边沿即使
+        // 乱序也会被 epoch 相等守卫直接清掉。
         if (!state.paused) return
         pausedResizeRedrawRunnable?.let { playbackHandler.removeCallbacks(it) }
         val redraw = Runnable {
@@ -1273,7 +1276,11 @@ class MpvPlaybackController(
             runOnPlaybackThread {
                 if (!initialized || !mpv.isAvailable() || !state.paused) return@runOnPlaybackThread
                 val posMs = state.positionMs
-                if (posMs > 0L) seekTo(posMs)
+                if (posMs > 0L) {
+                    runCatching {
+                        mpv.command(arrayOf("seek", (posMs / 1000.0).toString(), "absolute+exact"))
+                    }
+                }
             }
         }
         pausedResizeRedrawRunnable = redraw

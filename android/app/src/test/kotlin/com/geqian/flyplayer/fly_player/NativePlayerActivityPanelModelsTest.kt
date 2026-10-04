@@ -1007,6 +1007,24 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun pausedBufferingDoesNotShowLoading() {
+        // 已就绪的暂停态：mpv 的缓存回填/重绘 seek（窗口 resize 等）不构成可见加载窗口——
+        // 画面已在屏上，而暂停下位置不推进，这些状态不会自然收敛。恢复播放若仍在缓冲则恢复显示。
+        // 注意 paused 默认值为 true：初始 PREPARING（ready=false）仍必须显示加载。
+        val pausedBuffering = MpvPlayerState(
+            nativeLibLoaded = true, ready = true, visualPlaybackReady = true, paused = true,
+            buffering = true, playbackPhase = "buffering", positionMs = 60_000L,
+        )
+        assertFalse(nativePanelShouldShowPlaybackLoading(pausedBuffering, false))
+        assertTrue(
+            nativePanelShouldShowPlaybackLoading(pausedBuffering.copy(paused = false), false),
+        )
+        assertTrue(
+            nativePanelShouldShowPlaybackLoading(pausedBuffering.copy(ready = false, playbackPhase = "preparing"), false),
+        )
+    }
+
+    @Test
     fun systemMediaCardDoesNotReportFailedPlaybackAsPlaying() {
         val failed = MpvPlayerState(
             ready = true, paused = false, playbackPhase = "error", error = "媒体加载失败",

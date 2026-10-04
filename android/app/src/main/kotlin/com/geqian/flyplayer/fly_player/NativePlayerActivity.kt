@@ -970,11 +970,17 @@ internal fun nativePanelHasPlaybackProgress(state: MpvPlayerState, previousPosit
 
 // SEEKING 也要算加载：derivePlaybackPhase 里 SEEKING 优先于 BUFFERING，seek 期间 buffering 被
 // 归一化为 false，漏掉这条用户 seek（横滑/点进度条）整个加载窗口都不显示转圈与网速。
-internal fun nativePanelShouldShowPlaybackLoading(state: MpvPlayerState, playbackProgressing: Boolean): Boolean =
-    !state.nativeLibLoaded || state.buffering ||
+internal fun nativePanelShouldShowPlaybackLoading(state: MpvPlayerState, playbackProgressing: Boolean): Boolean {
+    if (!state.nativeLibLoaded || state.error != null) return true
+    // 已就绪的暂停态不挂转圈：画面已在屏上，暂停后的缓存回填/重绘 seek（如窗口 resize）
+    // 对用户不可见；恢复播放后若仍在缓冲，loading 会自然恢复显示。
+    // paused 默认值为 true（MpvPlayerState 初始即暂停），必须叠加 ready 才代表真实暂停画面。
+    if (state.paused && state.ready) return false
+    return state.buffering ||
         state.playbackPhase == MpvPlaybackPhase.PREPARING.wireValue ||
         state.playbackPhase == MpvPlaybackPhase.SEEKING.wireValue ||
-        !(state.visualPlaybackReady || playbackProgressing) || state.error != null
+        !(state.visualPlaybackReady || playbackProgressing)
+}
 
 internal fun nativePanelShouldCancelControlsAutoHide(bottomBarInitialized: Boolean): Boolean =
     bottomBarInitialized
