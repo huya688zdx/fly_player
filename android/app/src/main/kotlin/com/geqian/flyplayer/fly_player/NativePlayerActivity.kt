@@ -1462,7 +1462,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var isLocked = false
     private lateinit var lockButton: ImageButton
     private lateinit var freezeFrameView: ImageView
-    // 当前定格是否由「暂停 resize 遮罩」发起（区分分屏/全屏切换的定格，避免互相误撤）。
+    private lateinit var resizeCoverView: FrameLayout
+    // 当前遮罩是否为「暂停 resize」发起（区分分屏/全屏切换的定格，避免互相误撤）。
     private var resizeCoverShowing = false
     private val hideFreezeRunnable = Runnable { hideFreezeFrame() }
 
@@ -3530,6 +3531,51 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     // ---- UI 构建（代码构建 + 少量矢量 drawable，无 XML layout） ----
 
+    /** 手绘 12 辐条转圈（attach 才转、detach 即停）；加载层与暂停 resize 遮罩共用。 */
+    private fun buildSpinnerView(): View = object : View(this) {
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = dp(3).toFloat()
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            setShadowLayer(dp(3).toFloat(), 0f, 0f, PILL_BG)
+        }
+        private var tick = 0
+        private val ticker = object : Runnable {
+            override fun run() {
+                tick = (tick + 1) % 12
+                invalidate()
+                postDelayed(this, 80L)
+            }
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            post(ticker)
+        }
+
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            removeCallbacks(ticker)
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val rOuter = minOf(cx, cy) - dp(2)
+            val rInner = rOuter - dp(5)
+            for (i in 0 until 12) {
+                paint.alpha = 255 - (((12 - i) + tick) % 12) * 21
+                val angle = Math.toRadians(((i * 30) - 90).toDouble())
+                val startX = (Math.cos(angle).toFloat() * rInner) + cx
+                val startY = (Math.sin(angle).toFloat() * rInner) + cy
+                val endX = (Math.cos(angle).toFloat() * rOuter) + cx
+                val endY = (Math.sin(angle).toFloat() * rOuter) + cy
+                canvas.drawLine(startX, startY, endX, endY, paint)
+            }
+        }
+    }
+
     private fun buildContentView(): View {
         rootContainer = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -3561,6 +3607,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ),
         )
 
+        // 暂停 resize 遮罩：拖动窗口时纯黑盖住被拉伸的旧缓冲（PixelCopy 抓帧在 resize
+        // 期间不可靠，不用定格图；不放转圈，避免看起来像加载故障），重绘 seek 完成后淡出。
+        resizeCoverView = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            visibility = View.GONE
+        }
+        rootContainer.addView(
+            resizeCoverView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
         // 听视频（纯音频）覆盖层：模糊背景 + 居中海报 + 标题。默认隐藏，isAudioOnly 时显示。
         listenLayer = buildListenLayer()
         rootContainer.addView(
@@ -3582,49 +3642,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
 
         // 居中加载层：手绘 12 辐条转圈 + 状态文字（缓冲/未就绪时整列居中显示）。
-        val customSpinner = object : View(this) {
-            private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                style = android.graphics.Paint.Style.STROKE
-                strokeWidth = dp(3).toFloat()
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                setShadowLayer(dp(3).toFloat(), 0f, 0f, PILL_BG)
-            }
-            private var tick = 0
-            private val ticker = object : Runnable {
-                override fun run() {
-                    tick = (tick + 1) % 12
-                    invalidate()
-                    postDelayed(this, 80L)
-                }
-            }
-
-            override fun onAttachedToWindow() {
-                super.onAttachedToWindow()
-                post(ticker)
-            }
-
-            override fun onDetachedFromWindow() {
-                super.onDetachedFromWindow()
-                removeCallbacks(ticker)
-            }
-
-            override fun onDraw(canvas: android.graphics.Canvas) {
-                val cx = width / 2f
-                val cy = height / 2f
-                val rOuter = minOf(cx, cy) - dp(2)
-                val rInner = rOuter - dp(5)
-                for (i in 0 until 12) {
-                    paint.alpha = 255 - (((12 - i) + tick) % 12) * 21
-                    val angle = Math.toRadians(((i * 30) - 90).toDouble())
-                    val startX = (Math.cos(angle).toFloat() * rInner) + cx
-                    val startY = (Math.sin(angle).toFloat() * rInner) + cy
-                    val endX = (Math.cos(angle).toFloat() * rOuter) + cx
-                    val endY = (Math.sin(angle).toFloat() * rOuter) + cy
-                    canvas.drawLine(startX, startY, endX, endY, paint)
-                }
-            }
-        }
         loadingSpinner = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -3632,7 +3649,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 首次播放器状态回调前也要显示准备提示。
             visibility = View.VISIBLE
             addView(
-                customSpinner,
+                buildSpinnerView(),
                 LinearLayout.LayoutParams(dp(36), dp(36)).apply { bottomMargin = dp(12) },
             )
             statusLabel = TextView(context).apply {
@@ -7881,15 +7898,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             playbackProgressing = true
         }
         lastProgressPositionMs = state.positionMs
-        // 暂停态窗口 resize：控制器请求用定格图盖住视频层，重绘 seek 完成后淡出，
-        // 拖动中间过程不再露出被拉伸的旧缓冲。与分屏/全屏切换的定格互不抢占。
-        if (this::freezeFrameView.isInitialized) {
+        // 暂停态窗口 resize：黑底遮罩盖住视频层——拖动中间过程不再露出被拉伸的旧缓冲，
+        // 重绘 seek 完成后淡出。不走定格抓帧：PixelCopy 在 resize 期间不可靠。
+        if (this::resizeCoverView.isInitialized) {
             if (state.resizeCoverActive && !resizeCoverShowing) {
                 resizeCoverShowing = true
-                captureAndFreeze { }
+                resizeCoverView.alpha = 1f
+                resizeCoverView.visibility = View.VISIBLE
             } else if (!state.resizeCoverActive && resizeCoverShowing) {
                 resizeCoverShowing = false
-                hideFreezeFrame()
+                resizeCoverView.animate().cancel()
+                resizeCoverView.animate()
+                    .alpha(0f)
+                    .setDuration(200L)
+                    .withEndAction {
+                        resizeCoverView.visibility = View.GONE
+                        resizeCoverView.alpha = 1f
+                    }
+                    .start()
             }
         }
         val effectivelyReady = state.visualPlaybackReady || playbackProgressing
