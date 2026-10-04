@@ -2501,6 +2501,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   void _bindEmbyNativePlayerReentry() {
     final backend = context.read<MediaBackendProvider>().backend;
     final nas = context.read<NasProvider>();
+    // 分屏下播放器比本页活得久（副栏可自由导航）：resolver 锚到导航器根 context，
+    // 页面 dispose 后选集/切版本仍可解析。
+    final resolveContext = NativePlayerBridge.engineRootContext(context) ?? context;
     _reentryToken = NativePlaybackReentry.bind(
       backend: backend,
       nas: nas,
@@ -2518,10 +2521,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             subtitleTrackIndex,
             preferredQualityResolution,
           }) async {
-            if (!mounted) return null;
             final resolved = await const TvSeasonPlaybackLauncher()
                 .resolveForNative(
-                  context,
+                  resolveContext,
                   itemGuid: itemGuid,
                   seriesTitle: widget.seriesTitle,
                   seriesGuid: widget.parentGuid,
@@ -2557,6 +2559,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   void _bindNativePlayerReentry() {
     final nas = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
+    // 分屏下播放器比本页活得久（副栏可自由导航）：resolver 锚到导航器根 context，
+    // 页面 dispose 后选集/切版本仍可解析。
+    final resolveContext = NativePlayerBridge.engineRootContext(context) ?? context;
     _reentryToken = NativePlaybackReentry.bind(
       backend: backend,
       nas: nas,
@@ -2574,10 +2579,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             subtitleTrackIndex,
             preferredQualityResolution,
           }) async {
-            if (!mounted) return null;
             final resolved = await const TvSeasonPlaybackLauncher()
                 .resolveForNative(
-                  context,
+                  resolveContext,
                   itemGuid: itemGuid,
                   seriesTitle: widget.seriesTitle,
                   seriesGuid: widget.parentGuid,

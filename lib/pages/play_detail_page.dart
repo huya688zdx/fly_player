@@ -2793,7 +2793,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     episodes: capturedEpisodes.isEmpty
                         ? null
                         : capturedEpisodes,
-                    l10n: AppLocalizations.of(context),
+                    // 分屏下播放器比本页活得久（副栏可自由导航）：l10n 用绑定时捕获的
+                    // 实例，不能在闭包里 AppLocalizations.of(context)——页面 dispose 后
+                    // State.context 抛空检查，选集/切版本会全部"切换失败"。
+                    l10n: l10n,
                   );
                 },
           );

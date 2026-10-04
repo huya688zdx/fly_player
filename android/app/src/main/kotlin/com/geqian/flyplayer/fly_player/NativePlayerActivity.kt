@@ -1125,6 +1125,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             retainedPlayer.get()?.takeIf { it.playbackParked }?.finishAndRemoveTask()
         }
 
+        /** 本进程是否有存活的播放器实例（分屏下页面 dispose 解绑保留判定用）。 */
+        fun hasLiveInstance(): Boolean =
+            retainedPlayer.get()?.takeIf { !it.isFinishing && !it.isDestroyed } != null
+
         /**
          * 分屏副栏点播放的进程内就地换片：把新 loadArgs 直接递给存活的播放器实例，
          * 走与 [onNewIntent] 完全相同的接线（applyIncomingPlaybackIntent）。

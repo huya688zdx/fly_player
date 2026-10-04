@@ -295,9 +295,16 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "unbindReentryHost" -> {
-                        com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
-                            .detach(channel)
-                        result.success(null)
+                        // 播放器仍存活（分屏）时，页面 dispose 的解绑降级为保留：副栏可自由
+                        // 导航，而原生壳的反向解析（选集/切版本/进度回写）依赖这条通道直到
+                        // 播放器退出。返回 true=已保留（Dart 侧同步保留 handler）；false=已拆。
+                        if (NativePlayerActivity.hasLiveInstance()) {
+                            result.success(true)
+                        } else {
+                            com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
+                                .detach(channel)
+                            result.success(false)
+                        }
                     }
                     else -> result.notImplemented()
                 }

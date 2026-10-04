@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart' show Locale;
+import 'package:flutter/widgets.dart' show BuildContext, Locale, NavigatorState;
 
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -33,6 +33,12 @@ class NativePlayerBridge {
   static const MethodChannel _channel = MethodChannel(
     'fly_player/native_player',
   );
+
+  /// 引擎级长存 context：分屏下原生播放器比发起播放的页面活得久（副栏可自由导航），
+  /// 反向解析（选集/切版本/进度回写）必须锚在导航器根——provider 与本地化都在其
+  /// 上方，页面 dispose 后依然可用。必须在 bind 时（页面仍 mounted）捕获。
+  static BuildContext? engineRootContext(BuildContext context) =>
+      context.findAncestorStateOfType<NavigatorState>()?.context;
 
   /// 当前反向通道的持有者标识。bindReentry 是全局单 handler（最近注册的入口生效），
   /// 用 token 让 unbindReentry 只清「自己仍是当前持有者」的情形，避免旧入口 dispose
@@ -257,37 +263,47 @@ class NativePlayerBridge {
             '[DANMAKU][NATIVE_SWITCH] bridge resolvePlayback recv '
             'item="$guid" keys=${args.keys.toList()}',
           );
-          final resolved = await scopedResult(
-            await onResolvePlayback(
-              guid,
-              qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
-              qualityMediaGuid: () {
-                final v = (args['qualityMediaGuid'] ?? '').toString().trim();
-                return v.isEmpty ? null : v;
-              }(),
-              startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
-              // 字幕重载（转码/服务端托管）：带 key 即为 override，空串=关闭字幕；
-              // 不带 key（画质/选集）则 null=沿用服务端默认字幕。
-              subtitleGuid: args.containsKey('subtitleGuid')
-                  ? (args['subtitleGuid'] ?? '').toString()
-                  : null,
-              // 音轨重载（转码切音轨）：带 key 即 override；不带则沿用服务端默认音轨。
-              audioGuid: args.containsKey('audioGuid')
-                  ? (args['audioGuid'] ?? '').toString()
-                  : null,
-              // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1=继承「关闭」。
-              audioTrackIndex: (args['audioTrackIndex'] as num?)?.toInt(),
-              subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)?.toInt(),
-              // 切集按分辨率继承画质：native（转码态）传当前分辨率；空=不继承，走默认梯度。
-              preferredQualityResolution: () {
-                final v = (args['preferredQualityResolution'] ?? '')
-                    .toString()
-                    .trim();
-                return v.isEmpty ? null : v;
-              }(),
-            ),
-            retainedPlayLink: (args['currentPlayLink'] ?? '').toString().trim(),
-          );
+          final Map<String, dynamic>? resolved;
+          try {
+            resolved = await scopedResult(
+              await onResolvePlayback(
+                guid,
+                qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
+                qualityMediaGuid: () {
+                  final v = (args['qualityMediaGuid'] ?? '').toString().trim();
+                  return v.isEmpty ? null : v;
+                }(),
+                startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
+                // 字幕重载（转码/服务端托管）：带 key 即为 override，空串=关闭字幕；
+                // 不带 key（画质/选集）则 null=沿用服务端默认字幕。
+                subtitleGuid: args.containsKey('subtitleGuid')
+                    ? (args['subtitleGuid'] ?? '').toString()
+                    : null,
+                // 音轨重载（转码切音轨）：带 key 即 override；不带则沿用服务端默认音轨。
+                audioGuid: args.containsKey('audioGuid')
+                    ? (args['audioGuid'] ?? '').toString()
+                    : null,
+                // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1=继承「关闭」。
+                audioTrackIndex: (args['audioTrackIndex'] as num?)?.toInt(),
+                subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)?.toInt(),
+                // 切集按分辨率继承画质：native（转码态）传当前分辨率；空=不继承，走默认梯度。
+                preferredQualityResolution: () {
+                  final v = (args['preferredQualityResolution'] ?? '')
+                      .toString()
+                      .trim();
+                  return v.isEmpty ? null : v;
+                }(),
+              ),
+              retainedPlayLink: (args['currentPlayLink'] ?? '').toString().trim(),
+            );
+          } catch (error, stack) {
+            // 反向解析异常必须带栈落日志：通道 error 只回 message，堆栈只有这里拿得到。
+            debugPrint(
+              '[DANMAKU][NATIVE_SWITCH] bridge resolvePlayback failed '
+              'item="$guid": $error\n$stack',
+            );
+            rethrow;
+          }
           // 统计元数据缓存:预取/切集/切版本的解析结果都进缓存;会话切换只认 recordProgress。
           NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
             resolved?['loadArgs'],
@@ -642,12 +658,32 @@ class NativePlayerBridge {
 
   /// 解绑反向通道。仅当 [token] 仍是当前持有者时才真正清除——避免旧入口 dispose 清掉
   /// 后注册入口的 handler。launcher 内部注册的（捕获 nas、闭包不持 State）可不解绑。
+  ///
+  /// 分屏语义：原生播放器比发起播放的页面活得久（副栏可自由导航），页面 dispose 的
+  /// 解绑在播放器存活时降级为"保留"——Kotlin 决定（返回 true=保留），Dart 侧同步保留
+  /// handler 与 onUnbind 资源；待下次 bind 覆盖或引擎退出随进程回收。
   static void unbindReentry(Object token) {
     if (!identical(_activeBindToken, token)) return;
     _activeBindToken = null;
-    unawaited(_onUnbind?.call());
+    unawaited(_releaseReentryBinding(token));
+  }
+
+  static Future<void> _releaseReentryBinding(Object token) async {
+    final onUnbind = _onUnbind;
     _onUnbind = null;
-    unawaited(_channel.invokeMethod<void>('unbindReentryHost'));
+    var kept = false;
+    try {
+      kept = await _channel.invokeMethod<bool>('unbindReentryHost') == true;
+    } catch (_) {
+      kept = false;
+    }
+    if (kept) return;
+    // 等待期间若有新 bind 认领，只清自己捕获的资源，不动新绑定的 handler。
+    if (!identical(_activeBindToken, null)) {
+      unawaited(onUnbind?.call());
+      return;
+    }
+    unawaited(onUnbind?.call());
     _channel.setMethodCallHandler(null);
   }
 

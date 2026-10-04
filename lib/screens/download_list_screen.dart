@@ -970,10 +970,12 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           // 下载管理入口也走统一反向通道：已下载集优先本地，未下载集有网时走 NAS。
           // 同一份 episodes 随每次换源回传 + 作选集面板兜底；经统一 binder 按后端接线（下载为
           // 飞牛专属，backend 即飞牛），补齐选集三件套，与其它入口同口径（离线时选集回退兜底）。
+          // 分屏下播放器比本页活得久：l10n 在绑定时捕获，页面 dispose 后仍可解析。
+          final resolveL10n = AppLocalizations.of(context);
           _reentryToken = NativePlaybackReentry.bind(
             backend: backend,
             nas: provider,
-            l10n: AppLocalizations.of(context),
+            l10n: resolveL10n,
             fallbackEpisodes: () => nativeEpisodes,
             onResolvePlayback:
                 (
@@ -991,7 +993,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   provider,
                   backend: backend,
                   itemGuid: itemGuid,
-                  l10n: AppLocalizations.of(context),
+                  l10n: resolveL10n,
                   fallbackTitle: title,
                   qualityIndex: qualityIndex,
                   qualityMediaGuid: qualityMediaGuid,

@@ -65,7 +65,11 @@ object NativePlayerReverseBridge {
                     override fun success(result: Any?) = onResult(result)
 
                     override fun error(code: String, message: String?, details: Any?) {
-                        Log.w(TAG, "dispatch($method) error: $code $message")
+                        Log.w(
+                            TAG,
+                            "dispatch($method) error: $code $message " +
+                                (details?.toString()?.take(1200) ?: ""),
+                        )
                         onError(code)
                     }
 

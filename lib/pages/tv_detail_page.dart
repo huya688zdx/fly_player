@@ -1350,7 +1350,9 @@ class _TvDetailPageState extends State<TvDetailPage>
       }
       // 反向通道：剧详情进原生壳，经统一 binder 按后端接线（剧详情只有季列表、无单集列表，
       // 故无选集静态兜底，选集数据由后端按 seriesGuid 派生）。画质切换回传当前集 guid →
-      // resolveForNative 重解析（launcher 已后端中立）。
+      // resolveForNative 重解析（launcher 已后端中立）。分屏下播放器比本页活得久（副栏可
+      // 自由导航），resolver 锚到导航器根 context，页面 dispose 后选集/切版本仍可解析。
+      final resolveContext = NativePlayerBridge.engineRootContext(context) ?? context;
       _reentryToken = NativePlaybackReentry.bind(
         backend: backend,
         nas: nas,
@@ -1367,9 +1369,8 @@ class _TvDetailPageState extends State<TvDetailPage>
               subtitleTrackIndex,
               preferredQualityResolution,
             }) async {
-              if (!mounted) return null;
               return const TvSeasonPlaybackLauncher().resolveForNative(
-                context,
+                resolveContext,
                 itemGuid: itemGuid,
                 seriesTitle: seriesTitle,
                 seriesGuid: widget.itemGuid,

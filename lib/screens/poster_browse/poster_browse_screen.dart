@@ -1016,6 +1016,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           _showTopTip(l10n.detailPlayInfoFailed, context.appColors.danger);
           return;
         }
+        // 分屏下播放器比本页活得久（副栏可自由导航）：resolver 锚到导航器根 context，
+        // 页面 dispose 后选集/切版本仍可解析。
+        final resolveContext = NativePlayerBridge.engineRootContext(context) ?? context;
         _reentryToken = NativePlaybackReentry.bind(
           backend: backend,
           nas: nas,
@@ -1032,9 +1035,8 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                 subtitleTrackIndex,
                 preferredQualityResolution,
               }) async {
-                if (!mounted) return null;
                 return const TvSeasonPlaybackLauncher().resolveForNative(
-                  context,
+                  resolveContext,
                   itemGuid: itemGuid,
                   seriesTitle: seriesTitle,
                   seriesGuid: seriesGuid,
