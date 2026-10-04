@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 悬浮小窗（FloatingPlayerService）的 TYPE_APPLICATION_OVERLAY 窗口用；
+         运行时授权走 Settings.ACTION_MANAGE_OVERLAY_PERMISSION 引导，API 26+ 才生效。 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission
@@ -203,6 +206,15 @@
         <!-- 原生播放壳专用前台播放服务（锁屏/通知/蓝牙线控直达 playerSurface，不经 Flutter）。 -->
         <service
             android:name=".NativePlaybackMediaService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="true" />
+
+        <!-- 悬浮小窗前台服务（方案 3.2）：承载 TYPE_APPLICATION_OVERLAY 窗口 + 拖拽/缩放交互；
+             stopWithTask=true 与播放任务同生共死（划掉任务 = 小窗关闭，方案 3.4 可接受限制）。 -->
+        <service
+            android:name=".FloatingPlayerService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback"

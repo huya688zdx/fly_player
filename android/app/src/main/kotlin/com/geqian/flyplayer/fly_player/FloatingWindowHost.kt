@@ -15,6 +15,17 @@ interface FloatingWindowHost {
     /** 宿主窗口就绪（服务存活 + 悬浮窗权限齐备），可接收渲染组。 */
     val isActive: Boolean
 
+    /** 窗口交互回传（拖动/缩放由窗口自处理，需要播放壳配合的走这里）。 */
+    interface Callback {
+        /** 单击小窗请求展开回全屏（3.5 控制层落地后由控制层接管交互，参考稿交互清单）。 */
+        fun onExpandRequested()
+
+        /** 拖拽缩放松手、新尺寸已生效：播放壳应重设 android-surface-size（方案 3.3）。 */
+        fun onWindowSizeSettled()
+    }
+
+    fun setCallback(callback: Callback?)
+
     /**
      * 把渲染组根视图收进悬浮窗层级（交接的宿主半边，主线程调用）。
      * [freezeFrame] 为 detach 前抓取的定格图（PixelCopy 需有效 surface，必须先抓后摘），
@@ -22,6 +33,12 @@ interface FloatingWindowHost {
      * ——调用方会撤销交接（abortSurfaceHandoff）并回退系统 PiP（3.3 失败回退）。
      */
     fun attachPlayerSurface(surface: View, freezeFrame: Bitmap?): Boolean
+
+    /**
+     * 把渲染组根视图从悬浮窗层级摘出（展开回全屏第一步；窗口此时仍存活），
+     * 供调用方装回原视图树后 [removeWindow]。
+     */
+    fun detachPlayerSurface(surface: View): Boolean
 
     /** 移除悬浮窗窗口（展开回全屏或关闭小窗）；渲染组在此之前已被取回或释放。 */
     fun removeWindow()

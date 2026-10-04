@@ -1239,6 +1239,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         const val CENTER_HINT_WATCHDOG_MS = 15000L
         // 弱网：服务端重载（切画质/音轨/字幕/选集）超过该时长仍未完成，升级提示文案。
         const val WEAK_NET_ESCALATE_MS = 6000L
+        // 悬浮窗宿主解析（服务建窗异步）：detach 生效后按 16ms 重试，上限 ~200ms（P3 预算同量级），
+        // 超时回退系统 PiP（方案 3.2/3.3 失败回退）。
+        const val HOST_RESOLVE_MAX_ATTEMPTS = 12
+        const val HOST_RESOLVE_RETRY_MS = 16L
 
         // 配色对齐 app 主题（默认蓝 accent，与 Flutter 播放器进度条同色）。
         // 含符号位的 ARGB 字面量是 Long，须 .toInt()，故用 val 而非 const val。
@@ -1504,9 +1508,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 区别于 playbackParked 的「暂停 + 停上报 + 停媒体服务」保留会话；parkPlayback
     // 会先 pause 再退后台，与「缩小但继续播」互斥，不可复用。
     private var floatingMinimized = false
-    // 悬浮窗宿主接缝：FloatingPlayerService（方案 3.2 的 overlay 前台服务）落地后注入；
-    // 为 null 时 floatingEntryReady 恒 false，back 键维持既有 PiP/保留/退出路径。
+    // 悬浮窗宿主接缝：由 FloatingPlayerService（方案 3.2）在接入成功时注入。
     private var floatingWindowHost: FloatingWindowHost? = null
+    // 「悬浮窗偏好」桥接（3.6 的 floating_mini_player_enabled 设置键落地前的近似）：
+    // 本会话内成功用过一次悬浮窗后，back/离开优先收悬浮窗、不再自动进 PiP；
+    // 未用过时维持既有行为，避免授予过权限（可能为其他功能所授）的用户行为静默漂移。
+    private var floatingEntryArmed = false
+
+    /** 窗口交互回传（FloatingPlayerService 桥接自 FloatingPlayerWindowView）。 */
+    private val floatingHostCallback = object : FloatingWindowHost.Callback {
+        override fun onExpandRequested() {
+            exitFloatingMinimized()
+        }
+
+        override fun onWindowSizeSettled() {
+            // 缩放松手：按新窗口尺寸重设 android-surface-size（方案 3.3；布局完成后取值）。
+            if (this@NativePlayerActivity::playerSurface.isInitialized) {
+                playerSurface.post { playerSurface.completeSurfaceHandoff() }
+            }
+        }
+    }
     private var playbackSessionScope = ""
     private var warmResumePending = false
     private var warmResumePositionMs: Long? = null
@@ -2518,7 +2539,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     scheduleFreezeHide()
                 }
             }
-            DisplayModeEntry.PIP -> enterPip()
+            DisplayModeEntry.PIP -> {
+                // 悬浮窗优先于 PiP（方案 3.6 让位序的前置接线；FLOAT 枚举与设置键随 3.6 落地）。
+                // 三态：能力就绪收小窗 / API26+ 未授权走一次性内联引导 / 低版本回退 PiP。
+                when (
+                    FloatingPlayerWindowPolicy.resolveEntryAction(
+                        sdkAtLeastO = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O,
+                        overlayPermissionGranted = Settings.canDrawOverlays(this),
+                    )
+                ) {
+                    FloatingEntryAction.ENTER -> enterFloatingMinimized()
+                    FloatingEntryAction.GUIDE_PERMISSION -> guideFloatingOverlayPermission()
+                    FloatingEntryAction.FALLBACK_PIP -> enterPip()
+                }
+            }
             DisplayModeEntry.ROTATE -> {
                 toggleOrientation()
                 refreshDisplayModeButton()
@@ -4510,10 +4544,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun finishOrEnterPip() {
-        // 悬浮窗能力就绪：back 优先收悬浮小窗（3.4 表「back 键」行，异步交接，
-        // 失败自动回退 enterPip，见 3.3 失败回退）；未就绪维持既有 PiP/保留/退出路径。
+        // 悬浮窗偏好就绪：back 优先收悬浮小窗（3.4 表「back 键」行，异步交接；失败自动
+        // 回退 enterPip，见 3.3 失败回退）；未就绪维持既有 PiP/保留/退出路径。
         if (nativePanelShouldEnterFloatingOnBack(
-                floatingWindowReady = floatingEntryReady(),
+                floatingWindowReady = floatingPreferred(),
                 inPipMode = inPipMode,
                 finishing = isFinishing,
                 playbackSurfaceReady = this::playerSurface.isInitialized,
@@ -4529,7 +4563,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 paused = playerSurface.state.paused,
                 alreadyInPip = inPipMode,
                 finishing = isFinishing,
-                floatingWindowReady = floatingEntryReady(),
+                floatingWindowReady = floatingPreferred(),
             )
         ) {
             enterPip()
@@ -4538,38 +4572,83 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    /** 悬浮窗能力就绪判定：宿主接缝可用（权限/服务就绪由宿主封装）。宿主落地前恒 false。 */
-    private fun floatingEntryReady(): Boolean = floatingWindowHost?.isActive == true
+    /** 悬浮窗能力就绪判定（方案 3.2）：API 26+ 且已授予悬浮窗权限；窗口服务异步建窗。 */
+    private fun floatingEntryReady(): Boolean = FloatingPlayerService.canHostFloatingWindow(this)
+
+    /** back/离开是否优先悬浮窗：已在小窗态，或本会话用过悬浮窗（用户偏好桥接，见字段注释）。 */
+    private fun floatingPreferred(): Boolean =
+        floatingMinimized || (floatingEntryReady() && floatingEntryArmed)
 
     /**
      * 收进悬浮小窗（悬浮小窗方案 3.3 流程 1 + 3.4 表「进小窗」行）：定格图 → detach
      * handoff → 渲染组 reparent 进悬浮窗 → moveTaskToBack。全程不 park 不 pause
-     * 不停上报。交接/接入失败自动回退系统 PiP（3.3 失败回退）并关闭悬浮窗。
+     * 不停上报。服务建窗异步，detach 生效后有界重试解析宿主；超时/接入失败自动
+     * 回退系统 PiP（3.3 失败回退）。
      */
     private fun enterFloatingMinimized() {
-        val host = floatingWindowHost ?: return
         if (floatingMinimized || inPipMode) return
         if (!this::playerSurface.isInitialized) return
+        if (!floatingEntryReady()) return
         // 进小窗前先收掉分屏：与 PiP 同款「单一播放窗」让位。
         collapseSplitForPip()
+        // 服务建窗与交接管线并行推进：定格+detach 约需一帧以上，通常解析即中。
+        FloatingPlayerService.requestEnter(this)
         playerSurface.beginSurfaceHandoff { freeze ->
-            val attached = host.attachPlayerSurface(playerSurface, freeze)
-            if (attached) {
-                floatingMinimized = true
-                hidePanel()
-                if (!moveTaskToBack(true)) {
-                    Log.d(TAG, "moveTaskToBack 被系统拒绝，悬浮窗与前台并存（onResume 自愈）")
-                }
-                // 新窗口布局后强制重报 android-surface-size（方案 3.3 流程 1 / 5.2）；
-                // 布局未完成时 completeSurfaceHandoff 跳过，由尺寸回调兜底。
-                playerSurface.post { playerSurface.completeSurfaceHandoff() }
-                Log.d(TAG, "已收进悬浮小窗（播放照常，不 park 不 pause）")
-            } else {
-                Log.w(TAG, "悬浮窗接入失败，撤销交接并回退系统 PiP")
-                playerSurface.abortSurfaceHandoff()
-                host.removeWindow()
-                enterPip()
+            attachFloatingHost(freeze, attempt = 0)
+        }
+    }
+
+    /** detach 生效后解析悬浮窗宿主并完成 reparent（服务建窗未就绪时有界重试）。 */
+    private fun attachFloatingHost(freeze: Bitmap?, attempt: Int) {
+        if (floatingMinimized) return
+        val host = FloatingPlayerService.activeHost
+        if (host == null || !host.isActive) {
+            if (attempt < HOST_RESOLVE_MAX_ATTEMPTS) {
+                rootContainer.postDelayed(
+                    { attachFloatingHost(freeze, attempt + 1) },
+                    HOST_RESOLVE_RETRY_MS,
+                )
+                return
             }
+            // 服务/窗口不可用（权限被运行时收回、建窗失败等）：撤销交接并回退系统 PiP。
+            Log.w(TAG, "floating host unresolved after ${attempt + 1} attempts, fallback to PiP")
+            showTransientHint(localizedString(R.string.player_floating_start_failed))
+            playerSurface.abortSurfaceHandoff()
+            FloatingPlayerService.stop(this)
+            enterPip()
+            return
+        }
+        // 渲染组先摘出 Activity 视图树（触发 destroy→交接旁路），再挂进悬浮窗层级。
+        rootContainer.removeView(playerSurface)
+        val attached = host.attachPlayerSurface(playerSurface, freeze)
+        if (attached) {
+            floatingWindowHost = host
+            floatingMinimized = true
+            floatingEntryArmed = true
+            host.setCallback(floatingHostCallback)
+            hidePanel()
+            if (!moveTaskToBack(true)) {
+                Log.d(TAG, "moveTaskToBack 被系统拒绝，悬浮窗与前台并存（onResume 自愈）")
+            }
+            // 新窗口布局后强制重报 android-surface-size（方案 3.3 流程 1 / 5.2）；
+            // 布局未完成时 completeSurfaceHandoff 跳过，由尺寸回调兜底。
+            playerSurface.post { playerSurface.completeSurfaceHandoff() }
+            Log.d(TAG, "已收进悬浮小窗（播放照常，不 park 不 pause）")
+        } else {
+            Log.w(TAG, "悬浮窗接入失败，视图装回 Activity 视图树并回退系统 PiP")
+            // 视图先装回 Activity 视图树（TextureView 重挂走 surface 复用/重建链），
+            // 再撤销交接并回退 PiP——直接 abort 会让 PiP 挂在无渲染组的黑屏上。
+            rootContainer.addView(
+                playerSurface,
+                0,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            playerSurface.abortSurfaceHandoff()
+            FloatingPlayerService.stop(this)
+            enterPip()
         }
     }
 
@@ -4586,18 +4665,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // Activity 侧定格兜底：复用分屏/全屏切换同款 freezeFrameView（先抓后摘，防黑闪）。
         captureAndFreeze {
             playerSurface.beginSurfaceHandoff {
-                // detach 已生效，渲染组先回 Activity 视图树（重挂由 surface available 驱动），
-                // 再移除悬浮窗窗口并置前任务。
-                rootContainer.addView(
-                    playerSurface,
-                    0,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                    ),
-                )
-                playerSurface.post { playerSurface.completeSurfaceHandoff() }
+                // detach 已生效：渲染组先摘出悬浮窗层级、装回 Activity 视图树（重挂由
+                // surface available 驱动），再移除悬浮窗窗口并置前任务。
+                if (host.detachPlayerSurface(playerSurface)) {
+                    rootContainer.addView(
+                        playerSurface,
+                        0,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                    playerSurface.post { playerSurface.completeSurfaceHandoff() }
+                } else {
+                    Log.w(TAG, "detachPlayerSurface failed, floating window may be gone")
+                }
                 scheduleFreezeHide()
+                host.setCallback(null)
+                floatingWindowHost = null
                 host.removeWindow()
                 movePlaybackTaskToFront()
                 Log.d(TAG, "已展开回全屏（播放照常，不重载）")
@@ -4611,6 +4696,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val task = activityManager?.appTasks?.firstOrNull { it.taskInfo.taskId == taskId }
         runCatching { task?.moveToFront() }
             .onFailure { Log.w(TAG, "movePlaybackTaskToFront failed", it) }
+    }
+
+    /** 悬浮窗权限一次性内联引导：提示 + 跳系统「显示在应用上层」设置页（方案 3.2）。 */
+    private fun guideFloatingOverlayPermission() {
+        showTransientHint(localizedString(R.string.player_floating_permission_guide))
+        FloatingPlayerService.launchOverlayPermissionGuide(this)
     }
 
     private fun parkPlayback(): Boolean {
@@ -11099,7 +11190,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             builder.setAutoEnterEnabled(
                 nativePanelPipAutoEnterEnabled(
                     playbackParked = playbackParked,
-                    floatingWindowReady = floatingEntryReady(),
+                    floatingWindowReady = floatingPreferred(),
                     floatingMinimized = floatingMinimized,
                     pipAutoEnter = pipAutoEnter,
                     paused = playerSurface.state.paused,
@@ -11138,8 +11229,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 paused = playerSurface.state.paused,
                 alreadyInPip = inPipMode,
                 finishing = isFinishing,
-                // 悬浮窗优先（3.4 表 autoEnter 行）：能力就绪时手势离开不再自动进 PiP。
-                floatingWindowReady = floatingEntryReady(),
+                // 悬浮窗优先（3.4 表 autoEnter 行）：用户偏好悬浮窗时手势离开不再自动进 PiP。
+                floatingWindowReady = floatingPreferred(),
             )
         ) {
             enterPip()
@@ -11364,7 +11455,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (floatingMinimized) {
             floatingMinimized = false
             floatingWindowHost?.removeWindow()
+            floatingWindowHost = null
         }
+        // 服务可能已被启动但未挂上渲染组（入口中途失败等）：停掉，避免空窗常驻前台服务。
+        FloatingPlayerService.stop(this)
         releaseDiscardedPlaybackLinks()
         NativeMediaCommandCoordinator.detach(this)
         // 先停媒体服务，再释放 playerSurface。释放内核可能同步/异步回调最终状态，不能让
