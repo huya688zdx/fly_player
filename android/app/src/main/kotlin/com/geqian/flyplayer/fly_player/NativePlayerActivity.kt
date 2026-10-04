@@ -955,9 +955,12 @@ internal fun nativePanelHasPlaybackProgress(state: MpvPlayerState, previousPosit
         !state.paused && !state.buffering && state.error == null &&
         previousPositionMs in 0 until state.positionMs
 
+// SEEKING 也要算加载：derivePlaybackPhase 里 SEEKING 优先于 BUFFERING，seek 期间 buffering 被
+// 归一化为 false，漏掉这条用户 seek（横滑/点进度条）整个加载窗口都不显示转圈与网速。
 internal fun nativePanelShouldShowPlaybackLoading(state: MpvPlayerState, playbackProgressing: Boolean): Boolean =
     !state.nativeLibLoaded || state.buffering ||
         state.playbackPhase == MpvPlaybackPhase.PREPARING.wireValue ||
+        state.playbackPhase == MpvPlaybackPhase.SEEKING.wireValue ||
         !(state.visualPlaybackReady || playbackProgressing) || state.error != null
 
 internal fun nativePanelShouldCancelControlsAutoHide(bottomBarInitialized: Boolean): Boolean =
@@ -10226,7 +10229,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         statusLabel.text = when {
             state.error != null -> localizedString(R.string.player_status_error, state.error)
             !state.nativeLibLoaded -> state.statusText
-            state.buffering -> {
+            state.buffering || state.playbackPhase == MpvPlaybackPhase.SEEKING.wireValue -> {
                 val speed = formatSpeed(state.networkSpeedBytesPerSecond)
                 if (qualityLoadingHint != null) {
                     listOf(qualityLoadingHint, speed).filter { it.isNotEmpty() }.joinToString("  ")

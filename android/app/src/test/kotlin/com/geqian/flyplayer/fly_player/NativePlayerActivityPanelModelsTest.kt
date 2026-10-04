@@ -984,6 +984,27 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun userSeekKeepsLoadingVisibleWhileSeeking() {
+        // 播放中（已开播兜底成立）横滑/点进度条提交 seek：SEEKING 阶段同样要显示加载与网速。
+        val playing = MpvPlayerState(
+            nativeLibLoaded = true, ready = true, visualPlaybackReady = true, paused = false,
+            playbackPhase = "playing", positionMs = 60_000L,
+        )
+        val progressing = nativePanelHasPlaybackProgress(playing, 59_750L)
+        assertTrue(progressing)
+        val seeking = playing.copy(playbackPhase = "seeking", positionMs = 120_000L)
+        assertTrue(nativePanelShouldShowPlaybackLoading(seeking, progressing))
+        // seek 完成恢复播放即收，暂停态也不挂转圈。
+        assertFalse(nativePanelShouldShowPlaybackLoading(playing, progressing))
+        assertFalse(
+            nativePanelShouldShowPlaybackLoading(
+                seeking.copy(paused = true, playbackPhase = "paused"),
+                progressing,
+            ),
+        )
+    }
+
+    @Test
     fun systemMediaCardDoesNotReportFailedPlaybackAsPlaying() {
         val failed = MpvPlayerState(
             ready = true, paused = false, playbackPhase = "error", error = "媒体加载失败",
