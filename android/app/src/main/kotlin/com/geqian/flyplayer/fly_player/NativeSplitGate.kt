@@ -24,4 +24,21 @@ object NativeSplitGate {
         }
         return splitAvailable
     }
+
+    /** 播放器底栏显示模式入口：分屏与画中画（小窗）二选一，横竖屏为无小窗能力时的兜底。 */
+    fun displayModeEntry(
+        parallelWindowEnabled: Boolean,
+        currentlySplit: Boolean,
+        splitSupported: Boolean,
+        pipSupported: Boolean,
+    ): DisplayModeEntry {
+        // 已嵌入分屏时保留退出出口，不受设置回退影响。
+        if (currentlySplit) return DisplayModeEntry.FULLSCREEN
+        // 平行窗口设置关闭即视为放弃分屏能力，入口让位给小窗。
+        if (parallelWindowEnabled && splitSupported) return DisplayModeEntry.SPLIT
+        if (pipSupported) return DisplayModeEntry.PIP
+        return DisplayModeEntry.ROTATE
+    }
 }
+
+enum class DisplayModeEntry { SPLIT, FULLSCREEN, PIP, ROTATE }

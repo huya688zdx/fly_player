@@ -78,8 +78,10 @@ class NativePlayerActivityPanelModelsTest {
         ).readText()
 
         assertFalse(source.contains("makeEntryButton(localizedString(R.string.player_action_reload)"))
-        assertTrue(source.contains("speedButton = makeEntryButton(\"1.0x\")"))
-        assertTrue(source.contains("R.drawable.ic_player_episode_grid"))
+        // 倍速入口已改为桌面同款动态图标（滚动数字），选集入口同为动态图标。
+        assertTrue(source.contains("speedButton = makeEntryButton(\"1.0x\", motion = PlayerMotionKind.SPEED)"))
+        assertTrue(source.contains("PlayerMotionKind.EPISODES"))
+        assertFalse(source.contains("R.drawable.ic_player_"))
     }
 
     @Test
@@ -981,6 +983,27 @@ class NativePlayerActivityPanelModelsTest {
         val listenProgressing = nativePanelHasPlaybackProgress(listening, 90_000L)
         assertTrue(listenProgressing)
         assertFalse(nativePanelShouldShowPlaybackLoading(listening, listenProgressing))
+    }
+
+    @Test
+    fun userSeekKeepsLoadingVisibleWhileSeeking() {
+        // 播放中（已开播兜底成立）横滑/点进度条提交 seek：SEEKING 阶段同样要显示加载与网速。
+        val playing = MpvPlayerState(
+            nativeLibLoaded = true, ready = true, visualPlaybackReady = true, paused = false,
+            playbackPhase = "playing", positionMs = 60_000L,
+        )
+        val progressing = nativePanelHasPlaybackProgress(playing, 59_750L)
+        assertTrue(progressing)
+        val seeking = playing.copy(playbackPhase = "seeking", positionMs = 120_000L)
+        assertTrue(nativePanelShouldShowPlaybackLoading(seeking, progressing))
+        // seek 完成恢复播放即收，暂停态也不挂转圈。
+        assertFalse(nativePanelShouldShowPlaybackLoading(playing, progressing))
+        assertFalse(
+            nativePanelShouldShowPlaybackLoading(
+                seeking.copy(paused = true, playbackPhase = "paused"),
+                progressing,
+            ),
+        )
     }
 
     @Test
