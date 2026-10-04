@@ -10029,7 +10029,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             else -> {
                 val fromChapter = if (intro) bounds.introFromChapter else bounds.outroFromChapter
-                val basis = if (fromChapter) "章节识别" else "固定时长"
+                val fromPattern = if (intro) bounds.introFromPattern else bounds.outroFromPattern
+                val basis = when {
+                    fromChapter -> "章节识别"
+                    fromPattern -> "编号章节推测"
+                    else -> "固定时长"
+                }
                 "$label：$basis · ${formatTime(start)}–${formatTime(end)}"
             }
         }

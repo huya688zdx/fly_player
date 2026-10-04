@@ -4429,7 +4429,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             final fromChapter = kind == _SkipPromptKind.intro
                 ? bounds.introFromChapter
                 : bounds.outroFromChapter;
-            final basis = fromChapter ? '章节识别' : '固定时长';
+            final fromPattern = kind == _SkipPromptKind.intro
+                ? bounds.introFromPattern
+                : bounds.outroFromPattern;
+            final basis = fromChapter
+                ? '章节识别'
+                : fromPattern
+                ? '编号章节推测'
+                : '固定时长';
             final message = kind == _SkipPromptKind.intro
                 ? '片头 · $basis'
                 : kind == null

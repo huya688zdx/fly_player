@@ -726,6 +726,100 @@ void main() {
     );
   });
 
+  DesktopPlayerChapter numbered(int seconds) => DesktopPlayerChapter(
+    title: 'Chapter',
+    position: Duration(seconds: seconds),
+  );
+
+  test('编号章节按动漫规律推测片头片尾范围', () {
+    // 经典 24 分钟布局：冷开 0–25s、OP 25s–1:55（90s）、正片、ED 21:50–23:20（90s）、预告。
+    final bounds = desktopPlaybackSkipBounds(
+      [
+        numbered(0),
+        numbered(25),
+        numbered(115),
+        numbered(901),
+        numbered(1310),
+        numbered(1400),
+      ],
+      const Duration(minutes: 24),
+      chapterEnabled: true,
+      fixedDurationEnabled: false,
+      introSeconds: 120,
+      outroSeconds: 120,
+    );
+    expect(bounds.introStart, const Duration(seconds: 25));
+    expect(bounds.introEnd, const Duration(seconds: 115));
+    expect(bounds.outroStart, const Duration(seconds: 1310));
+    expect(bounds.outroEnd, const Duration(seconds: 1400));
+    expect(bounds.introFromPattern, isTrue);
+    expect(bounds.outroFromPattern, isTrue);
+    expect(bounds.introFromChapter, isFalse);
+  });
+
+  test('剧集固定片头片尾块同样命中规律推测', () {
+    // 片头块 0–1:30、正片、片尾块最后 90 秒（最后一章，覆盖到文件结尾）。
+    final bounds = desktopPlaybackSkipBounds(
+      [numbered(0), numbered(90), numbered(2610)],
+      const Duration(minutes: 45),
+      chapterEnabled: true,
+      fixedDurationEnabled: false,
+      introSeconds: 120,
+      outroSeconds: 120,
+    );
+    expect(bounds.introStart, Duration.zero);
+    expect(bounds.introEnd, const Duration(seconds: 90));
+    expect(bounds.outroStart, const Duration(seconds: 2610));
+    expect(bounds.outroEnd, isNull);
+    expect(bounds.introFromPattern, isTrue);
+    expect(bounds.outroFromPattern, isTrue);
+  });
+
+  test('单侧命中规律不推测，命名章节优先于推测', () {
+    // 只有开头像 OP、结尾块长不像片尾 → 双侧依据不齐，不推测。
+    final oneSide = desktopPlaybackSkipBounds(
+      [numbered(0), numbered(25), numbered(115), numbered(901), numbered(1200)],
+      const Duration(minutes: 24),
+      chapterEnabled: true,
+      fixedDurationEnabled: false,
+      introSeconds: 120,
+      outroSeconds: 120,
+    );
+    expect(oneSide.introStart, isNull);
+    expect(oneSide.introEnd, isNull);
+    expect(oneSide.outroStart, isNull);
+    // 命名 OP + 编号 ED（块长符合规律）：片头用命名识别，片尾用规律推测。
+    final mixed = desktopPlaybackSkipBounds(
+      [
+        const DesktopPlayerChapter(title: 'OP', position: Duration.zero),
+        const DesktopPlayerChapter(title: '正片', position: Duration(seconds: 90)),
+        numbered(1300),
+        numbered(1400),
+      ],
+      const Duration(minutes: 24),
+      chapterEnabled: true,
+      fixedDurationEnabled: false,
+      introSeconds: 120,
+      outroSeconds: 120,
+    );
+    expect(mixed.introFromChapter, isTrue);
+    expect(mixed.introStart, Duration.zero);
+    expect(mixed.outroStart, const Duration(seconds: 1300));
+    expect(mixed.outroEnd, const Duration(seconds: 1400));
+    expect(mixed.outroFromPattern, isTrue);
+    // 章节识别关闭时不做规律推测。
+    final disabled = desktopPlaybackSkipBounds(
+      [numbered(0), numbered(90), numbered(2610)],
+      const Duration(minutes: 45),
+      chapterEnabled: false,
+      fixedDurationEnabled: false,
+      introSeconds: 120,
+      outroSeconds: 120,
+    );
+    expect(disabled.introStart, isNull);
+    expect(disabled.outroStart, isNull);
+  });
+
   test('进度固定采样媒体身份，最终上报完成后再释放服务端会话', () async {
     final firstReport = Completer<void>();
     final released = Completer<void>();

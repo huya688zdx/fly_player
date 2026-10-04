@@ -83,6 +83,7 @@ desktopChapterSkipBounds(
 /// 设置页和播放提示共用实际生效的范围；固定时长必须单独开启。
 /// 固定时长单位为秒，与飞牛 `play.setConfigByItem` 的 skip_opening/skip_ending 一致。
 /// [outroEnd] 非空时片尾跳过只到该边界（ED 章节后有其他内容），为空时覆盖到文件结尾。
+/// [introFromPattern]/[outroFromPattern] 标记该侧范围来自编号章节的时长规律推测。
 typedef DesktopPlaybackSkipBounds =
     ({
       Duration? introStart,
@@ -91,17 +92,59 @@ typedef DesktopPlaybackSkipBounds =
       Duration? outroEnd,
       bool introFromChapter,
       bool outroFromChapter,
+      bool introFromPattern,
+      bool outroFromPattern,
     });
 
-({
-  Duration? introStart,
-  Duration? introEnd,
-  Duration? outroStart,
-  Duration? outroEnd,
-  bool introFromChapter,
-  bool outroFromChapter,
-})
-desktopPlaybackSkipBounds(
+// 编号章节规律推测的窗口（行业惯例：动漫 OP/ED ≈90 秒；网剧规范片头≤90 秒、片尾≤180 秒）。
+const _patternMinDuration = Duration(minutes: 15);
+const _patternOpStartMax = Duration(seconds: 75);
+const _patternOpLengthMin = Duration(seconds: 60);
+const _patternOpLengthMax = Duration(seconds: 105);
+const _patternEdStartFromEndMin = Duration(seconds: 70);
+const _patternEdStartFromEndMax = Duration(seconds: 190);
+const _patternEdLengthMin = Duration(seconds: 60);
+const _patternEdLengthMax = Duration(seconds: 185);
+
+/// OP 候选：开头 75 秒内开始、块长 60–105 秒的章节（动漫 OP≈90s，剧集片头≤90s）。
+(Duration, Duration)? _patternOpCandidate(
+  List<DesktopPlayerChapter> chapters,
+  Duration duration,
+) {
+  for (var i = 0; i + 1 < chapters.length; i++) {
+    final start = chapters[i].position;
+    final end = chapters[i + 1].position;
+    if (start < Duration.zero || start > _patternOpStartMax) continue;
+    if (end <= start || end >= duration) continue;
+    final length = end - start;
+    if (length >= _patternOpLengthMin && length <= _patternOpLengthMax) {
+      return (start, end);
+    }
+  }
+  return null;
+}
+
+/// ED 候选：距结尾 70–190 秒内开始、块长 60–185 秒的章节（动漫 ED≈90s，剧集片尾≤180s）。
+(Duration, Duration)? _patternEdCandidate(
+  List<DesktopPlayerChapter> chapters,
+  Duration duration,
+) {
+  for (var i = 0; i < chapters.length; i++) {
+    final start = chapters[i].position;
+    if (start < duration - _patternEdStartFromEndMax) continue;
+    if (start > duration - _patternEdStartFromEndMin) continue;
+    final end = i + 1 < chapters.length
+        ? chapters[i + 1].position
+        : duration;
+    final length = end - start;
+    if (length >= _patternEdLengthMin && length <= _patternEdLengthMax) {
+      return (start, end);
+    }
+  }
+  return null;
+}
+
+DesktopPlaybackSkipBounds desktopPlaybackSkipBounds(
   List<DesktopPlayerChapter> chapters,
   Duration duration, {
   required bool chapterEnabled,
@@ -117,6 +160,26 @@ desktopPlaybackSkipBounds(
   var introEnd = detected.introEnd;
   var outroStart = detected.outroStart;
   var outroEnd = detected.outroEnd;
+  var introFromPattern = false;
+  var outroFromPattern = false;
+  // 编号章节规律推测（动漫/剧集通用布局）：双侧都有依据（命名识别或规律命中）才启用，
+  // 单侧命中不猜，避免把真实内容误判成片头片尾。
+  if (chapterEnabled && duration >= _patternMinDuration && chapters.length >= 3) {
+    final op = _patternOpCandidate(chapters, duration);
+    final ed = _patternEdCandidate(chapters, duration);
+    if ((introEnd != null || op != null) && (outroStart != null || ed != null)) {
+      if (introEnd == null && op != null) {
+        (introStart, introEnd) = op;
+        introFromPattern = true;
+      }
+      if (outroStart == null && ed != null) {
+        outroStart = ed.$1;
+        // ED 章节后还有内容时只跳到下一章节起点；是最后一章则覆盖到文件结尾。
+        outroEnd = ed.$2 < duration ? ed.$2 : null;
+        outroFromPattern = true;
+      }
+    }
+  }
   if (fixedDurationEnabled && duration > Duration.zero) {
     if (introEnd == null && introSeconds > 0) {
       introStart = Duration.zero;
@@ -129,10 +192,15 @@ desktopPlaybackSkipBounds(
   if (introEnd != null &&
       (introEnd <= const Duration(seconds: 2) || introEnd >= duration)) {
     introStart = introEnd = null;
+    introFromPattern = false;
   }
   if (outroStart != null &&
       (outroStart <= Duration.zero || outroStart >= duration)) {
     outroStart = null;
+    outroFromPattern = false;
+  }
+  if (outroStart == null) {
+    outroEnd = null;
   }
   if (outroEnd != null &&
       (outroStart == null || outroEnd <= outroStart || outroEnd >= duration)) {
@@ -141,6 +209,8 @@ desktopPlaybackSkipBounds(
   if (introEnd != null && outroStart != null && introEnd >= outroStart) {
     introStart = introEnd = outroStart = null;
     outroEnd = null;
+    introFromPattern = false;
+    outroFromPattern = false;
   }
   return (
     introStart: introStart,
@@ -149,6 +219,8 @@ desktopPlaybackSkipBounds(
     outroEnd: outroEnd,
     introFromChapter: detected.introEnd != null,
     outroFromChapter: detected.outroStart != null,
+    introFromPattern: introFromPattern,
+    outroFromPattern: outroFromPattern,
   );
 }
 

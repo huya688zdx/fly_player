@@ -254,4 +254,122 @@ class NativeChapterSkipBoundsTest {
         // 无标记时原样返回。
         assertEquals(60_000L, snapSeekTargetMs(60_000L, emptyList()))
     }
+
+    @Test
+    fun genericNumberedChaptersMatchAnimePattern() {
+        // 经典 24 分钟布局：冷开 0–25s、OP 25s–1:55（90s）、正片、ED 21:50–23:20（90s）、预告。
+        val bounds = nativeChapterSkipBounds(
+            listOf(
+                chapter(0, "Chapter 01"),
+                chapter(25_000, "Chapter 02"),
+                chapter(115_000, "Chapter 03"),
+                chapter(901_000, "Chapter 04"),
+                chapter(1_310_000, "Chapter 05"),
+                chapter(1_400_000, "Chapter 06"),
+            ),
+            durationMs = 1_440_000,
+            chapterEnabled = true,
+            fixedDurationEnabled = false,
+            introSeconds = 120,
+            outroSeconds = 120,
+        )
+        assertEquals(25_000L, bounds.introStartMs)
+        assertEquals(115_000L, bounds.introEndMs)
+        assertEquals(1_310_000L, bounds.outroStartMs)
+        // ED 后还有预告章节：只跳到预告起点。
+        assertEquals(1_400_000L, bounds.outroEndMs)
+        assertTrue(bounds.introFromPattern)
+        assertTrue(bounds.outroFromPattern)
+        assertFalse(bounds.introFromChapter)
+        assertFalse(bounds.outroFromChapter)
+    }
+
+    @Test
+    fun dramaStyleFixedBlocksAreGuessedByPattern() {
+        // 剧集布局：片头块 0–1:30、正片、片尾块最后 90 秒（最后一章，覆盖到文件结尾）。
+        val bounds = nativeChapterSkipBounds(
+            listOf(
+                chapter(0, "Chapter 01"),
+                chapter(90_000, "Chapter 02"),
+                chapter(2_610_000, "Chapter 03"),
+            ),
+            durationMs = 2_700_000,
+            chapterEnabled = true,
+            fixedDurationEnabled = false,
+            introSeconds = 120,
+            outroSeconds = 120,
+        )
+        assertEquals(0L, bounds.introStartMs)
+        assertEquals(90_000L, bounds.introEndMs)
+        assertEquals(2_610_000L, bounds.outroStartMs)
+        assertNull(bounds.outroEndMs)
+        assertTrue(bounds.introFromPattern)
+        assertTrue(bounds.outroFromPattern)
+    }
+
+    @Test
+    fun singleSidedPatternDoesNotGuess() {
+        // 只有开头像 OP、结尾块长不像片尾 → 双侧依据不齐，不推测。
+        val bounds = nativeChapterSkipBounds(
+            listOf(
+                chapter(0, "Chapter 01"),
+                chapter(25_000, "Chapter 02"),
+                chapter(115_000, "Chapter 03"),
+                chapter(901_000, "Chapter 04"),
+                chapter(1_200_000, "Chapter 05"),
+            ),
+            durationMs = 1_440_000,
+            chapterEnabled = true,
+            fixedDurationEnabled = false,
+            introSeconds = 120,
+            outroSeconds = 120,
+        )
+        assertNull(bounds.introStartMs)
+        assertNull(bounds.introEndMs)
+        assertNull(bounds.outroStartMs)
+        assertFalse(bounds.introFromPattern)
+    }
+
+    @Test
+    fun namedChaptersStillBeatPatternGuess() {
+        // 命名 OP + 编号 ED（块长符合规律）：片头用命名识别，片尾用规律推测。
+        val bounds = nativeChapterSkipBounds(
+            listOf(
+                chapter(0, "OP"),
+                chapter(90_000, "正片"),
+                chapter(1_300_000, "Chapter 05"),
+                chapter(1_400_000, "Chapter 06"),
+            ),
+            durationMs = 1_440_000,
+            chapterEnabled = true,
+            fixedDurationEnabled = false,
+            introSeconds = 120,
+            outroSeconds = 120,
+        )
+        assertEquals(0L, bounds.introStartMs)
+        assertEquals(90_000L, bounds.introEndMs)
+        assertTrue(bounds.introFromChapter)
+        assertEquals(1_300_000L, bounds.outroStartMs)
+        assertEquals(1_400_000L, bounds.outroEndMs)
+        assertTrue(bounds.outroFromPattern)
+    }
+
+    @Test
+    fun patternGuessNeedsChapterRecognitionEnabled() {
+        // 章节识别关闭时不做规律推测。
+        val bounds = nativeChapterSkipBounds(
+            listOf(
+                chapter(0, "Chapter 01"),
+                chapter(90_000, "Chapter 02"),
+                chapter(2_610_000, "Chapter 03"),
+            ),
+            durationMs = 2_700_000,
+            chapterEnabled = false,
+            fixedDurationEnabled = false,
+            introSeconds = 120,
+            outroSeconds = 120,
+        )
+        assertNull(bounds.introStartMs)
+        assertNull(bounds.outroStartMs)
+    }
 }

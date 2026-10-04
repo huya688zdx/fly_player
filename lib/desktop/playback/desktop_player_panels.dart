@@ -1568,6 +1568,9 @@ class _DesktopPlaybackSettingsPanelState
       final fromChapter = intro
           ? bounds.introFromChapter
           : bounds.outroFromChapter;
+      final fromPattern = intro
+          ? bounds.introFromPattern
+          : bounds.outroFromPattern;
       if (start == null || end == null) {
         final String reason;
         if (!widget.introOutroEnabled && !widget.fixedDurationSkipEnabled) {
@@ -1587,7 +1590,11 @@ class _DesktopPlaybackSettingsPanelState
           description: reason,
         );
       }
-      final basis = fromChapter ? '章节识别' : '固定时长';
+      final basis = fromChapter
+          ? '章节识别'
+          : fromPattern
+          ? '编号章节推测'
+          : '固定时长';
       final target = intro
           ? '跳到 ${_duration(end)}'
           : bounds.outroEnd != null
