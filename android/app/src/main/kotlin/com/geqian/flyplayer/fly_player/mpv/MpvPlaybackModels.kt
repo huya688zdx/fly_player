@@ -279,6 +279,8 @@ data class MpvPlayerState(
     // 自适应性能阶梯当前级别：0=未降级，1=视频已降画质（方案 B），2=并已请求压弹幕（方案 C）。
     // 宿主据此 toast 提醒用户、并在 >=2 时降低弹幕负载。
     val performanceFallbackLevel: Int = 0,
+    // 暂停态窗口 resize 进行中：宿主用定格图盖住视频层，重绘 seek 完成后撤掉。
+    val resizeCoverActive: Boolean = false,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(

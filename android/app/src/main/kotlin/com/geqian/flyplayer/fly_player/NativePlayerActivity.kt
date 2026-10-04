@@ -1462,6 +1462,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var isLocked = false
     private lateinit var lockButton: ImageButton
     private lateinit var freezeFrameView: ImageView
+    // 当前定格是否由「暂停 resize 遮罩」发起（区分分屏/全屏切换的定格，避免互相误撤）。
+    private var resizeCoverShowing = false
     private val hideFreezeRunnable = Runnable { hideFreezeFrame() }
 
     private var batteryLevel = -1
@@ -7879,6 +7881,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             playbackProgressing = true
         }
         lastProgressPositionMs = state.positionMs
+        // 暂停态窗口 resize：控制器请求用定格图盖住视频层，重绘 seek 完成后淡出，
+        // 拖动中间过程不再露出被拉伸的旧缓冲。与分屏/全屏切换的定格互不抢占。
+        if (this::freezeFrameView.isInitialized) {
+            if (state.resizeCoverActive && !resizeCoverShowing) {
+                resizeCoverShowing = true
+                captureAndFreeze { }
+            } else if (!state.resizeCoverActive && resizeCoverShowing) {
+                resizeCoverShowing = false
+                hideFreezeFrame()
+            }
+        }
         val effectivelyReady = state.visualPlaybackReady || playbackProgressing
         val showLoading = nativePanelShouldShowPlaybackLoading(state, playbackProgressing)
         loadingSpinner.visibility = if (showLoading && !completionActive) View.VISIBLE else View.GONE
