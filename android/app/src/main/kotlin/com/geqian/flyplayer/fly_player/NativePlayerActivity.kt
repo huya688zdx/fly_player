@@ -980,7 +980,36 @@ internal fun nativePanelShouldAutoEnterPip(
     paused: Boolean,
     alreadyInPip: Boolean,
     finishing: Boolean,
-): Boolean = pipAutoEnter && pipSupported && !paused && !alreadyInPip && !finishing
+    floatingWindowReady: Boolean = false,
+): Boolean =
+    pipAutoEnter && pipSupported && !paused && !alreadyInPip && !finishing &&
+        // 悬浮窗优先（悬浮小窗方案 3.4 表 autoEnter 行）：能力就绪时不再自动进 PiP。
+        !floatingWindowReady
+
+/**
+ * back/离开收悬浮小窗判定（悬浮小窗方案 3.4 表「进小窗/back 键」行）：能力就绪优先
+ * 收小窗（不 park 不 pause），与 PiP 显式互斥（inPipMode 禁进）；能力未就绪维持
+ * 既有 PiP/保留/退出路径。paused 不拦——B 站收小窗不区分播停。
+ */
+internal fun nativePanelShouldEnterFloatingOnBack(
+    floatingWindowReady: Boolean,
+    inPipMode: Boolean,
+    finishing: Boolean,
+    playbackSurfaceReady: Boolean,
+): Boolean = floatingWindowReady && !inPipMode && !finishing && playbackSurfaceReady
+
+/**
+ * S+ `setAutoEnterEnabled` 参数（buildPipParams）：悬浮窗态/能力就绪时禁自动进 PiP
+ * ——两态显式互斥（3.4 表 onPictureInPictureModeChanged 行）。
+ */
+internal fun nativePanelPipAutoEnterEnabled(
+    playbackParked: Boolean,
+    floatingWindowReady: Boolean,
+    floatingMinimized: Boolean,
+    pipAutoEnter: Boolean,
+    paused: Boolean,
+): Boolean =
+    !playbackParked && !floatingWindowReady && !floatingMinimized && pipAutoEnter && !paused
 
 internal fun nativePanelShouldRestoreControlsAfterPipExit(
     wasInPip: Boolean,
@@ -1471,6 +1500,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 否则它会重新启动已停止的前台媒体服务，把通知栏播放卡片“复活”。
     private var activityDestroying = false
     private var playbackParked = false
+    // 悬浮窗态（悬浮小窗方案 3.4）：渲染组已收进悬浮窗、任务在后台但播放照常——
+    // 区别于 playbackParked 的「暂停 + 停上报 + 停媒体服务」保留会话；parkPlayback
+    // 会先 pause 再退后台，与「缩小但继续播」互斥，不可复用。
+    private var floatingMinimized = false
+    // 悬浮窗宿主接缝：FloatingPlayerService（方案 3.2 的 overlay 前台服务）落地后注入；
+    // 为 null 时 floatingEntryReady 恒 false，back 键维持既有 PiP/保留/退出路径。
+    private var floatingWindowHost: FloatingWindowHost? = null
     private var playbackSessionScope = ""
     private var warmResumePending = false
     private var warmResumePositionMs: Long? = null
@@ -3267,6 +3303,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onResume() {
         super.onResume()
+        // 悬浮窗态被系统/外部拉回前台（任务置前而非点展开）：渲染组回 Activity 视图树自愈，
+        // 不停播不重载（3.4 表「展开回全屏」行的兜底路径）。
+        if (floatingMinimized) {
+            exitFloatingMinimized()
+        }
         if (warmResumePending || playbackParked) {
             warmResumePending = false
             playbackParked = false
@@ -4458,6 +4499,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 进入画中画（小窗）。比例取视频宽高，回退 16:9。 */
     private fun enterPip() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        // 悬浮窗互斥（悬浮小窗方案 3.4 表）：悬浮窗态禁进 PiP。
+        if (floatingMinimized) return
         // 进小窗前先收掉分屏：小窗是“单一播放窗”，分屏副栏不应残留(只有全屏应用才开分屏)。
         collapseSplitForPip()
         runCatching {
@@ -4467,6 +4510,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun finishOrEnterPip() {
+        // 悬浮窗能力就绪：back 优先收悬浮小窗（3.4 表「back 键」行，异步交接，
+        // 失败自动回退 enterPip，见 3.3 失败回退）；未就绪维持既有 PiP/保留/退出路径。
+        if (nativePanelShouldEnterFloatingOnBack(
+                floatingWindowReady = floatingEntryReady(),
+                inPipMode = inPipMode,
+                finishing = isFinishing,
+                playbackSurfaceReady = this::playerSurface.isInitialized,
+            )
+        ) {
+            enterFloatingMinimized()
+            return
+        }
         if (this::playerSurface.isInitialized &&
             nativePanelShouldAutoEnterPip(
                 pipAutoEnter = pipAutoEnter,
@@ -4474,12 +4529,88 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 paused = playerSurface.state.paused,
                 alreadyInPip = inPipMode,
                 finishing = isFinishing,
+                floatingWindowReady = floatingEntryReady(),
             )
         ) {
             enterPip()
         } else if (!parkPlayback()) {
             finish()
         }
+    }
+
+    /** 悬浮窗能力就绪判定：宿主接缝可用（权限/服务就绪由宿主封装）。宿主落地前恒 false。 */
+    private fun floatingEntryReady(): Boolean = floatingWindowHost?.isActive == true
+
+    /**
+     * 收进悬浮小窗（悬浮小窗方案 3.3 流程 1 + 3.4 表「进小窗」行）：定格图 → detach
+     * handoff → 渲染组 reparent 进悬浮窗 → moveTaskToBack。全程不 park 不 pause
+     * 不停上报。交接/接入失败自动回退系统 PiP（3.3 失败回退）并关闭悬浮窗。
+     */
+    private fun enterFloatingMinimized() {
+        val host = floatingWindowHost ?: return
+        if (floatingMinimized || inPipMode) return
+        if (!this::playerSurface.isInitialized) return
+        // 进小窗前先收掉分屏：与 PiP 同款「单一播放窗」让位。
+        collapseSplitForPip()
+        playerSurface.beginSurfaceHandoff { freeze ->
+            val attached = host.attachPlayerSurface(playerSurface, freeze)
+            if (attached) {
+                floatingMinimized = true
+                hidePanel()
+                if (!moveTaskToBack(true)) {
+                    Log.d(TAG, "moveTaskToBack 被系统拒绝，悬浮窗与前台并存（onResume 自愈）")
+                }
+                // 新窗口布局后强制重报 android-surface-size（方案 3.3 流程 1 / 5.2）；
+                // 布局未完成时 completeSurfaceHandoff 跳过，由尺寸回调兜底。
+                playerSurface.post { playerSurface.completeSurfaceHandoff() }
+                Log.d(TAG, "已收进悬浮小窗（播放照常，不 park 不 pause）")
+            } else {
+                Log.w(TAG, "悬浮窗接入失败，撤销交接并回退系统 PiP")
+                playerSurface.abortSurfaceHandoff()
+                host.removeWindow()
+                enterPip()
+            }
+        }
+    }
+
+    /**
+     * 展开回全屏（悬浮小窗方案 3.3 流程 3 + 3.4 表「展开回全屏」行）：定格图 → detach
+     * handoff → 渲染组 reparent 回 Activity 视图树 → surface available 重挂 → 移除
+     * 悬浮窗 → moveToFront。不停播不重载。
+     */
+    private fun exitFloatingMinimized() {
+        if (!floatingMinimized) return
+        val host = floatingWindowHost ?: return
+        if (!this::playerSurface.isInitialized) return
+        floatingMinimized = false
+        // Activity 侧定格兜底：复用分屏/全屏切换同款 freezeFrameView（先抓后摘，防黑闪）。
+        captureAndFreeze {
+            playerSurface.beginSurfaceHandoff {
+                // detach 已生效，渲染组先回 Activity 视图树（重挂由 surface available 驱动），
+                // 再移除悬浮窗窗口并置前任务。
+                rootContainer.addView(
+                    playerSurface,
+                    0,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+                playerSurface.post { playerSurface.completeSurfaceHandoff() }
+                scheduleFreezeHide()
+                host.removeWindow()
+                movePlaybackTaskToFront()
+                Log.d(TAG, "已展开回全屏（播放照常，不重载）")
+            }
+        }
+    }
+
+    /** 进程内置前播放任务（与 resumeRetained 同款 appTasks.moveToFront）。 */
+    private fun movePlaybackTaskToFront() {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val task = activityManager?.appTasks?.firstOrNull { it.taskInfo.taskId == taskId }
+        runCatching { task?.moveToFront() }
+            .onFailure { Log.w(TAG, "movePlaybackTaskToFront failed", it) }
     }
 
     private fun parkPlayback(): Boolean {
@@ -10965,7 +11096,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             builder.setActions(pipRemoteActions())
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(!playbackParked && pipAutoEnter && !playerSurface.state.paused)
+            builder.setAutoEnterEnabled(
+                nativePanelPipAutoEnterEnabled(
+                    playbackParked = playbackParked,
+                    floatingWindowReady = floatingEntryReady(),
+                    floatingMinimized = floatingMinimized,
+                    pipAutoEnter = pipAutoEnter,
+                    paused = playerSurface.state.paused,
+                ),
+            )
         }
         // API 33+ 画中画标题下方显示「剧名 · 集名」；电影/直播退化为单值，纯空则不出副标题。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -10999,6 +11138,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 paused = playerSurface.state.paused,
                 alreadyInPip = inPipMode,
                 finishing = isFinishing,
+                // 悬浮窗优先（3.4 表 autoEnter 行）：能力就绪时手势离开不再自动进 PiP。
+                floatingWindowReady = floatingEntryReady(),
             )
         ) {
             enterPip()
@@ -11123,10 +11264,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onStop() {
-        // 真正退到后台/不可见才停周期上报（PiP 仍可见，不在此停）；退出前补写一次进度。
-        stopPeriodicReport()
+        // 悬浮窗态：渲染组在悬浮窗、播放照常——不停周期上报、不因不可见暂停
+        // （悬浮小窗方案 3.4 表 onStop 行；依赖「不可见=onStop」的假设点仅此两处）。
+        if (!floatingMinimized) {
+            // 真正退到后台/不可见才停周期上报（PiP 仍可见，不在此停）；退出前补写一次进度。
+            stopPeriodicReport()
+        }
         // 用户关掉 PiP 窗口（X/划走/Home）：离开 PiP 后没有前台恢复直接不可见，
         // 必须暂停，否则窗口没了声音还在后台播。展开回全屏走 onResume 清标记，不受影响。
+        // 悬浮窗态不置 pipExitAwaitingResume（两态互斥，收小窗不走 PiP 路径）。
         if (pipExitAwaitingResume) {
             pipExitAwaitingResume = false
             if (this::playerSurface.isInitialized && !playerSurface.state.paused) {
@@ -11213,6 +11359,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ))
         }
         activityDestroying = true
+        // 划掉任务/正常退出：先关悬浮窗再释放渲染组（3.4 表「划掉任务」行——引擎在
+        // Activity，任务亡则小窗亡，属可接受限制；窗口先亡才不会让 release 期间泄漏渲染）。
+        if (floatingMinimized) {
+            floatingMinimized = false
+            floatingWindowHost?.removeWindow()
+        }
         releaseDiscardedPlaybackLinks()
         NativeMediaCommandCoordinator.detach(this)
         // 先停媒体服务，再释放 playerSurface。释放内核可能同步/异步回调最终状态，不能让

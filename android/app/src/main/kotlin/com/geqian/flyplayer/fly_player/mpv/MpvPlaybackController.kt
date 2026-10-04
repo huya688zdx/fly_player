@@ -76,6 +76,8 @@ class MpvPlaybackController(
     creationParams: Map<String, Any?>,
     private val stateListener: MpvPlaybackStateListener,
     private val danmakuOcclusionStateListener: ((DanmakuDynamicOcclusionState, Bitmap?) -> Unit)? = null,
+    /** 渲染组交接闸门（悬浮小窗 3.3 改造 A/B 状态核），由 NativePlayerSurface 创建并共享给输出目标。 */
+    private val surfaceHandoffGate: SurfaceHandoffGate = SurfaceHandoffGate(),
 ) : MPVLib.EventObserver,
     MPVLib.LogObserver {
     private val mpv: MpvFacade = DefaultMpvFacade
@@ -1082,164 +1084,188 @@ class MpvPlaybackController(
         height: Int,
     ) {
         runOnPlaybackThread {
-            surfaceReady = true
-            lastSurfaceTransitionUptimeMs = SystemClock.uptimeMillis()
-            Log.d(
-                TAG,
-                "surfaceAvailable generation=$generation size=${width}x$height created=$created initialized=$initialized mpvAvailable=${mpv.isAvailable()} url=${source.url}",
-            )
-            if (created && mpv.isAvailable()) {
-                var initError: Throwable? = null
-                val initSuccess = runCatching {
-                    if (!initialized) {
-                        if (!mpv.maybeInit()) {
-                            false
-                        } else {
-                            initialized = true
-                    if (!propertiesObserved) {
-                        mpv.observeProperty("time-pos", 5)
-                        mpv.observeProperty("demuxer-cache-duration", 5)
-                        mpv.observeProperty("duration", 5)
-                        mpv.observeProperty("pause", 4)
-                        mpv.observeProperty("paused-for-cache", 4)
-                        mpv.observeProperty("seeking", 4)
-                        mpv.observeProperty("eof-reached", 4)
-                        propertiesObserved = true
-                    }
-                            true
-                        }
+            handleVideoOutputSurfaceAvailable(surface, generation, width, height)
+            finishSurfaceHandoffIfNeeded(generation)
+        }
+    }
+
+    /**
+     * 交接收口：新窗口 surface available 已在播放线程处理完（含排队在前面的 destroy
+     * 旁路），此时才允许关闭交接闸门——主线程提前 end 会让迟到 destroy 撞上常规
+     * 挂起分支（pause + vid=no），交接就断播了。同时打 P3 交接耗时观测点（方案 5.1）。
+     */
+    private fun finishSurfaceHandoffIfNeeded(generation: Long) {
+        if (!surfaceHandoffGate.end()) return
+        Log.i(
+            TAG,
+            "handoff surface rebound generation=$generation " +
+                "elapsedMs=${surfaceHandoffGate.lastHandoffElapsedMs}",
+        )
+    }
+
+    private fun handleVideoOutputSurfaceAvailable(
+        surface: Surface,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ) {
+        surfaceReady = true
+        lastSurfaceTransitionUptimeMs = SystemClock.uptimeMillis()
+        Log.d(
+            TAG,
+            "surfaceAvailable generation=$generation size=${width}x$height created=$created initialized=$initialized mpvAvailable=${mpv.isAvailable()} url=${source.url}",
+        )
+        if (created && mpv.isAvailable()) {
+            var initError: Throwable? = null
+            val initSuccess = runCatching {
+                if (!initialized) {
+                    if (!mpv.maybeInit()) {
+                        false
                     } else {
+                        initialized = true
+                if (!propertiesObserved) {
+                    mpv.observeProperty("time-pos", 5)
+                    mpv.observeProperty("demuxer-cache-duration", 5)
+                    mpv.observeProperty("duration", 5)
+                    mpv.observeProperty("pause", 4)
+                    mpv.observeProperty("paused-for-cache", 4)
+                    mpv.observeProperty("seeking", 4)
+                    mpv.observeProperty("eof-reached", 4)
+                    propertiesObserved = true
+                }
                         true
                     }
-                }.onFailure { error ->
-                    initError = error
-                }.getOrDefault(false)
-                if (!initSuccess) {
-                    updateState(
-                        state.copy(
-                            ready = false,
-                            statusText = "Failed to initialize mpv",
-                            error = formatNativePlaybackError(
-                                action = "surface initialization",
-                                error = initError,
-                                fallbackReason = runtimeBootstrap.consumeLastErrorMessage(),
-                            ),
-                        ),
-                    )
-                    return@runOnPlaybackThread
-                }
-                val attachSuccess = videoOutputController.onSurfaceAvailable(
-                    surface = surface,
-                    generation = generation,
-                )
-                syncVideoOutputState()
-                if (!attachSuccess) {
-                    updateState(
-                        state.copy(
-                            ready = false,
-                            statusText = "Failed to attach mpv surface",
-                            error = consumeVideoOutputErrorMessage("surface attachment"),
-                        ),
-                    )
-                    return@runOnPlaybackThread
-                }
-                if (source.listenVideoModeEnabled) {
-                    if (
-                        !videoOutputController.enableListenVideoMode(
-                            initialized = initialized,
-                            available = mpv.isAvailable(),
-                        )
-                    ) {
-                        syncVideoOutputState()
-                        updateState(
-                            state.copy(
-                                ready = false,
-                                listenVideoModeEnabled = true,
-                                statusText = "Failed to enable listen video mode",
-                                error = consumeVideoOutputErrorMessage("listen video mode"),
-                            ),
-                        )
-                        return@runOnPlaybackThread
-                    }
-                    syncVideoOutputState()
                 } else {
-                    if (!restoreVideoTrackAfterSurfaceReady()) {
-                        updateState(
-                            state.copy(
-                                ready = false,
-                                statusText = "Failed to restore video track",
-                                error = consumeVideoOutputErrorMessage("video track restore"),
-                            ),
-                        )
-                        return@runOnPlaybackThread
-                    }
-                    if (!ensureVideoOutputReady()) {
-                        updateState(
-                            state.copy(
-                                ready = false,
-                                statusText = "Failed to configure video output",
-                                error = consumeVideoOutputErrorMessage("video output configuration"),
-                            ),
-                        )
-                        return@runOnPlaybackThread
-                    }
+                    true
                 }
-                if (pendingVideoRecoveryAfterSurfaceRestore) {
-                    val recoveryReason = pendingVideoRecoveryReason ?: "surface-restored"
-                    pendingVideoRecoveryAfterSurfaceRestore = false
-                    pendingVideoRecoveryReason = null
-                    recoverVideoOutputOnly("pending:$recoveryReason")
-                }
-            }
-            if (loadState.hasLoadedSource(source.url)) {
-                if (shouldForceSourceReloadAfterSurfaceRestore()) {
-                    Log.w(
-                        TAG,
-                        "forcing source reload after surface restore hwdec=${preferredHwdecMode()} pipeline=${preferredColorPipeline()} source=[${source.debugSummary()}]",
-                    )
-                    loadState.clearForRecovery(source.url)
-                    loadCurrentSource()
-                    return@runOnPlaybackThread
-                }
-                val shouldResume = resumeAfterSurfaceRestore
-                val resumed = if (shouldResume && initialized && mpv.isAvailable()) {
-                    pauseController.setPausedState(
-                        paused = false,
-                        initialized = initialized,
-                    )
-                } else {
-                    false
-                }
-                resumeAfterSurfaceRestore = false
-                pendingAutoResumeAfterSurfaceRestore = false
+            }.onFailure { error ->
+                initError = error
+            }.getOrDefault(false)
+            if (!initSuccess) {
                 updateState(
                     state.copy(
-                        ready = true,
-                        paused = if (shouldResume) !resumed else state.paused,
-                        statusText = if (resumed) {
-                            "Playback resumed"
-                        } else if (state.paused) {
-                            "Playback paused"
-                        } else {
-                            "Playback resumed"
-                        },
-                        error = if (resumed || !shouldResume) {
-                            null
-                        } else {
-                            buildUnavailableMessage("playback resume")
-                        },
+                        ready = false,
+                        statusText = "Failed to initialize mpv",
+                        error = formatNativePlaybackError(
+                            action = "surface initialization",
+                            error = initError,
+                            fallbackReason = runtimeBootstrap.consumeLastErrorMessage(),
+                        ),
                     ),
                 )
-                if (shouldResume && !resumed) {
-                    pendingAutoResumeAfterSurfaceRestore = true
-                    schedulePlaybackResumeCheck("surface-restored")
+                return
+            }
+            val attachSuccess = videoOutputController.onSurfaceAvailable(
+                surface = surface,
+                generation = generation,
+            )
+            syncVideoOutputState()
+            if (!attachSuccess) {
+                updateState(
+                    state.copy(
+                        ready = false,
+                        statusText = "Failed to attach mpv surface",
+                        error = consumeVideoOutputErrorMessage("surface attachment"),
+                    ),
+                )
+                return
+            }
+            if (source.listenVideoModeEnabled) {
+                if (
+                    !videoOutputController.enableListenVideoMode(
+                        initialized = initialized,
+                        available = mpv.isAvailable(),
+                    )
+                ) {
+                    syncVideoOutputState()
+                    updateState(
+                        state.copy(
+                            ready = false,
+                            listenVideoModeEnabled = true,
+                            statusText = "Failed to enable listen video mode",
+                            error = consumeVideoOutputErrorMessage("listen video mode"),
+                        ),
+                    )
+                    return
                 }
-                scheduleVideoOutputSanityCheck("surface-restored")
-                return@runOnPlaybackThread
+                syncVideoOutputState()
+            } else {
+                if (!restoreVideoTrackAfterSurfaceReady()) {
+                    updateState(
+                        state.copy(
+                            ready = false,
+                            statusText = "Failed to restore video track",
+                            error = consumeVideoOutputErrorMessage("video track restore"),
+                        ),
+                    )
+                    return
+                }
+                if (!ensureVideoOutputReady()) {
+                    updateState(
+                        state.copy(
+                            ready = false,
+                            statusText = "Failed to configure video output",
+                            error = consumeVideoOutputErrorMessage("video output configuration"),
+                        ),
+                    )
+                    return
+                }
             }
-            if (loadState.shouldRunDeferredLoad(source.url)) {
+            if (pendingVideoRecoveryAfterSurfaceRestore) {
+                val recoveryReason = pendingVideoRecoveryReason ?: "surface-restored"
+                pendingVideoRecoveryAfterSurfaceRestore = false
+                pendingVideoRecoveryReason = null
+                recoverVideoOutputOnly("pending:$recoveryReason")
+            }
+        }
+        if (loadState.hasLoadedSource(source.url)) {
+            if (shouldForceSourceReloadAfterSurfaceRestore()) {
+                Log.w(
+                    TAG,
+                    "forcing source reload after surface restore hwdec=${preferredHwdecMode()} pipeline=${preferredColorPipeline()} source=[${source.debugSummary()}]",
+                )
+                loadState.clearForRecovery(source.url)
                 loadCurrentSource()
+                return
             }
+            val shouldResume = resumeAfterSurfaceRestore
+            val resumed = if (shouldResume && initialized && mpv.isAvailable()) {
+                pauseController.setPausedState(
+                    paused = false,
+                    initialized = initialized,
+                )
+            } else {
+                false
+            }
+            resumeAfterSurfaceRestore = false
+            pendingAutoResumeAfterSurfaceRestore = false
+            updateState(
+                state.copy(
+                    ready = true,
+                    paused = if (shouldResume) !resumed else state.paused,
+                    statusText = if (resumed) {
+                        "Playback resumed"
+                    } else if (state.paused) {
+                        "Playback paused"
+                    } else {
+                        "Playback resumed"
+                    },
+                    error = if (resumed || !shouldResume) {
+                        null
+                    } else {
+                        buildUnavailableMessage("playback resume")
+                    },
+                ),
+            )
+            if (shouldResume && !resumed) {
+                pendingAutoResumeAfterSurfaceRestore = true
+                schedulePlaybackResumeCheck("surface-restored")
+            }
+            scheduleVideoOutputSanityCheck("surface-restored")
+            return
+        }
+        if (loadState.shouldRunDeferredLoad(source.url)) {
+            loadCurrentSource()
         }
     }
 
@@ -1251,6 +1277,18 @@ class MpvPlaybackController(
     ) {
         // 分屏/resize 后 SurfaceView 尺寸变了，必须把新尺寸告诉 mpv，否则它仍按旧（全屏）
         // 尺寸渲染、被系统缩放进窄栏 → 画面被压缩（android-surface-size 是 mpv-android 标准机制）。
+        applyVideoOutputSurfaceSize(width, height)
+    }
+
+    /**
+     * 交接完成/悬浮窗自由缩放松手后强制把新窗口尺寸报给 mpv（android-surface-size，
+     * 悬浮小窗方案 3.3 流程 1 / 5.2 的必需调用），不依赖 View 层尺寸回调的时序。
+     */
+    fun forceVideoOutputSurfaceSize(width: Int, height: Int) {
+        applyVideoOutputSurfaceSize(width, height)
+    }
+
+    private fun applyVideoOutputSurfaceSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         runOnPlaybackThread {
             if (!initialized || !mpv.isAvailable()) return@runOnPlaybackThread
@@ -1260,10 +1298,40 @@ class MpvPlaybackController(
         }
     }
 
+    /**
+     * 交接期解绑当前 surface（只解绑不暂停，方案 3.3 流程 1 的「先 detach」半步）。
+     * mpv 属性写入收敛播放线程，detach 生效后回调 [onDetached]（主线程）——调用方在其后
+     * 执行渲染组 reparent（把视图从当前窗口摘出）。
+     */
+    fun detachSurfaceForHandoff(onDetached: () -> Unit = {}) {
+        runOnPlaybackThread {
+            videoOutputController.detachSurfaceForHandoff()
+            syncVideoOutputState()
+            runOnMainThread(onDetached)
+        }
+    }
+
     fun onVideoOutputSurfaceDestroyed(generation: Long) {
         runOnPlaybackThread {
             invalidateVideoOutputSanityChecks()
             lastSurfaceTransitionUptimeMs = SystemClock.uptimeMillis()
+            if (surfaceHandoffGate.active) {
+                // 必要改造 A（悬浮小窗方案 3.3）：交接窗口内的 destroy 走 detach-only 旁路
+                // ——不 seek 回写、不 pause、不 vid=no、不 sessionGate.onSurfaceLost，
+                // 渲染组 reparent 的新旧窗口间隙照常出声续播，等新窗口 surface available
+                // 正常重挂（detachSurfaceForHandoff 已在摘出前先行解绑，此处幂等兜底）。
+                Log.i(TAG, "surface destroyed during handoff — detach-only generation=$generation")
+                videoOutputController.detachSurfaceForHandoff()
+                syncVideoOutputState()
+                updateState(
+                    state.copy(
+                        ready = false,
+                        statusText = "Video surface handoff",
+                        error = null,
+                    ),
+                )
+                return@runOnPlaybackThread
+            }
             val wasPlaying = state.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue
             if (state.positionMs > 0L) {
                 queueSeek(state.positionMs)

@@ -4,9 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Build
+import android.util.Log
 import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
+import com.geqian.flyplayer.fly_player.ViewFrameRateProbe
 
 /**
  * 纯原生播放视图：把 [MpvPlayerView] 的播放组装（mpv 内核 + SurfaceView 视频 +
@@ -28,6 +30,7 @@ class NativePlayerSurface(
 ) : FrameLayout(context), VideoOutputTarget.Listener {
 
     private companion object {
+        const val TAG = "NativePlayerSurface"
         const val DEFAULT_DANMAKU_TARGET_FPS = 120
         const val MIN_DANMAKU_TARGET_FPS = 24
         const val MAX_DANMAKU_TARGET_FPS = 120
@@ -35,11 +38,46 @@ class NativePlayerSurface(
 
     private val mpv: MpvFacade = DefaultMpvFacade
 
-    // 原生播放壳固定走 SurfaceView：视频经 SurfaceFlinger 独立硬件层合成，不与任何
-    // Flutter/原生 UI 抢 GPU。这正是"分开"的关键，也是本方案存在的理由。
-    private val videoOutputTarget: VideoOutputTarget = SurfaceViewVideoOutputTarget(context)
+    // 渲染后端（悬浮小窗方案 3.3 的构造参数落点）：缺省维持 SurfaceView 独立硬件层
+    // （全屏现状不动）；悬浮小窗形态以 creationParams "videoOutputBackend"="texture"
+    // 起播——交接零黑帧依赖 TextureView 的 SurfaceTexture 保活能力。
+    private val videoOutputBackend = parseVideoOutputBackend(creationParams["videoOutputBackend"])
+
+    // 改造 B 降级开关：SurfaceTexture 复用 remove→add 真机验证不过时传 false，
+    // 只落地改造 A（destroy 旁路），交接黑帧由定格图覆盖（P3 <200ms 预算兜底）。
+    private val keepTextureAcrossHandoff = creationParams["surfaceHandoffKeepTexture"] != false
+
+    // 必要改造 A/B 的状态核：交接窗口内 destroy 旁路 + SurfaceTexture 自持复用，
+    // 由本类创建并共享给输出目标与播放控制器。
+    private val surfaceHandoffGate = SurfaceHandoffGate()
+
+    private val videoOutputTarget: VideoOutputTarget =
+        if (videoOutputBackend == VideoOutputBackend.TEXTURE) {
+            TextureViewVideoOutputTarget(
+                context,
+                surfaceHandoffGate = surfaceHandoffGate,
+                keepTextureAcrossHandoff = keepTextureAcrossHandoff,
+            )
+        } else {
+            SurfaceViewVideoOutputTarget(context)
+        }
 
     private val danmakuOverlay = NativeDanmakuOverlayView(context)
+
+    // P1/P4 进程内观测点（悬浮小窗方案 5.1）：视图帧节拍探针，与 MpvPlayerView（Flutter 壳）
+    // 同款，3s 一窗输出 [FRAME][PROBE]（帧数/slow 帧/最大间隔）。P1 的 raster 权威测量仍以
+    // dumpsys gfxinfo framestats 为准（方案 5.1 表），此处为进程内对照样本；弹幕侧另有
+    // [DANMAKU][NATIVE] fps 自计帧（NativeDanmakuOverlayView.recordFrameStats）。
+    private val rootViewFrameRateProbe = ViewFrameRateProbe(
+        logTag = TAG,
+        label = "native_player_root",
+        viewProvider = { this },
+    )
+    private val videoTargetFrameRateProbe = ViewFrameRateProbe(
+        logTag = TAG,
+        label = "native_player_video",
+        viewProvider = { videoOutputTarget.view },
+    )
 
     @Volatile
     private var released = false
@@ -60,6 +98,7 @@ class NativePlayerSurface(
         context = context,
         videoOutputTarget = videoOutputTarget,
         creationParams = creationParams,
+        surfaceHandoffGate = surfaceHandoffGate,
         stateListener = MpvPlaybackStateListener { state, _ ->
             latestState = state
             danmakuOverlay.updatePlaybackState(state)
@@ -84,6 +123,8 @@ class NativePlayerSurface(
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
         )
         applyDanmakuFrameRateVote(requestedDanmakuFrameRateHz, reason = "init")
+        rootViewFrameRateProbe.start()
+        videoTargetFrameRateProbe.start()
     }
 
     // ---- VideoOutputTarget.Listener：surface 生命周期透传给 controller ----
@@ -328,11 +369,79 @@ class NativePlayerSurface(
         mpv.command(arrayOf("screenshot"))
     }
 
+    // ---- 渲染组交接（悬浮小窗方案 3.3；把整个 NativePlayerSurface reparent 进/出悬浮窗） ----
+
+    /** 当前是否处于交接窗口（destroy 旁路 + 纹理保活生效中）。 */
+    val isSurfaceHandoffActive: Boolean
+        get() = surfaceHandoffGate.active
+
+    /**
+     * 交接第一步（主线程调用）：先抓定格图（PixelCopy 需要有效 surface，必须先于
+     * detach，方案 3.3 流程 2），detach 生效后回调 [onDetached]（主线程，携带定格图，
+     * 可为 null）——调用方在回调里执行渲染组 reparent：把本视图从当前窗口摘出、
+     * addView 进悬浮窗层级（宿主半边见 FloatingWindowHost）。
+     */
+    fun beginSurfaceHandoff(onDetached: (Bitmap?) -> Unit) {
+        if (released || surfaceHandoffGate.active) {
+            onDetached(null)
+            return
+        }
+        captureFreezeFrame { bitmap ->
+            post {
+                if (released || !surfaceHandoffGate.begin()) {
+                    onDetached(null)
+                    return@post
+                }
+                controller.detachSurfaceForHandoff {
+                    Log.d(TAG, "handoff begin — surface detached, ready to reparent")
+                    onDetached(bitmap)
+                }
+            }
+        }
+    }
+
+    /**
+     * 交接第二步（reparent 完成后主线程调用）：TextureView 复用自持 SurfaceTexture
+     * （改造 B），并按方案 3.3 流程 1 / 5.2 强制把新窗口尺寸重报给 mpv
+     * （android-surface-size，resize 后不压缩画面的必需调用）。新窗口 surface
+     * available 在播放线程处理完后自动关闭交接闸门并打 P3 交接耗时日志。
+     */
+    fun completeSurfaceHandoff() {
+        if (released) return
+        val reused = (videoOutputTarget as? TextureViewVideoOutputTarget)
+            ?.reattachKeptSurfaceTexture() == true
+        val w = width
+        val h = height
+        Log.d(TAG, "handoff completed keepTextureReused=$reused size=${w}x${h}")
+        if (w > 0 && h > 0) {
+            controller.forceVideoOutputSurfaceSize(w, h)
+        }
+    }
+
+    /**
+     * 交接中止回退（宿主建窗/接入失败，3.3 失败回退）：立即关闭交接闸门并重绑当前
+     * 窗口的 surface；surface 已随窗口销毁时不在此重绑——后续走既有 surface 重建
+     * 恢复链路（MpvPlaybackController 重挂恢复链）。
+     */
+    fun abortSurfaceHandoff() {
+        if (released) return
+        surfaceHandoffGate.end()
+        val surface = videoOutputTarget.currentSurface()?.takeIf { it.isValid } ?: return
+        controller.onVideoOutputSurfaceAvailable(
+            surface = surface,
+            generation = videoOutputTarget.currentSurfaceGeneration,
+            width = videoOutputTarget.view.width,
+            height = videoOutputTarget.view.height,
+        )
+    }
+
     // ---- 释放 ----
 
     fun release() {
         if (released) return
         released = true
+        rootViewFrameRateProbe.stop(reason = "release")
+        videoTargetFrameRateProbe.stop(reason = "release")
         videoOutputTarget.setListener(null)
         // Surface 必须比 mpv 的 detach/stop 活得久：先 controller.dispose（同步），
         // 再释放弹幕与视频输出，否则会撞下次播放的崩溃（见 MpvPlayerView.dispose 注释）。
@@ -342,6 +451,14 @@ class NativePlayerSurface(
     }
 
     // ---- 帧率投票（让视频/弹幕跑满目标帧率） ----
+
+    /** 后端解析：仅显式 "texture" 走 TextureView，其余（含缺省）维持 SurfaceView 现状。
+     *  与 VideoOutputBackend.fromValue 的缺省 TEXTURE 语义刻意不同——全屏体验不能被静默翻转。 */
+    private fun parseVideoOutputBackend(raw: Any?): VideoOutputBackend =
+        when (raw?.toString()?.trim()?.lowercase()) {
+            VideoOutputBackend.TEXTURE.wireValue -> VideoOutputBackend.TEXTURE
+            else -> VideoOutputBackend.SURFACE
+        }
 
     private fun parseDanmakuTargetFrameRateHz(payload: Map<String, Any?>): Int {
         val raw = (payload["targetFrameRateHz"] as? Number)?.toInt()

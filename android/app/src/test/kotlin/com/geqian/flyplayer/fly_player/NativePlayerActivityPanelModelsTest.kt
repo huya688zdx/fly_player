@@ -105,6 +105,145 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun floatingMinimizedLifecycleMatrix() {
+        // 悬浮小窗方案 3.4 表逐格（可纯函数化的判定；onStop/onDestroy 两格为实例行为，
+        // 落点见 NativePlayerActivity.onStop / onDestroy）：
+        // 「进小窗/back 键」行：能力就绪 → 收小窗（不 park 不 pause），未就绪维持 PiP 路径。
+        assertTrue(
+            nativePanelShouldEnterFloatingOnBack(
+                floatingWindowReady = true,
+                inPipMode = false,
+                finishing = false,
+                playbackSurfaceReady = true,
+            ),
+        )
+        assertFalse(
+            nativePanelShouldEnterFloatingOnBack(
+                floatingWindowReady = false,
+                inPipMode = false,
+                finishing = false,
+                playbackSurfaceReady = true,
+            ),
+        )
+        // 「onPictureInPictureModeChanged」行：两态显式互斥——inPipMode 禁进悬浮窗。
+        assertFalse(
+            nativePanelShouldEnterFloatingOnBack(
+                floatingWindowReady = true,
+                inPipMode = true,
+                finishing = false,
+                playbackSurfaceReady = true,
+            ),
+        )
+        // 退出流程中的 Activity 不再收小窗；渲染壳未初始化同样拒绝。
+        assertFalse(
+            nativePanelShouldEnterFloatingOnBack(
+                floatingWindowReady = true,
+                inPipMode = false,
+                finishing = true,
+                playbackSurfaceReady = true,
+            ),
+        )
+        assertFalse(
+            nativePanelShouldEnterFloatingOnBack(
+                floatingWindowReady = true,
+                inPipMode = false,
+                finishing = false,
+                playbackSurfaceReady = false,
+            ),
+        )
+    }
+
+    @Test
+    fun floatingStateSuppressesPipAutoEnter() {
+        // 「onUserLeaveHint / autoEnter」行 + PiP 互斥：悬浮窗能力就绪或已收小窗时，
+        // setAutoEnterEnabled 必须为 false（悬浮窗优先）；暂停/parked/关自动进维持原判定。
+        assertEquals(
+            false,
+            nativePanelPipAutoEnterEnabled(
+                playbackParked = false,
+                floatingWindowReady = true,
+                floatingMinimized = false,
+                pipAutoEnter = true,
+                paused = false,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelPipAutoEnterEnabled(
+                playbackParked = false,
+                floatingWindowReady = false,
+                floatingMinimized = true,
+                pipAutoEnter = true,
+                paused = false,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelPipAutoEnterEnabled(
+                playbackParked = true,
+                floatingWindowReady = false,
+                floatingMinimized = false,
+                pipAutoEnter = true,
+                paused = false,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelPipAutoEnterEnabled(
+                playbackParked = false,
+                floatingWindowReady = false,
+                floatingMinimized = false,
+                pipAutoEnter = true,
+                paused = true,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelPipAutoEnterEnabled(
+                playbackParked = false,
+                floatingWindowReady = false,
+                floatingMinimized = false,
+                pipAutoEnter = false,
+                paused = false,
+            ),
+        )
+        // 无悬浮窗参与时与旧表达式等价：!playbackParked && pipAutoEnter && !paused。
+        assertEquals(
+            true,
+            nativePanelPipAutoEnterEnabled(
+                playbackParked = false,
+                floatingWindowReady = false,
+                floatingMinimized = false,
+                pipAutoEnter = true,
+                paused = false,
+            ),
+        )
+        // onUserLeaveHint（pre-S）同源判定：悬浮窗就绪时手势离开不再自动进 PiP。
+        assertEquals(
+            false,
+            nativePanelShouldAutoEnterPip(
+                pipAutoEnter = true,
+                pipSupported = true,
+                paused = false,
+                alreadyInPip = false,
+                finishing = false,
+                floatingWindowReady = true,
+            ),
+        )
+        assertEquals(
+            true,
+            nativePanelShouldAutoEnterPip(
+                pipAutoEnter = true,
+                pipSupported = true,
+                paused = false,
+                alreadyInPip = false,
+                finishing = false,
+                floatingWindowReady = false,
+            ),
+        )
+    }
+
+    @Test
     fun primaryControlsRemoveManualReloadEntry() {
         val source = File(
             "src/main/kotlin/com/geqian/flyplayer/fly_player/NativePlayerActivity.kt",

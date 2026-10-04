@@ -52,6 +52,9 @@ interface VideoOutputTarget {
 
     fun currentSurface(): Surface?
 
+    /** 当前 surface 代数（每次重建递增）；交接中止重绑需要带上它过 VideoOutputController 代数门。 */
+    val currentSurfaceGeneration: Long
+
     fun isSurfaceValid(): Boolean
 
     fun captureBitmap(
@@ -92,8 +95,21 @@ interface VideoOutputTarget {
     }
 }
 
+/**
+ * 必要改造 A/B 的 destroy 分支裁决（悬浮小窗方案 3.3）：交接窗口内且保活开关开启 →
+ * `onSurfaceTextureDestroyed` 返回 false 自持 SurfaceTexture（改造 B，零黑帧复用）；
+ * 保活开关关闭（真机复用验证不过的降级路径）→ 纹理照常随窗口销毁，只靠 mpv 侧改造 A
+ * 旁路不断播，交接黑帧由定格图覆盖（P3 <200ms 预算兜底）。
+ */
+internal fun textureHandoffShouldKeepTexture(
+    handoffActive: Boolean,
+    keepTextureEnabled: Boolean,
+): Boolean = handoffActive && keepTextureEnabled
+
 class TextureViewVideoOutputTarget(
     context: Context,
+    private val surfaceHandoffGate: SurfaceHandoffGate? = null,
+    private val keepTextureAcrossHandoff: Boolean = true,
 ) : VideoOutputTarget,
     TextureView.SurfaceTextureListener {
     private companion object {
@@ -104,6 +120,9 @@ class TextureViewVideoOutputTarget(
     private var listener: VideoOutputTarget.Listener? = null
     private var currentSurface: Surface? = null
     private var currentGeneration = 0L
+    // 改造 B：交接窗口内自持的 SurfaceTexture（destroy 返回 false 后框架不回收），
+    // 重挂由 reattachKeptSurfaceTexture 复用；最终释放服从释放顺序红线（见 release）。
+    private var keptSurfaceTexture: SurfaceTexture? = null
     private var waitingForFreshFrame = false
     private var reusableBitmap: Bitmap? = null
     private var reusableFocusedBitmap: Bitmap? = null
@@ -141,7 +160,14 @@ class TextureViewVideoOutputTarget(
 
     override fun currentSurface(): Surface? = currentSurface
 
+    override val currentSurfaceGeneration: Long
+        get() = currentGeneration
+
     override fun isSurfaceValid(): Boolean = currentSurface?.isValid == true
+
+    /** 交接期是否仍自持 SurfaceTexture（日志/诊断用；正常在重挂或 release 时清零）。 */
+    val holdsKeptSurfaceTexture: Boolean
+        get() = keptSurfaceTexture != null
 
     override fun captureBitmap(
         width: Int,
@@ -374,6 +400,10 @@ class TextureViewVideoOutputTarget(
         textureView.removeCallbacks(restoreVisibilityRunnable)
         restoreTextureVisibility()
         releaseCurrentSurface()
+        // 释放顺序红线（悬浮小窗方案 3.3，与 MpvPlayerView.dispose 同款）：本方法只在
+        // NativePlayerSurface.release 的 controller.disposeBlocking 之后执行，交接期
+        // 自持的 SurfaceTexture 此刻才允许随宿主释放。
+        releaseKeptSurfaceTexture()
         clearReusableBitmaps()
         synchronized(cancelledCaptureRequestIdsLock) {
             cancelledCaptureRequestIds.clear()
@@ -384,6 +414,7 @@ class TextureViewVideoOutputTarget(
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
         releaseCurrentSurface()
+        adoptHandoffTexture(surface)
         currentGeneration += 1L
         val nextSurface = Surface(surface)
         currentSurface = nextSurface
@@ -401,15 +432,64 @@ class TextureViewVideoOutputTarget(
         val generation = currentGeneration
         textureView.removeCallbacks(restoreVisibilityRunnable)
         restoreTextureVisibility()
+        // 改造 A 的 View 半边：交接窗口内 destroy 链照样上报——mpv 侧由
+        // MpvPlaybackController 走 detach-only 旁路（不 pause、不 vid=no）。
         listener?.onSurfaceDestroyed(generation)
-        releaseCurrentSurface()
-        return true
+        return if (
+            textureHandoffShouldKeepTexture(
+                handoffActive = surfaceHandoffGate?.active == true,
+                keepTextureEnabled = keepTextureAcrossHandoff,
+            )
+        ) {
+            // 必要改造 B：返回 false 且不释放 surface，SurfaceTexture 交宿主自持，
+            // remove→add 迁移期间帧缓冲不销毁；重挂由 reattachKeptSurfaceTexture 复用。
+            keptSurfaceTexture = surface
+            false
+        } else {
+            releaseCurrentSurface()
+            true
+        }
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
         if (waitingForFreshFrame) {
             restoreTextureVisibility()
         }
+    }
+
+    /**
+     * 交接重挂（改造 B 的复用入口，主线程调用）：把自持的 SurfaceTexture 装回
+     * TextureView。返回 false 表示无可复用纹理或装回失败（失败时就地释放防泄漏），
+     * 后续走框架新纹理 + 定格图兜底（改造 A 路径）。
+     */
+    fun reattachKeptSurfaceTexture(): Boolean {
+        val kept = keptSurfaceTexture ?: return false
+        keptSurfaceTexture = null
+        if (textureView.surfaceTexture === kept) {
+            // 同一 TextureView remove→add 后框架仍持有该纹理：无需重设。
+            return true
+        }
+        return runCatching {
+            textureView.setSurfaceTexture(kept)
+            true
+        }.onFailure {
+            runCatching { kept.release() }
+        }.getOrDefault(false)
+    }
+
+    /** 纹理回到框架/复用持有：清自持引用；框架重建了新纹理则就地释放自持旧纹理防泄漏。 */
+    private fun adoptHandoffTexture(surface: SurfaceTexture) {
+        val kept = keptSurfaceTexture ?: return
+        keptSurfaceTexture = null
+        if (kept !== surface) {
+            runCatching { kept.release() }
+        }
+    }
+
+    private fun releaseKeptSurfaceTexture() {
+        val kept = keptSurfaceTexture ?: return
+        keptSurfaceTexture = null
+        runCatching { kept.release() }
     }
 
     private fun releaseCurrentSurface() {
@@ -480,6 +560,9 @@ class SurfaceViewVideoOutputTarget(
         val surface = surfaceView.holder.surface
         return surface?.takeIf { it.isValid }
     }
+
+    override val currentSurfaceGeneration: Long
+        get() = currentGeneration
 
     override fun isSurfaceValid(): Boolean = surfaceView.holder.surface?.isValid == true
 
