@@ -46,7 +46,7 @@ private const val FILTER_FALLBACK_CONSECUTIVE_WINDOWS = 3
 private const val PERFORMANCE_FALLBACK_MAX_LEVEL = 4
 private const val SURFACE_TRANSITION_GRACE_MS = 2500L
 private const val VISUAL_PLAYBACK_PROGRESS_FALLBACK_MS = 900L
-// 暂停下窗口 resize 的重绘防抖：等尺寸变化停止后短暂推迟再推进一帧，避免拖动期间连续解码。
+// 暂停下窗口 resize 的重绘防抖：等尺寸变化停止后短暂推迟再重绘，避免拖动期间连续 seek。
 private const val PAUSED_RESIZE_REDRAW_DELAY_MS = 150L
 private const val ENABLE_MPV_VERBOSE_LOGS = false
 // mpv 错误/警告级日志转发到 Flutter 应用内日志的去重窗口与单条上限，避免高频 log 灌爆
@@ -1264,17 +1264,16 @@ class MpvPlaybackController(
             }
         }
         // 暂停时 mpv 更新 surface 尺寸后不会自动重绘，BufferQueue 里残留旧尺寸的缓冲
-        // → 画面错位/撕裂（继续播放才恢复）。防抖后 frame-step 推进一帧强制按新尺寸重绘：
-        // 暂停中单帧差异不可感知，恢复播放时位置差不足一帧。
+        // → 画面错位/撕裂（继续播放才恢复）。防抖后精确 seek 到当前暂停位置强制按新尺寸
+        // 重绘同一帧：不能用 frame-step（每次前进一帧，反复 resize 画面会一点点往前走）。
         if (!state.paused) return
         pausedResizeRedrawRunnable?.let { playbackHandler.removeCallbacks(it) }
         val redraw = Runnable {
             pausedResizeRedrawRunnable = null
             runOnPlaybackThread {
                 if (!initialized || !mpv.isAvailable() || !state.paused) return@runOnPlaybackThread
-                runCatching {
-                    mpv.command(arrayOf("frame-step"))
-                }
+                val posMs = state.positionMs
+                if (posMs > 0L) seekTo(posMs)
             }
         }
         pausedResizeRedrawRunnable = redraw
