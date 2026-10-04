@@ -78,8 +78,10 @@ class NativePlayerActivityPanelModelsTest {
         ).readText()
 
         assertFalse(source.contains("makeEntryButton(localizedString(R.string.player_action_reload)"))
-        assertTrue(source.contains("speedButton = makeEntryButton(\"1.0x\")"))
-        assertTrue(source.contains("R.drawable.ic_player_episode_grid"))
+        // 倍速入口已改为桌面同款动态图标（滚动数字），选集入口同为动态图标。
+        assertTrue(source.contains("speedButton = makeEntryButton(\"1.0x\", motion = PlayerMotionKind.SPEED)"))
+        assertTrue(source.contains("PlayerMotionKind.EPISODES"))
+        assertFalse(source.contains("R.drawable.ic_player_"))
     }
 
     @Test

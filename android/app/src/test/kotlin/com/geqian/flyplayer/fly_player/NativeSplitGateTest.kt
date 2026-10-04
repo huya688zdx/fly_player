@@ -54,6 +54,49 @@ class NativeSplitGateTest {
         assertFalse(allowed(splitAvailable = false))
     }
 
+    @Test
+    fun displayModeGivesSplitOnlyWhenParallelWindowEnabledAndSupported() {
+        assertTrue(
+            entry(parallelWindowEnabled = true, splitSupported = true) == DisplayModeEntry.SPLIT,
+        )
+        // 设置关闭即让位给小窗，即使设备仍支持分屏。
+        assertTrue(
+            entry(parallelWindowEnabled = false, splitSupported = true) == DisplayModeEntry.PIP,
+        )
+        assertTrue(
+            entry(parallelWindowEnabled = true, splitSupported = false) == DisplayModeEntry.PIP,
+        )
+    }
+
+    @Test
+    fun displayModeKeepsExitEntryWhileEmbedded() {
+        assertTrue(
+            entry(currentlySplit = true, parallelWindowEnabled = false) == DisplayModeEntry.FULLSCREEN,
+        )
+    }
+
+    @Test
+    fun displayModeFallsBackToRotateWithoutPip() {
+        assertTrue(
+            entry(splitSupported = false, pipSupported = false) == DisplayModeEntry.ROTATE,
+        )
+        assertTrue(
+            entry(currentlySplit = true, pipSupported = false) == DisplayModeEntry.FULLSCREEN,
+        )
+    }
+
+    private fun entry(
+        parallelWindowEnabled: Boolean = true,
+        currentlySplit: Boolean = false,
+        splitSupported: Boolean = true,
+        pipSupported: Boolean = true,
+    ): DisplayModeEntry = NativeSplitGate.displayModeEntry(
+        parallelWindowEnabled = parallelWindowEnabled,
+        currentlySplit = currentlySplit,
+        splitSupported = splitSupported,
+        pipSupported = pipSupported,
+    )
+
     private fun allowed(
         sdkInt: Int = 32,
         alreadyEmbedded: Boolean = false,

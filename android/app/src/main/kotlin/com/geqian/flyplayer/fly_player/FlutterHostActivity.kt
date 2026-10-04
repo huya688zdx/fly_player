@@ -69,6 +69,9 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private val secureCredentialStore by lazy {
         SecureCredentialStore(applicationContext)
     }
+    private val hyperosRefreshRateGuard by lazy {
+        HyperosRefreshRateGuard(applicationContext)
+    }
     protected var systemChannel: MethodChannel? = null
     protected var detailHostChannel: MethodChannel? = null
     protected var mainHostChannel: MethodChannel? = null
@@ -99,6 +102,18 @@ abstract class FlutterHostActivity : FlutterActivity() {
             pendingStoragePermissionResult?.success(hasFileAccess())
             pendingStoragePermissionResult = null
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // HyperOS PowerKeeper 会在本应用进前台后立即写 secure miui_refresh_rate=60，
+        // 监听并自动恢复用户刷新率（未授权 WRITE_SECURE_SETTINGS 时本类休眠，见类注释）。
+        hyperosRefreshRateGuard.start()
+    }
+
+    override fun onStop() {
+        hyperosRefreshRateGuard.stop()
+        super.onStop()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

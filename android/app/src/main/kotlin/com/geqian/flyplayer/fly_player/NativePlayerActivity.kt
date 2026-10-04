@@ -1194,6 +1194,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         private const val SCREENSHOT_DEFAULT_SAVE_MODE = "pictures"
     }
 
+    private val hyperosRefreshRateGuard by lazy { HyperosRefreshRateGuard(applicationContext) }
     private lateinit var playerSurface: NativePlayerSurface
     private lateinit var rootContainer: FrameLayout
     private lateinit var topBar: View
@@ -1210,7 +1211,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var episodeEntryButton: TextView
     private var episodeEntryDivider: View? = null
     // 竖屏精简：以下控件随朝向显隐（顶栏次要图标 + 底栏溢出入口），见 applyOrientationToControls()。
-    private var pipButton: View? = null
     private var screenshotButton: View? = null
     private var danmakuQuickButton: View? = null
     private var audioEntryButton: TextView? = null
@@ -1221,6 +1221,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var displayModeButton: ImageButton
     private lateinit var actionStrip: LinearLayout
     private var splitVerifyRunnable: Runnable? = null
+
+    // 动态图标（桌面同款，见 PlayerMotionIcon.kt）：状态切换自触发形变动画。
+    private var playPauseMotion: PlayerMotionIconDrawable? = null
+    private var displayModeMotion: PlayerMotionIconDrawable? = null
+    private var lockMotion: PlayerMotionIconDrawable? = null
+    private var danmakuToggleMotion: PlayerMotionIconDrawable? = null
+    private var speedMotion: PlayerMotionIconDrawable? = null
+    private var abMotion: PlayerMotionIconDrawable? = null
 
     private lateinit var panelContainer: FrameLayout
     private lateinit var panelScrollView: MaxHeightScrollView
@@ -2245,16 +2253,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun setIconActive(btn: View, active: Boolean) {
         val color = if (active) ACCENT else Color.WHITE
+        val motion = btn.findPlayerMotion()
+        motion?.setActive(active)
         when (btn) {
-            is ImageButton -> btn.setColorFilter(color)
+            is ImageButton -> if (motion == null) btn.setColorFilter(color)
             is TextView -> {
                 btn.setTextColor(color)
-                btn.compoundDrawablesRelative.forEach { drawable -> drawable?.setTint(color) }
+                if (motion == null) {
+                    btn.compoundDrawablesRelative.forEach { drawable -> drawable?.setTint(color) }
+                }
                 if (this::danmakuToggleButton.isInitialized && btn === danmakuToggleButton) {
                     btn.background = subtlePressBackground()
                 }
             }
         }
+    }
+
+    private fun View.findPlayerMotion(): PlayerMotionIconDrawable? = when (this) {
+        is ImageButton -> drawable as? PlayerMotionIconDrawable
+        is TextView -> (compoundDrawablesRelative + compoundDrawables)
+            .filterIsInstance<PlayerMotionIconDrawable>()
+            .firstOrNull()
+        else -> null
     }
 
     private fun updateSystemInfo() {
@@ -2288,19 +2308,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
     }
 
-    private fun isTablet(): Boolean = resources.configuration.smallestScreenWidthDp >= 600
-
     private fun isPortrait(): Boolean =
         resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
     /**
-     * 按朝向显隐控制层的次要入口：竖屏窄屏空间有限，精简顶栏次要图标（小窗/截图/AB/弹幕设置）
+     * 按朝向显隐控制层的次要入口：竖屏窄屏空间有限，精简顶栏次要图标（截图/AB/弹幕设置）
      * 与底栏溢出入口（音轨/字幕/画质，竖屏改从「更多」设置进入），避免拥挤与裁剪。横屏全显。
      */
     private fun applyOrientationToControls() {
         val portrait = isPortrait()
         val secondaryVis = if (portrait) View.GONE else View.VISIBLE
-        pipButton?.visibility = secondaryVis
         screenshotButton?.visibility = secondaryVis
         danmakuQuickButton?.visibility = secondaryVis
         if (this::abButton.isInitialized) abButton.visibility = secondaryVis
@@ -2395,25 +2412,38 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun refreshDisplayModeButton() {
         if (!this::displayModeButton.isInitialized) return
-        displayModeButton.setImageResource(
-            when {
-                !splitSupported() -> R.drawable.ic_player_rotate
-                isCurrentlySplit() -> R.drawable.ic_player_fullscreen
-                else -> R.drawable.ic_player_split
-            },
-        )
+        displayModeMotion?.setIconState(kind = motionKindFor(displayModeEntry()))
+    }
+
+    /** 底栏显示模式入口的三态判定：分屏（平行窗口开且设备支持）/ 小窗 / 横竖屏兜底。 */
+    private fun displayModeEntry(): DisplayModeEntry = NativeSplitGate.displayModeEntry(
+        parallelWindowEnabled = ParallelWindowCoordinator.isParallelWindowEnabled(),
+        currentlySplit = isCurrentlySplit(),
+        splitSupported = splitSupported(),
+        pipSupported = pipSupported(),
+    )
+
+    private fun motionKindFor(entry: DisplayModeEntry): PlayerMotionKind = when (entry) {
+        DisplayModeEntry.SPLIT -> PlayerMotionKind.SPLIT
+        DisplayModeEntry.FULLSCREEN -> PlayerMotionKind.FULLSCREEN
+        DisplayModeEntry.PIP -> PlayerMotionKind.PIP
+        DisplayModeEntry.ROTATE -> PlayerMotionKind.ROTATE
     }
 
     private fun onDisplayModeButtonClick() {
         logSplitDiagnostics()
-        if (!splitSupported()) {
-            toggleOrientation()
-            refreshDisplayModeButton()
-        } else {
-            captureAndFreeze {
-                toggleSplitMode()
+        when (displayModeEntry()) {
+            DisplayModeEntry.SPLIT, DisplayModeEntry.FULLSCREEN -> {
+                captureAndFreeze {
+                    toggleSplitMode()
+                    refreshDisplayModeButton()
+                    scheduleFreezeHide()
+                }
+            }
+            DisplayModeEntry.PIP -> enterPip()
+            DisplayModeEntry.ROTATE -> {
+                toggleOrientation()
                 refreshDisplayModeButton()
-                scheduleFreezeHide()
             }
         }
         scheduleControlsAutoHide()
@@ -2625,15 +2655,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
     }
 
-    /** 弹幕开关双状态：开启=蓝色气泡+横线；关闭=白色气泡+斜杠，颜色与图形双重区分。 */
+    /** 弹幕开关双状态：激活着色 + 弹幕滚动动画双反馈。 */
     private fun refreshDanmakuToggleIcon() {
         if (!this::danmakuToggleButton.isInitialized) return
-        val enabled = danmakuEnabled
-        danmakuToggleButton.setCompoundDrawablesWithIntrinsicBounds(
-            if (enabled) R.drawable.ic_player_danmaku_toggle else R.drawable.ic_player_danmaku_toggle_off,
-            0, 0, 0,
-        )
-        setIconActive(danmakuToggleButton, enabled)
+        danmakuToggleMotion?.setIconState(kind = PlayerMotionKind.DANMAKU)
+        setIconActive(danmakuToggleButton, danmakuEnabled)
+    }
+
+    /** 播放/暂停图标：仅在暂停态翻转时切换 label（触发行进形变），避免每帧重设。 */
+    private fun refreshPlayPauseIcon(paused: Boolean) {
+        playPauseMotion?.setIconState(label = if (paused) "play" else "pause")
     }
 
     private fun isServerManagedPlayback(): Boolean {
@@ -3373,7 +3404,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         abLoopStartMs = 0L
         abLoopEndMs = 0L
         if (this::abButton.isInitialized) {
-            (abButton as? TextView)?.text = "AB"
+            abMotion?.setIconState(label = "AB")
             setIconActive(abButton, false)
         }
         weakNetDismissed = false
@@ -3702,11 +3733,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 侧边锁定按钮
         lockButton = ImageButton(this).apply {
             background = subtlePressBackground()
-            setImageResource(R.drawable.ic_player_lock_open)
-            setColorFilter(Color.WHITE)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             setOnClickListener { toggleLock() }
         }
+        lockMotion = playerMotionIcon(this, PlayerMotionKind.LOCK_OPEN, idleColor = Color.WHITE, selectedColor = ACCENT, heightDp = 22f)
+        lockButton.setImageDrawable(lockMotion)
         rootContainer.addView(
             lockButton,
             FrameLayout.LayoutParams(dp(44), dp(44)).apply {
@@ -3881,12 +3912,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         val backButton = ImageButton(this).apply {
             background = subtlePressBackground()
-            setImageResource(R.drawable.ic_player_arrow_back)
-            setColorFilter(Color.WHITE)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
             setPadding(dp(9), dp(9), dp(9), dp(9))
             setOnClickListener { finishOrEnterPip() }
         }
+        backButton.setImageDrawable(playerMotionIcon(this, PlayerMotionKind.BACK, idleColor = Color.WHITE, selectedColor = ACCENT, heightDp = 22f))
         mainRow.addView(backButton, LinearLayout.LayoutParams(dp(40), dp(40)))
 
         // 状态标签组
@@ -3944,15 +3974,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(8), 0, 0, 0)
         }
 
-        // 小窗（画中画）：仅手机显示，平板隐藏；系统不支持 PIP 也隐藏。竖屏再隐藏（见下）。
-        if (pipSupported() && !isTablet()) {
-            pipButton = makeIconButton(localizedString(R.string.player_text_0003)) { enterPip() }.also { iconActions.addView(it) }
-        }
+        // 小窗（画中画）入口统一收进底栏显示模式按钮，与分屏二选一（见 buildBottomBar）。
         listenButton = makeIconButton(localizedString(R.string.player_text_0004)) { toggleAudioMode() }
         iconActions.addView(listenButton)
         screenshotButton = makeIconButton(localizedString(R.string.player_text_0005)) { takeScreenshot() }.also { iconActions.addView(it) }
         abButton = makeIconButton("AB") { toggleAbRepeat() }
         iconActions.addView(abButton)
+        abMotion = abButton.findPlayerMotion()
         // 弹幕设置：Flutter 顶栏即有的直达入口（不止在设置抽屉里）。
         danmakuQuickButton = makeIconButton(localizedString(R.string.player_text_0006)) {
             togglePanel(PanelPage(localizedString(R.string.player_text_0006)) { buildDanmakuSettingsPage() })
@@ -4056,14 +4084,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         durationLabel = makeTimeLabel("00:00", Color.WHITE)
         progressRow.addView(durationLabel)
 
-        // 全屏/分屏（或横竖屏）切换按钮：紧贴时长右侧。
+        // 显示模式切换按钮：紧贴时长右侧。分屏与小窗二选一——平行窗口设置开启且设备
+        // 支持才给分屏，否则让位给小窗；无小窗能力的设备退化为横竖屏切换。
         displayModeButton = ImageButton(this).apply {
             background = subtlePressBackground()
-            setColorFilter(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             setPadding(dp(9), dp(9), dp(9), dp(9))
             setOnClickListener { onDisplayModeButtonClick() }
         }
+        displayModeMotion = playerMotionIcon(
+            this,
+            motionKindFor(displayModeEntry()),
+            idleColor = Color.WHITE,
+            selectedColor = ACCENT,
+        )
+        displayModeButton.setImageDrawable(displayModeMotion)
         progressRow.addView(
             displayModeButton,
             LinearLayout.LayoutParams(dp(38), dp(38)).apply { leftMargin = dp(8) },
@@ -4082,29 +4117,37 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 播放按钮
         playPauseButton = ImageButton(this).apply {
             background = subtlePressBackground()
-            setImageResource(R.drawable.ic_player_play)
-            setColorFilter(ACCENT)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
             setPadding(dp(8), dp(8), dp(8), dp(8))
             setOnClickListener { togglePlayPause() }
         }
+        playPauseMotion = playerMotionIcon(
+            this,
+            PlayerMotionKind.PLAY_PAUSE,
+            label = "play",
+            idleColor = ACCENT,
+            selectedColor = ACCENT,
+            heightDp = 24f,
+        )
+        playPauseButton.setImageDrawable(playPauseMotion)
         controlRow.addView(playPauseButton, LinearLayout.LayoutParams(dp(50), dp(50)))
 
         // 下一集按钮
         nextEpisodeButton = ImageButton(this).apply {
             background = subtlePressBackground()
-            setImageResource(R.drawable.ic_player_next)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
-            setColorFilter(Color.WHITE)
             setPadding(dp(9), dp(9), dp(9), dp(9))
             setOnClickListener { playNextEpisode() }
         }
+        nextEpisodeButton.setImageDrawable(
+            playerMotionIcon(this, PlayerMotionKind.NEXT, idleColor = Color.WHITE, selectedColor = ACCENT, heightDp = 24f),
+        )
         controlRow.addView(
             nextEpisodeButton,
             LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) },
         )
 
-        // 弹幕开关：图标区分开/关两种状态（开=气泡+横线，关=气泡+斜杠），着色同步反馈。
+        // 弹幕开关：动态图标（桌面同款弹幕滚动形变），激活着色同步反馈。
         danmakuToggleButton = TextView(this).apply {
             setTextColor(if (danmakuEnabled) ACCENT else Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -4112,10 +4155,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             includeFontPadding = false
             gravity = Gravity.CENTER
             background = subtlePressBackground()
-            setCompoundDrawablesWithIntrinsicBounds(
-                if (danmakuEnabled) R.drawable.ic_player_danmaku_toggle else R.drawable.ic_player_danmaku_toggle_off,
-                0, 0, 0,
+            danmakuToggleMotion = playerMotionIcon(
+                context,
+                PlayerMotionKind.DANMAKU,
+                selected = danmakuEnabled,
+                idleColor = Color.WHITE,
+                selectedColor = ACCENT,
             )
+            setCompoundDrawablesRelativeWithIntrinsicBounds(danmakuToggleMotion, null, null, null)
             compoundDrawablePadding = 0
             contentDescription = localizedString(R.string.player_text_0008)
             setPadding(dp(10), dp(8), dp(10), dp(8))
@@ -4151,14 +4198,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 选集/多版本入口：多集→「选集」；单集(电影)有多版本→「多版本」；单集单版本→隐藏。
         episodeEntryButton = makeEntryButton(
             localizedString(R.string.player_episode_picker_title),
-            R.drawable.ic_player_episode_grid,
+            motion = PlayerMotionKind.EPISODES,
         ) { onEpisodeEntryClick() }
         actionStrip.addView(episodeSpacer)
         actionStrip.addView(episodeEntryButton)
         refreshEpisodeEntryButton()
 
-        // 倍速保留数值文字作为状态反馈；其余二级入口已有图标，不再重复显示标签。
-        speedButton = makeEntryButton("1.0x") { showSpeedPicker() }
+        // 倍速：动态图标内滚动数字作为状态反馈（与桌面同款），切换倍速时数字滚动。
+        speedButton = makeEntryButton("1.0x", motion = PlayerMotionKind.SPEED) { showSpeedPicker() }
+        speedMotion = speedButton.findPlayerMotion()
         addActionButton(speedButton)
 
         // 音轨/字幕/画质：横屏常驻底栏；竖屏窄屏放不下且会被裁，改为隐藏并从「更多」设置进入。
@@ -4166,17 +4214,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         audioEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
         audioEntryButton = makeEntryButton(
             localizedString(R.string.player_audio_track_picker_title),
-            R.drawable.ic_player_audio_track,
+            motion = PlayerMotionKind.AUDIO,
         ) { showAudioPanel() }
             .also { actionStrip.addView(it) }
         subtitleEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
         subtitleEntryButton = makeEntryButton(
             localizedString(R.string.player_subtitle_track_picker_title),
-            R.drawable.ic_player_subtitles,
+            motion = PlayerMotionKind.SUBTITLE,
         ) { showSubtitlePanel() }
             .also { actionStrip.addView(it) }
         qualityEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        qualityButton = makeEntryButton(currentQualityLabel(), R.drawable.ic_player_quality) { showQualityPanel() }
+        qualityButton = makeEntryButton(currentQualityLabel(), motion = PlayerMotionKind.QUALITY) { showQualityPanel() }
         actionStrip.addView(qualityButton)
         controlRow.addView(actionStrip)
 
@@ -4195,9 +4243,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun toggleLock() {
         isLocked = !isLocked
-        lockButton.setImageResource(
-            if (isLocked) R.drawable.ic_player_lock else R.drawable.ic_player_lock_open,
-        )
+        lockMotion?.setIconState(kind = if (isLocked) PlayerMotionKind.LOCK else PlayerMotionKind.LOCK_OPEN)
         showTransientHint(if (isLocked) localizedString(R.string.player_text_0009) else localizedString(R.string.player_text_0010))
         setControlsVisible(true) // 切换后显示一下，方便看到变化
     }
@@ -4221,8 +4267,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             panelBackButton = ImageButton(context).apply {
                 background = null
-                setImageResource(R.drawable.ic_player_arrow_back)
-                setColorFilter(Color.WHITE)
+                setImageDrawable(playerMotionIcon(context, PlayerMotionKind.BACK, idleColor = Color.WHITE, selectedColor = ACCENT))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setPadding(0, 0, dp(10), 0)
                 visibility = View.GONE
@@ -4300,20 +4345,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun makeIconButton(text: String, onClick: () -> Unit): View {
-        val iconRes = when (text) {
-            localizedString(R.string.player_action_pip) -> R.drawable.ic_player_pip
-            localizedString(R.string.player_action_listen_video) -> R.drawable.ic_player_listen_video
-            localizedString(R.string.player_action_screenshot) -> R.drawable.ic_player_screenshot
-            localizedString(R.string.player_action_danmaku_settings) -> R.drawable.ic_player_danmaku_settings
-            localizedString(R.string.player_action_more) -> R.drawable.ic_player_more
-            else -> 0
+        val motionKind = when (text) {
+            localizedString(R.string.player_action_pip) -> PlayerMotionKind.PIP
+            localizedString(R.string.player_action_listen_video) -> PlayerMotionKind.LISTEN
+            localizedString(R.string.player_action_screenshot) -> PlayerMotionKind.SCREENSHOT
+            localizedString(R.string.player_action_danmaku_settings) -> PlayerMotionKind.DANMAKU_SETTINGS
+            localizedString(R.string.player_action_more) -> PlayerMotionKind.SETTINGS
+            "AB" -> PlayerMotionKind.REPEAT
+            else -> null
         }
-        if (iconRes != 0) {
+        if (motionKind != null) {
             return ImageButton(this).apply {
                 contentDescription = text
                 background = subtlePressBackground()
-                setImageResource(iconRes)
-                setColorFilter(Color.WHITE)
+                setImageDrawable(
+                    playerMotionIcon(context, motionKind, idleColor = Color.WHITE, selectedColor = ACCENT),
+                )
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 setPadding(dp(9), dp(9), dp(9), dp(9))
                 isClickable = true
@@ -4564,11 +4611,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
         }
         if (this::abButton.isInitialized) {
-            (abButton as? TextView)?.text = when (abRepeatMode) {
-                1 -> "A"
-                2 -> "A-B"
-                else -> "AB"
-            }
+            abMotion?.setIconState(
+                label = when (abRepeatMode) {
+                    1 -> "A"
+                    2 -> "A-B"
+                    else -> "AB"
+                },
+            )
             setIconActive(abButton, abRepeatMode > 0)
         }
         updateAbMarkers()
@@ -4669,14 +4718,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 setColor(0x33000000)
             }
             setPadding(dp(7), dp(7), dp(7), dp(7))
-            setImageResource(
-                if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
-                    R.drawable.ic_player_episode_list
-                } else {
-                    R.drawable.ic_player_episode_grid
-                },
+            setImageDrawable(
+                playerMotionIcon(
+                    context,
+                    // 宫格模式显示行式图标（点按切到列表），反之亦然。
+                    if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
+                        PlayerMotionKind.EPISODES
+                    } else {
+                        PlayerMotionKind.EPISODE_GRID
+                    },
+                    idleColor = Color.WHITE,
+                    selectedColor = ACCENT,
+                ),
             )
-            setColorFilter(Color.WHITE)
             isClickable = true
             contentDescription = if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
                 context.localizedString(R.string.player_episode_switch_to_list)
@@ -5832,14 +5886,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 选集/音轨/字幕/画质 等二级入口。onClick 默认占位，已接功能的传入真实回调。 */
     private fun makeEntryButton(
         label: String,
-        iconRes: Int = 0,
+        motion: PlayerMotionKind? = null,
         onClick: () -> Unit = {
             showTransientHint(localizedString(R.string.player_coming_soon_format, label))
             scheduleControlsAutoHide()
         },
     ): TextView {
         return TextView(this).apply {
-            text = if (iconRes == 0) label else ""
+            text = if (motion == null) label else ""
             contentDescription = label
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
@@ -5847,9 +5901,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             includeFontPadding = false
             gravity = Gravity.CENTER
             background = subtlePressBackground()
-            minWidth = dp(if (iconRes == 0) 44 else 36)
-            if (iconRes != 0) {
-                setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0)
+            minWidth = dp(if (motion == null) 44 else 36)
+            if (motion != null) {
+                setCompoundDrawablesRelativeWithIntrinsicBounds(
+                    playerMotionIcon(context, motion, idleColor = Color.WHITE, selectedColor = ACCENT),
+                    null, null, null,
+                )
                 compoundDrawablePadding = dp(4)
             }
             setPadding(dp(9), dp(8), dp(9), dp(8))
@@ -10192,7 +10249,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         lastDurationMs = state.durationMs
         seekBar.isEnabled = !isLiveChannel()
-        speedButton.text = nativePanelPlaybackSpeedLabel(state.speed)
+        speedMotion?.setIconState(label = nativePanelPlaybackSpeedLabel(state.speed).replace("x", "×"))
+        refreshPlayPauseIcon(state.paused)
 
         // 自适应性能阶梯反馈（级别由内核根据真实掉帧升降，强设备不掉帧则恒为 0）。
         handlePerformanceFallbackLevel(state.performanceFallbackLevel)
@@ -10202,9 +10260,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         ) {
             seekPlayer(abLoopStartMs)
         }
-        playPauseButton.setImageResource(
-            if (state.paused) R.drawable.ic_player_play else R.drawable.ic_player_pause,
-        )
         durationLabel.text = formatTime(state.durationMs)
         seekBar.secondaryProgress =
             if (state.durationMs > 0) {
@@ -10843,6 +10898,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun setControlsVisible(visible: Boolean) {
         controlsVisible = visible
+        // 平行窗口设置可能在播放中于主栏/副栏被改动，控制层每次亮出都按当前设置重算入口形态。
+        if (visible) refreshDisplayModeButton()
         // 锁定态下主控制栏（顶栏/底栏）始终隐藏，只有侧边锁按钮跟随显隐。
         val showChrome = visible && !isLocked
         for (chrome in arrayOf(topBar, bottomBar)) {
@@ -10948,6 +11005,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     override fun onStart() {
         super.onStart()
         registerBatteryReceiver()
+        // 与 Flutter 宿主同款：PowerKeeper 进前台即写 miui_refresh_rate=60，监听并自动恢复。
+        hyperosRefreshRateGuard.start()
         // 顶栏可见时回前台，刷新一次电量/网络（网络回调可能在后台被合并丢失）。
         updateSystemInfo()
     }
@@ -10965,6 +11024,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         reportProgress()
         unregisterBatteryReceiver()
+        hyperosRefreshRateGuard.stop()
         super.onStop()
     }
 

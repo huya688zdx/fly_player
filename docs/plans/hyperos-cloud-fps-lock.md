@@ -70,3 +70,33 @@ create/resume/focus/configuration 四时机都会重打票。原生日志
 本就到不了 120），SAGT 周期判定窗口内量到 60 → 判定游戏 → 写 60。
 复现规避：避免让分屏详情页长时间静止停留在前台？不可控，等云控策略变化即可，
 恢复命令见上。
+
+## 2026-10-04 复发实测：写入者与触发规律已实锤
+
+设备 2410CRP4CC，应用使用中被再次钳到 60。本次抓到完整证据链：
+
+1. **写入者 = `com.miui.powerkeeper`（不是云控直写、也不是 SAGT）**。
+   SettingsProvider 日志逐条记录调用方：
+   `SettingsProvider: refresh rate settings changed, name:miui_refresh_rate,value:60,pkg:com.miui.powerkeeper`。
+2. **触发规律：本应用每次进前台后 60~230ms 内写 60；切回桌面（com.miui.home 进前台）
+   写回 120。** 18:53~18:56 共 6 次事件全部吻合，无一例外。此前「约 2 分钟被静默
+   改回」实为前台切换相关，不是定时器。PowerKeeper 自身日志佐证：
+   `PerfEngineController: ForegroundInfo{mForegroundPackageName='com.geqian.flyplayer.fly_player'}`
+   紧跟写 60 动作；其 DisplayFrameSetting 模块同时跟踪本包（`onVideoFpsChange`）。
+3. **排除项（均有实证）**：SAGT 调度限帧当时写 0（未参与）；按应用省电策略改为
+   「无限制」（`PowerSaveConfigureManager ... configure=no_restrict`）后照写不误；
+   应用窗口已投出 144Hz Exact 帧率票（SurfaceFlinger requestedFrameRate 可见），
+   primary 钳制下 active 仍为 60（modeId 4）——再次验证「应用侧票顶不开钳制」。
+4. **PowerKeeper 无法用 adb 停用**：`pm disable-user` 报
+   `SecurityException: Cannot disable system packages`，`pm suspend` 返回
+   `new suspended state: false`（需 root）。
+5. **应用侧自救（本次实施）**：`HyperosRefreshRateGuard` 监听
+   `secure miui_refresh_rate`（ContentObserver）。当该键被写低（低于用户
+   `user_refresh_rate`，其次系统 `peak_refresh_rate`）且应用持有
+   WRITE_SECURE_SETTINGS（`adb shell pm grant com.geqian.flyplayer.fly_player
+   android.permission.WRITE_SECURE_SETTINGS` 一次性授予）时，自动写回用户值。
+   未授权时休眠（`Settings.Secure.canWrite` 即 false）；用户主动选 60 时目标值
+   同为 60，不对抗用户。挂载点：FlutterHostActivity 与 NativePlayerActivity 的
+   onStart/onStop（分屏下 onStop 不触发，观察器保持活跃）。
+   验证方法：应用前台时 `adb shell settings put secure miui_refresh_rate 60`，
+   应在 1s 内被自动写回，logcat `HyperosRateGuard: clamped ... restored`。
