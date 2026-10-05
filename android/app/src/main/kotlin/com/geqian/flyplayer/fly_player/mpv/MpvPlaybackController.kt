@@ -48,9 +48,6 @@ private const val SURFACE_TRANSITION_GRACE_MS = 2500L
 private const val VISUAL_PLAYBACK_PROGRESS_FALLBACK_MS = 900L
 // 暂停下窗口 resize 的重绘防抖：等尺寸变化停止后短暂推迟再重绘，避免拖动期间连续 seek。
 private const val PAUSED_RESIZE_REDRAW_DELAY_MS = 150L
-// 定格遮罩：seek 完成边沿丢失时的最长显示时长；正常路径在边沿后延迟一拍撤掉（等新帧上屏）。
-private const val RESIZE_COVER_MAX_VISIBLE_MS = 2500L
-private const val RESIZE_COVER_CLEAR_LAG_MS = 120L
 private const val ENABLE_MPV_VERBOSE_LOGS = false
 // mpv 错误/警告级日志转发到 Flutter 应用内日志的去重窗口与单条上限，避免高频 log 灌爆
 // MethodChannel 与日志列表。同一 "prefix|message" 在窗口内只上报一次。
@@ -1248,10 +1245,8 @@ class MpvPlaybackController(
         }
     }
 
-    // 暂停下窗口 resize 的防抖重绘任务：连续拖动只在停止后重绘一次。
+    // 暂停下窗口 resize 的防抖重绘任务：连续拖动只推进一帧。
     private var pausedResizeRedrawRunnable: Runnable? = null
-    // 定格遮罩的代次：拖动中每次尺寸变化重新武装，过期的兜底清理不得误伤新遮罩。
-    private var resizeCoverGeneration = 0L
 
     fun onVideoOutputSurfaceSizeChanged(
         surface: Surface,
@@ -1267,12 +1262,6 @@ class MpvPlaybackController(
             runCatching {
                 mpv.setPropertyString("android-surface-size", "${width}x$height")
             }
-            // 暂停态进入 resize：请求宿主用定格图盖住视频层——mpv 更新 surface 尺寸后
-            // 暂停中不会重绘，拖动中间过程会露出被拉伸的旧缓冲；重绘完成后撤掉。
-            if (state.paused && hasUsableVideoOutputTarget() && !state.resizeCoverActive) {
-                resizeCoverGeneration += 1
-                updateState(state.copy(resizeCoverActive = true))
-            }
         }
         // 暂停时 mpv 更新 surface 尺寸后不会自动重绘，BufferQueue 里残留旧尺寸的缓冲
         // → 画面错位/撕裂（继续播放才恢复）。防抖后精确 seek 到当前暂停位置强制按新尺寸
@@ -1285,33 +1274,17 @@ class MpvPlaybackController(
         val redraw = Runnable {
             pausedResizeRedrawRunnable = null
             runOnPlaybackThread {
-                if (!initialized || !mpv.isAvailable() || !state.paused) {
-                    clearResizeCover()
-                    return@runOnPlaybackThread
-                }
+                if (!initialized || !mpv.isAvailable() || !state.paused) return@runOnPlaybackThread
                 val posMs = state.positionMs
                 if (posMs > 0L) {
-                    val coverGeneration = resizeCoverGeneration
                     runCatching {
                         mpv.command(arrayOf("seek", (posMs / 1000.0).toString(), "absolute+exact"))
                     }
-                    // seeking=false 边沿可能被合并丢失：兜底到点后无条件撤掉遮罩。
-                    playbackHandler.postDelayed({
-                        if (resizeCoverGeneration == coverGeneration) clearResizeCover()
-                    }, RESIZE_COVER_MAX_VISIBLE_MS)
-                } else {
-                    clearResizeCover()
                 }
             }
         }
         pausedResizeRedrawRunnable = redraw
         playbackHandler.postDelayed(redraw, PAUSED_RESIZE_REDRAW_DELAY_MS)
-    }
-
-    private fun clearResizeCover() {
-        if (state.resizeCoverActive) {
-            updateState(state.copy(resizeCoverActive = false))
-        }
     }
 
     fun onVideoOutputSurfaceDestroyed(generation: Long) {
@@ -1355,8 +1328,6 @@ class MpvPlaybackController(
                         "Video surface released"
                     },
                     error = null,
-                    // surface 重建有自己的恢复流程，resize 遮罩不再适用。
-                    resizeCoverActive = false,
                 ),
             )
         }
@@ -2350,9 +2321,6 @@ class MpvPlaybackController(
                 "pause" -> {
                     if (value) {
                         pendingAutoResumeAfterSurfaceRestore = false
-                    } else if (state.resizeCoverActive) {
-                        // 恢复播放后 mpv 连续重绘，定格遮罩立即失去意义。
-                        clearResizeCover()
                     }
                     updateState(
                         state.copy(
@@ -2387,19 +2355,10 @@ class MpvPlaybackController(
                         ),
                     )
                 }
-                "seeking" -> {
-                    handleRestorePlan(
-                        restoreCoordinator.onSeekingChanged(value),
-                        "property:seeking=$value",
-                    )
-                    if (!value && state.resizeCoverActive) {
-                        // 暂停 resize 的重绘 seek 完成：等新帧上屏一拍再撤定格遮罩。
-                        playbackHandler.postDelayed(
-                            { clearResizeCover() },
-                            RESIZE_COVER_CLEAR_LAG_MS,
-                        )
-                    }
-                }
+                "seeking" -> handleRestorePlan(
+                    restoreCoordinator.onSeekingChanged(value),
+                    "property:seeking=$value",
+                )
                 "eof-reached" -> {
                     if (shouldSuppressAutomaticRecovery()) {
                         Log.d(TAG, "ignoring eof-reached=$value during source switch")
