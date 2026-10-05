@@ -36,6 +36,16 @@ Map<String, String> buildNativePlayerLocalizedStrings(
       l10n.nativePlayerFloatingNotificationTitle,
   'player_floating_notification_channel':
       l10n.nativePlayerFloatingNotificationChannel,
+  'player_floating_play_pause': l10n.nativePlayerFloatingPlayPause,
+  'player_floating_next_label': l10n.nativePlayerFloatingNextLabel,
+  'player_floating_expand': l10n.nativePlayerFloatingExpand,
+  'player_floating_close': l10n.nativePlayerFloatingClose,
+  'player_floating_lock': l10n.nativePlayerFloatingLock,
+  'player_floating_unlock': l10n.nativePlayerFloatingUnlock,
+  'player_floating_episodes': l10n.nativePlayerFloatingEpisodes,
+  'player_floating_episodes_collapse':
+      l10n.nativePlayerFloatingEpisodesCollapse,
+  'player_floating_danmaku': l10n.nativePlayerFloatingDanmaku,
   'player_danmaku_enabled': l10n.nativePlayerDanmakuEnabled,
   'player_danmaku_disabled': l10n.nativePlayerDanmakuDisabled,
   'player_subtitle_load_failed': l10n.nativePlayerSubtitleLoadFailed,

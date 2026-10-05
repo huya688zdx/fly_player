@@ -89,6 +89,43 @@ internal object FloatingPlayerWindowPolicy {
         !overlayPermissionGranted -> FloatingEntryAction.GUIDE_PERMISSION
         else -> FloatingEntryAction.ENTER
     }
+
+    // ---- 选集面板（悬浮小窗方案 3.5） ----
+
+    /** 选集面板高度上限：窗口高度的 64%（长剧集不截断，靠滚动展开）。 */
+    const val EPISODE_PANEL_HEIGHT_RATIO = 0.64
+
+    /** 惰性物化的过扫描行数（视口外的上下缓冲，滚动不露白）。 */
+    const val EPISODE_LIST_OVERSCAN_ROWS = 4
+
+    /** 固定行高：窗口化列表按 index×行高定位（定位当前集的必要条件）。 */
+    fun episodeRowHeightPx(density: Float): Int = (32 * density).toInt()
+
+    fun episodePanelHeightPx(windowHeightPx: Int): Int =
+        (windowHeightPx.coerceAtLeast(0) * EPISODE_PANEL_HEIGHT_RATIO).roundToInt()
+
+    /**
+     * 窗口化物化列表（RecyclerView 语义的轻量实现，不引 recyclerview 依赖）：
+     * 给定滚动位置/视口/总数/行高，返回需物化的首行与行数（含上下过扫描，钳制在总行数内）。
+     */
+    fun episodeWindow(
+        scrollY: Int,
+        viewportHeightPx: Int,
+        totalRows: Int,
+        rowHeightPx: Int,
+    ): Pair<Int, Int> {
+        if (totalRows <= 0 || rowHeightPx <= 0) return 0 to 0
+        val first = (scrollY / rowHeightPx - EPISODE_LIST_OVERSCAN_ROWS).coerceIn(0, totalRows - 1)
+        val visible = (viewportHeightPx + rowHeightPx - 1) / rowHeightPx + EPISODE_LIST_OVERSCAN_ROWS * 2
+        val count = visible.coerceIn(0, totalRows - first)
+        return first to count
+    }
+
+    // ---- 控制层自动收起（参考稿 armHide：播放中 2.8s 收起，暂停保持） ----
+
+    const val CONTROL_LAYER_AUTO_HIDE_MS = 2800L
+
+    fun shouldAutoHideControlLayer(paused: Boolean): Boolean = !paused
 }
 
 internal enum class SnapSide {

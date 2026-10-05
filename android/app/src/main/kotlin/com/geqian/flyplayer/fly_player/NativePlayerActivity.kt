@@ -1219,6 +1219,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return true
         }
 
+        /**
+         * 悬浮小窗「接下来播放」（方案 3.5）：下一集优先用预解析的 loadArgs 走
+         * [dispatchInPlaceLoad] 同链就地换片（Activity 不可见也工作），未命中预解析时
+         * 由实例侧回退 requestEpisode 链（同样原地换源，见 [NativePlayerActivity.playNextEpisodeInPlace]）。
+         */
+        fun dispatchFloatingNextEpisode(): Boolean {
+            val player = retainedPlayer.get() ?: return false
+            if (player.isFinishing || player.isDestroyed) return false
+            player.runOnUiThread { player.playNextEpisodeInPlace() }
+            return true
+        }
+
         const val TAG = "NativePlayerActivity"
         const val EXTRA_LOAD_ARGS = "loadArgs"
         const val EXTRA_DANMAKU_PAYLOAD = "danmakuPayload"
@@ -1521,12 +1533,73 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             exitFloatingMinimized()
         }
 
+        override fun onCloseRequested() {
+            closeFloatingMinimized()
+        }
+
         override fun onWindowSizeSettled() {
             // 缩放松手：按新窗口尺寸重设 android-surface-size（方案 3.3；布局完成后取值）。
             if (this@NativePlayerActivity::playerSurface.isInitialized) {
                 playerSurface.post { playerSurface.completeSurfaceHandoff() }
             }
         }
+
+        override fun onEpisodePanelRequested() {
+            pushFloatingEpisodePanel()
+        }
+
+        override fun onEpisodeSelected(guid: String) {
+            // 与上一集/下一集同一条 requestEpisode 原地换片链路（预解析命中即免解析）。
+            requestEpisode(guid)
+        }
+
+        override fun onDanmakuToggleRequested() {
+            setDanmakuEnabled(!danmakuEnabled)
+            pushFloatingPlayerUi()
+        }
+    }
+
+    /** 组装悬浮窗迷你条/控制层状态快照并推送（方案 3.5）。 */
+    private fun pushFloatingPlayerUi() {
+        if (!floatingMinimized) return
+        if (!this::playerSurface.isInitialized) return
+        floatingWindowHost?.updatePlayerUi(computeFloatingUiState())
+    }
+
+    private fun computeFloatingUiState(): FloatingPlayerUiState {
+        val episodes = episodeList()
+        val currentIndex = episodes.indexOfFirst {
+            it["itemGuid"]?.toString() == loadArgsMap["itemGuid"]?.toString()
+        }
+        val nextLabel = episodes.getOrNull(currentIndex + 1)
+            ?.takeIf { currentIndex >= 0 }
+            ?.let { episodeLabel(it) }
+            .orEmpty()
+        return FloatingPlayerUiState(
+            episodeTitle = mediaTitle,
+            nextEpisodeTitle = nextLabel,
+            paused = playerSurface.state.paused,
+            danmakuEnabled = danmakuEnabled,
+            hasNextEpisode = currentIndex in 0 until episodes.size - 1,
+        )
+    }
+
+    /** 组装选集面板数据并回推窗口（复用当前播放序列，与上一集/下一集同源，不另拉数据）。 */
+    private fun pushFloatingEpisodePanel() {
+        if (!floatingMinimized) return
+        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        val items = episodeList().map { episode ->
+            FloatingEpisodeUiItem(
+                guid = episode["itemGuid"]?.toString().orEmpty(),
+                label = episodeLabel(episode),
+                selected = episode["itemGuid"]?.toString() == currentGuid && currentGuid.isNotEmpty(),
+            )
+        }
+        if (items.isEmpty()) {
+            showTransientHint(localizedString(R.string.player_no_episode_info))
+            return
+        }
+        floatingWindowHost?.showEpisodePanel(items)
     }
     private var playbackSessionScope = ""
     private var warmResumePending = false
@@ -1557,6 +1630,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var inPipMode = false
     // PiP 态下已重打过 params 的播停态：仅在翻转时重打，避免状态回调 ~1s 一次的无效 IPC。
     private var lastPipPausedRefreshed = false
+    // 悬浮窗态已推送过迷你条的播停态：仅在翻转时推送（窗口状态由 Activity 单向推送，方案 3.5）。
+    private var lastFloatingUiPaused = false
     // 离开 PiP 后是否还在等待前台恢复：X 关闭/划走会先退 PiP 再走 onStop（无 onResume），
     // 用它区分「用户关掉小窗」和「点展开回全屏」，前者应在后台暂停播放。
     private var pipExitAwaitingResume = false
@@ -2520,12 +2595,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         currentlySplit = isCurrentlySplit(),
         splitSupported = splitSupported(),
         pipSupported = pipSupported(),
+        floatingMiniPlayerEnabled = ParallelWindowCoordinator.floatingMiniPlayerEnabled(this),
+        // 悬浮窗能力（方案 3.6）：权限 + SDK26+ 且不与 PiP 并存。
+        floatingWindowReady =
+            FloatingPlayerService.canHostFloatingWindow(this) && !inPipMode,
     )
 
     private fun motionKindFor(entry: DisplayModeEntry): PlayerMotionKind = when (entry) {
         DisplayModeEntry.SPLIT -> PlayerMotionKind.SPLIT
         DisplayModeEntry.FULLSCREEN -> PlayerMotionKind.FULLSCREEN
         DisplayModeEntry.PIP -> PlayerMotionKind.PIP
+        // 悬浮小窗复用「小窗」动态图标语义（同一入口族，无需新绘）。
+        DisplayModeEntry.FLOAT -> PlayerMotionKind.PIP
         DisplayModeEntry.ROTATE -> PlayerMotionKind.ROTATE
     }
 
@@ -2539,9 +2620,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     scheduleFreezeHide()
                 }
             }
-            DisplayModeEntry.PIP -> {
-                // 悬浮窗优先于 PiP（方案 3.6 让位序的前置接线；FLOAT 枚举与设置键随 3.6 落地）。
-                // 三态：能力就绪收小窗 / API26+ 未授权走一次性内联引导 / 低版本回退 PiP。
+            DisplayModeEntry.FLOAT -> {
+                // 用户已开启悬浮小窗设置：三态处理——能力就绪收小窗 / 未授权一次性内联
+                // 引导 / 低版本（无 TYPE_APPLICATION_OVERLAY）回退系统 PiP。
                 when (
                     FloatingPlayerWindowPolicy.resolveEntryAction(
                         sdkAtLeastO = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O,
@@ -2553,6 +2634,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     FloatingEntryAction.FALLBACK_PIP -> enterPip()
                 }
             }
+            DisplayModeEntry.PIP -> enterPip()
             DisplayModeEntry.ROTATE -> {
                 toggleOrientation()
                 refreshDisplayModeButton()
@@ -2740,6 +2822,30 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         } else {
             showTransientHint(localizedString(R.string.player_last_episode))
         }
+    }
+
+    /**
+     * 悬浮小窗「接下来播放」的换片链（方案 3.5）：预解析命中时直接取 loadArgs JSON +
+     * 弹幕文件走 [dispatchInPlaceLoad]（与 onNewIntent 同接线、同集去重、Activity 不可见
+     * 也工作）；未命中回退 [playNextEpisode]（requestEpisode 链，同样在本壳原地换源）。
+     */
+    private fun playNextEpisodeInPlace() {
+        val nextGuid = nextEpisodeGuidOrNull()
+        if (nextGuid == null) {
+            showTransientHint(localizedString(R.string.player_last_episode))
+            return
+        }
+        if (nextGuid == nextEpisodePreloadGuid && nextEpisodePreloadResult != null) {
+            val result = nextEpisodePreloadResult as? Map<*, *>
+            val loadArgsJson = result?.get("loadArgs") as? String
+            val danmakuFile = result?.get("danmakuFile")?.toString()?.trim().orEmpty()
+            if (!loadArgsJson.isNullOrEmpty()) {
+                // 换片后 applyLoadArgs 会自行 clearNextEpisodePreload，此处不必手动清。
+                dispatchInPlaceLoad(loadArgsJson, danmakuFile.takeIf { it.isNotEmpty() })
+                return
+            }
+        }
+        playNextEpisode()
     }
 
     private fun nextEpisodeGuidOrNull(): String? {
@@ -3579,6 +3685,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 换集/换源后同步 PiP 副标题（剧名·集名）与画面比例；PiP 内切集时遥控条文案即时跟上，
         // 非 PiP 时也为下次进入小窗种好参数。
         updatePipParams()
+        // 换集/换源后同步悬浮窗迷你条（集名跑马灯/下一集标题/是否有下一集），方案 3.5。
+        if (floatingMinimized) {
+            pushFloatingPlayerUi()
+        }
     }
 
     // ---- 沉浸式（隐藏系统栏，content 铺满，看齐 Flutter 播放器全屏观感） ----
@@ -4626,6 +4736,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             floatingMinimized = true
             floatingEntryArmed = true
             host.setCallback(floatingHostCallback)
+            // 悬浮窗态弹幕策略（方案 5.3）：目标帧率 120→60 封顶、AI 遮罩默认关（收敛点内）。
+            playerSurface.setFloatingFrameRateCap(true)
+            applyOcclusionConfig()
             hidePanel()
             if (!moveTaskToBack(true)) {
                 Log.d(TAG, "moveTaskToBack 被系统拒绝，悬浮窗与前台并存（onResume 自愈）")
@@ -4633,6 +4746,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 新窗口布局后强制重报 android-surface-size（方案 3.3 流程 1 / 5.2）；
             // 布局未完成时 completeSurfaceHandoff 跳过，由尺寸回调兜底。
             playerSurface.post { playerSurface.completeSurfaceHandoff() }
+            pushFloatingPlayerUi()
             Log.d(TAG, "已收进悬浮小窗（播放照常，不 park 不 pause）")
         } else {
             Log.w(TAG, "悬浮窗接入失败，视图装回 Activity 视图树并回退系统 PiP")
@@ -4662,6 +4776,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val host = floatingWindowHost ?: return
         if (!this::playerSurface.isInitialized) return
         floatingMinimized = false
+        // 撤销悬浮窗态弹幕策略（方案 5.3）：帧率上限解除、遮罩按全屏偏好重建。
+        playerSurface.setFloatingFrameRateCap(false)
+        applyOcclusionConfig()
         // Activity 侧定格兜底：复用分屏/全屏切换同款 freezeFrameView（先抓后摘，防黑闪）。
         captureAndFreeze {
             playerSurface.beginSurfaceHandoff {
@@ -4687,6 +4804,41 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 movePlaybackTaskToFront()
                 Log.d(TAG, "已展开回全屏（播放照常，不重载）")
             }
+        }
+    }
+
+    /**
+     * 关闭悬浮窗（迷你条「关闭」）：任务置前 + 渲染组装回 Activity 视图树 + 移除窗口，
+     * 随后进系统 PiP 兜底路径（方案 3.2 / 阶段 2 验收 3「关闭悬浮窗回 PiP」）。
+     */
+    private fun closeFloatingMinimized() {
+        if (!floatingMinimized) return
+        val host = floatingWindowHost ?: return
+        if (!this::playerSurface.isInitialized) return
+        floatingMinimized = false
+        playerSurface.setFloatingFrameRateCap(false)
+        applyOcclusionConfig()
+        // enterPip 需要前台：先置前任务（与展开同款 appTasks.moveToFront）。
+        movePlaybackTaskToFront()
+        playerSurface.beginSurfaceHandoff {
+            if (host.detachPlayerSurface(playerSurface)) {
+                rootContainer.addView(
+                    playerSurface,
+                    0,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+                playerSurface.post { playerSurface.completeSurfaceHandoff() }
+            } else {
+                Log.w(TAG, "close: detachPlayerSurface failed, floating window may be gone")
+            }
+            host.setCallback(null)
+            floatingWindowHost = null
+            host.removeWindow()
+            enterPip()
+            Log.d(TAG, "悬浮窗已关闭，回退系统 PiP")
         }
     }
 
@@ -9407,7 +9559,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun effectiveOcclusionConfig(): Map<String, Any?> {
         val split = splitSupported() && isCurrentlySplit()
         // 性能阶梯 L1：AI 遮罩(MNN 分割)是重负载,持续掉帧时一并强制关(不动持久化,降级撤销即恢复)。
-        val forceOff = (split || occlusionPerfDisabled) && occlusionConfig["enabled"] == true
+        // 悬浮窗态（方案 5.3）：默认关——小窗合成面积小,抠像无意义且管线按小窗尺寸重建,
+        // 复用本收敛点加一个条件,不新开开关;展开回全屏撤销后管线按全屏尺寸重建。
+        val forceOff =
+            (split || occlusionPerfDisabled || floatingMinimized) &&
+                occlusionConfig["enabled"] == true
         return if (forceOff) {
             LinkedHashMap(occlusionConfig).apply { put("enabled", false) }
         } else {
@@ -10545,6 +10701,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (inPipMode && lastPipPausedRefreshed != state.paused) {
             lastPipPausedRefreshed = state.paused
             updatePipParams()
+        }
+        // 悬浮窗态播停翻转 → 推送迷你条图标/控制层自动收起语义（方案 3.5）。
+        if (floatingMinimized && lastFloatingUiPaused != state.paused) {
+            lastFloatingUiPaused = state.paused
+            pushFloatingPlayerUi()
         }
 
         // 自适应性能阶梯反馈（级别由内核根据真实掉帧升降，强设备不掉帧则恒为 0）。

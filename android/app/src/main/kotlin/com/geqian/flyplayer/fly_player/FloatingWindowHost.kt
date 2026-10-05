@@ -3,6 +3,22 @@ package com.geqian.flyplayer.fly_player
 import android.graphics.Bitmap
 import android.view.View
 
+/** 悬浮窗迷你条/控制层的播放壳状态快照（Activity → 窗口单向推送，方案 3.5）。 */
+data class FloatingPlayerUiState(
+    val episodeTitle: String = "",
+    val nextEpisodeTitle: String = "",
+    val paused: Boolean = false,
+    val danmakuEnabled: Boolean = true,
+    val hasNextEpisode: Boolean = false,
+)
+
+/** 悬浮窗选集面板条目（数据复用当前播放序列/目录，由 Activity 组装，方案 3.5）。 */
+data class FloatingEpisodeUiItem(
+    val guid: String,
+    val label: String,
+    val selected: Boolean,
+)
+
 /**
  * 悬浮小窗宿主接缝（悬浮小窗方案 3.3/3.4）：承载从 Activity 视图树 reparent 出来的
  * 渲染组（NativePlayerSurface 整体，视频 + 弹幕随迁）。
@@ -17,14 +33,32 @@ interface FloatingWindowHost {
 
     /** 窗口交互回传（拖动/缩放由窗口自处理，需要播放壳配合的走这里）。 */
     interface Callback {
-        /** 单击小窗请求展开回全屏（3.5 控制层落地后由控制层接管交互，参考稿交互清单）。 */
+        /** 迷你条「展开」：请求展开回全屏（重挂回 Activity 视图树，不停播）。 */
         fun onExpandRequested()
+
+        /** 迷你条「关闭」：关闭悬浮窗，回退系统 PiP 兜底路径（方案 3.2 / 阶段 2 验收 3）。 */
+        fun onCloseRequested()
 
         /** 拖拽缩放松手、新尺寸已生效：播放壳应重设 android-surface-size（方案 3.3）。 */
         fun onWindowSizeSettled()
+
+        /** 控制层「选集」：打开选集面板（数据由播放壳组装后经 [showEpisodePanel] 回推）。 */
+        fun onEpisodePanelRequested()
+
+        /** 选集面板点选条目：与上一集/下一集同一条原地换片链路（requestEpisode）。 */
+        fun onEpisodeSelected(guid: String)
+
+        /** 控制层弹幕开关：播放壳切换后经 [updatePlayerUi] 回推新状态。 */
+        fun onDanmakuToggleRequested()
     }
 
     fun setCallback(callback: Callback?)
+
+    /** 推送迷你条/控制层所需状态（集名跑马灯、播停图标、弹幕开关态、是否有下一集）。 */
+    fun updatePlayerUi(state: FloatingPlayerUiState)
+
+    /** 打开选集面板并装载条目（当前集定位与高亮由窗口自处理）。 */
+    fun showEpisodePanel(episodes: List<FloatingEpisodeUiItem>)
 
     /**
      * 把渲染组根视图收进悬浮窗层级（交接的宿主半边，主线程调用）。

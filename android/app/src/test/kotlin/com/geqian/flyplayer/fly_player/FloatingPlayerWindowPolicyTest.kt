@@ -113,4 +113,58 @@ class FloatingPlayerWindowPolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `episode panel height caps at 64 percent of window`() {
+        // 方案 3.5：面板高度上限 = 窗口高度 64%（长剧集不截断，靠滚动展开）。
+        assertEquals(90, FloatingPlayerWindowPolicy.episodePanelHeightPx(140))
+        assertEquals(0, FloatingPlayerWindowPolicy.episodePanelHeightPx(0))
+    }
+
+    @Test
+    fun `episode window materializes viewport plus overscan rows`() {
+        val rowHeight = 32
+        // 滚动在顶部：首行 0，物化行数 = 视口行数 + 上下过扫描，且不超过总数。
+        val (first, count) = FloatingPlayerWindowPolicy.episodeWindow(
+            scrollY = 0,
+            viewportHeightPx = 160,
+            totalRows = 300,
+            rowHeightPx = rowHeight,
+        )
+        assertEquals(0, first)
+        // 视口 5 行 + 上下各 4 行过扫描 = 13。
+        assertEquals(13, count)
+        // 滚动到中部：first 前移过扫描行，不越界。
+        val (midFirst, midCount) = FloatingPlayerWindowPolicy.episodeWindow(
+            scrollY = 100 * rowHeight,
+            viewportHeightPx = 160,
+            totalRows = 300,
+            rowHeightPx = rowHeight,
+        )
+        assertEquals(96, midFirst) // 100 - 4
+        assertEquals(13, midCount)
+        // 尾部：首行钳制在总数内，行数钳制到剩余行。
+        val (tailFirst, tailCount) = FloatingPlayerWindowPolicy.episodeWindow(
+            scrollY = 299 * rowHeight,
+            viewportHeightPx = 160,
+            totalRows = 300,
+            rowHeightPx = rowHeight,
+        )
+        assertEquals(295, tailFirst) // 299 - 4
+        assertEquals(5, tailCount) // 300 - 295
+    }
+
+    @Test
+    fun `episode window is empty without rows or rows height`() {
+        assertEquals(0 to 0, FloatingPlayerWindowPolicy.episodeWindow(0, 160, 0, 32))
+        assertEquals(0 to 0, FloatingPlayerWindowPolicy.episodeWindow(0, 160, 10, 0))
+    }
+
+    @Test
+    fun `control layer auto hides only while playing`() {
+        // 参考稿 armHide 语义：播放中 2.8s 收起，暂停保持。
+        assertTrue(FloatingPlayerWindowPolicy.shouldAutoHideControlLayer(paused = false))
+        assertFalse(FloatingPlayerWindowPolicy.shouldAutoHideControlLayer(paused = true))
+        assertEquals(2800L, FloatingPlayerWindowPolicy.CONTROL_LAYER_AUTO_HIDE_MS)
+    }
 }

@@ -41,6 +41,15 @@
     <string name="player_floating_start_failed">悬浮小窗启动失败，已回退小窗播放</string>
     <string name="player_floating_notification_title">悬浮小窗播放中</string>
     <string name="player_floating_notification_channel">悬浮小窗</string>
+    <string name="player_floating_play_pause">播放/暂停</string>
+    <string name="player_floating_next_label">接下来</string>
+    <string name="player_floating_expand">展开</string>
+    <string name="player_floating_close">关闭</string>
+    <string name="player_floating_lock">锁定</string>
+    <string name="player_floating_unlock">解锁</string>
+    <string name="player_floating_episodes">选集</string>
+    <string name="player_floating_episodes_collapse">收起</string>
+    <string name="player_floating_danmaku">弹幕</string>
     <string name="player_danmaku_enabled">弹幕已开启</string>
     <string name="player_danmaku_disabled">弹幕已关闭</string>
     <string name="player_subtitle_load_failed">字幕加载失败</string>

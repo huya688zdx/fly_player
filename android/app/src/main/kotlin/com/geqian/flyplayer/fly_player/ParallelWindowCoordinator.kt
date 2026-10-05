@@ -16,6 +16,7 @@ object ParallelWindowCoordinator {
     private const val KEY_DEFAULT_PLAYBACK_FULLSCREEN = "parallel_window_default_playback_fullscreen"
     private const val KEY_IMMERSIVE_STATUS_BAR = "parallel_window_immersive_status_bar"
     private const val KEY_LAST_NATIVE_PLAYBACK_SPLIT = "parallel_window_last_native_playback_split"
+    private const val KEY_FLOATING_MINI_PLAYER_ENABLED = "floating_mini_player_enabled"
 
     @Volatile
     var lastBrowseSnapshot: HashMap<String, Any?>? = null
@@ -120,6 +121,22 @@ object ParallelWindowCoordinator {
 
     fun setParallelWindowEnabled(enabled: Boolean) {
         parallelWindowEnabled = enabled
+    }
+
+    /**
+     * 悬浮小窗开关（悬浮小窗方案 3.6 的 floating_mini_player_enabled，与本文件其余键同落
+     * parallel_window_settings）。默认关：用户显式开启后，显示模式入口按「悬浮窗 → PiP」
+     * 让位。读写直连 SharedPreferences（框架内存缓存，读频极低），不进批量 restore/persist。
+     */
+    fun floatingMiniPlayerEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_FLOATING_MINI_PLAYER_ENABLED, false)
+
+    fun setFloatingMiniPlayerEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_FLOATING_MINI_PLAYER_ENABLED, enabled)
+            .apply()
     }
 
     fun preferredPrimaryPaneSide(): ParallelPaneSide = preferredPrimaryPaneSide

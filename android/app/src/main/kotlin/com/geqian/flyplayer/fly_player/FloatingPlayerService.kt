@@ -96,10 +96,44 @@ class FloatingPlayerService : Service(), FloatingWindowHost, FloatingPlayerWindo
         }
     }
 
-    // ---- FloatingPlayerWindowView.Callbacks（窗口交互回传播放壳） ----
+    // ---- FloatingPlayerWindowView.Callbacks（窗口交互回传播放壳/命令总线） ----
 
     override fun onExpandRequested() {
         interactionCallback?.onExpandRequested()
+    }
+
+    override fun onCloseRequested() {
+        interactionCallback?.onCloseRequested()
+    }
+
+    override fun onPlayPauseRequested() {
+        // 与通知/PiP/线控同一条命令总线（方案 3.2：悬浮窗按钮直接调 coordinator）。
+        NativeMediaCommandCoordinator.dispatchAction(NativeMediaCommandCoordinator.ACTION_TOGGLE)
+    }
+
+    override fun onSeekBackRequested() {
+        NativeMediaCommandCoordinator.dispatchAction(NativeMediaCommandCoordinator.ACTION_SEEK_BACK_15S)
+    }
+
+    override fun onSeekForwardRequested() {
+        NativeMediaCommandCoordinator.dispatchAction(NativeMediaCommandCoordinator.ACTION_SEEK_FWD_15S)
+    }
+
+    override fun onNextEpisodeRequested() {
+        // 「接下来播放」：下一集走 dispatchInPlaceLoad 同链就地换片（方案 3.5）。
+        NativePlayerActivity.dispatchFloatingNextEpisode()
+    }
+
+    override fun onEpisodePanelRequested() {
+        interactionCallback?.onEpisodePanelRequested()
+    }
+
+    override fun onEpisodeSelected(guid: String) {
+        interactionCallback?.onEpisodeSelected(guid)
+    }
+
+    override fun onDanmakuToggleRequested() {
+        interactionCallback?.onDanmakuToggleRequested()
     }
 
     override fun onWindowSizeSettled(widthPx: Int, heightPx: Int) {
@@ -110,13 +144,21 @@ class FloatingPlayerService : Service(), FloatingWindowHost, FloatingPlayerWindo
         interactionCallback?.onWindowSizeSettled()
     }
 
-    // ---- FloatingWindowHost（播放壳交接的宿主半边） ----
+    // ---- FloatingWindowHost（播放壳交接 + 状态/选集数据推送） ----
 
     override val isActive: Boolean
         get() = windowAttached && windowView != null
 
     override fun setCallback(callback: FloatingWindowHost.Callback?) {
         interactionCallback = callback
+    }
+
+    override fun updatePlayerUi(state: FloatingPlayerUiState) {
+        windowView?.updatePlayerUi(state)
+    }
+
+    override fun showEpisodePanel(episodes: List<FloatingEpisodeUiItem>) {
+        windowView?.showEpisodePanel(episodes)
     }
 
     override fun attachPlayerSurface(surface: View, freezeFrame: Bitmap?): Boolean {

@@ -34,6 +34,9 @@ class NativePlayerSurface(
         const val DEFAULT_DANMAKU_TARGET_FPS = 120
         const val MIN_DANMAKU_TARGET_FPS = 24
         const val MAX_DANMAKU_TARGET_FPS = 120
+
+        /** 悬浮窗态弹幕目标帧率上限（方案 5.3：小窗 120fps 无感知收益，减半排帧）。 */
+        const val FLOATING_MAX_DANMAKU_TARGET_FPS = 60
     }
 
     private val mpv: MpvFacade = DefaultMpvFacade
@@ -93,6 +96,10 @@ class NativePlayerSurface(
     )
     private var latestOcclusionState = DanmakuDynamicOcclusionState.disabled()
     private var requestedDanmakuFrameRateHz = DEFAULT_DANMAKU_TARGET_FPS
+    // 悬浮窗态帧率上限（方案 5.3）：进小窗置位，投票按 min(目标, 60) 生效；记录值不封顶，
+    // 展开回全屏撤销后自动回到原目标帧率。
+    @Volatile
+    private var floatingFrameRateCap = false
 
     private val controller = MpvPlaybackController(
         context = context,
@@ -466,18 +473,34 @@ class NativePlayerSurface(
         return raw.coerceIn(MIN_DANMAKU_TARGET_FPS, MAX_DANMAKU_TARGET_FPS)
     }
 
+    /** 悬浮窗态弹幕帧率上限开关（方案 5.3）：进小窗开启、展开撤销；切换即重新投票。 */
+    fun setFloatingFrameRateCap(enabled: Boolean) {
+        if (floatingFrameRateCap == enabled) return
+        floatingFrameRateCap = enabled
+        applyDanmakuFrameRateVote(requestedDanmakuFrameRateHz, reason = "floatingCap")
+    }
+
+    /** 当前生效的投票帧率：悬浮窗态按 min(目标, 60) 封顶（用户自选帧率同样被钳）。 */
+    private fun effectiveDanmakuTargetFrameRateHz(clamped: Int): Int =
+        if (floatingFrameRateCap) {
+            clamped.coerceAtMost(FLOATING_MAX_DANMAKU_TARGET_FPS)
+        } else {
+            clamped
+        }
+
     private fun applyDanmakuFrameRateVote(targetFrameRateHz: Int, reason: String) {
         val clamped = targetFrameRateHz.coerceIn(MIN_DANMAKU_TARGET_FPS, MAX_DANMAKU_TARGET_FPS)
         requestedDanmakuFrameRateHz = clamped
+        val effective = effectiveDanmakuTargetFrameRateHz(clamped)
         if (Build.VERSION.SDK_INT >= 35) {
-            setRequestedFrameRate(clamped.toFloat())
-            videoOutputTarget.view.setRequestedFrameRate(clamped.toFloat())
+            setRequestedFrameRate(effective.toFloat())
+            videoOutputTarget.view.setRequestedFrameRate(effective.toFloat())
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             videoOutputTarget.currentSurface()
                 ?.takeIf { it.isValid }
                 ?.setFrameRate(
-                    clamped.toFloat(),
+                    effective.toFloat(),
                     Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
                     Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS,
                 )
