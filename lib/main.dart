@@ -16,6 +16,7 @@ import 'desktop/desktop_scroll_behavior.dart';
 import 'desktop/desktop_shell.dart';
 import 'desktop/playback/external_playback_screen.dart';
 import 'desktop/playback/external_playback_mini_controller.dart';
+import 'desktop/playback/desktop_playback_mini_controller.dart';
 import 'desktop/desktop_window_frame.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
@@ -438,7 +439,11 @@ class FlyPlayerApp extends StatelessWidget {
                       ),
                       child: defaultTargetPlatform == TargetPlatform.windows
                           ? ExternalPlaybackMiniHost(
-                              child: DesktopWindowFrame(child: content),
+                              // 内部 media_kit 播放页的置顶迷你窗（候选 A）；
+                              // 挂在窗口外壳外，迷你条替换整个窗口内容。
+                              child: DesktopPlaybackMiniHost(
+                                child: DesktopWindowFrame(child: content),
+                              ),
                             )
                           : content,
                     ),

@@ -32,6 +32,7 @@ import '../../services/native_danmaku_prefetch.dart';
 import 'desktop_danmaku_overlay.dart';
 import 'desktop_mpv_runtime.dart';
 import 'desktop_playback_chapters.dart';
+import 'desktop_playback_mini_controller.dart';
 import 'desktop_playback_reporter.dart';
 import 'desktop_playback_session.dart';
 import 'desktop_system_media_controls.dart';
@@ -117,7 +118,8 @@ class DesktopPlaybackScreen extends StatefulWidget {
 }
 
 class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
-    with WindowListener {
+    with WindowListener
+    implements DesktopPlaybackMiniDelegate {
   late List<Map<String, dynamic>> _episodes = widget.episodes ?? const [];
   bool get _canBrowseEpisodes =>
       !_source.isLive && (_episodes.isNotEmpty || widget.loadSeasons != null);
@@ -292,6 +294,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   void initState() {
     super.initState();
     windowManager.addListener(this);
+    // 置顶迷你窗（PC 候选 A）：注册控制面，迷你条经此驱动播停/±15s/切集。
+    DesktopPlaybackMiniController.registerDelegate(this);
     _source = widget.source;
     _reporter = DesktopPlaybackReporter(
       reportProgress: widget.onRecordProgress,
@@ -378,6 +382,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
 
   @override
   void dispose() {
+    // 先注销迷你窗控制面：迷你态中页面被收走时由控制器还原窗口。
+    DesktopPlaybackMiniController.unregisterDelegate(this);
     _videoOutputResizeTimer?.cancel();
     if (Platform.isWindows) _displayChannel.setMethodCallHandler(null);
     unawaited(_systemMediaControls?.dispose());
@@ -467,8 +473,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _fixedDurationSkipEnabled =
           prefs.getBool(_fixedDurationSkipPrefKey) ?? false;
       _introOutroAutoSkip = prefs.getBool(_introOutroAutoSkipPrefKey) ?? true;
-      _skipCountdownSeconds = (prefs.getInt(_skipCountdownPrefKey) ?? 5)
-          .clamp(2, 10);
+      _skipCountdownSeconds = (prefs.getInt(_skipCountdownPrefKey) ?? 5).clamp(
+        2,
+        10,
+      );
       _subtitleDelaySeconds = prefs.getDouble(_subDelayPrefKey) ?? 0;
       _subtitlePosition = prefs.getInt(_subPosPrefKey) ?? 92;
       _subtitleScale = prefs.getDouble(_subScalePrefKey) ?? 1;
@@ -1114,7 +1122,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
     if (!_outroSkipDismissed &&
         outroStart != null &&
-        position >= (outroStart - showLead < twoSeconds ? twoSeconds : outroStart - showLead)) {
+        position >=
+            (outroStart - showLead < twoSeconds
+                ? twoSeconds
+                : outroStart - showLead)) {
       return _SkipPromptKind.outro;
     }
     return null;
@@ -4066,6 +4077,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                                   onAbRepeat: () =>
                                       unawaited(_toggleAbRepeat()),
                                   onToggleDanmaku: _toggleDanmaku,
+                                  minimizeTooltip:
+                                      _l10n.desktopPlaybackMiniWindowTooltip,
+                                  onMinimize: Platform.isWindows
+                                      ? () => unawaited(_enterMiniWindow())
+                                      : null,
                                   onSettings: () =>
                                       unawaited(_showPlaybackSettingsPanel()),
                                   onSettingsAt: (anchor) => _openHoverOverlay(
@@ -4840,6 +4856,59 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _l10n.playerQualityOriginal,
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // 置顶迷你窗（PC 候选 A）：本页挂载期间作为迷你条的控制面（见
+  // desktop_playback_mini_controller.dart）；迷你态页面 Offstage 保活，
+  // 播放/进度上报/系统媒体控制照常，命令与页面内操作同一条链路。
+  // ---------------------------------------------------------------------------
+
+  Future<void> _enterMiniWindow() async {
+    try {
+      await DesktopPlaybackMiniController.enter();
+    } catch (_) {
+      if (mounted) _showPlayerMessage('无法打开迷你窗，请重试');
+    }
+  }
+
+  @override
+  String get miniDisplayTitle {
+    if (!mounted) return '';
+    final series = _source.seriesTitle.trim();
+    final title = _source.title.trim();
+    if (series.isNotEmpty && title.isNotEmpty && title != series) {
+      return '$series · $title';
+    }
+    if (series.isNotEmpty) return _subtitle.isEmpty ? series : _subtitle;
+    return title.isEmpty ? _l10n.nativeNotificationNowPlaying : title;
+  }
+
+  @override
+  bool get miniIsPlaying => _isPlaying;
+
+  @override
+  bool get miniCanSeek => !_source.isLive;
+
+  @override
+  bool get miniCanPrevious => _previousEpisode != null;
+
+  @override
+  bool get miniCanNext => _nextEpisode != null;
+
+  @override
+  Listenable get miniChanges => _viewRevision;
+
+  @override
+  Future<void> miniTogglePlay() => _togglePlayback();
+
+  @override
+  Future<void> miniSeekBy(Duration offset) => _seekRelative(offset);
+
+  @override
+  Future<void> miniPrevious() => _showPreviousEpisode();
+
+  @override
+  Future<void> miniNext() => _showNextEpisode();
 }
 
 class _DesktopPlaybackKeyboardFocus extends StatefulWidget {

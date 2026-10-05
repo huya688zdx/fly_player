@@ -93,6 +93,8 @@ class DesktopPlayerControls extends StatefulWidget {
     this.onHoverSettings,
     this.onHoverExit,
     this.onAddBookmark,
+    this.onMinimize,
+    this.minimizeTooltip = '',
     this.activeMenu,
   });
 
@@ -172,6 +174,10 @@ class DesktopPlayerControls extends StatefulWidget {
   final ValueChanged<Rect>? onHoverSettings;
   final VoidCallback? onHoverExit;
   final VoidCallback? onAddBookmark;
+
+  /// 收起为置顶迷你窗（PC 候选 A）；null 时隐藏入口（非 Windows 平台）。
+  final VoidCallback? onMinimize;
+  final String minimizeTooltip;
 
   @override
   State<DesktopPlayerControls> createState() => _DesktopPlayerControlsState();
@@ -309,6 +315,12 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
           tooltip: widget.abRepeatTooltip,
           onPressed: widget.onAbRepeat,
         ),
+        if (widget.onMinimize != null && widget.minimizeTooltip.isNotEmpty)
+          _CtrlIconButton(
+            icon: Icons.picture_in_picture_alt_rounded,
+            tooltip: widget.minimizeTooltip,
+            onPressed: widget.onMinimize!,
+          ),
         _CtrlIconButton(
           motion: DesktopPlayerMotionKind.settings,
           active: widget.activeMenu == 'settings',
@@ -350,20 +362,20 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                      if (!widget.isLive)
-                        SizedBox(
-                          height: 26,
-                          child: _DesktopTimeline(
-                            position: position,
-                            duration: duration,
-                            buffered: widget.showBuffer ? buffer : Duration.zero,
-                            chapters: widget.chapters,
-                            skipBounds: widget.skipBounds,
-                            thumbnails: _thumbnails,
-                            accent: colors.accent,
-                            onSeek: widget.onSeek,
-                          ),
+                    if (!widget.isLive)
+                      SizedBox(
+                        height: 26,
+                        child: _DesktopTimeline(
+                          position: position,
+                          duration: duration,
+                          buffered: widget.showBuffer ? buffer : Duration.zero,
+                          chapters: widget.chapters,
+                          skipBounds: widget.skipBounds,
+                          thumbnails: _thumbnails,
+                          accent: colors.accent,
+                          onSeek: widget.onSeek,
                         ),
+                      ),
                     SizedBox(height: compact ? 2 : 4),
                     Row(
                       children: <Widget>[
@@ -1090,10 +1102,10 @@ class _TimelinePainter extends CustomPainter {
       void band(Duration? start, Duration? end) {
         if (start == null || end == null || end <= start) return;
         if (start >= duration) return;
-        final x0 =
-            size.width * start.inMilliseconds / duration.inMilliseconds;
+        final x0 = size.width * start.inMilliseconds / duration.inMilliseconds;
         final x1 =
-            size.width * end.inMilliseconds.clamp(0, duration.inMilliseconds) /
+            size.width *
+            end.inMilliseconds.clamp(0, duration.inMilliseconds) /
             duration.inMilliseconds;
         canvas.drawRect(
           Rect.fromLTRB(x0, top - 1, x1, top + trackHeight + 1),

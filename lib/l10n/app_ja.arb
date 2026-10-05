@@ -2463,6 +2463,7 @@
   "desktopPlaybackScreenshotDialogTitle": "現在の画面を保存",
   "desktopPlaybackPrevEpisodeTooltip": "前のエピソード (P)",
   "desktopPlaybackNextEpisodeTooltip": "次のエピソード (N)",
+  "desktopPlaybackMiniWindowTooltip": "最小化してミニプレーヤーに",
   "desktopPlaybackPrevEpisodeLabel": "前のエピソード",
   "themeBackgroundStyleTitle": "背景スタイル",
   "themeBackgroundStyleSubtitle": "ホーム、サイドバー、詳細本文のにじみ表現を制御します。ポスターからの配色抽出がある場合はそれに従い、ない場合はテーマカラーを使用します。",

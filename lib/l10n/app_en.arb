@@ -2463,6 +2463,7 @@
   "desktopPlaybackScreenshotDialogTitle": "Save current frame",
   "desktopPlaybackPrevEpisodeTooltip": "Previous episode (P)",
   "desktopPlaybackNextEpisodeTooltip": "Next episode (N)",
+  "desktopPlaybackMiniWindowTooltip": "Minimize to always-on-top mini window",
   "desktopPlaybackPrevEpisodeLabel": "Previous episode",
   "themeBackgroundStyleTitle": "Background style",
   "themeBackgroundStyleSubtitle": "Controls the blend style of the home page, sidebar and detail body; follows extracted poster colors when available, otherwise uses the theme color.",
