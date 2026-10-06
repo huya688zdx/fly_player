@@ -29,10 +29,13 @@ adb shell settings put secure miui_refresh_rate 120
 ## 应用侧加固（本次实施）
 
 `FlutterHostActivity.applyPreferredHostDisplayMode` 在原有
-`preferredRefreshRate + preferredDisplayModeId`（最高档）之外补两层显式票，
-与播放器弹幕面先例（MpvPlayerView host_frame_rate_vote）同款：
-- SDK 35+：`window.decorView.setRequestedFrameRate(hz)`（帧率类别投票）；
-- R+：`SurfaceControl.Transaction.setFrameRate(sc, hz, DEFAULT, ONLY_IF_SEAMLESS)`。
+`preferredRefreshRate + preferredDisplayModeId`（最高档）之外补一层显式票（View 层），
+与播放器弹幕面先例（MpvPlayerView host_frame_rate_vote）同款——
+仅移植先例的 View 层，未加 Surface 层票：
+- SDK 35+：`window.decorView.setRequestedFrameRate(hz)`（显式帧率票，传显式 Hz 值
+  `preferredRefreshRateHz` 而非 FrameRateCategory 类别）；
+- 未实施：R+ `Surface/SurfaceControl.setFrameRate` 票仅存在于弹幕面先例
+  （mpv/MpvPlayerView.kt:427-435），宿主窗口未加；如未来需要参照该处。
 create/resume/focus/configuration 四时机都会重打票。原生日志
 `applyPreferredHostDisplayMode ... displayHz=... requestedHz=...` 即"是否被钳"的观测点
 （displayHz=60 且 requestedHz=120 → 正被钳）。
@@ -42,7 +45,7 @@ create/resume/focus/configuration 四时机都会重打票。原生日志
 - 基线（无新票，旧 APK）：miui_refresh_rate=60 → active=60（modeId 4）。已实证。
 - 新票后（SDK 35 View.setRequestedFrameRate，冷启动四时机全打票）：
   miui_refresh_rate=60 → **active 仍为 60**。应用侧任何票
-  （preferredDisplayModeId / preferredRefreshRate / 帧率类别票）都顶不开
+  （preferredDisplayModeId / preferredRefreshRate / 显式帧率票）都顶不开
   primary 策略层的钳制。
 - miui_refresh_rate=120 → active=120，立即可用（已实证，两次）。
 - **重写行为**：解锁后应用正常使用约 2 分钟即被静默改回 60（日志无写入者痕迹，
@@ -51,8 +54,8 @@ create/resume/focus/configuration 四时机都会重打票。原生日志
 
 ## 处置结论
 
-1. 应用侧无解（primary 层钳制高于一切应用投票）；SDK 35 类别票已合入作为
-   最佳努力 + 与播放器先例保持一致，成本为零。
+1. 应用侧无解（primary 层钳制高于一切应用投票）；SDK 35 显式帧率票已合入作为
+   最佳努力（仅 View 层，与播放器先例的 View 层一致），成本为零。
 2. 用户侧恢复：`adb shell settings put secure miui_refresh_rate 120`，或
    设置 → 显示 → 刷新率重切一次。**会反复失效，需要时重跑。**
 3. 用户侧排查方向：手机管家 → 游戏加速 的应用列表里若出现本应用，关闭其加速
