@@ -86,34 +86,33 @@ class NativeSplitGateTest {
     }
 
     @Test
-    fun displayModeGivesFloatWhenEnabledAndReady() {
-        // 悬浮小窗设置开启且能力就绪（权限+SDK26+ 且不在 PiP）→ 入口给 FLOAT（方案 3.6）。
+    fun displayModeGivesFloatWhenEnabledOutsidePip() {
+        // 悬浮小窗设置开启即给 FLOAT（方案 3.6）：权限/SDK 短板不在入口让位，
+        // 否则未授权用户永远拿到系统 PiP、内联引导不可达；短板由点击三态接管。
         // 前置：平行窗口设置关闭——用户明确的小窗与分屏二选一，分屏优先。
         assertTrue(
             entry(
                 parallelWindowEnabled = false,
                 floatingMiniPlayerEnabled = true,
-                floatingWindowReady = true,
             ) == DisplayModeEntry.FLOAT,
         )
     }
 
     @Test
-    fun floatEntryRequiresUserSettingAndReadiness() {
+    fun floatEntryRequiresUserSettingAndYieldsInPip() {
         // 设置未开启：即便能力就绪也维持 PiP（opt-in 语义）。
         assertTrue(
             entry(
                 parallelWindowEnabled = false,
                 floatingMiniPlayerEnabled = false,
-                floatingWindowReady = true,
             ) == DisplayModeEntry.PIP,
         )
-        // 设置开启但能力未就绪（未授权/低版本/在 PiP 中）：让位 PiP。
+        // 系统小窗态不让入口切悬浮（避免 PiP 内嵌套悬浮入口），维持 PiP。
         assertTrue(
             entry(
                 parallelWindowEnabled = false,
                 floatingMiniPlayerEnabled = true,
-                floatingWindowReady = false,
+                inPipMode = true,
             ) == DisplayModeEntry.PIP,
         )
     }
@@ -126,7 +125,6 @@ class NativeSplitGateTest {
                 parallelWindowEnabled = true,
                 splitSupported = true,
                 floatingMiniPlayerEnabled = true,
-                floatingWindowReady = true,
             ) == DisplayModeEntry.SPLIT,
         )
         // 分屏中保留退出出口，悬浮窗设置不劫持。
@@ -134,7 +132,6 @@ class NativeSplitGateTest {
             entry(
                 currentlySplit = true,
                 floatingMiniPlayerEnabled = true,
-                floatingWindowReady = true,
             ) == DisplayModeEntry.FULLSCREEN,
         )
     }
@@ -145,14 +142,14 @@ class NativeSplitGateTest {
         splitSupported: Boolean = true,
         pipSupported: Boolean = true,
         floatingMiniPlayerEnabled: Boolean = false,
-        floatingWindowReady: Boolean = false,
+        inPipMode: Boolean = false,
     ): DisplayModeEntry = NativeSplitGate.displayModeEntry(
         parallelWindowEnabled = parallelWindowEnabled,
         currentlySplit = currentlySplit,
         splitSupported = splitSupported,
         pipSupported = pipSupported,
         floatingMiniPlayerEnabled = floatingMiniPlayerEnabled,
-        floatingWindowReady = floatingWindowReady,
+        inPipMode = inPipMode,
     )
 
     private fun allowed(

@@ -2609,9 +2609,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         splitSupported = splitSupported(),
         pipSupported = pipSupported(),
         floatingMiniPlayerEnabled = ParallelWindowCoordinator.floatingMiniPlayerEnabled(),
-        // 悬浮窗能力（方案 3.6）：权限 + SDK26+ 且不与 PiP 并存。
-        floatingWindowReady =
-            FloatingPlayerService.canHostFloatingWindow(this) && !inPipMode,
+        // 入口只看设置键与 PiP 态：未授权/低版本由点击三态转引导或回退 PiP。
+        inPipMode = inPipMode,
     )
 
     private fun motionKindFor(entry: DisplayModeEntry): PlayerMotionKind = when (entry) {

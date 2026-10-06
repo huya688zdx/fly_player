@@ -16,7 +16,7 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  test('桌面无原生通道时，重新加载保留分屏开关、方向、比例与悬浮小窗开关', () async {
+  test('桌面无原生通道时，重新加载保留分屏方向、比例与悬浮小窗开关（二选一）', () async {
     DesktopEnvironment.debugOverridePlatform = true;
     SharedPreferences.setMockInitialValues({});
     final provider = ParallelWindowSettingsProvider(autoLoad: false);
@@ -25,15 +25,37 @@ void main() {
     await provider.setEnabled(true);
     await provider.setPreferredPrimaryPaneSide('right');
     await provider.setSplitRatioPreset('focus_detail');
+    // 二选一：开启悬浮小窗自动关闭平行窗口。
     await provider.setFloatingMiniPlayerEnabled(true);
     final restored = ParallelWindowSettingsProvider(autoLoad: false);
     await restored.load();
-    expect(restored.enabled, isTrue);
+    expect(restored.enabled, isFalse);
     expect(restored.primaryOnLeft, isFalse);
     expect(restored.splitRatioPreset, 'focus_detail');
     expect(restored.floatingMiniPlayerEnabled, isTrue);
     provider.dispose();
     restored.dispose();
+  });
+
+  test('悬浮小窗与平行窗口二选一：开启一侧自动关闭另一侧，关闭不反向联动', () async {
+    DesktopEnvironment.debugOverridePlatform = true;
+    SharedPreferences.setMockInitialValues({});
+    final provider = ParallelWindowSettingsProvider(autoLoad: false);
+    await provider.load();
+
+    await provider.setEnabled(true);
+    await provider.setFloatingMiniPlayerEnabled(true);
+    expect(provider.floatingMiniPlayerEnabled, isTrue);
+    expect(provider.enabled, isFalse);
+
+    await provider.setEnabled(true);
+    expect(provider.enabled, isTrue);
+    expect(provider.floatingMiniPlayerEnabled, isFalse);
+
+    // 关闭平行窗口不悄悄替用户打开悬浮小窗。
+    await provider.setEnabled(false);
+    expect(provider.floatingMiniPlayerEnabled, isFalse);
+    provider.dispose();
   });
 
   test('悬浮小窗开关经保存通道下发宿主并回读', () async {

@@ -47,8 +47,13 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setEnabled(bool value) =>
-      _persistSettings(_currentSettings().copyWith(enabled: value));
+  /// 二选一（用户口径）：开启平行窗口自动关闭悬浮小窗；关闭不反向联动。
+  Future<void> setEnabled(bool value) => _persistSettings(
+    _currentSettings().copyWith(
+      enabled: value,
+      floatingMiniPlayerEnabled: value ? false : _floatingMiniPlayerEnabled,
+    ),
+  );
 
   Future<void> setPreferredPrimaryPaneSide(String value) {
     final normalized = value == 'right' ? 'right' : 'left';
@@ -83,9 +88,13 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
   Future<void> setImmersiveStatusBar(bool value) =>
       _persistSettings(_currentSettings().copyWith(immersiveStatusBar: value));
 
-  /// 悬浮小窗开关（悬浮小窗方案 3.6）：开启后播放页显示模式入口按「悬浮窗 → PiP」让位。
+  /// 悬浮小窗开关（悬浮小窗方案 3.6）：开启后播放页显示模式入口按「悬浮窗 → PiP」让位；
+  /// 与平行窗口二选一——开启时自动关闭平行窗口，关闭不反向联动。
   Future<void> setFloatingMiniPlayerEnabled(bool value) => _persistSettings(
-    _currentSettings().copyWith(floatingMiniPlayerEnabled: value),
+    _currentSettings().copyWith(
+      floatingMiniPlayerEnabled: value,
+      enabled: value ? false : _enabled,
+    ),
   );
 
   ParallelWindowSettings _currentSettings() {
