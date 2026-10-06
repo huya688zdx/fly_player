@@ -660,8 +660,9 @@ class NativePlayerBridge {
   /// 后注册入口的 handler。launcher 内部注册的（捕获 nas、闭包不持 State）可不解绑。
   ///
   /// 分屏语义：原生播放器比发起播放的页面活得久（副栏可自由导航），页面 dispose 的
-  /// 解绑在播放器存活时降级为"保留"——Kotlin 决定（返回 true=保留），Dart 侧同步保留
-  /// handler 与 onUnbind 资源；待下次 bind 覆盖或引擎退出随进程回收。
+  /// 解绑在播放器存活时降级为"保留"——Kotlin 决定（返回 true=保留）：host 绑定与 Dart
+  /// handler 都不动，并恢复本 [token] 与 onUnbind（unbindReentry 已先行置空），使
+  /// scopedResult 的守卫继续放行本绑定的解析结果；待下次 bind 覆盖或引擎退出随进程回收。
   static void unbindReentry(Object token) {
     if (!identical(_activeBindToken, token)) return;
     _activeBindToken = null;
@@ -677,7 +678,17 @@ class NativePlayerBridge {
     } catch (_) {
       kept = false;
     }
-    if (kept) return;
+    if (kept) {
+      // 保留路径：Kotlin 已保留 host 绑定、Dart handler 未清，绑定语义上仍"活着"。
+      // 恢复 token 使 scopedResult 的守卫放行本绑定的解析结果；同时恢复 onUnbind，与
+      // unbindReentry 的保留语义一致。若等待期间已有新 bind 认领（_activeBindToken
+      // 非空），不覆盖新绑定。
+      if (identical(_activeBindToken, null)) {
+        _activeBindToken = token;
+        _onUnbind ??= onUnbind;
+      }
+      return;
+    }
     // 等待期间若有新 bind 认领，只清自己捕获的资源，不动新绑定的 handler。
     if (!identical(_activeBindToken, null)) {
       unawaited(onUnbind?.call());
