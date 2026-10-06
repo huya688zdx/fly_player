@@ -277,6 +277,13 @@ class _FnConnectLoginCandidate {
   const _FnConnectLoginCandidate({required this.baseUrl, required this.label});
 }
 
+/// 免密续登（saved-token）的结果：`result` 为 null 表示未续登成功。
+typedef _SavedTokenLoginOutcome = ({
+  LoginWithBaseUrlResult? result,
+  AppException? lastError,
+  List<FnConnectAttemptDiagnostic> attempts,
+});
+
 List<String> _stringListOf(dynamic value) {
   if (value is! List) return const <String>[];
   return value
@@ -576,17 +583,19 @@ class FeiniuApi {
     return null;
   }
 
+  /// 判断 [rawBaseUrl] 是否需要附带 `mode=relay` cookie。
+  ///
+  /// 统一委托给 [FnNativeSystemLogin.isRelayHost]，与登录链路（authorize 等）
+  /// 的中继域口径保持一致（fnos.net 与官方入口域 5ddd.com）：中继原生登录成功
+  /// 后会把中继域持久化为服务器地址，运行期若只认 fnos.net，落在 5ddd.com 等
+  /// 中继域上的 API/媒体请求会因缺少 relay cookie 而整体失效。
+  static bool shouldUseRelayModeCookieForBaseUrl(String rawBaseUrl) {
+    return FnNativeSystemLogin.isRelayHost(rawBaseUrl);
+  }
+
   /// 根据用户输入的地址或 FN Connect 标识完成登录。
   ///
   /// 返回值里会带上最终可直连的 baseUrl，后续应保存这个地址而不是原始输入。
-  static bool shouldUseRelayModeCookieForBaseUrl(String rawBaseUrl) {
-    final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(rawBaseUrl);
-    final uri = Uri.tryParse(normalizedBaseUrl);
-    if (uri == null || uri.host.isEmpty) return false;
-    final host = uri.host.toLowerCase();
-    return host == 'fnos.net' || host.endsWith('.fnos.net');
-  }
-
   static Future<LoginWithBaseUrlResult> loginWithBaseUrl({
     required String baseUrl,
     required String userName,
@@ -907,17 +916,24 @@ class FeiniuApi {
 
     // 0) 免密续登：优先用已保存的 longToken 静默换取系统会话与媒体 token，
     //    全程不接触密码（"只输入 FN ID 即可登录"的实现基础）。
+    AppException? savedTokenError;
     final savedLogin = await FnConnectSavedLoginStore.read(fnConnectId);
     if (savedLogin != null) {
-      final savedResult = await _trySavedLongTokenLogin(
+      final savedOutcome = await _trySavedLongTokenLogin(
         fnConnectId: fnConnectId,
         saved: savedLogin,
         candidates: [...candidates, ...relayCandidates],
         accessCode: accessCode,
         httpClientAdapter: httpClientAdapter,
       );
-      if (savedResult != null) {
-        return savedResult;
+      // 续登失败原因并入聚合诊断：WebView 兜底判定与错误上报都依赖 attempts，
+      // 不再让"只输 FN ID"的失败在诊断里一片空白。
+      for (final attempt in savedOutcome.attempts) {
+        diagnostic = diagnostic.withAttempt(attempt);
+      }
+      savedTokenError = savedOutcome.lastError;
+      if (savedOutcome.result != null) {
+        return savedOutcome.result!;
       }
     }
 
@@ -926,7 +942,8 @@ class FeiniuApi {
     AppException? firstTransientError;
     AppException? firstFatalError;
 
-    if (userName.isNotEmpty && password.isNotEmpty) {
+    final hasCredentials = userName.isNotEmpty && password.isNotEmpty;
+    if (hasCredentials) {
       for (final candidate in candidates) {
         debugPrint(
           '[LOGIN][FN_CONNECT] try fnId=$fnConnectId '
@@ -1019,6 +1036,10 @@ class FeiniuApi {
       }
     }
 
+    // 密码循环未执行（只输 FN ID 的免密续登路径）时，上面的聚合变量全为空，
+    // 错误此前会一律落到通用消息，掩盖续登失败的真实原因；此时以最后一个
+    // saved-token 续登错误兜底。密码循环执行过时保持现有优先级，用户凭据
+    // 错误仍优先于续登错误。
     final finalError =
         accessCodeError ??
         unauthorizedError ??
@@ -1031,6 +1052,7 @@ class FeiniuApi {
               )
             : null) ??
         firstFatalError ??
+        (hasCredentials ? null : savedTokenError) ??
         AppException.api(
           action: 'login',
           message: 'FN Connect login failed for all resolved addresses',
@@ -1040,14 +1062,19 @@ class FeiniuApi {
 
   /// 用已保存的 longToken 依次在直连/中继地址上静默续登。
   ///
-  /// 返回 null 表示所有候选都不可用（包括令牌过期），调用方应继续走密码登录。
-  static Future<LoginWithBaseUrlResult?> _trySavedLongTokenLogin({
+  /// `result` 为 null 表示所有候选都不可用（包括令牌过期），调用方应继续走密码
+  /// 登录；`attempts` 与 `lastError` 记录每次失败的真实原因（令牌被拒/缺
+  /// secret/网络不通等），供调用方写入聚合诊断并兜底最终错误，避免失败被整体
+  /// 吞掉后只能报与真实原因无关的通用消息。
+  static Future<_SavedTokenLoginOutcome> _trySavedLongTokenLogin({
     required String fnConnectId,
     required FnConnectSavedLogin saved,
     required List<_FnConnectLoginCandidate> candidates,
     required String accessCode,
     HttpClientAdapter? httpClientAdapter,
   }) async {
+    final attempts = <FnConnectAttemptDiagnostic>[];
+    AppException? lastError;
     for (final candidate in candidates) {
       try {
         debugPrint(
@@ -1084,12 +1111,13 @@ class FeiniuApi {
           clientId: config.appId,
           accessCode: accessCode,
         );
-        return await loginWithFnConnectOauthCode(
+        final result = await loginWithFnConnectOauthCode(
           baseUrl: config.baseUrl,
           code: code,
           accessCode: accessCode,
           httpClientAdapter: httpClientAdapter,
         );
+        return (result: result, lastError: lastError, attempts: attempts);
       } catch (error, stackTrace) {
         await logSwallowedError(
           action: 'fn connect saved-token relogin',
@@ -1098,9 +1126,28 @@ class FeiniuApi {
           stackTrace: stackTrace,
           source: 'feiniu_api',
         );
+        // 日志照旧留痕，同时把真实失败原因上报给调用方（写入聚合诊断），
+        // 不再只停留在日志级别。令牌过期等 errno 类失败保持原样上报，
+        // 两步验证要求则按 transient 归一，由调用方决定是否回退 WebView。
+        final exception = error is AppException
+            ? error
+            : AppException.from(
+                error,
+                action: 'fn connect saved-token relogin',
+                fallbackKind: AppExceptionKind.transient,
+              );
+        attempts.add(
+          FnConnectAttemptDiagnostic(
+            label: 'saved-token',
+            baseUrl: candidate.baseUrl,
+            status: _fnConnectAttemptStatus(exception),
+            message: exception.message,
+          ),
+        );
+        lastError = exception;
       }
     }
-    return null;
+    return (result: null, lastError: lastError, attempts: attempts);
   }
 
   /// 中继域上的原生登录：先试媒体 legacy 登录，再试官方加密 WS 授权链路。
@@ -1263,11 +1310,6 @@ class FeiniuApi {
   /// 是否已保存该 FN ID 的免密续登凭据（供登录表单放开密码必填校验）。
   static Future<bool> hasFnConnectSavedLogin(String fnConnectId) async {
     return await FnConnectSavedLoginStore.read(fnConnectId) != null;
-  }
-
-  /// 清除该 FN ID 的免密续登凭据（"退出并清除登录状态"时调用）。
-  static Future<void> clearFnConnectSavedLogin(String fnConnectId) {
-    return FnConnectSavedLoginStore.clear(fnConnectId);
   }
 
   static Future<_FnConnectDiscoveryData> _fetchFnConnectDiscovery(
