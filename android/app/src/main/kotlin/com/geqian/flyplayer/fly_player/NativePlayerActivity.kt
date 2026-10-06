@@ -972,10 +972,15 @@ internal fun nativePanelHasPlaybackProgress(state: MpvPlayerState, previousPosit
 // 归一化为 false，漏掉这条用户 seek（横滑/点进度条）整个加载窗口都不显示转圈与网速。
 internal fun nativePanelShouldShowPlaybackLoading(state: MpvPlayerState, playbackProgressing: Boolean): Boolean {
     if (!state.nativeLibLoaded || state.error != null) return true
-    // 已就绪的暂停态不挂转圈：画面已在屏上，暂停后的缓存回填/重绘 seek（如窗口 resize）
+    // 已就绪且画面确实在屏上的暂停态不挂转圈：暂停后的缓存回填/重绘 seek（如窗口 resize）
     // 对用户不可见；恢复播放后若仍在缓冲，loading 会自然恢复显示。
+    // 判定"画面在屏上"必须用 visualPlaybackReady 而非 ready：surface 销毁重建恢复期
+    // updateState(ready=true) 只回置 ready，visualPlaybackReady 已被 onVideoOutputSurfaceDestroyed
+    // 的 updateState(ready=false) 清掉，要等重绘首帧日志（maybeMarkVisualPlaybackReady）才回
+    // true——此窗口画面仍是黑屏，用 ready 早退会漏掉转圈；暂停 resize 重绘的裸 seek 不清该位，
+    // 早退依旧生效。
     // paused 默认值为 true（MpvPlayerState 初始即暂停），必须叠加 ready 才代表真实暂停画面。
-    if (state.paused && state.ready) return false
+    if (state.paused && state.ready && state.visualPlaybackReady) return false
     return state.buffering ||
         state.playbackPhase == MpvPlaybackPhase.PREPARING.wireValue ||
         state.playbackPhase == MpvPlaybackPhase.SEEKING.wireValue ||
@@ -7540,8 +7545,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     if (loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty() != itemGuid) return@runOnUiThread
                     val map = res as? Map<*, *>
                     introOutroConfigGuid = map?.get("guid")?.toString()?.trim().orEmpty()
-                    serverIntroSkipSec = (map?.get("introSeconds") as? Number)?.toInt()
-                    serverOutroSkipSec = (map?.get("outroSeconds") as? Number)?.toInt()
+                    val intro = (map?.get("introSeconds") as? Number)?.toInt()
+                    val outro = (map?.get("outroSeconds") as? Number)?.toInt()
+                    serverIntroSkipSec = intro
+                    serverOutroSkipSec = outro
+                    // 对齐桌面 _loadIntroOutroConfigForCurrentItem：服务端按条目秒数回填本地固定时长，
+                    // 使开关切换推送的值与当前生效值一致（仅内存，不落盘，偏好仅在用户改动时写入）。
+                    if (intro != null && intro >= 0) introMaxSec = intro
+                    if (outro != null && outro >= 0) outroMaxSec = outro
                     // 设置面板开着时同步刷新滑杆位置（面板未开时 renderTopPanel 直接返回）。
                     renderTopPanel()
                 }
@@ -7668,14 +7679,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 关闭自动跳过时不倒计时，按钮保留到片头结束，由用户点击。
             !introSkipDismissed && introEndMs != null && pos >= introShowFromMs && pos < introEndMs -> {
                 if (introPromptShownPosMs < 0) introPromptShownPosMs = pos
-                val autoSkipAtMs = if (introOutroAutoSkip) {
-                    nativeSkipAutoAdvanceAtMs(intro = true, bounds, introPromptShownPosMs, countdownMs, dur)
+                // 手动模式不倒计时不自动跳：不引入哨兵值参与 (autoSkipAtMs - pos) 减法，
+                // 否则 Long.MAX_VALUE 在 pos<999ms 时回绕出剩余 0 秒，反而触发自动跳过。
+                val remainingSec = if (introOutroAutoSkip) {
+                    val autoSkipAtMs = nativeSkipAutoAdvanceAtMs(intro = true, bounds, introPromptShownPosMs, countdownMs, dur)
                         ?: introEndMs
+                    ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
                 } else {
-                    Long.MAX_VALUE
+                    null
                 }
-                val remainingSec = ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
-                if (remainingSec <= 0) {
+                if (remainingSec != null && remainingSec <= 0) {
                     introSkipDismissed = true
                     skipCard.visibility = View.GONE
                     seekPlayer(introEndMs)
@@ -7700,18 +7713,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 关闭自动跳过时按钮保留到片尾结束，由用户点击。
             !outroSkipDismissed && outroStartMs != null && pos >= outroShowFromMs && pos < outroLimitMs -> {
                 if (outroPromptShownPosMs < 0) outroPromptShownPosMs = pos
-                val autoSkipAtMs = if (introOutroAutoSkip) {
-                    nativeSkipAutoAdvanceAtMs(intro = false, bounds, outroPromptShownPosMs, countdownMs, dur)
-                        ?: outroLimitMs
-                } else {
-                    Long.MAX_VALUE
-                }
-                val remainingSec = ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
                 val skipOutroTarget: () -> Unit = {
                     if (outroEndMs != null) seekPlayer(outroEndMs)
                     else if (hasNextEpisode()) playNextEpisode() else seekPlayer(dur)
                 }
-                if (remainingSec <= 0) {
+                // 手动模式不倒计时不自动跳：不引入哨兵值参与 (autoSkipAtMs - pos) 减法，
+                // 否则 Long.MAX_VALUE 在 pos<999ms 时回绕出剩余 0 秒，反而触发自动跳过。
+                val remainingSec = if (introOutroAutoSkip) {
+                    val autoSkipAtMs = nativeSkipAutoAdvanceAtMs(intro = false, bounds, outroPromptShownPosMs, countdownMs, dur)
+                        ?: outroLimitMs
+                    ((autoSkipAtMs - pos + 999) / 1000).coerceAtLeast(0)
+                } else {
+                    null
+                }
+                if (remainingSec != null && remainingSec <= 0) {
                     outroSkipDismissed = true
                     skipCard.visibility = View.GONE
                     skipOutroTarget()

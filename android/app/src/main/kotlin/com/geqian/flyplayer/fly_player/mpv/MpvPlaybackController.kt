@@ -1245,7 +1245,9 @@ class MpvPlaybackController(
         }
     }
 
-    // 暂停下窗口 resize 的防抖重绘任务：连续拖动只推进一帧。
+    // 暂停下窗口 resize 的防抖重绘任务：连续拖动只推进一帧。仅在播放线程读写
+    // （onVideoOutputSurfaceSizeChanged 的 runOnPlaybackThread 块内安排与取消，
+    // redraw 本体经 playbackHandler 投递、同样运行在播放线程）。
     private var pausedResizeRedrawRunnable: Runnable? = null
 
     fun onVideoOutputSurfaceSizeChanged(
@@ -1257,24 +1259,25 @@ class MpvPlaybackController(
         // 分屏/resize 后 SurfaceView 尺寸变了，必须把新尺寸告诉 mpv，否则它仍按旧（全屏）
         // 尺寸渲染、被系统缩放进窄栏 → 画面被压缩（android-surface-size 是 mpv-android 标准机制）。
         if (width <= 0 || height <= 0) return
+        // 本方法由主线程 Surface 回调直接进入（VideoOutputTarget → MpvPlayerView/NativePlayerSurface），
+        // 而 state 与 pausedResizeRedrawRunnable 只在播放线程读写（与 getStateMap 等封送读约定一致）：
+        // 门控、防抖安排与重绘命令全部收敛进播放线程块，主线程入口不触碰共享可变状态。
         runOnPlaybackThread {
             if (!initialized || !mpv.isAvailable()) return@runOnPlaybackThread
             runCatching {
                 mpv.setPropertyString("android-surface-size", "${width}x$height")
             }
-        }
-        // 暂停时 mpv 更新 surface 尺寸后不会自动重绘，BufferQueue 里残留旧尺寸的缓冲
-        // → 画面错位/撕裂（继续播放才恢复）。防抖后精确 seek 到当前暂停位置强制按新尺寸
-        // 重绘同一帧。必须走裸 seek 命令、不能走 seekTo/queueSeek：seek 落地跟踪依赖
-        // seeking 边沿或位置推进来完成，暂停下位置永不推进、零位移 seek 的边沿又可能
-        // 整个丢失 → phase 永久 SEEKING、转圈常驻；裸命令不进跟踪，seeking 边沿即使
-        // 乱序也会被 epoch 相等守卫直接清掉。
-        if (!state.paused) return
-        pausedResizeRedrawRunnable?.let { playbackHandler.removeCallbacks(it) }
-        val redraw = Runnable {
-            pausedResizeRedrawRunnable = null
-            runOnPlaybackThread {
-                if (!initialized || !mpv.isAvailable() || !state.paused) return@runOnPlaybackThread
+            // 暂停时 mpv 更新 surface 尺寸后不会自动重绘，BufferQueue 里残留旧尺寸的缓冲
+            // → 画面错位/撕裂（继续播放才恢复）。防抖后精确 seek 到当前暂停位置强制按新尺寸
+            // 重绘同一帧。必须走裸 seek 命令、不能走 seekTo/queueSeek：seek 落地跟踪依赖
+            // seeking 边沿或位置推进来完成，暂停下位置永不推进、零位移 seek 的边沿又可能
+            // 整个丢失 → phase 永久 SEEKING、转圈常驻；裸命令不进跟踪，seeking 边沿即使
+            // 乱序也会被 epoch 相等守卫直接清掉。
+            if (!state.paused) return@runOnPlaybackThread
+            pausedResizeRedrawRunnable?.let { playbackHandler.removeCallbacks(it) }
+            val redraw = Runnable {
+                pausedResizeRedrawRunnable = null
+                if (!initialized || !mpv.isAvailable() || !state.paused) return@Runnable
                 val posMs = state.positionMs
                 if (posMs > 0L) {
                     runCatching {
@@ -1282,9 +1285,9 @@ class MpvPlaybackController(
                     }
                 }
             }
+            pausedResizeRedrawRunnable = redraw
+            playbackHandler.postDelayed(redraw, PAUSED_RESIZE_REDRAW_DELAY_MS)
         }
-        pausedResizeRedrawRunnable = redraw
-        playbackHandler.postDelayed(redraw, PAUSED_RESIZE_REDRAW_DELAY_MS)
     }
 
     fun onVideoOutputSurfaceDestroyed(generation: Long) {
