@@ -6,6 +6,7 @@ import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
 import 'download_list_screen.dart';
 import 'external_player_settings_screen.dart';
+import 'floating_mini_player_settings_screen.dart';
 import 'language_settings_screen.dart';
 import 'mpv_player_settings_screen.dart';
 import 'parallel_window_settings_screen.dart';
@@ -24,6 +25,8 @@ class SettingsDestinationRoutes {
   static const String mpv = '/screen/settings/mpv';
   static const String externalPlayer = '/screen/settings/external-player';
   static const String parallelWindow = '/screen/settings/parallel-window';
+  static const String floatingMiniPlayer =
+      '/screen/settings/floating-mini-player';
   static const String downloads = '/screen/settings/downloads';
   static const String storage = '/screen/settings/storage';
   static const String playStats = '/screen/settings/play-stats';
@@ -81,6 +84,8 @@ class SettingsDestinationRoutes {
         return _dedupeSequential(stack);
       case parallelWindow:
         return const <String>[home, parallelWindow];
+      case floatingMiniPlayer:
+        return const <String>[home, floatingMiniPlayer];
       case externalPlayer:
         if (!DesktopEnvironment.isDesktopPlatform ||
             !DesktopEnvironment.isWindows) {
@@ -135,6 +140,8 @@ class SettingsDestinationRoutes {
         );
       case parallelWindow:
         return ParallelWindowSettingsScreen(key: key);
+      case floatingMiniPlayer:
+        return FloatingMiniPlayerSettingsScreen(key: key);
       case externalPlayer:
         if (!DesktopEnvironment.isDesktopPlatform ||
             !DesktopEnvironment.isWindows) {

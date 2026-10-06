@@ -98,12 +98,14 @@ class AppSettingsScreen extends StatelessWidget {
     AppThemeProvider themeProvider,
     String parallelSummary,
     bool parallelWindowSupported,
+    String floatingSummary,
   ) {
     final entries = _buildSearchEntries(
       context,
       themeProvider,
       parallelSummary,
       parallelWindowSupported,
+      floatingSummary,
     );
     return Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
@@ -117,6 +119,7 @@ class AppSettingsScreen extends StatelessWidget {
     AppThemeProvider themeProvider,
     String parallelSummary,
     bool parallelWindowSupported,
+    String floatingSummary,
   ) {
     final l10n = AppLocalizations.of(context);
     final entries = <SettingsSearchEntry>[
@@ -219,6 +222,20 @@ class AppSettingsScreen extends StatelessWidget {
           onSelect: () => _openSettingsDestination(
             context,
             SettingsDestinationRoutes.parallelWindow,
+          ),
+        ),
+      // 悬浮小窗：安卓侧常驻入口（平行窗口入口按能力门控、手机上隐藏，
+      // 悬浮小窗需要在手机上可达）；桌面迷你窗不走该设置键，入口隐藏。
+      if (!DesktopEnvironment.isDesktopPlatform)
+        SettingsSearchEntry(
+          id: 'floating_mini_player_settings',
+          title: l10n.settingsFloatingMiniTitle,
+          subtitle: floatingSummary,
+          location: l10n.settingsLocationRoot,
+          keywords: _keywords(l10n.settingsFloatingMiniKeywords),
+          onSelect: () => _openSettingsDestination(
+            context,
+            SettingsDestinationRoutes.floatingMiniPlayer,
           ),
         ),
       SettingsSearchEntry(
@@ -504,6 +521,7 @@ class AppSettingsScreen extends StatelessWidget {
     required StartupPreferencesProvider startupPreferences,
     required bool parallelWindowSupported,
     required String parallelSummary,
+    required String floatingSummary,
   }) {
     final languageValue = _languageModeValue(l10n, localeProvider.mode);
     return <_SettingsSection>[
@@ -587,6 +605,17 @@ class AppSettingsScreen extends StatelessWidget {
               onTap: () => _openSettingsDestination(
                 context,
                 SettingsDestinationRoutes.parallelWindow,
+              ),
+            ),
+          // 悬浮小窗：安卓侧常驻（手机无平行窗口入口时的窗口形态设置）。
+          if (!DesktopEnvironment.isDesktopPlatform)
+            _DesktopRowData(
+              icon: Icons.picture_in_picture_alt_rounded,
+              title: l10n.settingsFloatingMiniTitle,
+              subtitle: floatingSummary,
+              onTap: () => _openSettingsDestination(
+                context,
+                SettingsDestinationRoutes.floatingMiniPlayer,
               ),
             ),
         ],
@@ -677,6 +706,9 @@ class AppSettingsScreen extends StatelessWidget {
                   ? l10n.settingsParallelSummaryEnabledLeft
                   : l10n.settingsParallelSummaryEnabledRight)
             : l10n.settingsParallelSummaryDisabled;
+        final floatingSummary = parallelSettings.floatingMiniPlayerEnabled
+            ? l10n.settingsFloatingMiniSummaryEnabled
+            : l10n.settingsFloatingMiniSummaryDisabled;
 
         if (DesktopEnvironment.isDesktopPlatform && !secondaryHost) {
           // 桌面端：设置区自带页头与内部导航（分组卡片网格首页），
@@ -699,6 +731,7 @@ class AppSettingsScreen extends StatelessWidget {
               startupPreferences: context.watch<StartupPreferencesProvider>(),
               parallelWindowSupported: parallelWindowSupported,
               parallelSummary: parallelSummary,
+              floatingSummary: floatingSummary,
             ),
             buildSearchEntries: (context) => _buildSearchEntries(
               context,
@@ -706,6 +739,7 @@ class AppSettingsScreen extends StatelessWidget {
               themeProvider,
               parallelSummary,
               parallelWindowSupported,
+              floatingSummary,
             ),
           );
         }
@@ -721,6 +755,7 @@ class AppSettingsScreen extends StatelessWidget {
             startupPreferences: startupPreferences,
             parallelWindowSupported: parallelWindowSupported,
             parallelSummary: parallelSummary,
+            floatingSummary: floatingSummary,
           ),
           bottomInset: secondaryHost
               ? (compact ? 24.0 : 32.0)
@@ -740,12 +775,14 @@ class AppSettingsScreen extends StatelessWidget {
             themeProvider,
             parallelSummary,
             parallelWindowSupported,
+            floatingSummary,
           ),
           onOpenFullSearch: () => _openSettingsSearch(
             context,
             themeProvider,
             parallelSummary,
             parallelWindowSupported,
+            floatingSummary,
           ),
         );
       },

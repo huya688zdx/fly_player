@@ -210,39 +210,10 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                               ? (value) => settings.setImmersiveStatusBar(value)
                               : null,
                         ),
-                        const _CardDivider(),
-                        _SwitchRow(
-                          title: l10n.parallelWindowImmersiveTitle,
-                          subtitle: settings.immersiveStatusBar
-                              ? l10n.parallelWindowImmersiveOnSubtitle
-                              : l10n.parallelWindowImmersiveOffSubtitle,
-                          value: settings.immersiveStatusBar,
-                          onChanged: settings.isReady
-                              ? (value) => settings.setImmersiveStatusBar(value)
-                              : null,
-                        ),
                       ],
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 14),
-              // 悬浮小窗（悬浮小窗方案 3.6）：与平行窗口二选一（开启自动关闭平行窗口），
-              // 常驻可点、不受总开关联动锁；播放页入口权限缺失时点击转一次性内联引导。
-              _SettingsCard(
-                children: <Widget>[
-                  _SwitchRow(
-                    title: l10n.parallelWindowFloatingMiniTitle,
-                    subtitle: settings.floatingMiniPlayerEnabled
-                        ? l10n.parallelWindowFloatingMiniOnSubtitle
-                        : l10n.parallelWindowFloatingMiniOffSubtitle,
-                    value: settings.floatingMiniPlayerEnabled,
-                    onChanged: settings.isReady
-                        ? (value) =>
-                              settings.setFloatingMiniPlayerEnabled(value)
-                        : null,
-                  ),
-                ],
               ),
             ],
           ),
