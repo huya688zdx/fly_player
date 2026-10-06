@@ -75,7 +75,7 @@ class PlayerMotionIconDrawable constructor(
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        strokeWidth = 6f
+        strokeWidth = DEFAULT_STROKE
     }
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -147,6 +147,9 @@ class PlayerMotionIconDrawable constructor(
     private fun paintIcon(canvas: Canvas) {
         val wave = sin(q * PI).toFloat()
         val direction = if (entering) 1f else -1f
+        // 各 painter 共享同一支 pen：每帧先回到基线宽度再分发，painter 内部按需覆盖，
+        // 避免 FULLSCREEN(7f)/REPEAT(8f) 等遗留宽度渗入 SPLIT/ROTATE 等后续 kind 的首笔。
+        pen.strokeWidth = DEFAULT_STROKE
         when (kind) {
             PlayerMotionKind.PLAY_PAUSE -> paintPlayPause(canvas, wave)
             PlayerMotionKind.PREVIOUS, PlayerMotionKind.NEXT -> paintStep(canvas, wave, direction)
@@ -578,6 +581,9 @@ class PlayerMotionIconDrawable constructor(
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 
     private companion object {
+        // 圆头笔画基线宽度（200 坐标系）：pen 初始化与 paintIcon 每帧重置共用同一来源。
+        const val DEFAULT_STROKE = 6f
+
         // 播放/暂停形变端点，同步自桌面 play/pause 数组。
         val PLAY_POINTS = arrayOf(
             arrayOf(floatArrayOf(68f, 58f), floatArrayOf(106f, 80f), floatArrayOf(106f, 120f), floatArrayOf(68f, 142f)),
