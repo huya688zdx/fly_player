@@ -56,18 +56,22 @@ extension _MediaListScreenActions on _MediaListScreenState {
 
   Future<void> _openContinueWatchingDetail(MediaLibraryItem item) async {
     final backend = context.read<MediaBackendProvider>().backend;
+    // 续看详情按平台分线：手机/平板统一进 PlayDetailScreen 详情页（旧行为，
+    // 电影/剧集一致，不再解析季目标直跳季详情）；桌面（PC）保留剧集直进季详情。
     ContinueSeasonDetailTarget? seasonTarget;
-    try {
-      final detail = await backend.getItemDetail(item.guid);
-      seasonTarget = continueSeasonDetailTarget(item, detail);
-    } catch (error, stackTrace) {
-      await logSwallowedError(
-        action: 'resolve continue season detail target',
-        id: item.guid,
-        error: error,
-        stackTrace: stackTrace,
-        source: 'media_list_screen',
-      );
+    if (DesktopEnvironment.isDesktopPlatform) {
+      try {
+        final detail = await backend.getItemDetail(item.guid);
+        seasonTarget = continueSeasonDetailTarget(item, detail);
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'resolve continue season detail target',
+          id: item.guid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'media_list_screen',
+        );
+      }
     }
     if (!mounted) return;
     if (seasonTarget == null) {

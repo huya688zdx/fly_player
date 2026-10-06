@@ -190,6 +190,11 @@ void main() {
       contains('PlayerPaneHostScope.maybeOf(context) != null'),
     );
     expect(actionsSource, contains('? DetailPresentation.pane'));
+    // 续看详情平台分线：季目标解析仅桌面执行，手机/平板统一回 PlayDetailScreen 旧行为。
+    expect(
+      actionsSource,
+      contains('if (DesktopEnvironment.isDesktopPlatform) {'),
+    );
 
     expect(
       actionsSource,
