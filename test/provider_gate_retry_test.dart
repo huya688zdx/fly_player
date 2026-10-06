@@ -25,7 +25,7 @@ void main() {
 
     await tester.pumpWidget(const FlyPlayerApp());
     await backend.writeAttempt.future;
-    await _chooseLegacyConnection(tester);
+    // 凭据迁移失败时 gate 直接落到错误页（后端选择入口已随飞翔账号体系移除）。
     await _pumpUntilFound(tester, find.byType(AppErrorState));
 
     _expectRetryableGateError(tester);
@@ -43,7 +43,7 @@ void main() {
 
     await tester.pumpWidget(const FlyPlayerApp());
     await backend.deleteAttempt.future;
-    await _chooseLegacyConnection(tester);
+    // 同上：gate 错误页直达，无需再经连接入口选择。
     await _pumpUntilFound(tester, find.byType(AppErrorState));
 
     _expectRetryableGateError(tester);
@@ -60,7 +60,6 @@ void main() {
 
     await tester.pumpWidget(const FlyPlayerApp());
     await backend.readAttempt.future;
-    await _chooseLegacyConnection(tester);
     await _pumpUntilFound(tester, find.byType(AppErrorState));
 
     expect(tester.takeException(), isNull);
@@ -111,15 +110,6 @@ void _expectRetryableGateError(WidgetTester tester) {
   expect(find.byType(ElevatedButton), findsOneWidget);
   expect(find.byType(CircularProgressIndicator), findsNothing);
   expect(find.byType(ConnectionScreen), findsNothing);
-}
-
-Future<void> _chooseLegacyConnection(WidgetTester tester) async {
-  final entry = find.text('媒体账号登录');
-  await _pumpUntilFound(tester, entry);
-  expect(entry, findsOneWidget);
-  await tester.ensureVisible(entry);
-  await tester.tap(entry);
-  await tester.pump();
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {

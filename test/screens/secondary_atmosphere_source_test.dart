@@ -11,11 +11,14 @@ void main() {
       'lib/screens/category_items_screen.dart',
     ).readAsStringSync();
 
-    for (final source in <String>[favorite, category]) {
-      expect(source, contains('AppAtmosphericBackground('));
-      expect(source, contains('AppAtmospherePalette.resolve('));
-      expect(source, contains('AppTonalControlPalette.resolve('));
-      expect(source, contains('backgroundColor: Colors.transparent'));
-    }
+    // 收藏页经 AppAmbientPage 共享壳层氛围背景（组件内部承载
+    // AppAtmosphericBackground + AppAtmospherePalette.resolve）；媒体库页直接挂背景。
+    expect(favorite, contains('AppAmbientPage('));
+    expect(favorite, contains('AppTonalControlPalette.resolve('));
+    expect(favorite, contains('backgroundColor: Colors.transparent'));
+    expect(category, contains('AppAtmosphericBackground('));
+    expect(category, contains('AppAtmospherePalette.resolve('));
+    expect(category, contains('AppTonalControlPalette.resolve('));
+    expect(category, contains('backgroundColor: Colors.transparent'));
   });
 }

@@ -164,7 +164,7 @@ void main() {
     expect(_opacityOf(tester, Icons.chevron_right), 0);
   });
 
-  testWidgets('浅色主题翻页按钮使用主题底色、描边和紧凑圆角', (tester) async {
+  testWidgets('浅色主题翻页按钮使用中性半透明底、前景描边与圆形样式', (tester) async {
     tester.view.physicalSize = const Size(800, 200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -201,14 +201,26 @@ void main() {
         matching: find.byType(AnimatedContainer),
       ),
     );
-    // 圆角按钮使用主题色，命中区与可见尺寸一致。
+    // 圆形翻页按钮：中性去饱和半透明底 + 前景描边（浅色主题 scrim 风格），
+    // 命中区与可见尺寸一致（与 _ScrollArrow 实现同款推导，避免硬编码色值）。
     final decoration = arrowContainer.decoration! as BoxDecoration;
     final colors = tester.element(find.byIcon(Icons.chevron_right)).appColors;
-    expect(decoration.color, colors.surfaceStrong);
-    expect(decoration.border, Border.all(color: colors.borderSubtle));
-    expect(decoration.borderRadius, BorderRadius.circular(12));
+    final neutralScrim = HSLColor.fromColor(
+      colors.overlayScrim,
+    ).withSaturation(0).toColor();
+    expect(decoration.color, neutralScrim.withValues(alpha: 0.74));
+    expect(decoration.shape, BoxShape.circle);
+    expect(decoration.borderRadius, isNull);
+    expect(
+      decoration.border,
+      Border.all(color: colors.surface.withValues(alpha: 0.16), width: 0.8),
+    );
     expect(decoration.boxShadow, isNull);
     expect(arrowContainer.foregroundDecoration, isNull);
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.chevron_right)).color,
+      colors.surface.withValues(alpha: 0.94),
+    );
     expect(tester.widget<Icon>(find.byIcon(Icons.chevron_right)).size, 24);
     expect(
       tester

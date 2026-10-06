@@ -370,12 +370,20 @@ void main() {
       expect(openingWidth, lessThan(fullWidth));
       // 转场只混合旧画面，真实内容不允许被横向拉伸。
       expect(openingWidth, openingLayoutWidth);
-      expect(find.byType(RawImage), findsOneWidget);
+      // 氛围背景快照（app-atmosphere-snapshot-image）与路由转场快照并存，
+      // 这里只关注路由转场快照本身。
+      final transitionSnapshots = find.byWidgetPredicate(
+        (widget) =>
+            widget is RawImage &&
+            widget.key !=
+                const ValueKey<String>('app-atmosphere-snapshot-image'),
+      );
+      expect(transitionSnapshots, findsOneWidget);
       await tester.pump(const Duration(milliseconds: 60));
       expect(tester.getSize(browse).width, openingLayoutWidth);
       await tester.pumpAndSettle();
       expect(openingWidth, tester.getSize(browse).width);
-      expect(find.byType(RawImage), findsNothing);
+      expect(transitionSnapshots, findsNothing);
       final pane = find.byType(DesktopDetailPaneHost);
       final controller = tester.element(pane).read<DesktopSplitController>();
       expect(controller.paneFraction, 0.58);

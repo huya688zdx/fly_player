@@ -142,7 +142,8 @@ void main() {
     expect(find.text('全局播放数据统计'), findsOneWidget);
     expect(find.text('其他'), findsOneWidget);
     expect(find.text('日志信息'), findsOneWidget);
-    expect(find.text('重新登录 FN Connect'), findsOneWidget);
+    // 「重新登录 FN Connect」入口已随原生登录改造移除（7bf093de），守护其不再出现。
+    expect(find.text('重新登录 FN Connect'), findsNothing);
 
     // 旧双栏左栏 / 单栏混排的痕迹不再出现。
     expect(find.text('常用入口'), findsNothing);
@@ -551,6 +552,7 @@ void main() {
     expect(find.text('通用'), findsOneWidget);
     expect(find.byKey(startupSwitchKey), findsOneWidget);
     expect(find.text('主题设置'), findsOneWidget);
-    expect(find.text('重新登录 FN Connect'), findsOneWidget);
+    // 同桌面口径：重新登录 FN Connect 入口已移除，非桌面平台同构页同样不出现。
+    expect(find.text('重新登录 FN Connect'), findsNothing);
   });
 }

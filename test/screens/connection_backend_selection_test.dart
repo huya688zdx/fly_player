@@ -71,7 +71,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('登录'), findsOneWidget);
-    expect(find.text('重新登录 FN Connect'), findsOneWidget);
+    // 原生登录改造后「重新登录 FN Connect」入口已移除（7bf093de），切回飞牛同样不出现。
+    expect(find.text('重新登录 FN Connect'), findsNothing);
     expect(find.byType(SegmentedButton<String>), findsNothing);
   });
 
