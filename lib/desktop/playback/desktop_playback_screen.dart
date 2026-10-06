@@ -250,6 +250,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   String _introOutroConfigGuid = '';
   String _introOutroConfigLoadedItemGuid = '';
   int _introOutroConfigLoadGeneration = 0;
+  // 最近一次成功读取到服务端跳过配置的条目；从未成功读取过的条目不回写，
+  // 避免用本地默认值覆盖服务端配置或把 guid 误写到其他条目。
+  String _introOutroConfigSuccessItemGuid = '';
+  // 本条目配置拉取往返期间用户已提交过新值；加载返回时只采纳 guid，不覆盖用户设置。
+  bool _introOutroConfigDirty = false;
   // 片头片尾跳过提示：ValueNotifier 驱动，全屏路由下也能即时显隐。
   final ValueNotifier<_SkipPromptKind?> _skipPromptKindNotifier =
       ValueNotifier<_SkipPromptKind?>(null);
@@ -1219,6 +1224,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         if (countdownSeconds != null) {
           _skipCountdownSeconds = countdownSeconds.clamp(2, 10);
         }
+        // 用户值已在本地生效：进行中的配置拉取返回后不得再用服务端快照覆盖。
+        _introOutroConfigDirty = true;
         _updateSkipPromptKind(_computeSkipPromptKind(_player.state.position));
       });
     }
@@ -1248,6 +1255,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     try {
       final config = await loader(itemGuid);
       if (!mounted || generation != _introOutroConfigLoadGeneration) return;
+      _introOutroConfigSuccessItemGuid = itemGuid;
+      if (_introOutroConfigDirty) {
+        // 往返期间用户已提交新值：只采纳 guid 供后续推送复用，
+        // 不覆盖用户刚设置的时长，也不重算跳过提示。
+        _introOutroConfigGuid = config?.guid ?? '';
+        _introOutroConfigDirty = false;
+        return;
+      }
       _updateView(() {
         _introOutroConfigGuid = config?.guid ?? '';
         final intro = config?.introSeconds;
@@ -1261,13 +1276,23 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
         _updateSkipPromptKind(_computeSkipPromptKind(_player.state.position));
       });
     } catch (_) {
-      // 拉取失败不阻塞播放，保持本地偏好。
+      // 拉取失败不阻塞播放，保持本地偏好。仍是最新一次加载时回滚标记，
+      // 让同条目下次安装（换画质/重载）能重新拉取；同时清掉可能残留的
+      // 上一条目 guid，避免后续推送写到错误条目。
+      if (generation == _introOutroConfigLoadGeneration) {
+        _introOutroConfigLoadedItemGuid = '';
+        _introOutroConfigGuid = '';
+      }
     }
   }
 
   Future<void> _pushIntroOutroConfig() async {
     final save = widget.saveIntroOutroConfig;
     if (save == null) return;
+    // 当前条目的服务端配置从未成功读取过时不回写：没读过的数据写回服务端
+    // 会用本地默认值覆盖官方 App 的配置（固定时长关闭时更是直接以 null 清除），
+    // 也避免拉取失败后把残留的上一条目 guid 误写到其他条目。
+    if (_introOutroConfigSuccessItemGuid != _source.itemGuid.trim()) return;
     final guid = _introOutroConfigGuid.isNotEmpty
         ? _introOutroConfigGuid
         : _source.itemGuid.trim();
@@ -1311,6 +1336,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _weakNetwork.setSource(source);
     // 换条目后按该条目拉取飞牛跳过配置；同条目（切画质/音轨）不重复请求。
     if (source.itemGuid.trim() != _introOutroConfigLoadedItemGuid) {
+      // 上一条目的 dirty 不串到新条目：新条目加载期间用户未改动则采纳服务端快照。
+      _introOutroConfigDirty = false;
       unawaited(_loadIntroOutroConfigForCurrentItem());
     }
     _pausedByUser = !play;
