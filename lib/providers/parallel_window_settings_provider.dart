@@ -16,6 +16,7 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
   String _splitRatioPreset = 'balanced';
   bool _defaultPlaybackFullscreen = true;
   bool _immersiveStatusBar = true;
+  bool _floatingMiniPlayerEnabled = false;
 
   bool get isReady => _isReady;
   bool get enabled => _enabled;
@@ -25,6 +26,7 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
   String get splitRatioPreset => _splitRatioPreset;
   bool get defaultPlaybackFullscreen => _defaultPlaybackFullscreen;
   bool get immersiveStatusBar => _immersiveStatusBar;
+  bool get floatingMiniPlayerEnabled => _floatingMiniPlayerEnabled;
   bool get primaryOnLeft => _preferredPrimaryPaneSide == 'left';
   bool get playbackPrimaryOnLeft => _preferredPlaybackPrimaryPaneSide == 'left';
 
@@ -81,6 +83,11 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
   Future<void> setImmersiveStatusBar(bool value) =>
       _persistSettings(_currentSettings().copyWith(immersiveStatusBar: value));
 
+  /// 悬浮小窗开关（悬浮小窗方案 3.6）：开启后播放页显示模式入口按「悬浮窗 → PiP」让位。
+  Future<void> setFloatingMiniPlayerEnabled(bool value) => _persistSettings(
+    _currentSettings().copyWith(floatingMiniPlayerEnabled: value),
+  );
+
   ParallelWindowSettings _currentSettings() {
     return ParallelWindowSettings(
       enabled: _enabled,
@@ -89,6 +96,7 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
       splitRatioPreset: _splitRatioPreset,
       defaultPlaybackFullscreen: _defaultPlaybackFullscreen,
       immersiveStatusBar: _immersiveStatusBar,
+      floatingMiniPlayerEnabled: _floatingMiniPlayerEnabled,
     );
   }
 
@@ -100,6 +108,7 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
     _splitRatioPreset = settings.splitRatioPreset;
     _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
     _immersiveStatusBar = settings.immersiveStatusBar;
+    _floatingMiniPlayerEnabled = settings.floatingMiniPlayerEnabled;
   }
 
   Future<void> _persistSettings(ParallelWindowSettings next) async {
@@ -117,6 +126,7 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
               splitRatioPreset: next.splitRatioPreset,
               defaultPlaybackFullscreen: next.defaultPlaybackFullscreen,
               immersiveStatusBar: next.immersiveStatusBar,
+              floatingMiniPlayerEnabled: next.floatingMiniPlayerEnabled,
             );
       _applySettings(saved);
       _isReady = true;

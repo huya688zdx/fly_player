@@ -105,6 +105,17 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun videoOutputBackendFollowsFloatingPreferenceAndReadiness() {
+        // 悬浮窗形态（设置开启 + 能力就绪）→ TextureView：交接零黑帧依赖
+        // SurfaceTexture 保活（方案 3.3 决策 + 改造 B 生效前提）。
+        assertEquals("texture", nativePanelVideoOutputBackend(true, true))
+        // 设置未开（全屏体验不变）或能力未就绪（未授权/低版本）→ SurfaceView 独立硬件层。
+        assertEquals("surface", nativePanelVideoOutputBackend(false, true))
+        assertEquals("surface", nativePanelVideoOutputBackend(true, false))
+        assertEquals("surface", nativePanelVideoOutputBackend(false, false))
+    }
+
+    @Test
     fun floatingMinimizedLifecycleMatrix() {
         // 悬浮小窗方案 3.4 表逐格（可纯函数化的判定；onStop/onDestroy 两格为实例行为，
         // 落点见 NativePlayerActivity.onStop / onDestroy）：

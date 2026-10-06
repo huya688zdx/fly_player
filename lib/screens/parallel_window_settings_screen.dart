@@ -210,6 +210,20 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                               ? (value) => settings.setImmersiveStatusBar(value)
                               : null,
                         ),
+                        const _CardDivider(),
+                        // 悬浮小窗（悬浮小窗方案 3.6）：开启后播放页显示模式入口按
+                        // 「悬浮窗 → PiP」让位，权限缺失时入口转一次性内联引导。
+                        _SwitchRow(
+                          title: l10n.parallelWindowFloatingMiniTitle,
+                          subtitle: settings.floatingMiniPlayerEnabled
+                              ? l10n.parallelWindowFloatingMiniOnSubtitle
+                              : l10n.parallelWindowFloatingMiniOffSubtitle,
+                          value: settings.floatingMiniPlayerEnabled,
+                          onChanged: settings.isReady
+                              ? (value) =>
+                                    settings.setFloatingMiniPlayerEnabled(value)
+                              : null,
+                        ),
                       ],
                     ),
                   ],

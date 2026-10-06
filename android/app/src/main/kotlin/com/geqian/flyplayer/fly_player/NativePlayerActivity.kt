@@ -60,6 +60,7 @@ import com.geqian.flyplayer.fly_player.mpv.MpvPlaybackPhase
 import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerSurface
+import com.geqian.flyplayer.fly_player.mpv.VideoOutputBackend
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
@@ -640,6 +641,22 @@ internal fun nativePanelPipSubtitle(context: Context, seriesTitle: String, episo
         else -> context.localizedString(R.string.player_pip_subtitle_format, series, episode)
     }
 }
+
+/**
+ * 视频输出后端选择（悬浮小窗方案 3.3）：悬浮小窗设置开启且能力就绪 → TextureView——
+ * 交接零黑帧依赖其 SurfaceTexture 保活复用（改造 B）；其余（未开悬浮窗 / 未授权 /
+ * 低版本）维持 SurfaceView 独立硬件层，全屏体验不被静默翻转。后端在壳构造期决定，
+ * 本会话内不可变：设置变更后重新进入播放页生效。
+ */
+internal fun nativePanelVideoOutputBackend(
+    floatingMiniPlayerEnabled: Boolean,
+    floatingWindowReady: Boolean,
+): String =
+    if (floatingMiniPlayerEnabled && floatingWindowReady) {
+        VideoOutputBackend.TEXTURE.wireValue
+    } else {
+        VideoOutputBackend.SURFACE.wireValue
+    }
 
 private fun nativePanelBestWeakNetworkTarget(
     sorted: List<IndexedValue<Map<String, Any?>>>,
@@ -1522,10 +1539,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var floatingMinimized = false
     // 悬浮窗宿主接缝：由 FloatingPlayerService（方案 3.2）在接入成功时注入。
     private var floatingWindowHost: FloatingWindowHost? = null
-    // 「悬浮窗偏好」桥接（3.6 的 floating_mini_player_enabled 设置键落地前的近似）：
-    // 本会话内成功用过一次悬浮窗后，back/离开优先收悬浮窗、不再自动进 PiP；
-    // 未用过时维持既有行为，避免授予过权限（可能为其他功能所授）的用户行为静默漂移。
-    private var floatingEntryArmed = false
 
     /** 窗口交互回传（FloatingPlayerService 桥接自 FloatingPlayerWindowView）。 */
     private val floatingHostCallback = object : FloatingWindowHost.Callback {
@@ -2595,7 +2608,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         currentlySplit = isCurrentlySplit(),
         splitSupported = splitSupported(),
         pipSupported = pipSupported(),
-        floatingMiniPlayerEnabled = ParallelWindowCoordinator.floatingMiniPlayerEnabled(this),
+        floatingMiniPlayerEnabled = ParallelWindowCoordinator.floatingMiniPlayerEnabled(),
         // 悬浮窗能力（方案 3.6）：权限 + SDK26+ 且不与 PiP 并存。
         floatingWindowReady =
             FloatingPlayerService.canHostFloatingWindow(this) && !inPipMode,
@@ -3299,9 +3312,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         refreshSeekThumbnails()
 
-        // creationParams = loadArgs 超集 + 原生壳标志（surface 后端 + 原生弹幕）。
+        // creationParams = loadArgs 超集 + 原生壳标志（后端按悬浮窗偏好选择 + 原生弹幕）。
         val creationParams = HashMap<String, Any?>(effectiveLoadArgs).apply {
-            put("videoOutputBackend", "surface")
+            put(
+                "videoOutputBackend",
+                nativePanelVideoOutputBackend(
+                    floatingMiniPlayerEnabled =
+                        ParallelWindowCoordinator.floatingMiniPlayerEnabled(),
+                    floatingWindowReady = FloatingPlayerService.canHostFloatingWindow(this@NativePlayerActivity),
+                ),
+            )
             put("enableNativeDanmakuRenderer", true)
         }
 
@@ -4685,9 +4705,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 悬浮窗能力就绪判定（方案 3.2）：API 26+ 且已授予悬浮窗权限；窗口服务异步建窗。 */
     private fun floatingEntryReady(): Boolean = FloatingPlayerService.canHostFloatingWindow(this)
 
-    /** back/离开是否优先悬浮窗：已在小窗态，或本会话用过悬浮窗（用户偏好桥接，见字段注释）。 */
+    /**
+     * back/离开是否优先悬浮窗（悬浮小窗方案 3.4 表）：用户在设置开启悬浮小窗
+     * （floating_mini_player_enabled）且能力就绪，或已在小窗态。设置键未开启时维持
+     * 既有 PiP/保留行为——避免授予过权限（可能为其他功能所授）的用户行为静默漂移。
+     */
     private fun floatingPreferred(): Boolean =
-        floatingMinimized || (floatingEntryReady() && floatingEntryArmed)
+        floatingMinimized ||
+            (
+                ParallelWindowCoordinator.floatingMiniPlayerEnabled() &&
+                    floatingEntryReady()
+                )
 
     /**
      * 收进悬浮小窗（悬浮小窗方案 3.3 流程 1 + 3.4 表「进小窗」行）：定格图 → detach
@@ -4734,7 +4762,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (attached) {
             floatingWindowHost = host
             floatingMinimized = true
-            floatingEntryArmed = true
             host.setCallback(floatingHostCallback)
             // 悬浮窗态弹幕策略（方案 5.3）：目标帧率 120→60 封顶、AI 遮罩默认关（收敛点内）。
             playerSurface.setFloatingFrameRateCap(true)

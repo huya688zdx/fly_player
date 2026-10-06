@@ -14,6 +14,10 @@ class ParallelWindowSettings {
   final bool defaultPlaybackFullscreen;
   final bool immersiveStatusBar;
 
+  /// 悬浮小窗开关（悬浮小窗方案 3.6 的 floating_mini_player_enabled，宿主侧
+  /// parallel_window_settings 同库持久化；默认关，opt-in）。
+  final bool floatingMiniPlayerEnabled;
+
   /// 根据并行窗口设置字段构造对象。
   const ParallelWindowSettings({
     required this.enabled,
@@ -22,6 +26,7 @@ class ParallelWindowSettings {
     required this.splitRatioPreset,
     required this.defaultPlaybackFullscreen,
     required this.immersiveStatusBar,
+    this.floatingMiniPlayerEnabled = false,
   });
 
   /// 从平台层映射恢复并行窗口设置。
@@ -35,6 +40,7 @@ class ParallelWindowSettings {
       splitRatioPreset: (map['splitRatioPreset'] ?? 'balanced').toString(),
       defaultPlaybackFullscreen: map['defaultPlaybackFullscreen'] != false,
       immersiveStatusBar: map['immersiveStatusBar'] != false,
+      floatingMiniPlayerEnabled: map['floatingMiniPlayerEnabled'] == true,
     );
   }
 
@@ -46,6 +52,7 @@ class ParallelWindowSettings {
     String? splitRatioPreset,
     bool? defaultPlaybackFullscreen,
     bool? immersiveStatusBar,
+    bool? floatingMiniPlayerEnabled,
   }) {
     return ParallelWindowSettings(
       enabled: enabled ?? this.enabled,
@@ -58,6 +65,8 @@ class ParallelWindowSettings {
       defaultPlaybackFullscreen:
           defaultPlaybackFullscreen ?? this.defaultPlaybackFullscreen,
       immersiveStatusBar: immersiveStatusBar ?? this.immersiveStatusBar,
+      floatingMiniPlayerEnabled:
+          floatingMiniPlayerEnabled ?? this.floatingMiniPlayerEnabled,
     );
   }
 }
@@ -125,6 +134,7 @@ class ParallelWindowSettingsBridge {
     required String splitRatioPreset,
     required bool defaultPlaybackFullscreen,
     required bool immersiveStatusBar,
+    bool floatingMiniPlayerEnabled = false,
   }) async {
     try {
       final result = await _channel.invokeMapMethod<Object?, Object?>(
@@ -136,6 +146,7 @@ class ParallelWindowSettingsBridge {
           'splitRatioPreset': splitRatioPreset,
           'defaultPlaybackFullscreen': defaultPlaybackFullscreen,
           'immersiveStatusBar': immersiveStatusBar,
+          'floatingMiniPlayerEnabled': floatingMiniPlayerEnabled,
         },
       );
       if (result == null) {
@@ -146,6 +157,7 @@ class ParallelWindowSettingsBridge {
           splitRatioPreset: splitRatioPreset,
           defaultPlaybackFullscreen: defaultPlaybackFullscreen,
           immersiveStatusBar: immersiveStatusBar,
+          floatingMiniPlayerEnabled: floatingMiniPlayerEnabled,
         );
       }
       return ParallelWindowSettings.fromMap(_normalizeMap(result));
@@ -157,6 +169,7 @@ class ParallelWindowSettingsBridge {
         splitRatioPreset: splitRatioPreset,
         defaultPlaybackFullscreen: defaultPlaybackFullscreen,
         immersiveStatusBar: immersiveStatusBar,
+        floatingMiniPlayerEnabled: floatingMiniPlayerEnabled,
       );
     } on MissingPluginException {
       if (DesktopEnvironment.isDesktopPlatform) {
@@ -171,6 +184,7 @@ class ParallelWindowSettingsBridge {
             'splitRatioPreset': splitRatioPreset,
             'defaultPlaybackFullscreen': defaultPlaybackFullscreen,
             'immersiveStatusBar': immersiveStatusBar,
+            'floatingMiniPlayerEnabled': floatingMiniPlayerEnabled,
           }),
         );
         if (!saved) throw StateError('无法保存平行窗口设置');
@@ -183,6 +197,7 @@ class ParallelWindowSettingsBridge {
         splitRatioPreset: splitRatioPreset,
         defaultPlaybackFullscreen: defaultPlaybackFullscreen,
         immersiveStatusBar: immersiveStatusBar,
+        floatingMiniPlayerEnabled: floatingMiniPlayerEnabled,
       );
     }
   }

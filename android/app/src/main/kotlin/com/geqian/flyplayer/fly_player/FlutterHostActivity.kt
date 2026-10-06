@@ -820,6 +820,8 @@ abstract class FlutterHostActivity : FlutterActivity() {
                             call.argument<Boolean>("defaultPlaybackFullscreen") ?: true
                         val immersiveStatusBar =
                             call.argument<Boolean>("immersiveStatusBar") ?: true
+                        val floatingMiniPlayerEnabled =
+                            call.argument<Boolean>("floatingMiniPlayerEnabled") ?: false
                         ParallelWindowCoordinator.persistSettings(
                             context = this,
                             enabled = enabled,
@@ -828,6 +830,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
                             splitRatioPreset = splitRatioPreset,
                             defaultPlaybackFullscreen = defaultPlaybackFullscreen,
                             immersiveStatusBar = immersiveStatusBar,
+                            floatingMiniPlayerEnabled = floatingMiniPlayerEnabled,
                         )
                         ActivityEmbeddingInstaller.install(this, force = true)
                         applyParallelWindowImmersiveMode()
