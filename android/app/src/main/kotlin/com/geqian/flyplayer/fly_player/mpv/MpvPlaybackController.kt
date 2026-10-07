@@ -692,6 +692,10 @@ class MpvPlaybackController(
         if (disposed) return 0L
         val seekEpoch = seekEpochSource.incrementAndGet()
         runOnPlaybackThread {
+            // 缓冲中快速拖动会让 mpv seek 命令瞬时失败；这类失败不该进 state.error——
+            // 否则缓冲 spinner 会一直挂着「错误：seek failed」，且错误滞留到下一条成功命令。
+            // 只有播放器本体不可用才向 UI 抛错，瞬时失败交给后续 seek 自愈（epoch 只留最新一条）。
+            val playerUnavailable = !initialized || !mpv.isAvailable()
             val success = seekTo(positionMs, seekEpoch)
             val sourceStable = loadState.isCurrentSourceStable(source.url)
             if (!success && !sourceStable) {
@@ -711,7 +715,12 @@ class MpvPlaybackController(
                 state.copy(
                     positionMs = if (success) positionMs else state.positionMs,
                     statusText = if (success) "Seek applied" else state.statusText,
-                    error = if (success) null else state.error ?: buildUnavailableMessage("seek"),
+                    error = when {
+                        success -> null
+                        // 瞬时失败不改错误态：既不新增提示，也不清掉已有的真实错误。
+                        playerUnavailable -> state.error ?: buildUnavailableMessage("seek")
+                        else -> state.error
+                    },
                 ),
             )
         }
@@ -2286,7 +2295,6 @@ class MpvPlaybackController(
             return true
         }
         val seconds = positionMs / 1000.0
-        var seekError: Throwable? = null
         return runCatching {
             mpv.command(
                 arrayOf(
@@ -2295,15 +2303,16 @@ class MpvPlaybackController(
                     "absolute+exact",
                 ),
             ) >= 0
-        }.onFailure { error ->
-            seekError = error
         }.getOrDefault(false)
             .also { success ->
                 if (!success) {
+                    // 命令级失败（缓冲中快速拖动最常见）不写 state.error：错误会滞留在
+                    // 缓冲 spinner 下（「错误：seek failed」），直到下一条成功命令才被清掉。
+                    // 恢复由后续 seek 自愈，播放器真不可用由 seekWithEpoch 的判定兜底提示。
+                    Log.w(TAG, "mpv seek command failed positionMs=$positionMs")
                     updateState(
                         state.copy(
                             statusText = "Seek failed",
-                            error = formatNativePlaybackError("seek", seekError),
                         ),
                     )
                 }
