@@ -125,6 +125,11 @@ jobs:
               try { $keystoreBytes = [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64) }
               catch { throw 'Android 签名证书编码无效。' }
               [IO.File]::WriteAllBytes($keystorePath, $keystoreBytes)
+              $env:FLY_ANDROID_DEBUG_KEYSTORE = $keystorePath
+              $sha = Get-FileHash -Algorithm SHA256 -LiteralPath $keystorePath
+              Write-Output "历史证书已写入 $keystorePath sha256=$($sha.Hash)"
+              & (Join-Path $env:JAVA_HOME 'bin/keytool') -list -v -keystore $keystorePath -storepass android 2>&1 |
+                Select-String 'SHA256:' | ForEach-Object { Write-Output "keytool $($_.Line.Trim())" }
               foreach ($key in $keys) { [Environment]::SetEnvironmentVariable("ORG_GRADLE_PROJECT_$key", $defines[$key]) }
               # Flutter 自动补齐缺失的 Gradle wrapper，保留仓库指定的 Gradle 版本。
               flutter build apk @buildArgs --flavor $env:BUILD_FLAVOR --target-platform android-arm64

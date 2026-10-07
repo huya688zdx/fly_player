@@ -53,11 +53,21 @@ android {
 
     signingConfigs {
         getByName("debug") {
-            if (debugKeystoreFile.exists()) {
-                storeFile = debugKeystoreFile
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+            // CI 显式指定历史发布证书，避免依赖 AGP 对 ~/.android/debug.keystore 的隐式解析。
+            val ciKeystore = System.getenv("FLY_ANDROID_DEBUG_KEYSTORE")
+            when {
+                !ciKeystore.isNullOrEmpty() && file(ciKeystore).exists() -> {
+                    storeFile = file(ciKeystore)
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
+                debugKeystoreFile.exists() -> {
+                    storeFile = debugKeystoreFile
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
             }
         }
     }
