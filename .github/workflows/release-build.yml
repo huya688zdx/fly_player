@@ -160,8 +160,10 @@ jobs:
             $signature = & $apksigner.FullName verify --verbose --print-certs $package
             if ($LASTEXITCODE -ne 0) { throw 'APK 签名验证失败。' }
             $expected = '9751b357d03f5fa8b1c927ac98baf6b0d14838dccc1342abe4f79496b26defa1'
-            if (($signature -join "`n") -notmatch "certificate SHA-256 digest: $expected") {
-              throw 'APK 签名证书与已发布版本不一致。'
+            $digestLine = $signature | Where-Object { $_ -match 'certificate SHA-256 digest:' } | Select-Object -First 1
+            $actual = if ($digestLine) { ($digestLine -split 'digest:\s*')[1].Trim() } else { '(未找到证书摘要行)' }
+            if ($actual -ne $expected) {
+              throw "APK 签名证书与已发布版本不一致。实际 SHA-256：$actual"
             }
             $signature | Set-Content -LiteralPath (Join-Path $dist "$name.signing.txt") -Encoding utf8NoBOM
           } elseif ($env:BUILD_PLATFORM -eq 'windows') {
