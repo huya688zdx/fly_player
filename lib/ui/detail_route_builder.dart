@@ -11,11 +11,11 @@ import '../screens/category_items_screen.dart';
 import '../screens/detail_route_bodies.dart';
 import '../screens/download_list_screen.dart';
 import '../screens/favorite_items_screen.dart';
-import '../screens/media_list_screen.dart';
 import '../screens/parallel_placeholder_screen.dart';
 import '../screens/person_detail_screen.dart';
 import '../screens/search_screen.dart';
 import '../screens/settings_destination_routes.dart';
+import '../widgets/secondary_home_tab_shell.dart';
 
 /// 嵌入式详情/副栏路由的统一构建入口。
 ///
@@ -223,10 +223,8 @@ Widget buildDetailRouteChild(String routeName, {required bool isActiveRoute}) {
   if (uri.path == '/screen/home') {
     return _DeferredRouteChild(
       active: isActiveRoute,
-      child: const MediaListScreen(
-        key: ValueKey<String>('/screen/home'),
-        secondaryHost: true,
-      ),
+      // 副栏首页挂与主 Shell 相同的底部胶囊（影视/设置）；桌面保持裸首页。
+      child: const SecondaryHomeTabShell(),
     );
   }
 
