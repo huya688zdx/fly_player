@@ -1235,6 +1235,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var episodeEntryButton: TextView
     private var episodeEntryDivider: View? = null
     // 竖屏精简：以下控件随朝向显隐（顶栏次要图标 + 底栏溢出入口），见 applyOrientationToControls()。
+    private var pipButton: View? = null
     private var screenshotButton: View? = null
     private var danmakuQuickButton: View? = null
     private var audioEntryButton: TextView? = null
@@ -2336,12 +2337,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
     /**
-     * 按朝向显隐控制层的次要入口：竖屏窄屏空间有限，精简顶栏次要图标（截图/AB/弹幕设置）
+     * 按朝向显隐控制层的次要入口：竖屏窄屏空间有限，精简顶栏次要图标（小窗/截图/AB/弹幕设置）
      * 与底栏溢出入口（音轨/字幕/画质，竖屏改从「更多」设置进入），避免拥挤与裁剪。横屏全显。
      */
     private fun applyOrientationToControls() {
         val portrait = isPortrait()
         val secondaryVis = if (portrait) View.GONE else View.VISIBLE
+        pipButton?.visibility = secondaryVis
         screenshotButton?.visibility = secondaryVis
         danmakuQuickButton?.visibility = secondaryVis
         if (this::abButton.isInitialized) abButton.visibility = secondaryVis
@@ -2439,18 +2441,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         displayModeMotion?.setIconState(kind = motionKindFor(displayModeEntry()))
     }
 
-    /** 底栏显示模式入口的三态判定：分屏（平行窗口开且设备支持）/ 小窗 / 横竖屏兜底。 */
+    /** 底栏显示模式入口的判定：分屏（平行窗口开且设备支持）或横竖屏切换；小窗入口固定在顶栏。 */
     private fun displayModeEntry(): DisplayModeEntry = NativeSplitGate.displayModeEntry(
         parallelWindowEnabled = ParallelWindowCoordinator.isParallelWindowEnabled(),
         currentlySplit = isCurrentlySplit(),
         splitSupported = splitSupported(),
-        pipSupported = pipSupported(),
     )
 
     private fun motionKindFor(entry: DisplayModeEntry): PlayerMotionKind = when (entry) {
         DisplayModeEntry.SPLIT -> PlayerMotionKind.SPLIT
         DisplayModeEntry.FULLSCREEN -> PlayerMotionKind.FULLSCREEN
-        DisplayModeEntry.PIP -> PlayerMotionKind.PIP
         DisplayModeEntry.ROTATE -> PlayerMotionKind.ROTATE
     }
 
@@ -2464,7 +2464,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     scheduleFreezeHide()
                 }
             }
-            DisplayModeEntry.PIP -> enterPip()
             DisplayModeEntry.ROTATE -> {
                 toggleOrientation()
                 refreshDisplayModeButton()
@@ -3520,7 +3519,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             collapseSplitForPip()
             hidePanel()
             setControlsVisible(false)
-        } else if (nativePanelShouldRestoreControlsAfterPipExit(
+            // 小窗按内容比例显示、不受方向请求影响，但手动横竖屏切换留下的请求会残留到
+            // 展开回全屏时被系统重新套用（竖屏条贴边），进小窗时先归位标准全屏方向。
+            applyFullscreenOrientation()
+        } else if (wasInPipMode) {
+            // 展开回全屏：系统会重新套用 Activity 的方向请求，归位标准全屏方向策略。
+            applyFullscreenOrientation()
+        }
+        if (!isInPictureInPictureMode && nativePanelShouldRestoreControlsAfterPipExit(
                 wasInPip = wasInPipMode,
                 isInPip = isInPictureInPictureMode,
             )
@@ -3998,7 +4004,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(8), 0, 0, 0)
         }
 
-        // 小窗（画中画）入口统一收进底栏显示模式按钮，与分屏二选一（见 buildBottomBar）。
+        // 小窗（画中画）：横屏常驻顶栏右上角，竖屏隐藏（见 applyOrientationToControls）；
+        // 系统不支持 PIP 也隐藏。底栏显示模式按钮只管分屏/横竖屏切换（见 buildBottomBar）。
+        // 文案用 player_action_pip：makeIconButton 按它匹配 PlayerMotionKind.PIP，语言切换也不退化成文字钮。
+        if (pipSupported()) {
+            pipButton = makeIconButton(localizedString(R.string.player_action_pip)) { enterPip() }.also { iconActions.addView(it) }
+        }
         listenButton = makeIconButton(localizedString(R.string.player_text_0004)) { toggleAudioMode() }
         iconActions.addView(listenButton)
         screenshotButton = makeIconButton(localizedString(R.string.player_text_0005)) { takeScreenshot() }.also { iconActions.addView(it) }
@@ -4108,8 +4119,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         durationLabel = makeTimeLabel("00:00", Color.WHITE)
         progressRow.addView(durationLabel)
 
-        // 显示模式切换按钮：紧贴时长右侧。分屏与小窗二选一——平行窗口设置开启且设备
-        // 支持才给分屏，否则让位给小窗；无小窗能力的设备退化为横竖屏切换。
+        // 显示模式切换按钮：紧贴时长右侧。分屏与横竖屏切换二选一——平行窗口设置开启且设备
+        // 支持才给分屏，否则为横竖屏切换；小窗（画中画）入口固定在顶栏右侧图标区。
         displayModeButton = ImageButton(this).apply {
             background = subtlePressBackground()
             scaleType = ImageView.ScaleType.CENTER_INSIDE

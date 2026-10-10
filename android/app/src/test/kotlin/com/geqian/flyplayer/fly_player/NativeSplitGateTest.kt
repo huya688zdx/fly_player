@@ -59,12 +59,12 @@ class NativeSplitGateTest {
         assertTrue(
             entry(parallelWindowEnabled = true, splitSupported = true) == DisplayModeEntry.SPLIT,
         )
-        // 设置关闭即让位给小窗，即使设备仍支持分屏。
+        // 设置关闭或设备不支持即退回横竖屏切换；小窗（画中画）入口固定在顶栏，不占用底栏。
         assertTrue(
-            entry(parallelWindowEnabled = false, splitSupported = true) == DisplayModeEntry.PIP,
+            entry(parallelWindowEnabled = false, splitSupported = true) == DisplayModeEntry.ROTATE,
         )
         assertTrue(
-            entry(parallelWindowEnabled = true, splitSupported = false) == DisplayModeEntry.PIP,
+            entry(parallelWindowEnabled = true, splitSupported = false) == DisplayModeEntry.ROTATE,
         )
     }
 
@@ -76,25 +76,19 @@ class NativeSplitGateTest {
     }
 
     @Test
-    fun displayModeFallsBackToRotateWithoutPip() {
-        assertTrue(
-            entry(splitSupported = false, pipSupported = false) == DisplayModeEntry.ROTATE,
-        )
-        assertTrue(
-            entry(currentlySplit = true, pipSupported = false) == DisplayModeEntry.FULLSCREEN,
-        )
+    fun displayModeFallsBackToRotateWhenSplitUnavailable() {
+        assertTrue(entry(splitSupported = false) == DisplayModeEntry.ROTATE)
+        assertTrue(entry(currentlySplit = true) == DisplayModeEntry.FULLSCREEN)
     }
 
     private fun entry(
         parallelWindowEnabled: Boolean = true,
         currentlySplit: Boolean = false,
         splitSupported: Boolean = true,
-        pipSupported: Boolean = true,
     ): DisplayModeEntry = NativeSplitGate.displayModeEntry(
         parallelWindowEnabled = parallelWindowEnabled,
         currentlySplit = currentlySplit,
         splitSupported = splitSupported,
-        pipSupported = pipSupported,
     )
 
     private fun allowed(
