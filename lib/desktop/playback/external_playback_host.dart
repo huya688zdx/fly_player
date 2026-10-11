@@ -56,7 +56,7 @@ class ExternalPlaybackStatus {
     required this.danmakuCount,
     this.phase = ExternalPlaybackPhase.ready,
     this.error,
-    this.progressMessage = '等待进度回报',
+    this.progressMessage = '',
     this.lastSyncedAt,
     this.progressResult,
     this.danmakuSettings = DanmakuSettings.defaults,
@@ -270,7 +270,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
             .where((entry) => entry.itemGuid == episodeGuid)
             .firstOrNull
             ?.title ??
-        '所选剧集',
+        AppLocalizations.of(context).externalPlaybackSelectedEpisode,
     (host) => host._playEpisode(itemGuid: itemGuid, episodeGuid: episodeGuid),
   );
 
@@ -338,7 +338,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
     required String itemGuid,
     required PlaybackQualityOption quality,
   }) => _runSourceChange(
-    status.value?.source.title ?? '所选片源',
+    status.value?.source.title ??
+        AppLocalizations.of(context).externalPlaybackSelectedSource,
     (host) => host._changeQuality(itemGuid: itemGuid, quality: quality),
   );
 
@@ -483,7 +484,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
   ];
 
   Future<bool?> reconnect() => _runSourceChange(
-    status.value?.source.title ?? '当前影片',
+    status.value?.source.title ??
+        AppLocalizations.of(context).externalPlaybackCurrentMedia,
     (host) => host._reconnect(),
   );
 
@@ -561,7 +563,8 @@ final class ExternalPlaybackHost implements PlaybackHost {
     bool offline = false,
   }) async {
     if (!context.mounted || launchRequest?.isCurrent == false) return false;
-    if (_launching) throw StateError('外部播放器正在启动，请稍候');
+    final l10n = AppLocalizations.of(context);
+    if (_launching) throw StateError(l10n.externalPlaybackLaunching);
     _launching = true;
     final owner = Object();
     _launchOwner = owner;
@@ -581,7 +584,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           disposed ||
           launched?.finished == true ||
           (launched != null && !identical(_session, launched))) {
-        throw StateError('外部播放启动已取消');
+        throw StateError(l10n.externalPlaybackLaunchCancelled);
       }
     }
 
@@ -640,7 +643,10 @@ final class ExternalPlaybackHost implements PlaybackHost {
       final settings = await ExternalPlayerSettings.load();
       checkLaunch();
       final adapter = settings.adapter;
-      final error = await adapter.validateExecutable(settings.executablePath);
+      final error = await adapter.validateExecutable(
+        settings.executablePath,
+        l10n: l10n,
+      );
       checkLaunch();
       if (error != null) throw StateError(error);
 
@@ -655,7 +661,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
           danmakuCount: 0,
           phase: ExternalPlaybackPhase.preparing,
           player: adapter,
-          progressMessage: '等待播放器就绪',
+          progressMessage: l10n.externalPlaybackWaitingPlayerReady,
         );
       }
 
@@ -686,6 +692,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         nas: effectiveNas,
         offline: offline,
         directory: directory,
+        l10n: l10n,
         danmakuFilePath: danmakuFilePath,
         notify: notify,
         danmakuSettings: initialDanmakuSettings,
@@ -696,7 +703,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
       );
       checkLaunch();
       if (!context.mounted || !isCurrentSession()) {
-        throw StateError('播放页面或账号已切换，请重新播放');
+        throw StateError(l10n.externalPlaybackPageOrAccountSwitched);
       }
       // 新启动前结束旧会话，避免两份定时器同时回报。
       await _stopSession();
@@ -712,6 +719,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         nas: effectiveNas,
         fallback: episodes,
         offline: offline,
+        l10n: l10n,
         onWarning: notify,
       );
       checkLaunch();
@@ -726,7 +734,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
           headers: source.headers,
           headersForUrl: backend.capabilities.usesLegacyFeiniuFlow
               ? (url) {
-                  if (!isCurrentSession()) throw StateError('播放账号已切换');
+                  if (!isCurrentSession()) {
+                    throw StateError(l10n.externalPlaybackAccountSwitched);
+                  }
                   return api.buildPlaybackHeadersForUrl(url.toString());
                 }
               : null,
@@ -766,73 +776,82 @@ final class ExternalPlaybackHost implements PlaybackHost {
             '${ownedDirectory.path}/episode_$index',
           );
           late String entryUrl;
-          Future<_PreparedExternalItem>
-          loadEpisode() => prepared.putIfAbsent(entryUrl, () async {
-            try {
-              if (disposed || !isCurrentSession()) throw StateError('播放会话已结束');
-              final result = await const ItemPlaybackLauncher()
-                  .resolveForNative(
-                    effectiveNas,
-                    backend: backend,
-                    itemGuid: episode.itemGuid,
-                    fallbackTitle: episode.title,
-                    // 先解析本集轨道，再按当前语言和格式匹配本集字幕 GUID。
-                    subtitleGuid: source.subtitleTrackGuid == '' ? '' : null,
-                    l10n: l10n,
-                    allowNetwork: !offline,
-                    episodes: _episodeMaps(catalog),
-                  );
-              final raw = result?['loadArgs'];
-              if (raw is! String || raw.isEmpty) throw StateError('未能解析这一集');
-              final next = ExternalPlayerPlaylist.inheritSubtitleSelection(
-                source,
-                MpvMediaSource.fromMap(jsonDecode(raw) as Map<String, dynamic>),
-              );
-              if (next.playLink?.isNotEmpty == true) {
-                ownedServerSources[next.playLink!] = next;
+          Future<_PreparedExternalItem> loadEpisode() => prepared.putIfAbsent(
+            entryUrl,
+            () async {
+              try {
+                if (disposed || !isCurrentSession()) {
+                  throw StateError(l10n.externalPlaybackSessionEnded);
+                }
+                final result = await const ItemPlaybackLauncher()
+                    .resolveForNative(
+                      effectiveNas,
+                      backend: backend,
+                      itemGuid: episode.itemGuid,
+                      fallbackTitle: episode.title,
+                      // 先解析本集轨道，再按当前语言和格式匹配本集字幕 GUID。
+                      subtitleGuid: source.subtitleTrackGuid == '' ? '' : null,
+                      l10n: l10n,
+                      allowNetwork: !offline,
+                      episodes: _episodeMaps(catalog),
+                    );
+                final raw = result?['loadArgs'];
+                if (raw is! String || raw.isEmpty) {
+                  throw StateError(l10n.externalPlaybackEpisodeResolveFailed);
+                }
+                final next = ExternalPlayerPlaylist.inheritSubtitleSelection(
+                  source,
+                  MpvMediaSource.fromMap(
+                    jsonDecode(raw) as Map<String, dynamic>,
+                  ),
+                );
+                if (next.playLink?.isNotEmpty == true) {
+                  ownedServerSources[next.playLink!] = next;
+                }
+                if (disposed || !isCurrentSession()) {
+                  await releaseSource(next);
+                  throw StateError(l10n.externalPlaybackSessionEnded);
+                }
+                await entryDirectory.create(recursive: true);
+                final nextSettings = await const DanmakuSettingsStore().load();
+                var nextDanmaku = result?['danmakuFile']?.toString();
+                var nextCount = 0;
+                final nextSubtitle = await _prepareSubtitle(
+                  player: adapter,
+                  source: next,
+                  backend: backend,
+                  nas: effectiveNas,
+                  offline: offline,
+                  directory: entryDirectory,
+                  l10n: l10n,
+                  danmakuFilePath: result?['danmakuFile']?.toString(),
+                  notify: notify,
+                  danmakuSettings: nextSettings,
+                  onDanmakuPrepared: (path, count) {
+                    nextDanmaku = path;
+                    nextCount = count;
+                  },
+                );
+                if (disposed || !isCurrentSession()) {
+                  await _cleanDirectory(entryDirectory);
+                  throw StateError(l10n.externalPlaybackSessionEnded);
+                }
+                return (
+                  source: next,
+                  subtitle: nextSubtitle,
+                  danmaku: nextDanmaku,
+                  count: nextCount,
+                  settings: nextSettings.encode(),
+                );
+              } catch (_) {
+                prepared.remove(entryUrl);
+                if (!disposed && isCurrentSession()) {
+                  notify(l10n.externalPlaybackEpisodeLoadFailedRetry);
+                }
+                rethrow;
               }
-              if (disposed || !isCurrentSession()) {
-                await releaseSource(next);
-                throw StateError('播放会话已结束');
-              }
-              await entryDirectory.create(recursive: true);
-              final nextSettings = await const DanmakuSettingsStore().load();
-              var nextDanmaku = result?['danmakuFile']?.toString();
-              var nextCount = 0;
-              final nextSubtitle = await _prepareSubtitle(
-                player: adapter,
-                source: next,
-                backend: backend,
-                nas: effectiveNas,
-                offline: offline,
-                directory: entryDirectory,
-                danmakuFilePath: result?['danmakuFile']?.toString(),
-                notify: notify,
-                danmakuSettings: nextSettings,
-                onDanmakuPrepared: (path, count) {
-                  nextDanmaku = path;
-                  nextCount = count;
-                },
-              );
-              if (disposed || !isCurrentSession()) {
-                await _cleanDirectory(entryDirectory);
-                throw StateError('播放会话已结束');
-              }
-              return (
-                source: next,
-                subtitle: nextSubtitle,
-                danmaku: nextDanmaku,
-                count: nextCount,
-                settings: nextSettings.encode(),
-              );
-            } catch (_) {
-              prepared.remove(entryUrl);
-              if (!disposed && isCurrentSession()) {
-                notify('这一集的播放信息或字幕未能加载，请从 Fly Player 重试');
-              }
-              rethrow;
-            }
-          });
+            },
+          );
           entryUrl = proxy.addMedia(() async {
             final entry = await loadEpisode();
             final uri = Uri.tryParse(entry.source.url);
@@ -856,15 +875,15 @@ final class ExternalPlaybackHost implements PlaybackHost {
         }
       }
       if (!context.mounted || !isCurrentSession()) {
-        throw StateError('播放页面或账号已切换，请重新播放');
+        throw StateError(l10n.externalPlaybackPageOrAccountSwitched);
       }
       final serverReporter = ServerPlaybackReporter(backend);
       var phase = ExternalPlaybackPhase.preparing;
       String? statusError;
       var startupComplete = false;
       var progressMessage = source.externalLocalSource
-          ? '本地文件，无需回报服务器'
-          : '等待进度回报';
+          ? l10n.externalPlaybackLocalNoReport
+          : l10n.externalPlaybackProgressWaiting;
       DateTime? lastSyncedAt;
       PlaybackProgressResult? lastProgressResult;
       VoidCallback? publish;
@@ -880,9 +899,12 @@ final class ExternalPlaybackHost implements PlaybackHost {
             }
             lastProgressResult = result;
             progressMessage = switch (result) {
-              PlaybackProgressResult.synced => '进度已同步',
-              PlaybackProgressResult.queued => '进度已保存，等待同步',
-              PlaybackProgressResult.failed => '进度回报失败，可重试',
+              PlaybackProgressResult.synced =>
+                l10n.externalPlaybackProgressSynced,
+              PlaybackProgressResult.queued =>
+                l10n.externalPlaybackProgressQueued,
+              PlaybackProgressResult.failed =>
+                l10n.externalPlaybackProgressFailed,
             };
             if (result == PlaybackProgressResult.synced) {
               lastSyncedAt = DateTime.now();
@@ -933,7 +955,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
       var activeSubtitle = subtitle;
       var activeDanmakuPath = initialDanmakuPath;
       var activeDanmakuSettings = initialDanmakuSettings;
-      var activeDanmakuLabel = initialDanmakuCount > 0 ? '自动匹配' : '尚未加载弹幕';
+      var activeDanmakuLabel = initialDanmakuCount > 0
+          ? l10n.externalPlaybackDanmakuAutoMatched
+          : l10n.externalPlaybackDanmakuNotLoaded;
       var activeDanmakuCount = initialDanmakuCount;
       var subtitleRevision = 0;
       void publishStatus() {
@@ -972,7 +996,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         }
         // 慢网时保留最新采样，不堆积每五秒一笔的过时回报。
         serverReportPending = true;
-        if (!offline) progressMessage = '正在同步进度';
+        if (!offline) progressMessage = l10n.externalPlaybackSyncingProgress;
         reporter.recordServer(
           reportedSource,
           position: lastPosition,
@@ -995,6 +1019,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         startPosition: source.startPosition,
         title: source.title,
         headers: mediaProxy == null ? source.headers : <String, String>{},
+        l10n: l10n,
         isCurrentSession: () =>
             isCurrentSession() &&
             identical(_session, launched) &&
@@ -1026,6 +1051,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                     nas: effectiveNas,
                     offline: offline,
                     directory: refreshedDirectory,
+                    l10n: l10n,
                     danmakuFilePath: path,
                     danmakuSettings: settings,
                     notify: notify,
@@ -1070,7 +1096,9 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 activeDanmakuPath = next.danmaku;
                 _danmakuFilePath = activeDanmakuPath;
                 activeDanmakuSettings = settings;
-                activeDanmakuLabel = next.count > 0 ? '已加载弹幕' : '尚未加载弹幕';
+                activeDanmakuLabel = next.count > 0
+                    ? l10n.externalPlaybackDanmakuLoaded
+                    : l10n.externalPlaybackDanmakuNotLoaded;
                 activeDanmakuCount = next.count;
                 subtitleRevision++;
                 reportedSource = source.copyWith(clearAudioTrackGuid: true);
@@ -1081,7 +1109,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 lastReportAt = null;
                 lastSyncedAt = null;
                 lastProgressResult = null;
-                progressMessage = '等待当前集进度回报';
+                progressMessage = l10n.externalPlaybackWaitingEpisodeProgress;
                 phase = ExternalPlaybackPhase.preparing;
                 publishStatus();
                 reporter.onLaunch(source);
@@ -1094,7 +1122,11 @@ final class ExternalPlaybackHost implements PlaybackHost {
                   } catch (_) {
                     // 快速再次切集时，原生桥拒绝向另一集投递旧字幕。
                     if (!disposed) {
-                      notify('字幕或弹幕未能载入，请在 ${adapter.displayName} 检查字幕选项');
+                      notify(
+                        l10n.externalPlaybackSubtitleDanmakuLoadFailed(
+                          adapter.displayName,
+                        ),
+                      );
                     }
                   }
                 }
@@ -1183,7 +1215,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
       );
       // The launch command may complete after stop; install only an owned PID.
       // The local session still owns cleanup in the catch path below.
-      if (!ownsLaunch()) throw StateError('外部播放启动已取消');
+      if (!ownsLaunch()) throw StateError(l10n.externalPlaybackLaunchCancelled);
       reporter.onLaunch(source);
       _session = launched;
       _source = source;
@@ -1194,7 +1226,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         speed: source.playbackSpeed,
         initialPosition: source.startPosition,
         onWaiting: () =>
-            notify('${adapter.displayName} 正在解析文件，较大的蓝光原盘可能需要一分钟左右'),
+            notify(l10n.externalPlaybackParsingFile(adapter.displayName)),
       );
       checkLaunch();
       if (activeSubtitle?.isNotEmpty == true) {
@@ -1205,7 +1237,11 @@ final class ExternalPlaybackHost implements PlaybackHost {
           );
         } catch (_) {
           if (ownsLaunch() && !disposed) {
-            notify('字幕或弹幕未能载入，请在 ${adapter.displayName} 检查字幕选项');
+            notify(
+              l10n.externalPlaybackSubtitleDanmakuLoadFailed(
+                adapter.displayName,
+              ),
+            );
           }
         }
         checkLaunch();
@@ -1265,6 +1301,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
                 nas: effectiveNas,
                 offline: offline,
                 directory: updateDirectory,
+                l10n: l10n,
                 danmakuFilePath: path ?? activeDanmakuPath,
                 danmakuSettings: settings,
                 notify: notify,
@@ -1313,13 +1350,13 @@ final class ExternalPlaybackHost implements PlaybackHost {
               publishStatus();
               return true;
             } catch (_) {
-              if (current()) notify('弹幕未能应用，请重试');
+              if (current()) notify(l10n.externalPlaybackDanmakuApplyFailed);
               return false;
             }
           };
       publishStatus();
       checkLaunch();
-      notify('已在 ${adapter.displayName} 播放；请保持 Fly Player 运行以同步进度');
+      notify(l10n.externalPlaybackPlayingInPlayer(adapter.displayName));
       checkLaunch();
       return true;
     } catch (error) {
@@ -1359,6 +1396,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
     required NasProvider nas,
     required bool offline,
     required Directory directory,
+    required AppLocalizations l10n,
     required void Function(String) notify,
     String? danmakuFilePath,
     DanmakuSettings? danmakuSettings,
@@ -1404,13 +1442,17 @@ final class ExternalPlaybackHost implements PlaybackHost {
         subtitle = null;
       }
       if (subtitle == null) {
-        notify('所选本地字幕不存在或为空，视频将继续播放');
+        notify(l10n.externalPlaybackLocalSubtitleMissing);
       }
     }
     if (requireSubtitle && (subtitle?.isEmpty ?? true)) {
       final known =
           track != null && (track.isExternal == 1 || track.extraFile == 1);
-      if (!known) throw StateError('当前字幕不能从控制页载入，请在 ${player.displayName} 中切换');
+      if (!known) {
+        throw StateError(
+          l10n.externalPlaybackSubtitleManagedByPlayer(player.displayName),
+        );
+      }
     }
     if ((subtitle?.isEmpty ?? true) &&
         track != null &&
@@ -1419,7 +1461,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
       if (backend.capabilities.usesLegacyFeiniuFlow &&
           track.format.trim().toLowerCase() == 'sup') {
         // 飞牛当前接口只提供字幕文本，不能把 SUP 位图当作 SRT 下载。
-        notify('所选 SUP 位图字幕暂不能接入，视频将继续播放');
+        notify(l10n.externalPlaybackSupSubtitleUnsupported);
       } else {
         try {
           subtitle =
@@ -1439,7 +1481,7 @@ final class ExternalPlaybackHost implements PlaybackHost {
         }
         if (subtitle == null || subtitle.isEmpty) {
           subtitle = null;
-          notify('所选外挂字幕未能获取，视频将继续播放');
+          notify(l10n.externalPlaybackExternalSubtitleFetchFailed);
         }
       }
     }
@@ -1449,11 +1491,11 @@ final class ExternalPlaybackHost implements PlaybackHost {
         track.extraFile != 1 &&
         !selectedGuid.startsWith('local:') &&
         payload?.isNotEmpty == true) {
-      notify('所选内封字幕暂不能与弹幕合并，本次保留内封字幕播放');
+      notify(l10n.externalPlaybackEmbeddedMergeUnsupported);
       return null;
     }
     if (requireSubtitle && (subtitle?.isEmpty ?? true)) {
-      throw StateError('所选字幕未能获取，已保留当前字幕');
+      throw StateError(l10n.externalPlaybackSubtitleFetchFailed);
     }
     try {
       var exported = false;
@@ -1469,15 +1511,15 @@ final class ExternalPlaybackHost implements PlaybackHost {
         },
       );
       if (requireDanmaku && !exported) {
-        notify('未生成可用弹幕，请搜索或导入弹幕源');
+        notify(l10n.externalPlaybackNoDanmakuGenerated);
         return null;
       }
       return prepared;
     } catch (_) {
       notify(
         subtitle?.isNotEmpty == true
-            ? '字幕与弹幕未能合并，已保留原字幕继续播放'
-            : '弹幕未能加载，视频将继续播放',
+            ? l10n.externalPlaybackMergeFailed
+            : l10n.externalPlaybackDanmakuLoadFailedContinue,
       );
       if (requireDanmaku) return null;
       return subtitle ??

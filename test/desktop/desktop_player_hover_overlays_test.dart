@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/desktop.dart';
 import 'package:fly_player/desktop/playback/desktop_player_hover_overlays.dart';
 import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   Future<void> pumpLayer(
@@ -12,6 +13,9 @@ void main() {
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -160,6 +164,9 @@ void main() {
   testWidgets('关闭字幕时关闭项显示选中标记', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Material(
           child: DesktopHoverOptionsPanel(
             title: '字幕',
@@ -186,6 +193,9 @@ void main() {
   testWidgets('空字幕列表不显示无意义的关闭项', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Material(
           child: SizedBox(
             width: 260,
@@ -211,6 +221,9 @@ void main() {
   testWidgets('集预览卡：无海报时显示占位图，标签与集标题齐全', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
+        locale: Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Material(
           child: SizedBox(
             width: 224,
@@ -234,6 +247,9 @@ void main() {
   testWidgets('集预览卡同样适用于上一集（首集时入口由调用侧置空）', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
+        locale: Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Material(
           child: SizedBox(
             width: 224,
@@ -255,6 +271,9 @@ void main() {
 
   testWidgets('上下一集预览快速折返时只保留当前内容和海报控件', (tester) async {
     Widget preview(String label, String title) => MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: Material(
         child: SizedBox(
           width: 224,

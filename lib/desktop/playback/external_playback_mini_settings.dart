@@ -56,6 +56,7 @@ class _ExternalPlaybackMiniSettingsState
   Future<void> _apply() async {
     if (_saving || !_dirty || !widget.status.canControl) return;
     final status = widget.status;
+    final l10n = AppLocalizations.of(context);
     // 保留调节区之外的最新开关与显示区域，避免覆盖用户刚做的其他操作。
     final settings = status.danmakuSettings.copyWith(
       fontScale: _draft.fontScale,
@@ -78,10 +79,14 @@ class _ExternalPlaybackMiniSettingsState
       if (!mounted) return;
       setState(() {
         if (applied) _dirty = false;
-        _message = applied ? '已应用' : '未能应用，请检查当前字幕或重试';
+        _message = applied
+            ? l10n.externalMiniSettingsApplied
+            : l10n.externalMiniSettingsApplyFailedCheck;
       });
     } catch (_) {
-      if (mounted) setState(() => _message = '应用失败，请重试');
+      if (mounted) {
+        setState(() => _message = l10n.externalMiniSettingsApplyFailed);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -90,6 +95,7 @@ class _ExternalPlaybackMiniSettingsState
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final status = widget.status;
     final source = status.source;
     final playerName = status.player.displayName;
@@ -97,7 +103,7 @@ class _ExternalPlaybackMiniSettingsState
       return Padding(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
         child: Text(
-          '$playerName 暂不支持由 Fly Player 编辑字幕或弹幕。',
+          l10n.externalPlaybackUnsupportedEdit(playerName),
           style: TextStyle(fontSize: 10, color: colors.textMuted),
         ),
       );
@@ -107,7 +113,7 @@ class _ExternalPlaybackMiniSettingsState
       if (source.subtitleTrackGuid == null)
         TrackOptionSheetItem(
           id: 'external-player-default',
-          title: '由 $playerName 选择',
+          title: l10n.externalPlaybackSubtitleByPlayer(playerName),
         ),
       ...PlayDetailSheetController.subtitleItems(
         subtitleTracks: tracks,
@@ -127,7 +133,7 @@ class _ExternalPlaybackMiniSettingsState
         children: [
           Divider(height: 12, color: colors.borderSubtle),
           Text(
-            '弹幕与字幕',
+            l10n.externalMiniDanmakuSubtitlePanel,
             style: TextStyle(
               fontSize: 12,
               color: colors.textPrimary,
@@ -136,7 +142,7 @@ class _ExternalPlaybackMiniSettingsState
           ),
           const SizedBox(height: 5),
           _slider(
-            '字号',
+            l10n.externalPlaybackFontSize,
             _draft.fontScale,
             .6,
             1.4,
@@ -144,7 +150,7 @@ class _ExternalPlaybackMiniSettingsState
             canEdit ? (v) => _edit(_draft.copyWith(fontScale: v)) : null,
           ),
           _slider(
-            '不透明度',
+            l10n.danmakuOpacity,
             _draft.opacity,
             .2,
             1,
@@ -152,7 +158,7 @@ class _ExternalPlaybackMiniSettingsState
             canEdit ? (v) => _edit(_draft.copyWith(opacity: v)) : null,
           ),
           _slider(
-            '密度',
+            l10n.externalPlaybackDensity,
             _draft.density,
             .2,
             1,
@@ -160,7 +166,7 @@ class _ExternalPlaybackMiniSettingsState
             canEdit ? (v) => _edit(_draft.copyWith(density: v)) : null,
           ),
           _slider(
-            '速度',
+            l10n.externalPlaybackSpeed,
             _draft.speed,
             .5,
             2,
@@ -173,7 +179,7 @@ class _ExternalPlaybackMiniSettingsState
             activation: DesktopDropdownActivation.tap,
             spec: canEdit
                 ? DesktopHoverDropdownSpec.single(
-                    title: '影片字幕',
+                    title: l10n.externalMiniSettingsMovieSubtitles,
                     width: 316,
                     maxHeight: 240,
                     items: items,
@@ -212,7 +218,10 @@ class _ExternalPlaybackMiniSettingsState
                     const SizedBox(width: 7),
                     Expanded(
                       child: Text(
-                        options[selected] ?? '内封字幕（由 $playerName 管理）',
+                        options[selected] ??
+                            l10n.externalMiniSettingsEmbeddedManaged(
+                              playerName,
+                            ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -234,7 +243,7 @@ class _ExternalPlaybackMiniSettingsState
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Text(
-              '内封 / 位图字幕请在 $playerName 中切换',
+              l10n.externalMiniSettingsEmbeddedSwitchHint(playerName),
               style: TextStyle(fontSize: 10, color: colors.textMuted),
             ),
           ),
@@ -242,7 +251,10 @@ class _ExternalPlaybackMiniSettingsState
             children: [
               Expanded(
                 child: Text(
-                  _message ?? (_dirty ? '调节后点击应用' : '设置与当前播放同步'),
+                  _message ??
+                      (_dirty
+                          ? l10n.externalMiniSettingsAdjustHint
+                          : l10n.externalMiniSettingsSyncedHint),
                   maxLines: 2,
                   style: TextStyle(fontSize: 10, color: colors.textMuted),
                 ),
@@ -254,7 +266,10 @@ class _ExternalPlaybackMiniSettingsState
                         _message = null;
                       })
                     : null,
-                child: const Text('还原', style: TextStyle(fontSize: 11)),
+                child: Text(
+                  l10n.externalMiniSettingsReset,
+                  style: const TextStyle(fontSize: 11),
+                ),
               ),
               FilledButton(
                 onPressed: canEdit && _dirty ? _apply : null,
@@ -263,7 +278,9 @@ class _ExternalPlaybackMiniSettingsState
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                 ),
                 child: Text(
-                  _saving ? '应用中…' : '应用',
+                  _saving
+                      ? l10n.externalMiniSettingsApplying
+                      : l10n.externalMiniSettingsApply,
                   style: const TextStyle(fontSize: 11),
                 ),
               ),

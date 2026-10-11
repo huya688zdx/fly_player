@@ -13,6 +13,7 @@ import '../ui/player_pane_host_scope.dart';
 import '../utils/async_action_guard.dart';
 import '../widgets/common/app_ambient_page.dart';
 import 'desktop_split_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 
 /// 桌面「浏览 | 详情」分屏的详情宿主。
 ///
@@ -265,6 +266,7 @@ class _PaneBasePlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final colors = context.appColors;
     return Center(
       child: Column(
@@ -273,7 +275,7 @@ class _PaneBasePlaceholder extends StatelessWidget {
           Icon(Icons.video_library_outlined, size: 44, color: colors.textMuted),
           const SizedBox(height: 12),
           Text(
-            '选择内容查看详情',
+            l10n.desktopDetailPaneSelectHint,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 14,
@@ -282,7 +284,7 @@ class _PaneBasePlaceholder extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '在浏览区点击海报或卡片，详情将在这里打开',
+            l10n.desktopDetailPaneEmptyHint,
             style: TextStyle(color: colors.textMuted, fontSize: 12),
           ),
         ],

@@ -1,3 +1,5 @@
+import '../providers/app_locale_provider.dart';
+
 // 完整用户可见文案（如"XX音频"这类拼接）只能经 lib/ui/ 下的 helper 组装；
 // code 规整（normalizeLanguageCode 等）、语言名查表（languageName/subtitleLabel）
 // 允许模型/store 等层直接 import 调用，但模型层禁止拼出用户可见的完整文案。
@@ -539,6 +541,164 @@ class MediaLanguageMapper {
     '\u591a\u79cd\u8bed\u8a00': 'mul',
   };
 
+  // en 界面下的语言显示名；缺项回退中文表。
+  static final Map<String, String> _namesEn = {
+    'ara': 'Arabic',
+    'bul': 'Bulgarian',
+    'cat': 'Catalan',
+    'ces': 'Czech',
+    'jpn': 'Japanese',
+    'zho': 'Chinese',
+    'eng': 'English',
+    'dan': 'Danish',
+    'nld': 'Dutch',
+    'ell': 'Greek',
+    'est': 'Estonian',
+    'fin': 'Finnish',
+    'fra': 'French',
+    'heb': 'Hebrew',
+    'hin': 'Hindi',
+    'hrv': 'Croatian',
+    'hun': 'Hungarian',
+    'ind': 'Indonesian',
+    'ita': 'Italian',
+    'kor': 'Korean',
+    'lav': 'Latvian',
+    'lit': 'Lithuanian',
+    'msa': 'Malay',
+    'nor': 'Norwegian',
+    'pol': 'Polish',
+    'por': 'Portuguese',
+    'ron': 'Romanian',
+    'rus': 'Russian',
+    'slk': 'Slovak',
+    'slv': 'Slovenian',
+    'spa': 'Spanish',
+    'srp': 'Serbian',
+    'swe': 'Swedish',
+    'tha': 'Thai',
+    'tur': 'Turkish',
+    'ukr': 'Ukrainian',
+    'vie': 'Vietnamese',
+    'deu': 'German',
+    'afr': 'Afrikaans',
+    'sqi': 'Albanian',
+    'hye': 'Armenian',
+    'aze': 'Azerbaijani',
+    'eus': 'Basque',
+    'ben': 'Bengali',
+    'bos': 'Bosnian',
+    'mya': 'Burmese',
+    'fil': 'Filipino',
+    'kat': 'Georgian',
+    'isl': 'Icelandic',
+    'gle': 'Irish',
+    'kan': 'Kannada',
+    'kaz': 'Kazakh',
+    'khm': 'Khmer',
+    'lao': 'Lao',
+    'mkd': 'Macedonian',
+    'mal': 'Malayalam',
+    'mon': 'Mongolian',
+    'nep': 'Nepali',
+    'fas': 'Persian',
+    'pan': 'Punjabi',
+    'tam': 'Tamil',
+    'tel': 'Telugu',
+    'urd': 'Urdu',
+    'cym': 'Welsh',
+    'bel': 'Belarusian',
+    'swa': 'Swahili',
+    'uzb': 'Uzbek',
+    'sin': 'Sinhala',
+    'mar': 'Marathi',
+    'guj': 'Gujarati',
+    'kur': 'Kurdish',
+    'amh': 'Amharic',
+    'lat': 'Latin',
+    'glg': 'Galician',
+    'mul': 'Multiple languages',
+  };
+
+  // ja 界面下的语言显示名；缺项回退中文表。
+  static final Map<String, String> _namesJa = {
+    'ara': 'アラビア語',
+    'bul': 'ブルガリア語',
+    'cat': 'カタルーニャ語',
+    'ces': 'チェコ語',
+    'jpn': '日本語',
+    'zho': '中国語',
+    'eng': '英語',
+    'dan': 'デンマーク語',
+    'nld': 'オランダ語',
+    'ell': 'ギリシャ語',
+    'est': 'エストニア語',
+    'fin': 'フィンランド語',
+    'fra': 'フランス語',
+    'heb': 'ヘブライ語',
+    'hin': 'ヒンディー語',
+    'hrv': 'クロアチア語',
+    'hun': 'ハンガリー語',
+    'ind': 'インドネシア語',
+    'ita': 'イタリア語',
+    'kor': '韓国語',
+    'lav': 'ラトビア語',
+    'lit': 'リトアニア語',
+    'msa': 'マライ語',
+    'nor': 'ノルウェー語',
+    'pol': 'ポーランド語',
+    'por': 'ポルトガル語',
+    'ron': 'ルーマニア語',
+    'rus': 'ロシア語',
+    'slk': 'スロバキア語',
+    'slv': 'スロベニア語',
+    'spa': 'スペイン語',
+    'srp': 'セルビア語',
+    'swe': 'スウェーデン語',
+    'tha': 'タイ語',
+    'tur': 'トルコ語',
+    'ukr': 'ウクライナ語',
+    'vie': 'ベトナム語',
+    'deu': 'ドイツ語',
+    'afr': 'アフリカーンス語',
+    'sqi': 'アルバニア語',
+    'hye': 'アルメニア語',
+    'aze': 'アゼルバイジャン語',
+    'eus': 'バスク語',
+    'ben': 'ベンガル語',
+    'bos': 'ボスニア語',
+    'mya': 'ビルマ語',
+    'fil': 'フィリピン語',
+    'kat': 'グルジア語',
+    'isl': 'アイスランド語',
+    'gle': 'アイルランド語',
+    'kan': 'カンナダ語',
+    'kaz': 'カザフ語',
+    'khm': 'クメール語',
+    'lao': 'ラオ語',
+    'mkd': 'マケドニア語',
+    'mal': 'マラヤーラム語',
+    'mon': 'モンゴル語',
+    'nep': 'ネパール語',
+    'fas': 'ペルシア語',
+    'pan': 'パンジャブ語',
+    'tam': 'タミル語',
+    'tel': 'テルグ語',
+    'urd': 'ウルドゥー語',
+    'cym': 'ウェールズ語',
+    'bel': 'ベラルーシ語',
+    'swa': 'スワヒリ語',
+    'uzb': 'ウズベク語',
+    'sin': 'シンハラ語',
+    'mar': 'マラーティー語',
+    'guj': 'グジャラート語',
+    'kur': 'クルド語',
+    'amh': 'アムハラ語',
+    'lat': 'ラテン語',
+    'glg': 'ガリシア語',
+    'mul': '多言語',
+  };
+
   static void mergeLanguageMap(Map<String, String> mapping) {
     for (final entry in mapping.entries) {
       final rawKey = entry.key.trim().toLowerCase();
@@ -557,18 +717,35 @@ class MediaLanguageMapper {
     return value;
   }
 
-  static String languageName(String raw) {
+  /// 语言显示名：按界面语言查 en/ja 平行表，缺项或 zh 界面回退中文表。
+  /// [locale] 供已持有 l10n 的调用方显式指定；缺省用全局生效语言。
+  static String languageName(String raw, {String? uiLocaleName}) {
     final key = raw.trim().toLowerCase();
     if (key.isEmpty || key == 'zz-unknow' || key == 'unknown' || key == 'und') {
       return '';
     }
     final normalizedKey = normalizeLanguageCode(key);
     if (normalizedKey == null) return '';
+    final localized = _namesForLocaleName(
+      uiLocaleName ?? _effectiveLocaleName(),
+    )[normalizedKey];
+    if (localized != null) return localized;
     return _languageNameMap[normalizedKey] ?? _languageNameMap[key] ?? '';
   }
 
-  static String subtitleLabel(String raw) {
-    return languageName(raw);
+  /// 默认取全局生效语言；generated AppLocalizations 只暴露 localeName，
+  /// 故统一用语言码字符串比较（zh_CN / en / ja）。
+  static String _effectiveLocaleName() =>
+      AppLocaleProvider.effectiveLocale.toString();
+
+  static Map<String, String> _namesForLocaleName(String localeName) {
+    if (localeName.startsWith('en')) return _namesEn;
+    if (localeName.startsWith('ja')) return _namesJa;
+    return _languageNameMap;
+  }
+
+  static String subtitleLabel(String raw, {String? uiLocaleName}) {
+    return languageName(raw, uiLocaleName: uiLocaleName);
   }
 
   static String? normalizeLanguageCode(String raw) {

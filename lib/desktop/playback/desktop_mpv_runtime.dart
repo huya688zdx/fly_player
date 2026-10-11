@@ -1,7 +1,11 @@
 import 'dart:math' as math;
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/painting.dart';
+
 import 'package:media_kit/media_kit.dart';
+
+import '../../l10n/generated/app_localizations.dart';
 
 import '../../models/playback_stream.dart';
 import '../../playback/playback_source.dart';
@@ -110,7 +114,11 @@ abstract final class DesktopMpvRuntime {
     return tracks.isEmpty ? null : tracks.first;
   }
 
-  static String audioTrackTitle(AudioTrack track, String fallback) {
+  static String audioTrackTitle(
+    AudioTrack track,
+    String fallback, {
+    String? uiLocaleName,
+  }) {
     final title = track.title?.trim() ?? '';
     if (title.isNotEmpty) {
       // 常见的“Japanese Audio”是语言标签；保留带评论音轨等说明的自定义标题。
@@ -118,12 +126,18 @@ abstract final class DesktopMpvRuntime {
         RegExp(r'\s+audio$', caseSensitive: false),
         '',
       );
-      final mapped = MediaLanguageMapper.languageName(language).trim();
+      final mapped = MediaLanguageMapper.languageName(
+        language,
+        uiLocaleName: uiLocaleName,
+      ).trim();
       return mapped.isNotEmpty ? mapped : title;
     }
     final language = track.language?.trim() ?? '';
     if (language.isNotEmpty) {
-      final mapped = MediaLanguageMapper.languageName(language).trim();
+      final mapped = MediaLanguageMapper.languageName(
+        language,
+        uiLocaleName: uiLocaleName,
+      ).trim();
       return mapped.isNotEmpty ? mapped : language;
     }
     return fallback;
@@ -174,21 +188,34 @@ abstract final class DesktopMpvRuntime {
     return tracks.isEmpty ? null : tracks.first;
   }
 
-  static String subtitleTrackTitle(SubtitleTrack track, String fallback) {
+  static String subtitleTrackTitle(
+    SubtitleTrack track,
+    String fallback, {
+    String? uiLocaleName,
+  }) {
     final title = track.title?.trim() ?? '';
     if (title.isNotEmpty) {
-      final mapped = MediaLanguageMapper.subtitleLabel(title).trim();
+      final mapped = MediaLanguageMapper.subtitleLabel(
+        title,
+        uiLocaleName: uiLocaleName,
+      ).trim();
       return mapped.isNotEmpty ? mapped : title;
     }
     final language = track.language?.trim() ?? '';
     if (language.isNotEmpty) {
-      final mapped = MediaLanguageMapper.subtitleLabel(language).trim();
+      final mapped = MediaLanguageMapper.subtitleLabel(
+        language,
+        uiLocaleName: uiLocaleName,
+      ).trim();
       return mapped.isNotEmpty ? mapped : language;
     }
     return fallback;
   }
 
-  static DesktopQualityMenu qualityMenu(MpvMediaSource source) {
+  static DesktopQualityMenu qualityMenu(
+    MpvMediaSource source, {
+    AppLocalizations? l10n,
+  }) {
     if (source.isLive) {
       final lines = [
         for (var index = 0; index < source.qualities.length; index++)
@@ -201,7 +228,11 @@ abstract final class DesktopMpvRuntime {
       ];
       return DesktopQualityMenu(
         mainChoices: lines,
-        customGroups: {'直播线路': lines},
+        customGroups: {
+          (l10n ?? lookupAppLocalizations(PlatformDispatcher.instance.locale))
+                  .playerLiveSourceGroup:
+              lines,
+        },
       );
     }
     final all = <DesktopQualityChoice>[
@@ -292,10 +323,14 @@ abstract final class DesktopMpvRuntime {
 
   static String currentQualityLabel(
     MpvMediaSource source,
-    String originalLabel,
-  ) {
+    String originalLabel, {
+    AppLocalizations? l10n,
+  }) {
     if (source.isLive) {
-      return source.resolution.isEmpty ? '直播' : source.resolution;
+      return source.resolution.isEmpty
+          ? (l10n ?? lookupAppLocalizations(PlatformDispatcher.instance.locale))
+                .playerLiveSourceLabel
+          : source.resolution;
     }
     if (source.playbackMode.isOriginalQuality) return originalLabel;
     final tier = _qualityTierLabel(source.resolution);

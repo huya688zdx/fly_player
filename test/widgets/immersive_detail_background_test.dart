@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('详情正文使用所选样式绘制海报取色晕染', (tester) async {
@@ -23,6 +24,9 @@ void main() {
       ChangeNotifierProvider(
         create: (_) => provider,
         child: MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: AppThemeBuilder.build(AppThemePreset.midnight),
           home: AppRuntimeColorScope(
             colors: baseColors,
@@ -62,6 +66,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: baseColors,
@@ -124,6 +131,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: baseColors,
@@ -201,6 +211,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: baseColors,
@@ -255,6 +268,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: baseColors,
@@ -299,6 +315,9 @@ void main() {
     ).extension<AppThemeColors>()!;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: colors,
@@ -344,6 +363,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: baseColors,
@@ -386,6 +408,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: baseColors,
@@ -439,6 +464,9 @@ void main() {
       ChangeNotifierProvider(
         create: (_) => provider,
         child: MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: AppThemeBuilder.build(AppThemePreset.midnight),
           home: AppRuntimeColorScope(
             colors: baseColors,
@@ -479,6 +507,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: baseColors,

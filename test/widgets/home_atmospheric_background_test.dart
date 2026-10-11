@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/app_atmospheric_background.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('氛围页按亮暗底色切换系统栏图标明暗', (tester) async {
@@ -19,6 +20,9 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: AppAtmosphericBackground(
             palette: palette,
             child: const SizedBox.expand(),
@@ -56,6 +60,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: AppAtmosphericBackground(
           palette: palette,
           child: const SizedBox.expand(),
@@ -98,6 +105,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: AppAtmosphericBackground(
           palette: palette,
           child: const SizedBox.expand(),
@@ -134,6 +144,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: AppAtmosphericBackground(
           palette: palette,
           child: const SizedBox.expand(
@@ -183,6 +196,9 @@ void main() {
       );
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: StatefulBuilder(
             builder: (context, setState) {
               selectTab = setState;

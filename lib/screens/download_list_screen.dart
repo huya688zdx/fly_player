@@ -54,9 +54,11 @@ Future<void> _openDownloadFolder(
     }
   } catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('无法打开文件夹，请检查保存路径是否存在')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context).downloadOpenFolderFailed),
+        ),
+      );
     }
   }
 }
@@ -148,7 +150,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
       if (mounted) {
         _topTip.show(
           context,
-          message: '读取下载目录失败',
+          message: AppLocalizations.of(context).downloadReadDirFailed,
           color: context.appColors.danger,
         );
       }
@@ -160,7 +162,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     setState(() => _choosingDirectory = true);
     try {
       final selected = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: '选择下载位置（将在其中创建 FlyPlayer 文件夹）',
+        dialogTitle: AppLocalizations.of(context).downloadPickLocationTitle,
         initialDirectory: _downloadDirectory == null
             ? null
             : p.dirname(_downloadDirectory!),
@@ -171,14 +173,14 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
       if (!mounted) return;
       _topTip.show(
         context,
-        message: '新下载将保存到此处，已有任务位置不变',
+        message: AppLocalizations.of(context).downloadNewLocationHint,
         color: context.appColors.success,
       );
     } catch (_) {
       if (mounted) {
         _topTip.show(
           context,
-          message: '无法保存到该目录，请选择可写入的文件夹',
+          message: AppLocalizations.of(context).downloadDirNotWritable,
           color: context.appColors.danger,
         );
       }
@@ -415,7 +417,12 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: SelectableText(
-                            '下载目录：${_downloadDirectory ?? '正在读取…'}',
+                            AppLocalizations.of(context).downloadDirLabel(
+                              _downloadDirectory ??
+                                  AppLocalizations.of(
+                                    context,
+                                  ).downloadReadingDir,
+                            ),
                             style: TextStyle(
                               fontSize: 13,
                               color: colors.textSecondary,
@@ -428,10 +435,14 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
                             onPressed: _choosingDirectory
                                 ? null
                                 : _chooseDownloadDirectory,
-                            child: const Text('更改目录'),
+                            child: Text(
+                              AppLocalizations.of(context).downloadChangeDir,
+                            ),
                           ),
                         IconButton(
-                          tooltip: '打开下载文件夹',
+                          tooltip: AppLocalizations.of(
+                            context,
+                          ).downloadOpenFolderTooltip,
                           onPressed: _downloadDirectory == null
                               ? null
                               : () => _openDownloadFolder(
@@ -2336,7 +2347,9 @@ class _DownloadRecordRow extends StatelessWidget {
                         ],
                         if (DesktopEnvironment.isDesktopPlatform && !editing)
                           IconButton(
-                            tooltip: '打开文件夹：${p.dirname(record.filePath)}',
+                            tooltip: AppLocalizations.of(
+                              context,
+                            ).downloadOpenFolderAt(p.dirname(record.filePath)),
                             onPressed: () => _openDownloadFolder(
                               context,
                               p.dirname(record.filePath),

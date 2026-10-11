@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../desktop_floating_panel.dart';
 import 'external_playback_host.dart';
@@ -41,16 +42,17 @@ class _ExternalPlaybackMiniPlayerState
 
   Future<void> _run(Future<bool?> Function() action) async {
     if (_busy) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       if (await action() == false && mounted) {
-        setState(() => _error = '操作未完成，请在完整页面检查连接');
+        setState(() => _error = l10n.externalMiniActionIncomplete);
       }
     } catch (_) {
-      if (mounted) setState(() => _error = '操作失败，请重试');
+      if (mounted) setState(() => _error = l10n.externalMiniActionFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -59,10 +61,11 @@ class _ExternalPlaybackMiniPlayerState
   Future<void> _windowAction(Future<void> Function() action) async {
     // 切集可能等待网络，仍然允许随时收起或返回完整界面。
     if (_error != null) setState(() => _error = null);
+    final l10n = AppLocalizations.of(context);
     try {
       await action();
     } catch (_) {
-      if (mounted) setState(() => _error = '窗口调整失败，请重试');
+      if (mounted) setState(() => _error = l10n.externalMiniResizeFailed);
     }
   }
 
@@ -77,17 +80,22 @@ class _ExternalPlaybackMiniPlayerState
     valueListenable: ExternalPlaybackHost.status,
     builder: (context, status, _) {
       final colors = context.appColors;
+      final l10n = AppLocalizations.of(context);
       // 命令执行时仅阻止重复提交，保持整组按钮的颜色和布局稳定。
       final enabled = status?.canControl == true;
-      final title = status?.source.title ?? '当前播放已结束';
+      final title = status?.source.title ?? l10n.externalMiniPlaybackEnded;
       final itemGuid = status?.source.itemGuid ?? '';
       final current =
           status?.playlist.indexWhere((e) => e.itemGuid == itemGuid) ?? -1;
       final phase = switch (status?.phase) {
-        ExternalPlaybackPhase.ready => status!.paused ? '已暂停' : '播放中',
-        ExternalPlaybackPhase.preparing => '正在连接',
-        ExternalPlaybackPhase.disconnected => '连接已断开',
-        _ => '播放已结束',
+        ExternalPlaybackPhase.ready =>
+          status!.paused
+              ? l10n.externalPlaybackPhasePaused
+              : l10n.externalPlaybackPhasePlaying,
+        ExternalPlaybackPhase.preparing => l10n.externalPlaybackPhasePreparing,
+        ExternalPlaybackPhase.disconnected =>
+          l10n.externalPlaybackPhaseDisconnected,
+        _ => l10n.externalPlaybackPhaseEnded,
       };
 
       void pause() => _run(
@@ -127,7 +135,7 @@ class _ExternalPlaybackMiniPlayerState
                           child: Row(
                             children: [
                               Semantics(
-                                label: '拖动悬浮条',
+                                label: l10n.externalMiniDragHandle,
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onPanStart: (_) =>
@@ -192,7 +200,9 @@ class _ExternalPlaybackMiniPlayerState
                                 status?.paused == false
                                     ? Icons.pause_rounded
                                     : Icons.play_arrow_rounded,
-                                status?.paused == false ? '暂停' : '继续',
+                                status?.paused == false
+                                    ? l10n.externalPlaybackPause
+                                    : l10n.externalPlaybackResume,
                                 enabled ? pause : null,
                                 primary: true,
                               ),
@@ -200,7 +210,9 @@ class _ExternalPlaybackMiniPlayerState
                                 widget.pinned
                                     ? Icons.push_pin_rounded
                                     : Icons.push_pin_outlined,
-                                widget.pinned ? '取消置顶' : '置顶悬浮条',
+                                widget.pinned
+                                    ? l10n.externalMiniUnpin
+                                    : l10n.externalMiniPin,
                                 widget.onTogglePinned == null
                                     ? null
                                     : () =>
@@ -211,12 +223,14 @@ class _ExternalPlaybackMiniPlayerState
                                 widget.expanded
                                     ? Icons.expand_less_rounded
                                     : Icons.expand_more_rounded,
-                                widget.expanded ? '收起操作' : '展开操作',
+                                widget.expanded
+                                    ? l10n.externalMiniCollapse
+                                    : l10n.externalMiniExpand,
                                 () => _windowAction(widget.onToggleExpanded),
                               ),
                               _button(
                                 Icons.open_in_full_rounded,
-                                '返回完整界面',
+                                l10n.externalMiniBackToFull,
                                 () => _windowAction(widget.onRestore),
                               ),
                             ],
@@ -300,13 +314,13 @@ class _ExternalPlaybackMiniPlayerState
                           children: [
                             _button(
                               Icons.skip_previous_rounded,
-                              '上一集',
+                              l10n.desktopPlaybackPrevEpisodeLabel,
                               enabled && current > 0 ? () => step(-1) : null,
                             ),
                             const SizedBox(width: 18),
                             _button(
                               Icons.replay_10_rounded,
-                              '后退 10 秒',
+                              l10n.externalMiniRewind10,
                               enabled
                                   ? () => seek(
                                       status!.position -
@@ -317,7 +331,7 @@ class _ExternalPlaybackMiniPlayerState
                             const SizedBox(width: 18),
                             _button(
                               Icons.forward_10_rounded,
-                              '前进 10 秒',
+                              l10n.externalMiniForward10,
                               enabled
                                   ? () => seek(
                                       status!.position +
@@ -328,7 +342,7 @@ class _ExternalPlaybackMiniPlayerState
                             const SizedBox(width: 18),
                             _button(
                               Icons.skip_next_rounded,
-                              '下一集',
+                              l10n.playerNextEpisodeLabel,
                               enabled &&
                                       current >= 0 &&
                                       current + 1 < status!.playlist.length
@@ -370,14 +384,14 @@ class _ExternalPlaybackMiniPlayerState
                                   ),
                                   label: Text(
                                     status?.danmakuEnabled == true
-                                        ? '弹幕已开'
-                                        : '弹幕已关',
+                                        ? l10n.externalMiniDanmakuOn
+                                        : l10n.externalMiniDanmakuOff,
                                   ),
                                 ),
                               if (status?.player.supportsSubtitles == true)
                                 _button(
                                   Icons.tune_rounded,
-                                  '弹幕与字幕调节',
+                                  l10n.externalMiniDanmakuSubtitlePanel,
                                   widget.onToggleSettings == null
                                       ? null
                                       : () => _windowAction(
@@ -403,7 +417,10 @@ class _ExternalPlaybackMiniPlayerState
                                   size: 14,
                                 ),
                                 label: Text(
-                                  '回到 ${status?.player.displayName ?? '外部播放器'}',
+                                  l10n.externalPlaybackBackToPlayer(
+                                    status?.player.displayName ??
+                                        l10n.externalMiniDefaultPlayerName,
+                                  ),
                                 ),
                               ),
                             ],
@@ -412,7 +429,9 @@ class _ExternalPlaybackMiniPlayerState
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Text(
-                            _error ?? status?.progressMessage ?? '返回完整界面选择影片',
+                            _error ??
+                                status?.progressMessage ??
+                                l10n.externalMiniBackToFullSelect,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(

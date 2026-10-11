@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../../l10n/generated/app_localizations.dart';
+
 /// 接入受 Fly 管理的外部播放器。必须提供真实进度、媒体身份与基本播放控制；
 /// 仅能拉起程序、无法读取状态的播放器不满足此接口。
 /// 新实现登记到 ExternalPlayerAdapters.available 后，由 playerId 选择。
@@ -8,7 +10,9 @@ abstract interface class ExternalPlayerAdapter {
   String get displayName;
   String get executableHint;
   List<String> get fileExtensions;
-  String get usageNotes;
+
+  /// 用户可见的使用说明文案。
+  String usageNotes(AppLocalizations l10n);
 
   /// 能否加载公共层导出的 ASS 字幕（包含合成弹幕）。
   bool get supportsSubtitles;
@@ -17,8 +21,11 @@ abstract interface class ExternalPlayerAdapter {
   bool get supportsPlaylist;
   bool get supportsMiniPlayer;
 
-  Future<String?> validateExecutable(String executablePath);
-  Future<String?> detectExecutable();
+  Future<String?> validateExecutable(
+    String executablePath, {
+    required AppLocalizations l10n,
+  });
+  Future<String?> detectExecutable({required AppLocalizations l10n});
 
   /// 格式由具体播放器决定；公共层只提供条目与当前媒体。
   Future<String> writePlaylist({
@@ -41,6 +48,7 @@ abstract interface class ExternalPlayerAdapter {
     onProgress,
     required Future<void> Function() onFinished,
     required void Function(String message) onError,
+    required AppLocalizations l10n,
     Future<Duration?> Function(String mediaUrl)? onMediaChanged,
   });
 

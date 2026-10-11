@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import '../../api/feiniu_api.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../../controllers/local_download_source_resolver.dart';
 import '../../media_backend/media_backend.dart';
 import '../../models/download_task_record.dart';
@@ -26,7 +27,7 @@ class ExternalPlaylistEpisode {
   final String seasonGuid;
 
   /// 页内已单独显示季数和集号，标题只保留本集名称；推送仍使用完整 title。
-  String get episodeTitle {
+  String episodeTitle(AppLocalizations l10n) {
     final numberedSeason = '第\\s*$seasonNumber\\s*季';
     final season = seasonNumber == 0
         ? '(?:特别篇|$numberedSeason)'
@@ -37,7 +38,9 @@ class ExternalPlaylistEpisode {
           '',
         )
         .trim();
-    return name.isEmpty ? '第 $episodeNumber 集' : name;
+    return name.isEmpty
+        ? l10n.externalPlaylistEpisodeFallback('$episodeNumber')
+        : name;
   }
 }
 
@@ -89,6 +92,7 @@ class ExternalPlayerPlaylist {
     required NasProvider nas,
     List<Map<String, dynamic>>? fallback,
     bool offline = false,
+    required AppLocalizations l10n,
     required void Function(String) onWarning,
   }) async {
     final entries = <String, ExternalPlaylistEpisode>{};
@@ -106,9 +110,11 @@ class ExternalPlayerPlaylist {
           id,
           () => ExternalPlaylistEpisode(
             itemGuid: id,
-            title:
-                '第$seasonNumber季 第${episode['episodeNumber'] ?? ''}集 '
-                '${episode['title'] ?? ''}',
+            title: l10n.externalPlaylistEntryTitle(
+              l10n.playerEpisodeSeasonTemplate(seasonNumber),
+              "${episode['episodeNumber'] ?? ''}",
+              "${episode['title'] ?? ''}",
+            ),
             seasonNumber: seasonNumber,
             episodeNumber: (episode['episodeNumber'] as num?)?.toInt() ?? 0,
             seasonGuid: '${episode['seasonGuid'] ?? source.seasonGuid}',
@@ -119,6 +125,7 @@ class ExternalPlayerPlaylist {
         for (final episode in _downloadedEpisodesForSource(
           source,
           fallbackEpisodes,
+          l10n,
         )) {
           entries.putIfAbsent(episode.itemGuid, () => episode);
         }
@@ -131,7 +138,7 @@ class ExternalPlayerPlaylist {
           if (!source.isDownloadedFile) return read();
           final remaining = localDownloadMetadataTimeout - deadline.elapsed;
           if (remaining <= Duration.zero) {
-            throw TimeoutException('本地播放的在线目录查询超时');
+            throw TimeoutException(l10n.externalPlaylistCatalogTimeout);
           }
           return read().timeout(remaining);
         }
@@ -156,13 +163,17 @@ class ExternalPlayerPlaylist {
             ...await readMetadata(() => backend.getSeasonEpisodes(season.id)),
           ]..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
           final label = season.seasonNumber == 0
-              ? '特别篇'
-              : '第${season.seasonNumber}季';
+              ? l10n.playerEpisodeSpecialSeason
+              : l10n.playerEpisodeSeasonTemplate(season.seasonNumber);
           for (final episode in episodes) {
             if (episode.id.isEmpty) continue;
             entries[episode.id] = ExternalPlaylistEpisode(
               itemGuid: episode.id,
-              title: '$label 第${episode.episodeNumber}集 ${episode.title}',
+              title: l10n.externalPlaylistEntryTitle(
+                label,
+                '${episode.episodeNumber}',
+                episode.title,
+              ),
               seasonNumber: season.seasonNumber,
               episodeNumber: episode.episodeNumber,
               seasonGuid: season.id,
@@ -177,7 +188,7 @@ class ExternalPlayerPlaylist {
             ? loading.timeout(localDownloadMetadataTimeout)
             : loading);
       } catch (_) {
-        onWarning('部分季的播放列表未能加载，本次保留已获取的剧集');
+        onWarning(l10n.externalPlaylistPartialSeasons);
       }
     }
     entries.putIfAbsent(
@@ -202,6 +213,7 @@ class ExternalPlayerPlaylist {
   static Iterable<ExternalPlaylistEpisode> _downloadedEpisodesForSource(
     MpvMediaSource source,
     List<Map<String, dynamic>>? fallback,
+    AppLocalizations l10n,
   ) {
     final service = DownloadTaskService.instance;
     var current = service.downloadedRecordForItem(
@@ -243,9 +255,11 @@ class ExternalPlayerPlaylist {
           .map(
             (record) => ExternalPlaylistEpisode(
               itemGuid: record.itemGuid.trim(),
-              title:
-                  '第${record.seasonNumber}季 第${record.episodeNumber}集 '
-                  '${service.displayTitleForRecord(record)}',
+              title: l10n.externalPlaylistEntryTitle(
+                l10n.playerEpisodeSeasonTemplate(record.seasonNumber),
+                '${record.episodeNumber}',
+                service.displayTitleForRecord(record),
+              ),
               seasonNumber: record.seasonNumber,
               episodeNumber: record.episodeNumber,
               seasonGuid: record.groupId.trim(),

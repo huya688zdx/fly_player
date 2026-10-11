@@ -12,6 +12,7 @@ import 'package:fly_player/ui/route_transition_gate.dart';
 import 'package:fly_player/widgets/detail/dynamic_page_theme_scope.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -139,6 +140,9 @@ Widget _scopeHarness({
   return ChangeNotifierProvider<AppThemeProvider>.value(
     value: provider,
     child: MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: AppThemeBuilder.buildFromColors(AppThemePalette.fallback),
       home: DynamicPageThemeScope(
         pageKey: 'same-page',

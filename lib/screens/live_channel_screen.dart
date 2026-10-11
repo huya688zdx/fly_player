@@ -10,6 +10,7 @@ import '../ui/detail_presentation.dart';
 import '../utils/app_exception.dart';
 import '../widgets/common/app_ambient_page.dart';
 import '../widgets/common/app_error_state.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 /// 直播只提供频道、线路和播放入口，不加载点播的文件与演职员信息。
 class LiveChannelScreen extends StatefulWidget {
@@ -55,7 +56,12 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
       });
     } catch (error) {
       if (mounted) {
-        setState(() => _error = AppException.from(error, action: '加载直播频道'));
+        setState(
+          () => _error = AppException.from(
+            error,
+            action: AppLocalizations.of(context).liveChannelLoadFailedAction,
+          ),
+        );
       }
     }
   }
@@ -66,12 +72,19 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
       await const ItemPlaybackLauncher().open(
         context,
         itemGuid: widget.itemId,
-        fallbackTitle: _detail?.title ?? '直播',
+        fallbackTitle:
+            _detail?.title ??
+            AppLocalizations.of(context).playerLiveSourceLabel,
         qualityMediaGuid: _lineId,
       );
     } catch (error) {
       if (mounted) {
-        setState(() => _error = AppException.from(error, action: '播放直播'));
+        setState(
+          () => _error = AppException.from(
+            error,
+            action: AppLocalizations.of(context).liveChannelPlayAction,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -92,7 +105,12 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _error = AppException.from(error, action: '收藏直播频道'));
+        setState(
+          () => _error = AppException.from(
+            error,
+            action: AppLocalizations.of(context).liveChannelFavoriteAction,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -108,7 +126,9 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
         backgroundColor: Colors.transparent,
         appBar: widget.presentation == DetailPresentation.pane
             ? null
-            : AppBar(title: const Text('直播频道')),
+            : AppBar(
+                title: Text(AppLocalizations.of(context).liveChannelTitle),
+              ),
         body: SafeArea(
           child: _error != null
               ? AppErrorState(error: _error!, onRetry: _load)
@@ -140,10 +160,16 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
                         if (_lines.length > 1)
                           DropdownButtonFormField<String>(
                             initialValue: _lineId,
-                            decoration: const InputDecoration(
-                              labelText: '直播线路',
+                            decoration: InputDecoration(
+                              labelText: AppLocalizations.of(
+                                context,
+                              ).playerLiveSourceGroup,
                             ),
-                            hint: const Text('服务器默认线路'),
+                            hint: Text(
+                              AppLocalizations.of(
+                                context,
+                              ).liveChannelDefaultLineHint,
+                            ),
                             isExpanded: true,
                             items: [
                               for (var i = 0; i < _lines.length; i++)
@@ -151,7 +177,9 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
                                   value: _lines[i].id,
                                   child: Text(
                                     _lines[i].label.isEmpty
-                                        ? '线路 ${i + 1}'
+                                        ? AppLocalizations.of(
+                                            context,
+                                          ).liveChannelLineN(i + 1)
                                         : _lines[i].label,
                                   ),
                                 ),
@@ -164,7 +192,15 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
                         FilledButton.icon(
                           onPressed: _busy ? null : _play,
                           icon: const Icon(Icons.play_arrow_rounded),
-                          label: Text(_busy ? '正在处理…' : '播放直播'),
+                          label: Text(
+                            _busy
+                                ? AppLocalizations.of(
+                                    context,
+                                  ).liveChannelProcessing
+                                : AppLocalizations.of(
+                                    context,
+                                  ).liveChannelPlayAction,
+                          ),
                         ),
                         if (context
                             .read<MediaBackendProvider>()
@@ -178,7 +214,15 @@ class _LiveChannelScreenState extends State<LiveChannelScreen> {
                                   ? Icons.favorite
                                   : Icons.favorite_border,
                             ),
-                            label: Text(detail.favorite ? '取消收藏' : '收藏频道'),
+                            label: Text(
+                              detail.favorite
+                                  ? AppLocalizations.of(
+                                      context,
+                                    ).liveChannelUnfavorite
+                                  : AppLocalizations.of(
+                                      context,
+                                    ).liveChannelFavorite,
+                            ),
                           ),
                       ],
                     ),

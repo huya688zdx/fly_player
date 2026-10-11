@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/screens/home/widgets/home_horizontal_shelf.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   Widget buildShelf({
@@ -15,6 +16,9 @@ void main() {
     bool includeRealText = false,
   }) {
     return MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: MediaQuery(
           data: MediaQueryData(textScaler: textScaler),

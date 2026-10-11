@@ -15,6 +15,7 @@ void main() {
     final navigator = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
         navigatorKey: navigator,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -45,6 +46,7 @@ void main() {
       const MediaQuery(
         data: MediaQueryData(size: Size(853, 384)),
         child: MaterialApp(
+          locale: Locale('zh', 'CN'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DetailLoadingSkeleton(),
@@ -70,6 +72,7 @@ void main() {
           padding: EdgeInsets.only(top: 24),
         ),
         child: MaterialApp(
+          locale: Locale('zh', 'CN'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DetailLoadingSkeleton(),
@@ -92,6 +95,7 @@ void main() {
       const MediaQuery(
         data: MediaQueryData(size: Size(853, 320)),
         child: MaterialApp(
+          locale: Locale('zh', 'CN'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: DetailLoadingSkeleton(presentation: DetailPresentation.pane),

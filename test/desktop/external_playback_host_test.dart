@@ -126,6 +126,7 @@ void main() {
           ChangeNotifierProvider.value(value: backend),
         ],
         child: MaterialApp(
+          locale: const Locale('zh', 'CN'),
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Builder(

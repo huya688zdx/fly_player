@@ -26,6 +26,8 @@ import 'feiniu_detail_mappers.dart';
 import 'feiniu_media_mappers.dart';
 import 'feiniu_playback_context.dart';
 import 'feiniu_playback_mappers.dart';
+import '../../l10n/generated/app_localizations.dart';
+import '../../providers/app_locale_provider.dart';
 
 /// 飞牛后端适配器：内部调用现有 [FeiniuApi]，把飞牛模型映射为公共模型。
 ///
@@ -695,16 +697,38 @@ class FeiniuMediaBackend implements MediaBackend {
     final qualityId = request.qualityId?.trim() ?? '';
     if (qualityId.isNotEmpty) {
       final index = channels.indexWhere((channel) => channel.guid == qualityId);
-      if (index < 0) throw StateError('指定的直播线路不存在');
+      if (index < 0) {
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).feiniuLiveLineMissing,
+        );
+      }
       selected = channels[index];
-      if (!selected.isPlayable) throw StateError('指定的直播线路不可用');
+      if (!selected.isPlayable) {
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).feiniuLiveLineNotPlayable,
+        );
+      }
     } else if (request.qualityIndex != null) {
       final index = request.qualityIndex!;
       if (index < 0 || index >= channels.length) {
-        throw StateError('指定的直播线路不存在');
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).feiniuLiveLineMissing,
+        );
       }
       selected = channels[index];
-      if (!selected.isPlayable) throw StateError('指定的直播线路不可用');
+      if (!selected.isPlayable) {
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).feiniuLiveLineNotPlayable,
+        );
+      }
     } else {
       final mediaIndex = channels.indexWhere(
         (channel) => channel.guid == playInfo.mediaGuid && channel.isPlayable,
@@ -719,7 +743,11 @@ class FeiniuMediaBackend implements MediaBackend {
       } else if (playable.isNotEmpty) {
         selected = playable.first;
       } else {
-        throw StateError('没有可用的直播线路');
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).feiniuNoLiveLines,
+        );
       }
     }
 

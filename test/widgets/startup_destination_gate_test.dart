@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/widgets/common/bird_loader.dart';
 import 'package:fly_player/widgets/startup_destination_gate.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('偏好未就绪时显示轻量加载态且不构建普通首页', (tester) async {
@@ -104,6 +105,9 @@ Widget _testApp(StartupPreferencesProvider provider) {
   return ChangeNotifierProvider<StartupPreferencesProvider>.value(
     value: provider,
     child: MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: const StartupDestinationGate(child: Scaffold(body: Text('普通首页'))),
       routes: <String, WidgetBuilder>{
         '/screen/poster-browse': (_) => const Scaffold(body: Text('海报首页')),
@@ -133,6 +137,9 @@ class _EligibilityHarnessState extends State<_EligibilityHarness> {
     return ChangeNotifierProvider<StartupPreferencesProvider>.value(
       value: widget.provider,
       child: MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: StartupDestinationGate(
           decisionReady: true,
           canOpenDestination: _canOpenDestination,
@@ -177,6 +184,9 @@ class _DecisionReadyHarnessState extends State<_DecisionReadyHarness> {
     return ChangeNotifierProvider<StartupPreferencesProvider>.value(
       value: widget.provider,
       child: MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: StartupDestinationGate(
           decisionReady: _decisionReady,
           canOpenDestination: true,

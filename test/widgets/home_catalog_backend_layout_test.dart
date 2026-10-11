@@ -7,6 +7,7 @@ import 'package:fly_player/media_backend/home_catalog_presentation.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/screens/home/widgets/home_catalog_section.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 const _image = MediaImageRequest(
   urls: <String>['https://example.test/library.jpg'],
@@ -33,6 +34,9 @@ Future<void> _withPendingImages(Future<void> Function() body) async {
 }
 
 Widget _app(HomeCatalogPresentation presentation) => MaterialApp(
+  locale: const Locale('zh', 'CN'),
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
   home: Scaffold(
     body: SizedBox(

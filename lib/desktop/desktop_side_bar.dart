@@ -128,7 +128,7 @@ class DesktopSideBar extends StatelessWidget {
                           icon: status?.canControl == true
                               ? Icons.connected_tv_rounded
                               : Icons.desktop_windows_outlined,
-                          label: '外部播放',
+                          label: l10n.externalPlaybackTitle,
                           selected: externalSelected,
                           onTap: () => onOpenExternalPlayback?.call(context),
                         ),

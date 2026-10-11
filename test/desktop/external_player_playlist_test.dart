@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/playback/external_player_playlist.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/media_backend.dart';
 import 'package:fly_player/models/download_task_record.dart';
 import 'package:fly_player/models/stream_track_data.dart';
@@ -160,6 +162,7 @@ void main() {
         seasonNumber: current.seasonNumber,
         episodeNumber: current.episodeNumber,
       ),
+      l10n: lookupAppLocalizations(const Locale('zh', 'CN')),
       backend: _NoNetworkBackend(),
       nas: _NoNetworkNas(),
       fallback: const <Map<String, dynamic>>[
@@ -196,7 +199,12 @@ void main() {
       'episode-3',
       'episode-4',
     ]);
-    expect(result.first.episodeTitle, '补充故事');
+    expect(
+      result.first.episodeTitle(
+        lookupAppLocalizations(const Locale('zh', 'CN')),
+      ),
+      '补充故事',
+    );
     expect(
       result.where((episode) => episode.itemGuid == 'episode-2'),
       hasLength(1),

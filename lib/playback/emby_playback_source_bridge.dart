@@ -7,6 +7,7 @@ import '../models/playback_stream.dart';
 import '../models/stream_track_data.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'playback_source.dart';
+import '../providers/app_locale_provider.dart';
 
 /// Emby 播放桥接器：把后端中立 [MediaPlaybackBundle] 装配成播放器最终的 [MpvMediaSource]。
 ///
@@ -30,7 +31,11 @@ class EmbyPlaybackSourceBridge implements MediaPlaybackSourceBridge {
     required AppLocalizations l10n,
   }) async {
     if (context is! EmbyPlaybackContext) {
-      throw StateError('Emby 播放桥接器收到不匹配的后端上下文');
+      throw StateError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).embyBridgeBackendMismatch,
+      );
     }
     final source = await assemble(request: request, bundle: bundle);
     return MediaPlaybackSourceResult(source: source);

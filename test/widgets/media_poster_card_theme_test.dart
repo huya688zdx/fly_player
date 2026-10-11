@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('海报占位跟随主题，评分保持固定配色且不显示外框', (tester) async {
@@ -12,6 +13,9 @@ void main() {
     ]) {
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: AppThemeBuilder.build(
             preset,
             accentTone: preset == AppThemePreset.latte

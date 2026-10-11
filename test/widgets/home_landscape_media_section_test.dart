@@ -8,6 +8,7 @@ import 'package:fly_player/screens/home/widgets/home_landscape_media_section.dar
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/media_placeholder.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 const landscapeImage = MediaImageRequest(
   urls: <String>['https://example.test/backdrop.jpg'],
@@ -28,6 +29,9 @@ Widget testApp(
   double devicePixelRatio = 1,
   TextScaler textScaler = TextScaler.noScaling,
 }) => MaterialApp(
+  locale: const Locale('zh', 'CN'),
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
   home: MediaQuery(
     data: MediaQueryData(

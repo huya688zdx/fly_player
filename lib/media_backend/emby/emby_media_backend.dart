@@ -26,6 +26,8 @@ import '../session/media_backend_connection.dart';
 import 'emby_media_mappers.dart';
 import 'emby_playback_context.dart';
 import 'emby_playback_mappers.dart';
+import '../../l10n/generated/app_localizations.dart';
+import '../../providers/app_locale_provider.dart';
 
 /// Emby 媒体后端适配器——**首页 + 详情展示首光阶段**。
 ///
@@ -101,7 +103,9 @@ class EmbyMediaBackend implements MediaBackend {
         )) {
       visibleViews.add(<String, Object?>{
         'Id': _liveTvCatalogId,
-        'Name': '直播',
+        'Name': lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).playerLiveSourceLabel,
         'CollectionType': 'livetv',
       });
     }
@@ -852,7 +856,11 @@ class EmbyMediaBackend implements MediaBackend {
 
     final sources = _mediaSources(item);
     if (sources.isEmpty) {
-      throw StateError('Emby 条目 ${request.itemId} 无 MediaSources，无法播放');
+      throw StateError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).embySourceMissing(request.itemId),
+      );
     }
     // 多版本：qualityId 命中则取该版本，否则首源。裸 MediaSourceId（详情页版本切换）与
     // 画质候选 id（emby:q: 前缀，反向重载/切档）都归一成版本 id 查找。
@@ -1020,7 +1028,11 @@ class EmbyMediaBackend implements MediaBackend {
       mediaSourceId: requestedSourceId,
     );
     if (playbackInfo.mediaSources.isEmpty) {
-      throw StateError('直播频道 ${request.itemId} 无可用播放源');
+      throw StateError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).embyLiveNoSources(request.itemId),
+      );
     }
     var source = playbackInfo.mediaSources.first;
     if (requestedSourceId.isNotEmpty) {
@@ -1028,7 +1040,11 @@ class EmbyMediaBackend implements MediaBackend {
         (candidate) => (candidate['Id'] ?? '').toString() == requestedSourceId,
       );
       if (matches.isEmpty) {
-        throw StateError('直播频道 ${request.itemId} 找不到播放源 $requestedSourceId');
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).embyLiveSourceNotFound(request.itemId, requestedSourceId),
+        );
       }
       source = matches.first;
     }
@@ -1040,7 +1056,11 @@ class EmbyMediaBackend implements MediaBackend {
       if (source['RequiresOpening'] == true) {
         final openToken = (source['OpenToken'] ?? '').toString().trim();
         if (openToken.isEmpty) {
-          throw StateError('直播频道 ${request.itemId} 缺少 OpenToken');
+          throw StateError(
+            lookupAppLocalizations(
+              AppLocaleProvider.effectiveLocale,
+            ).embyLiveMissingOpenToken(request.itemId),
+          );
         }
         source = await api.openLiveStream(
           serverUrl: _serverUrl,
@@ -1054,7 +1074,11 @@ class EmbyMediaBackend implements MediaBackend {
       }
       final actualSourceId = (source['Id'] ?? '').toString().trim();
       if (actualSourceId.isEmpty) {
-        throw StateError('直播频道 ${request.itemId} 的播放源缺少 Id');
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).embyLiveSourceMissingId(request.itemId),
+        );
       }
       final liveStreamId = (source['LiveStreamId'] ?? '').toString().trim();
       final requiresClosing = source['RequiresClosing'] == true;

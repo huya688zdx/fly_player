@@ -376,11 +376,11 @@ class _DesktopHoverQualityPanelState extends State<DesktopHoverQualityPanel> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final colors = context.appColors;
-    final menu = DesktopMpvRuntime.qualityMenu(widget.source);
+    final menu = DesktopMpvRuntime.qualityMenu(widget.source, l10n: l10n);
     if (widget.source.isLive) {
       return DesktopHoverOptionsPanel(
-        title: '直播线路',
-        emptyLabel: '暂无可用线路',
+        title: l10n.playerLiveSourceGroup,
+        emptyLabel: l10n.playerNoLiveLines,
         options: [
           for (final line in menu.mainChoices)
             DesktopPlayerPanelOption(

@@ -33,6 +33,8 @@ import '../utils/swallowed_error_logger.dart';
 import 'app_log_service.dart';
 import 'storage_access_service.dart';
 import 'storage_management_service.dart';
+import '../../l10n/generated/app_localizations.dart';
+import '../../providers/app_locale_provider.dart';
 
 /// 表示发起下载后的即时状态。
 enum DownloadStartState { started, downloading, downloaded, importedFromCache }
@@ -54,7 +56,11 @@ class DownloadStartResult {
 ) {
   final type = (headers.value('content-type') ?? '').toLowerCase();
   if (type.contains('json') || type.contains('text/html')) {
-    throw const FormatException('下载接口返回了错误信息，而非媒体文件');
+    throw FormatException(
+      lookupAppLocalizations(
+        AppLocaleProvider.effectiveLocale,
+      ).downloadTaskInvalidResponse,
+    );
   }
   if (status == 206) {
     final match = RegExp(
@@ -64,11 +70,21 @@ class DownloadStartResult {
         int.parse(match[1]!) != requestedOffset ||
         int.parse(match[2]!) < requestedOffset ||
         int.parse(match[2]!) >= int.parse(match[3]!)) {
-      throw const FormatException('服务器返回的续传范围不正确');
+      throw FormatException(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).downloadResumeRangeInvalid,
+      );
     }
     return (offset: requestedOffset, total: int.parse(match[3]!));
   }
-  if (status != 200) throw const FormatException('下载响应状态不正确');
+  if (status != 200) {
+    throw FormatException(
+      lookupAppLocalizations(
+        AppLocaleProvider.effectiveLocale,
+      ).downloadStatusInvalid,
+    );
+  }
   return (
     offset: 0,
     total:
@@ -789,7 +805,11 @@ class DownloadTaskService extends ChangeNotifier {
       var remoteOwnerKey = current.remoteOwnerKey;
       if (remoteOwnerKey.isNotEmpty &&
           remoteOwnerKey != _downloadOwnerKey(provider)) {
-        throw StateError('请连接创建该下载任务的服务器和账号后继续');
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).downloadTaskServerMismatch,
+        );
       }
       if (taskId.isNotEmpty) {
         try {
@@ -1240,7 +1260,13 @@ class DownloadTaskService extends ChangeNotifier {
               DownloadTaskStatus.downloading) {
             return;
           }
-          if (progress == null) throw StateError('下载任务进度响应为空');
+          if (progress == null) {
+            throw StateError(
+              lookupAppLocalizations(
+                AppLocaleProvider.effectiveLocale,
+              ).downloadProgressEmpty,
+            );
+          }
           if (progress.status == 1) {
             _stopDownloadTaskProgressPolling(record.id);
             await _performDownload(
@@ -1252,7 +1278,11 @@ class DownloadTaskService extends ChangeNotifier {
             return;
           }
           if (progress.status != 0) {
-            throw StateError('服务端下载任务失败：${progress.status}');
+            throw StateError(
+              lookupAppLocalizations(
+                AppLocaleProvider.effectiveLocale,
+              ).downloadTaskServerFailed('${progress.status}'),
+            );
           }
           failures = 0;
           if (record.resolution.toLowerCase() != 'others') {
@@ -1711,7 +1741,11 @@ class DownloadTaskService extends ChangeNotifier {
       }
       await raf.flush();
       if (range.total > 0 && await raf.length() != range.total) {
-        throw const FileSystemException('下载未完整接收，请继续下载');
+        throw FileSystemException(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).downloadIncomplete,
+        );
       }
       if (cancelToken.isCancelled ||
           _recordById(record.id)?.status != DownloadTaskStatus.downloading) {
@@ -5464,7 +5498,9 @@ class DownloadTaskService extends ChangeNotifier {
 
       if (!await DanDanPlayConfig.ensureConfigured()) {
         await AppLogService.instance.recordWarning(
-          error: '随片弹幕未下载：弹弹play凭据未配置',
+          error: lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).downloadDanmakuNoCredentials,
           source: 'download-danmaku-prefetch',
           details: 'item=${record.itemGuid}',
         );
@@ -5509,7 +5545,9 @@ class DownloadTaskService extends ChangeNotifier {
       if (resolved == null) {
         await AppLogService.instance.record(
           level: AppLogLevel.info,
-          error: '随片弹幕未下载：未匹配到可用弹幕',
+          error: lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).downloadDanmakuNoMatch,
           source: 'download-danmaku-prefetch',
           details:
               'title=$seriesTitle season=${item.seasonNumber} '
@@ -5599,7 +5637,9 @@ class DownloadTaskService extends ChangeNotifier {
         }
         await AppLogService.instance.record(
           level: AppLogLevel.info,
-          error: '随片弹幕已保存',
+          error: lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).downloadDanmakuSaved,
           source: 'download-danmaku-prefetch',
           details:
               'item=${record.itemGuid} '

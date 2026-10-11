@@ -137,16 +137,16 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     showExternalPlaybackNotice(context, message);
   }
 
-  Future<void> _run(
-    Future<bool?> Function() action, {
-    String failure = '操作未能完成，请确认外部播放器会话仍然有效',
-  }) async {
+  Future<void> _run(Future<bool?> Function() action, {String? failure}) async {
     if (_busy) return;
+    final l10n = AppLocalizations.of(context);
     setState(() => _busy = true);
     try {
-      if (await action() == false) _message(failure);
+      if (await action() == false) {
+        _message(failure ?? l10n.externalPlaybackFailureGeneric);
+      }
     } catch (_) {
-      _message(failure);
+      _message(failure ?? l10n.externalPlaybackFailureGeneric);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -157,6 +157,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     if (draft == null) return;
     final itemGuid = status.source.itemGuid;
     final mediaGuid = status.source.mediaGuid;
+    final l10n = AppLocalizations.of(context);
     await _run(() async {
       final applied = await ExternalPlaybackHost.applySettings(
         itemGuid: itemGuid,
@@ -174,7 +175,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           _appliedSubtitleGuid =
               ExternalPlaybackHost.status.value!.source.subtitleTrackGuid;
         });
-        _message('设置已应用到 ${status.player.displayName}');
+        _message(
+          l10n.externalPlaybackSettingsApplied(status.player.displayName),
+        );
       }
       return applied;
     });
@@ -284,6 +287,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildIdle(BuildContext context) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     final buttonShape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
     );
@@ -313,7 +317,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                '当前没有外部播放',
+                l10n.externalPlaybackIdleTitle,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: colors.textPrimary,
@@ -325,7 +329,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 340),
                 child: Text(
-                  '从媒体详情页使用外部播放器播放，\n即可在这里管理进度、弹幕、字幕与剧集。',
+                  l10n.externalPlaybackIdleDescription,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: colors.textSecondary,
@@ -352,7 +356,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                       shape: buttonShape,
                     ),
                     icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                    label: const Text('返回媒体库'),
+                    label: Text(l10n.externalPlaybackBackToLibrary),
                   ),
                   OutlinedButton.icon(
                     onPressed: () => Navigator.of(
@@ -371,7 +375,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                       shape: buttonShape,
                     ),
                     icon: const Icon(Icons.tune_rounded, size: 18),
-                    label: const Text('外部播放器设置'),
+                    label: Text(l10n.externalPlaybackPlayerSettings),
                   ),
                 ],
               ),
@@ -384,12 +388,13 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildPageHeader(BuildContext context, ExternalPlaybackStatus status) {
     final colors = AppAmbientPage.controlColorsOf(context);
-    final phase = _phaseLabel(status);
+    final l10n = AppLocalizations.of(context);
+    final phase = _phaseLabel(status, l10n);
     return Row(
       children: [
         IconButton(
           onPressed: () => Navigator.of(context).maybePop(),
-          tooltip: '返回',
+          tooltip: l10n.playerBackAction,
           icon: const Icon(Icons.arrow_back_rounded),
         ),
         const SizedBox(width: 6),
@@ -398,7 +403,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '外部播放',
+                l10n.externalPlaybackTitle,
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: 21,
@@ -407,7 +412,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                '${status.player.displayName} 会话控制与片源设置',
+                l10n.externalPlaybackSubtitle(status.player.displayName),
                 style: TextStyle(color: colors.textMuted, fontSize: 12),
               ),
             ],
@@ -448,7 +453,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           onPressed: () => Navigator.of(
             context,
           ).pushNamed(SettingsDestinationRoutes.externalPlayer),
-          tooltip: '外部播放器设置',
+          tooltip: l10n.externalPlaybackPlayerSettings,
           icon: const Icon(Icons.tune_rounded),
         ),
       ],
@@ -457,6 +462,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildMiniModeButton() {
     final compact = MediaQuery.sizeOf(context).width < 680;
+    final l10n = AppLocalizations.of(context);
     return ValueListenableBuilder<bool>(
       valueListenable: ExternalPlaybackMiniController.available,
       builder: (context, available, _) => ValueListenableBuilder<bool>(
@@ -474,7 +480,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                   try {
                     await ExternalPlaybackMiniController.enter();
                   } catch (_) {
-                    _message('无法打开极简模式，请重试');
+                    _message(l10n.externalPlaybackMiniModeOpenFailed);
                   }
                 }
               : null;
@@ -484,13 +490,19 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           return compact
               ? IconButton(
                   onPressed: action,
-                  tooltip: active ? '极简模式已开启' : '打开极简模式',
+                  tooltip: active
+                      ? l10n.externalPlaybackMiniModeOnTooltip
+                      : l10n.externalPlaybackMiniModeOpenTooltip,
                   icon: Icon(icon, size: 18),
                 )
               : TextButton.icon(
                   onPressed: action,
                   icon: Icon(icon, size: 17),
-                  label: Text(active ? '极简模式中' : '极简模式'),
+                  label: Text(
+                    active
+                        ? l10n.externalPlaybackMiniModeActiveLabel
+                        : l10n.externalPlaybackMiniModeLabel,
+                  ),
                 );
         },
       ),
@@ -499,6 +511,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildNowPlaying(BuildContext context, ExternalPlaybackStatus status) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     final source = status.source;
     final poster = _posterRequest(context, source);
     final durationMs = status.duration.inMilliseconds.toDouble();
@@ -542,7 +555,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      source.seriesTitle.isEmpty ? '正在播放' : source.seriesTitle,
+                      source.seriesTitle.isEmpty
+                          ? l10n.externalPlaybackNowPlaying
+                          : source.seriesTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -554,7 +569,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                     const SizedBox(height: 5),
                     Text(
                       currentIndex >= 0
-                          ? status.playlist[currentIndex].episodeTitle
+                          ? status.playlist[currentIndex].episodeTitle(l10n)
                           : source.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -568,13 +583,15 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                     Text(
                       [
                         if (source.seasonNumber > 0)
-                          '第 ${source.seasonNumber} 季',
+                          l10n.detailSeasonNumber(source.seasonNumber),
                         if (source.episodeNumber > 0)
-                          '第 ${source.episodeNumber} 集',
+                          l10n.externalPlaybackEpisodeLabel(
+                            source.episodeNumber,
+                          ),
                         if (source.resolution.isNotEmpty) source.resolution,
                         if (source.isDownloadedFile ||
                             source.externalLocalSource)
-                          '本地文件',
+                          l10n.externalPlaybackLocalFile,
                       ].join('  ·  '),
                       style: TextStyle(
                         color: colors.textSecondary,
@@ -598,20 +615,24 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                       ? Icons.play_arrow_rounded
                       : Icons.pause_rounded,
                 ),
-                label: Text(status.paused ? '继续' : '暂停'),
+                label: Text(
+                  status.paused
+                      ? l10n.externalPlaybackResume
+                      : l10n.externalPlaybackPause,
+                ),
               ),
               IconButton.filledTonal(
                 onPressed: !_busy && status.canControl && previous != null
                     ? () => _playEpisode(status, previous)
                     : null,
-                tooltip: '上一集',
+                tooltip: l10n.desktopPlaybackPrevEpisodeLabel,
                 icon: const Icon(Icons.skip_previous_rounded),
               ),
               IconButton.filledTonal(
                 onPressed: !_busy && status.canControl && next != null
                     ? () => _playEpisode(status, next)
                     : null,
-                tooltip: '下一集',
+                tooltip: l10n.playerNextEpisodeLabel,
                 icon: const Icon(Icons.skip_next_rounded),
               ),
               TextButton.icon(
@@ -623,7 +644,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                       )
                     : null,
                 icon: const Icon(Icons.open_in_new_rounded),
-                label: Text('回到 ${status.player.displayName}'),
+                label: Text(
+                  l10n.externalPlaybackBackToPlayer(status.player.displayName),
+                ),
               ),
             ],
           ),
@@ -674,7 +697,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               status.progressMessage.isEmpty &&
               status.error == null)
             Text(
-              '最近一次服务器同步：${_clock(status.lastSyncedAt!)}',
+              l10n.externalPlaybackLastSync(_clock(status.lastSyncedAt!)),
               style: TextStyle(color: colors.textMuted, fontSize: 11),
             ),
         ],
@@ -687,8 +710,10 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     ExternalPlaybackStatus status,
   ) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     final message = normalizeExternalPlaybackNotice(
       status.error ?? status.progressMessage,
+      l10n,
     );
     final failed =
         status.error != null ||
@@ -735,9 +760,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 ? null
                 : () => _run(
                     () => ExternalPlaybackHost(context).reconnect(),
-                    failure: '重新连接外部播放器失败',
+                    failure: l10n.externalPlaybackReconnectFailed,
                   ),
-            child: const Text('重新连接'),
+            child: Text(l10n.externalPlaybackReconnect),
           )
         else if (status.canControl &&
             (status.progressResult == PlaybackProgressResult.failed ||
@@ -747,9 +772,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 ? null
                 : () => _run(
                     ExternalPlaybackHost.retryProgress,
-                    failure: '重试进度回报失败',
+                    failure: l10n.externalPlaybackRetryProgressFailed,
                   ),
-            child: const Text('重试回报'),
+            child: Text(l10n.externalPlaybackRetryProgress),
           ),
       ],
     );
@@ -774,6 +799,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     ExternalPlaybackStatus status,
   ) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     return _Panel(
       padding: EdgeInsets.zero,
       child: Column(
@@ -785,14 +811,14 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 _TabButton(
                   selected: _tabIndex == 0,
                   icon: Icons.subtitles_rounded,
-                  label: '弹幕',
+                  label: l10n.externalPlaybackTabDanmaku,
                   onTap: () => setState(() => _tabIndex = 0),
                 ),
                 const SizedBox(width: 20),
                 _TabButton(
                   selected: _tabIndex == 1,
                   icon: Icons.video_settings_rounded,
-                  label: '片源与字幕',
+                  label: l10n.externalPlaybackTabSourceSubtitle,
                   onTap: () => setState(() => _tabIndex = 1),
                 ),
               ],
@@ -822,8 +848,10 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 Expanded(
                   child: Text(
                     _dirty && !_canApply(status)
-                        ? '启用弹幕前，请关闭内封/位图字幕或改选外挂文本字幕'
-                        : (_dirty ? '有尚未应用的更改' : '设置已与当前会话同步'),
+                        ? l10n.externalPlaybackDirtyBlockedHint
+                        : (_dirty
+                              ? l10n.externalPlaybackDirtyHint
+                              : l10n.externalPlaybackSyncedHint),
                     style: TextStyle(
                       color: _dirty ? colors.warning : colors.textSecondary,
                       fontSize: 12,
@@ -834,7 +862,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                   onPressed: _busy && _dirty
                       ? null
                       : (_dirty ? _resetDraft : null),
-                  child: const Text('撤销'),
+                  child: Text(l10n.externalPlaybackUndo),
                 ),
                 const SizedBox(width: 8),
                 FilledButton.icon(
@@ -847,7 +875,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                       ? () => _apply(status)
                       : null,
                   icon: const Icon(Icons.sync_rounded, size: 18),
-                  label: Text('应用到 ${status.player.displayName}'),
+                  label: Text(
+                    l10n.externalPlaybackApplyTo(status.player.displayName),
+                  ),
                 ),
               ],
             ),
@@ -859,11 +889,12 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildDanmaku(BuildContext context, ExternalPlaybackStatus status) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     if (!status.player.supportsSubtitles) {
       return Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          '${status.player.displayName} 暂不支持由 Fly Player 编辑字幕或弹幕。',
+          l10n.externalPlaybackUnsupportedEdit(status.player.displayName),
           style: TextStyle(color: colors.textMuted, fontSize: 12),
         ),
       );
@@ -880,7 +911,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 children: [
                   Text(
                     status.danmakuLabel.isEmpty
-                        ? '未选择弹幕源'
+                        ? l10n.externalPlaybackNoDanmakuSource
                         : status.danmakuLabel,
                     style: TextStyle(
                       color: colors.textPrimary,
@@ -890,8 +921,8 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                   const SizedBox(height: 4),
                   Text(
                     status.danmakuCount > 0
-                        ? '${status.danmakuCount} 条弹幕'
-                        : '没有已加载的弹幕',
+                        ? l10n.externalPlaybackDanmakuCount(status.danmakuCount)
+                        : l10n.externalPlaybackNoDanmaku,
                     style: TextStyle(color: colors.textMuted, fontSize: 11),
                   ),
                 ],
@@ -900,7 +931,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             TextButton.icon(
               onPressed: status.canControl ? () => _showSources(status) : null,
               icon: const Icon(Icons.search_rounded, size: 18),
-              label: const Text('搜索或导入'),
+              label: Text(l10n.externalPlaybackSearchOrImport),
             ),
             const SizedBox(width: 8),
             Switch(
@@ -920,7 +951,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             final oneColumn = constraints.maxWidth < 660;
             final settings = <Widget>[
               _SettingSlider(
-                label: '字号',
+                label: l10n.externalPlaybackFontSize,
                 value: draft.fontScale,
                 min: 0.6,
                 max: 1.4,
@@ -929,7 +960,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                     setState(() => _draft = draft.copyWith(fontScale: value)),
               ),
               _SettingSlider(
-                label: '不透明度',
+                label: l10n.danmakuOpacity,
                 value: draft.opacity,
                 min: 0.2,
                 max: 1,
@@ -938,7 +969,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                     setState(() => _draft = draft.copyWith(opacity: value)),
               ),
               _SettingSlider(
-                label: '密度',
+                label: l10n.externalPlaybackDensity,
                 value: draft.density,
                 min: 0.2,
                 max: 1,
@@ -947,7 +978,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                     setState(() => _draft = draft.copyWith(density: value)),
               ),
               _SettingSlider(
-                label: '速度',
+                label: l10n.externalPlaybackSpeed,
                 value: draft.speed,
                 min: 0.5,
                 max: 2,
@@ -980,7 +1011,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          '显示区域 ${(draft.displayAreaRatio * 100).round()}%',
+          l10n.externalPlaybackDisplayArea(
+            (draft.displayAreaRatio * 100).round(),
+          ),
           style: TextStyle(color: colors.textPrimary, fontSize: 12),
         ),
         Slider(
@@ -997,26 +1030,26 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           children: [
             FilterChip(
               selected: draft.scrollEnabled,
-              label: const Text('滚动'),
+              label: Text(l10n.danmakuTypeScroll),
               onSelected: (value) =>
                   setState(() => _draft = draft.copyWith(scrollEnabled: value)),
             ),
             FilterChip(
               selected: draft.topEnabled,
-              label: const Text('顶部'),
+              label: Text(l10n.danmakuPositionTop),
               onSelected: (value) =>
                   setState(() => _draft = draft.copyWith(topEnabled: value)),
             ),
             FilterChip(
               selected: draft.bottomEnabled,
-              label: const Text('底部'),
+              label: Text(l10n.danmakuTypeBottom),
               onSelected: (value) =>
                   setState(() => _draft = draft.copyWith(bottomEnabled: value)),
             ),
             FilterChip(
               selected: draft.avoidSubtitleArea,
               avatar: const Icon(Icons.subtitles_off_rounded, size: 16),
-              label: const Text('避让字幕区域'),
+              label: Text(l10n.danmakuAvoidSubtitleArea),
               onSelected: (value) => setState(
                 () => _draft = draft.copyWith(avoidSubtitleArea: value),
               ),
@@ -1029,6 +1062,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildPreview(BuildContext context, DanmakuSettings draft) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     return Container(
       height: 154,
       clipBehavior: Clip.antiAlias,
@@ -1058,14 +1092,17 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               Positioned(
                 top: 25,
                 left: 28,
-                child: _PreviewText('这一幕的配乐太棒了', draft: draft),
+                child: _PreviewText(
+                  l10n.externalPlaybackPreviewScroll,
+                  draft: draft,
+                ),
               ),
             if (draft.topEnabled)
               Positioned(
                 top: 62,
                 right: 42,
                 child: _PreviewText(
-                  '前方高能',
+                  l10n.externalPlaybackPreviewTop,
                   draft: draft,
                   color: colors.accentStrong,
                 ),
@@ -1074,17 +1111,23 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               Positioned(
                 bottom: 38,
                 left: 90,
-                child: _PreviewText('细节满分', draft: draft),
+                child: _PreviewText(
+                  l10n.externalPlaybackPreviewBottom,
+                  draft: draft,
+                ),
               ),
           ] else
             Center(
-              child: Text('弹幕已关闭', style: TextStyle(color: colors.textMuted)),
+              child: Text(
+                l10n.externalPlaybackPreviewDisabled,
+                style: TextStyle(color: colors.textMuted),
+              ),
             ),
           Positioned(
             left: 12,
             bottom: 10,
             child: Text(
-              '样式预览',
+              l10n.externalPlaybackPreviewLabel,
               style: TextStyle(color: colors.textMuted, fontSize: 10),
             ),
           ),
@@ -1093,7 +1136,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               right: 12,
               bottom: 10,
               child: Text(
-                '字幕避让区',
+                l10n.externalPlaybackPreviewSubtitleAvoid,
                 style: TextStyle(color: colors.textMuted, fontSize: 10),
               ),
             ),
@@ -1107,7 +1150,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     final l10n = AppLocalizations.of(context);
     final source = status.source;
     final subtitles = _textSubtitles(source);
-    final qualityMenu = DesktopMpvRuntime.qualityMenu(source);
+    final qualityMenu = DesktopMpvRuntime.qualityMenu(source, l10n: l10n);
     final currentQuality = qualityMenu.customGroups.values
         .expand((choices) => choices)
         .where((choice) => DesktopMpvRuntime.isCurrentQuality(source, choice))
@@ -1119,7 +1162,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
       if (source.subtitleTrackGuid == null)
         TrackOptionSheetItem(
           id: _externalPlayerSubtitleId,
-          title: '由 ${status.player.displayName} 选择',
+          title: l10n.externalPlaybackSubtitleByPlayer(
+            status.player.displayName,
+          ),
         ),
       ...PlayDetailSheetController.subtitleItems(
         subtitleTracks: subtitles,
@@ -1138,13 +1183,17 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               (track) =>
                   track.guid == source.subtitleTrackGuid && track.isBitmap == 1,
             )
-            ? '当前位图字幕（在 ${status.player.displayName} 中切换）'
-            : '当前内封字幕（在 ${status.player.displayName} 中切换）');
+            ? l10n.externalPlaybackCurrentBitmapSubtitle(
+                status.player.displayName,
+              )
+            : l10n.externalPlaybackCurrentEmbeddedSubtitle(
+                status.player.displayName,
+              ));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '视频质量',
+          l10n.externalPlaybackQualityTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontWeight: FontWeight.w600,
@@ -1153,15 +1202,15 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         const SizedBox(height: 12),
         if (source.qualities.isEmpty)
           Text(
-            '当前媒体没有其他可切换片源',
+            l10n.externalPlaybackNoQualityOptions,
             style: TextStyle(color: colors.textMuted, fontSize: 12),
           )
         else
           _buildTrackDropdown(
             dropdownKey: _qualityDropdownKey,
             valueLabel: currentQuality == null
-                ? '选择视频质量'
-                : _qualityLabel(currentQuality),
+                ? l10n.externalPlaybackQualityPlaceholder
+                : _qualityLabel(currentQuality, l10n),
             spec: !_busy && status.canControl
                 ? DesktopHoverDropdownSpec.custom(
                     width: 420,
@@ -1174,7 +1223,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                             itemGuid: source.itemGuid,
                             quality: source.qualities[index],
                           ),
-                          failure: '画质切换失败，请稍后重试',
+                          failure: l10n.externalPlaybackQualitySwitchFailed,
                         );
                       },
                     ),
@@ -1184,13 +1233,13 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         if (!status.player.supportsSubtitles) ...[
           const SizedBox(height: 26),
           Text(
-            '${status.player.displayName} 暂不支持由 Fly Player 编辑字幕或弹幕。',
+            l10n.externalPlaybackUnsupportedEdit(status.player.displayName),
             style: TextStyle(color: colors.textMuted, fontSize: 11),
           ),
         ] else ...[
           const SizedBox(height: 26),
           Text(
-            '外挂字幕',
+            l10n.externalPlaybackExternalSubtitlesTitle,
             style: TextStyle(
               color: colors.textPrimary,
               fontWeight: FontWeight.w600,
@@ -1198,7 +1247,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            '启用弹幕时，Fly Player 会将外挂 ASS、SRT、VTT 与弹幕合成为一条临时 ASS；关闭字幕只关闭影片字幕。',
+            l10n.externalPlaybackSubtitleMergeHint,
             style: TextStyle(color: colors.textMuted, fontSize: 11),
           ),
           const SizedBox(height: 12),
@@ -1227,8 +1276,12 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                         track.guid == source.subtitleTrackGuid &&
                         track.isBitmap == 1,
                   )
-                  ? '当前是位图字幕，请在 ${status.player.displayName} 菜单中切换；这里可关闭或改用外挂文本字幕。'
-                  : '当前是内封字幕，请在 ${status.player.displayName} 菜单中切换；这里可关闭或改用外挂文本字幕。',
+                  ? l10n.externalPlaybackBitmapSwitchHint(
+                      status.player.displayName,
+                    )
+                  : l10n.externalPlaybackEmbeddedSwitchHint(
+                      status.player.displayName,
+                    ),
               style: TextStyle(
                 color: colors.warning,
                 fontSize: 11,
@@ -1255,7 +1308,9 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                 const SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    '音轨和内封字幕由 ${status.player.displayName} 管理，请在播放器菜单中切换。',
+                    l10n.externalPlaybackAudioManagedHint(
+                      status.player.displayName,
+                    ),
                     style: TextStyle(
                       color: colors.textSecondary,
                       fontSize: 12,
@@ -1310,6 +1365,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
 
   Widget _buildPlaylist(BuildContext context, ExternalPlaybackStatus status) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     final seasons =
         status.playlist.map((episode) => episode.seasonNumber).toSet().toList()
           ..sort();
@@ -1330,7 +1386,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    '播放列表',
+                    l10n.externalPlaybackPlaylistTitle,
                     style: TextStyle(
                       color: colors.textPrimary,
                       fontWeight: FontWeight.w700,
@@ -1338,7 +1394,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                   ),
                 ),
                 Text(
-                  '${episodes.length} 集',
+                  l10n.externalPlaybackEpisodeCount(episodes.length),
                   style: TextStyle(color: colors.textMuted, fontSize: 11),
                 ),
               ],
@@ -1349,16 +1405,20 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
               child: _buildTrackDropdown(
                 dropdownKey: _seasonDropdownKey,
-                valueLabel: season == 0 ? '特别篇' : '第 $season 季',
+                valueLabel: season == 0
+                    ? l10n.playerEpisodeSpecialSeason
+                    : l10n.detailSeasonNumber(season),
                 spec: seasons.length > 1
                     ? DesktopHoverDropdownSpec.single(
-                        title: '选择季',
+                        title: l10n.externalPlaybackSeasonPickerTitle,
                         width: 280,
                         items: [
                           for (final number in seasons)
                             TrackOptionSheetItem(
                               id: '$number',
-                              title: number == 0 ? '特别篇' : '第 $number 季',
+                              title: number == 0
+                                  ? l10n.playerEpisodeSpecialSeason
+                                  : l10n.detailSeasonNumber(number),
                             ),
                         ],
                         selectedId: '$season',
@@ -1373,7 +1433,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             Padding(
               padding: const EdgeInsets.all(22),
               child: Text(
-                '当前会话没有剧集目录',
+                l10n.externalPlaybackPlaylistEmpty,
                 style: TextStyle(color: colors.textMuted, fontSize: 12),
               ),
             )
@@ -1407,7 +1467,7 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
                           ),
                         ),
                         title: Text(
-                          episode.episodeTitle,
+                          episode.episodeTitle(l10n),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1431,8 +1491,10 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
             child: Text(
               status.player.supportsPlaylist
-                  ? '切集后会重新解析该集的片源、字幕和弹幕；连续播放由 ${status.player.displayName} 的播放列表设置控制。'
-                  : '切集后会重新解析该集的片源、字幕和弹幕。',
+                  ? l10n.externalPlaybackPlaylistHintPlaylist(
+                      status.player.displayName,
+                    )
+                  : l10n.externalPlaybackPlaylistHint,
               style: TextStyle(color: colors.textMuted, fontSize: 10),
             ),
           ),
@@ -1450,16 +1512,21 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
         itemGuid: status.source.itemGuid,
         episodeGuid: episode.itemGuid,
       ),
-      failure: '剧集切换失败，请稍后重试',
+      failure: AppLocalizations.of(context).externalPlaybackEpisodeSwitchFailed,
     );
   }
 
-  String _phaseLabel(ExternalPlaybackStatus status) => switch (status.phase) {
-    ExternalPlaybackPhase.preparing => '正在连接',
-    ExternalPlaybackPhase.ready => status.paused ? '已暂停' : '播放中',
-    ExternalPlaybackPhase.disconnected => '连接已断开',
-    ExternalPlaybackPhase.ended => '播放已结束',
-  };
+  String _phaseLabel(ExternalPlaybackStatus status, AppLocalizations l10n) =>
+      switch (status.phase) {
+        ExternalPlaybackPhase.preparing => l10n.externalPlaybackPhasePreparing,
+        ExternalPlaybackPhase.ready =>
+          status.paused
+              ? l10n.externalPlaybackPhasePaused
+              : l10n.externalPlaybackPhasePlaying,
+        ExternalPlaybackPhase.disconnected =>
+          l10n.externalPlaybackPhaseDisconnected,
+        ExternalPlaybackPhase.ended => l10n.externalPlaybackPhaseEnded,
+      };
 
   Color _phaseColor(AppThemeColors colors, ExternalPlaybackStatus status) =>
       switch (status.phase) {
@@ -1482,8 +1549,11 @@ class _ExternalPlaybackScreenState extends State<ExternalPlaybackScreen> {
     return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}:${local.second.toString().padLeft(2, '0')}';
   }
 
-  static String _qualityLabel(DesktopQualityChoice choice) => [
-    if (choice.isOriginal) '原画',
+  static String _qualityLabel(
+    DesktopQualityChoice choice,
+    AppLocalizations l10n,
+  ) => [
+    if (choice.isOriginal) l10n.playerQualityOriginal,
     choice.displayTier,
     DesktopMpvRuntime.qualityBitrateLabel(choice.quality.bitrate),
   ].where((part) => part.isNotEmpty).join(' · ');

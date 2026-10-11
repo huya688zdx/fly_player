@@ -7,6 +7,7 @@ import 'package:fly_player/media_backend/home_catalog_presentation.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/screens/home/widgets/home_catalog_section.dart';
 import 'package:fly_player/theme/app_theme.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 const loadableImage = MediaImageRequest(
   urls: <String>['https://example.test/artwork.jpg'],
@@ -19,6 +20,9 @@ Widget testApp(
   AppThemeColors? runtimeColors,
   AppThemePreset preset = AppThemePreset.midnight,
 }) => MaterialApp(
+  locale: const Locale('zh', 'CN'),
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
   theme: AppThemeBuilder.build(preset),
   home: AppRuntimeColorScope(
     colors: runtimeColors,
@@ -32,6 +36,9 @@ Widget responsiveTestApp({
   required double devicePixelRatio,
   required Widget child,
 }) => MaterialApp(
+  locale: const Locale('zh', 'CN'),
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
   home: MediaQuery(
     data: MediaQueryData(

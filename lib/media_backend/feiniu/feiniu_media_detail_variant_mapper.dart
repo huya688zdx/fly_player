@@ -104,7 +104,10 @@ MediaInfoCard _feiniuSubtitleCard(
   SubtitleTrackOption subtitle,
   AppLocalizations l10n,
 ) {
-  final lan = MediaLanguageMapper.languageName(subtitle.language);
+  final lan = MediaLanguageMapper.languageName(
+    subtitle.language,
+    uiLocaleName: l10n.localeName,
+  );
   final fmt =
       (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
           .trim()

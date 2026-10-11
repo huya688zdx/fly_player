@@ -24,13 +24,16 @@ import '../services/play_stats/play_stats_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/detail_top_tip.dart';
+import '../providers/app_locale_provider.dart';
 
 /// 负责从季度列表上下文拉起播放器。
 class TvSeasonPlaybackLauncher {
   static final DetailTopTip _topTip = DetailTopTip();
 
   /// 未支持平台的播放入口提示。
-  static const String desktopPlaybackBlockedMessage = '当前平台暂不支持播放';
+  static String get desktopPlaybackBlockedMessage => lookupAppLocalizations(
+    AppLocaleProvider.effectiveLocale,
+  ).playbackBlockedPlatform;
 
   /// 创建一个季度播放拉起器实例。
   const TvSeasonPlaybackLauncher();
@@ -359,7 +362,11 @@ class TvSeasonPlaybackLauncher {
       l10n: l10n,
     );
     if (statsScope != PlayStatsService.instance.currentScope) {
-      throw StateError('媒体账号已切换，请重新播放。');
+      throw StateError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).mediaAccountSwitched,
+      );
     }
     final source = assembled.source.copyWith(statsScope: statsScope);
     final playInfo = assembled.legacySidecar;

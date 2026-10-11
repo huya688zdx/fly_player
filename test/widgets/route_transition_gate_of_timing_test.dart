@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/ui/route_transition_gate.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 /// RouteTransitionGate 等待时序测试（§5.2 测试 3/4/5，docs/plans/route-gate-popup-jank-fix.md）。
 ///
@@ -131,6 +132,9 @@ void main() {
     final floatingAnchorKey = GlobalKey<RouteGateAnchorState>();
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         builder: (context, child) => Column(
           children: <Widget>[
             Builder(

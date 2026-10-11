@@ -5,6 +5,7 @@ import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/layout_adaptive.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
 import 'package:fly_player/desktop/desktop_environment.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   MediaLayoutProfile profile({
@@ -72,6 +73,9 @@ void main() {
     for (final scale in <double>[2, 3]) {
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: AppThemeBuilder.build(AppThemePreset.midnight),
           home: MediaQuery(
             data: MediaQueryData(

@@ -4,6 +4,7 @@ import 'package:fly_player/widgets/common/bird_loader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('BirdLoader 循环动画无异常', (tester) async {
@@ -51,6 +52,9 @@ void main() {
       const MediaQuery(
         data: MediaQueryData(disableAnimations: true),
         child: MaterialApp(
+          locale: Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(body: Center(child: BirdLoader(size: 64))),
         ),
       ),

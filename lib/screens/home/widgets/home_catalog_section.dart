@@ -6,6 +6,7 @@ import '../../../media_backend/media_image_request.dart';
 import '../../../theme/app_theme.dart';
 import 'home_horizontal_shelf.dart';
 import 'home_section_header.dart';
+import '../../../l10n/generated/app_localizations.dart';
 
 /// 媒体库内容类型，仅用于选择无图占位图标。
 enum HomeCatalogMediaType { movies, series, collections, mixed, other }
@@ -79,7 +80,7 @@ class HomeCatalogSection extends StatelessWidget {
     required this.onTap,
     this.presentation = HomeCatalogPresentation.officialCollage,
     this.stableImageCacheWidth,
-    this.title = '媒体库',
+    this.title = '',
   });
 
   final List<HomeCatalogCardData> items;
@@ -121,7 +122,11 @@ class HomeCatalogSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        HomeSectionHeader(title: title),
+        HomeSectionHeader(
+          title: title.isEmpty
+              ? AppLocalizations.of(context).mediaLibraryFallbackName
+              : title,
+        ),
         const SizedBox(height: 8),
         HomeHorizontalShelf<HomeCatalogCardData>(
           storageKey: 'catalogs',

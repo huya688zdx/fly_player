@@ -6,6 +6,7 @@ import 'package:fly_player/ui/app_popup_theme.dart';
 import 'package:fly_player/ui/app_sheet_transitions.dart';
 import 'package:fly_player/widgets/common/app_option_list.dart';
 import 'package:fly_player/widgets/common/track_option_sheet.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 const _base = Color(0xff0055ff);
 const _page = Color(0xffffaa00);
@@ -119,6 +120,9 @@ void main() {
         );
         await tester.pumpWidget(
           MaterialApp(
+            locale: const Locale('zh', 'CN'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
             theme: _theme(_base),
             builder: global ? (_, child) => _scopes(child!) : null,
             home: global ? page : _scopes(page),
@@ -144,6 +148,9 @@ void main() {
     late BuildContext caller;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         builder: (_, child) => _scopes(child!),
         home: _scopes(
           Builder(
@@ -179,6 +186,9 @@ void main() {
     late BuildContext caller;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         builder: (_, child) => ValueListenableBuilder<Color>(
           valueListenable: color,
           child: child,
@@ -217,6 +227,9 @@ void main() {
       late BuildContext caller;
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           navigatorKey: rootNavigator,
           theme: _theme(_base),
           home: ValueListenableBuilder<Color>(

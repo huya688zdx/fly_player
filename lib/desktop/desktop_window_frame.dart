@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
+import '../l10n/generated/app_localizations.dart';
 
 /// Windows 窗口外壳：透明控制区叠在页面背景上，全屏时让出完整画面。
 class DesktopWindowFrame extends StatefulWidget {
@@ -58,6 +59,7 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final media = MediaQuery.of(context);
     final captionHeight = _fullscreen ? 0.0 : 32.0;
     // 顶部缩放区域与标题栏共用实际状态，避免插件内部缓存也因漏事件而失效。
@@ -97,19 +99,21 @@ class _DesktopWindowFrameState extends State<DesktopWindowFrame>
                     ),
                     _captionButton(
                       Icons.remove,
-                      '最小化',
+                      l10n.desktopWindowMinimize,
                       () => windowManager.minimize(),
                     ),
                     _captionButton(
                       _maximized ? Icons.filter_none : Icons.crop_square,
-                      _maximized ? '还原' : '最大化',
+                      _maximized
+                          ? l10n.desktopWindowRestore
+                          : l10n.desktopWindowMaximize,
                       () => _maximized
                           ? windowManager.unmaximize()
                           : windowManager.maximize(),
                     ),
                     _captionButton(
                       Icons.close,
-                      '关闭',
+                      l10n.commonClose,
                       () => windowManager.close(),
                     ),
                   ],

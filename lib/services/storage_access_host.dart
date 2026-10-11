@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../l10n/generated/app_localizations.dart';
+import '../providers/app_locale_provider.dart';
 
 /// 截图与文件访问平台宿主接口：屏蔽 Android 原生通道与桌面端等价实现的差异。
 ///
@@ -128,7 +130,11 @@ class DesktopStorageAccessHost implements StorageAccessHost {
     await probe.delete();
     final prefs = await SharedPreferences.getInstance();
     if (!await prefs.setString(downloadDirectoryKey, directory.absolute.path)) {
-      throw const FileSystemException('保存下载目录失败');
+      throw FileSystemException(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).storageSaveDownloadDirFailed,
+      );
     }
   }
 

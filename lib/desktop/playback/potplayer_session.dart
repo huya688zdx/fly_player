@@ -6,6 +6,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import 'external_player_adapter.dart';
 
 /// 跟踪本次启动的进程；列表内切集先交接媒体身份，再接受新影片的真实采样。
@@ -14,6 +15,7 @@ class PotPlayerSession
     implements ExternalPlayerSession {
   PotPlayerSession({
     required this.pid,
+    required this.l10n,
     required this.mediaUrl,
     required this.isCurrentSession,
     required this.onProgress,
@@ -24,6 +26,7 @@ class PotPlayerSession
 
   static const channel = MethodChannel('fly_player/potplayer');
   final int pid;
+  final AppLocalizations l10n;
   @override
   String mediaUrl;
   final bool Function() isCurrentSession;
@@ -59,14 +62,11 @@ class PotPlayerSession
     Map<String, Object?> args,
   ) async => await channel.invokeMethod<bool>(method, args) == true;
 
-  static Future<void> requireCommand(
-    String method,
-    Map<String, Object?> args,
-  ) async {
+  Future<void> requireCommand(String method, Map<String, Object?> args) async {
     if (!await sendCommand(method, args)) {
       throw PlatformException(
         code: 'potplayer_command_failed',
-        message: 'PotPlayer 未接受控制命令：$method',
+        message: l10n.externalPotPlayerCommandRejected(method),
       );
     }
   }
@@ -74,7 +74,9 @@ class PotPlayerSession
   bool get _current => !_finished && isCurrentSession();
 
   void _checkCurrent() {
-    if (!_current) throw StateError('播放会话已结束或账号已切换');
+    if (!_current) {
+      throw StateError(l10n.externalPlaybackSessionEndedOrSwitched);
+    }
   }
 
   Future<Map<String, dynamic>> _snapshot() async => Map<String, dynamic>.from(
@@ -97,7 +99,9 @@ class PotPlayerSession
     var sawPlayerWindow = false;
     var targetPosition = initialPosition;
     while (!_finished && DateTime.now().isBefore(deadline)) {
-      if (!isCurrentSession()) throw StateError('播放账号已切换，请重新播放');
+      if (!isCurrentSession()) {
+        throw StateError(l10n.externalPlaybackAccountSwitchedReplay);
+      }
       if (!waitingNotified &&
           DateTime.now().difference(startedAt) >= const Duration(seconds: 10)) {
         waitingNotified = true;
@@ -109,7 +113,7 @@ class PotPlayerSession
         if (state['alive'] == true) {
           sawPlayerWindow = true;
         } else if (sawPlayerWindow) {
-          throw StateError('PotPlayer 已关闭');
+          throw StateError(l10n.externalPotPlayerClosed);
         }
         final file = '${state['file'] ?? ''}';
         if (state['alive'] == true &&
@@ -122,7 +126,7 @@ class PotPlayerSession
           final position = await onMediaChanged!(file);
           _checkCurrent();
           if (position == null) {
-            throw StateError('PotPlayer 已切换到列表外的媒体，请重新打开播放');
+            throw StateError(l10n.externalPotPlayerMediaOutsideList);
           }
           mediaUrl = file;
           targetPosition = position < Duration.zero ? Duration.zero : position;
@@ -190,7 +194,7 @@ class PotPlayerSession
       await Future<void>.delayed(const Duration(milliseconds: 300));
       _checkCurrent();
     }
-    throw StateError('未能确认 PotPlayer 正在播放此媒体，请检查播放地址或播放器权限');
+    throw StateError(l10n.externalPotPlayerConfirmPlaybackFailed);
   }
 
   bool _matches(Map<String, dynamic> state) =>
@@ -249,7 +253,7 @@ class PotPlayerSession
       if (file.isNotEmpty && !sameMedia(file, mediaUrl)) {
         final changeMedia = onMediaChanged;
         if (changeMedia == null) {
-          onError('PotPlayer 已切换到其他媒体，已结束原影片的进度回报');
+          onError(l10n.externalPotPlayerMediaSwitchedReportStopped);
           await finish();
           return;
         }
@@ -270,7 +274,7 @@ class PotPlayerSession
         try {
           position = await changeMedia(file);
         } catch (_) {
-          onError('切换列表影片失败，已停止进度回报，请重新打开播放');
+          onError(l10n.externalPotPlayerPlaylistSwitchFailed);
           await finish(reportFinal: false);
           return;
         }
@@ -280,7 +284,7 @@ class PotPlayerSession
           return;
         }
         if (position == null) {
-          onError('PotPlayer 已切换到列表外的媒体，已结束进度回报');
+          onError(l10n.externalPotPlayerMediaOutsideListReportStopped);
           await finish(reportFinal: false);
           return;
         }
@@ -334,7 +338,7 @@ class PotPlayerSession
             positionMs < targetMs - 3000 ||
             positionMs > targetMs + 3000 + elapsed.inMilliseconds * 12) {
           if (elapsed >= const Duration(seconds: 25)) {
-            onError('未能确认切集后的续播位置，已停止进度回报，请重新打开播放');
+            onError(l10n.externalPotPlayerResumeConfirmFailed);
             await finish(reportFinal: false);
           }
           return;
@@ -346,7 +350,7 @@ class PotPlayerSession
       _accept(state);
     } on PlatformException {
       if (++_failures == 5) {
-        onError('暂时无法读取 PotPlayer 进度，正在重试；不会推算播放位置');
+        onError(l10n.externalPotPlayerProgressRetry);
       }
     } finally {
       _polling = false;
@@ -447,7 +451,7 @@ class PotPlayerSession
     });
     if (!current()) return false;
     if (!resumePlayback && position == null) return focused;
-    if (!focused) onError('未能将 PotPlayer 窗口切到前台');
+    if (!focused) onError(l10n.externalPotPlayerFocusFailed);
     final confirmed = await confirmPlayback(
       position: position,
       paused: resumePlayback ? false : null,
@@ -497,7 +501,7 @@ class PotPlayerSession
         // 已结束跟踪仍可关闭本次媒体，但不关闭用户后来手动打开的其他影片。
         if (!_ready || _matches(await _snapshot())) {
           if (!await sendCommand('close', {'pid': pid})) {
-            onError('未能确认 PotPlayer 已关闭，请检查播放器窗口');
+            onError(l10n.externalPotPlayerCloseConfirmFailed);
           }
         }
       } on PlatformException {

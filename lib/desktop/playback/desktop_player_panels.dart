@@ -47,7 +47,7 @@ class DesktopTrackPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _PanelScroll(
     children: [
-      _PanelTitle(title, '选择要输出的轨道'),
+      _PanelTitle(title, AppLocalizations.of(context).playerTrackPanelSubtitle),
       const SizedBox(height: 16),
       if (onOff != null) ...[
         _OptionCard(offLabel, icon: Icons.block_rounded, onTap: onOff),
@@ -128,6 +128,7 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
   Future<void> _loadSeasons() async {
     final load = widget.loadSeasons;
     if (load == null) return;
+
     try {
       final seasons = await load();
       if (!mounted) return;
@@ -139,7 +140,13 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
         await _selectSeason(_seasonGuid);
       }
     } catch (_) {
-      if (mounted) setState(() => _loadError = '季列表加载失败，点击重试');
+      if (mounted) {
+        setState(
+          () => _loadError = AppLocalizations.of(
+            context,
+          ).playerSeasonListLoadFailedRetry,
+        );
+      }
     }
   }
 
@@ -165,7 +172,9 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _loading = false;
-        _loadError = '剧集加载失败，点击重试';
+        _loadError = AppLocalizations.of(
+          context,
+        ).playerEpisodeListLoadFailedRetry;
       });
     }
   }
@@ -195,161 +204,169 @@ class _DesktopEpisodePanelState extends State<DesktopEpisodePanel> {
   }
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    // 浮层宿主已避开窗口标题栏，内部不再重复添加顶部安全区。
-    top: false,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: _PanelTitle(widget.title, widget.seriesTitle)),
-              _ViewToggle(
-                Icons.view_list_rounded,
-                !_grid,
-                () => setState(() {
-                  _grid = false;
-                  _positionCurrent = true;
-                }),
-              ),
-              _ViewToggle(
-                Icons.grid_view_rounded,
-                _grid,
-                () => setState(() {
-                  _grid = true;
-                  _positionCurrent = true;
-                }),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_seasons.length > 1)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              // 选季留在悬停面板内，避免独立菜单路由触发外层移出关闭。
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 76),
-                child: SingleChildScrollView(
-                  primary: false,
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final season in _seasons)
-                        ChoiceChip(
-                          label: Text(
-                            season.seasonNumber == 0
-                                ? '特别篇'
-                                : '第${season.seasonNumber}季',
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return SafeArea(
+      // 浮层宿主已避开窗口标题栏，内部不再重复添加顶部安全区。
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: _PanelTitle(widget.title, widget.seriesTitle)),
+                _ViewToggle(
+                  Icons.view_list_rounded,
+                  !_grid,
+                  () => setState(() {
+                    _grid = false;
+                    _positionCurrent = true;
+                  }),
+                ),
+                _ViewToggle(
+                  Icons.grid_view_rounded,
+                  _grid,
+                  () => setState(() {
+                    _grid = true;
+                    _positionCurrent = true;
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_seasons.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                // 选季留在悬停面板内，避免独立菜单路由触发外层移出关闭。
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 76),
+                  child: SingleChildScrollView(
+                    primary: false,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final season in _seasons)
+                          ChoiceChip(
+                            label: Text(
+                              season.seasonNumber == 0
+                                  ? l10n.playerEpisodeSpecialSeason
+                                  : l10n.playerEpisodeSeasonTemplate(
+                                      season.seasonNumber,
+                                    ),
+                            ),
+                            selected: season.id == _seasonGuid,
+                            showCheckmark: false,
+                            selectedColor: const Color(0x2963A0FF),
+                            backgroundColor: const Color(0x0DFFFFFF),
+                            side: BorderSide(
+                              color: season.id == _seasonGuid
+                                  ? const Color(0x8063A0FF)
+                                  : const Color(0x20FFFFFF),
+                            ),
+                            labelStyle: TextStyle(
+                              color: season.id == _seasonGuid
+                                  ? const Color(0xFF9BC3FF)
+                                  : Colors.white70,
+                              fontSize: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            onSelected: (_) {
+                              if (season.id != _seasonGuid) {
+                                unawaited(_selectSeason(season.id));
+                              }
+                            },
                           ),
-                          selected: season.id == _seasonGuid,
-                          showCheckmark: false,
-                          selectedColor: const Color(0x2963A0FF),
-                          backgroundColor: const Color(0x0DFFFFFF),
-                          side: BorderSide(
-                            color: season.id == _seasonGuid
-                                ? const Color(0x8063A0FF)
-                                : const Color(0x20FFFFFF),
-                          ),
-                          labelStyle: TextStyle(
-                            color: season.id == _seasonGuid
-                                ? const Color(0xFF9BC3FF)
-                                : Colors.white70,
-                            fontSize: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                          onSelected: (_) {
-                            if (season.id != _seasonGuid) {
-                              unawaited(_selectSeason(season.id));
-                            }
-                          },
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          if (_loadError != null)
-            TextButton(
-              onPressed: () => unawaited(
-                _seasons.isEmpty ? _loadSeasons() : _selectSeason(_seasonGuid),
-              ),
-              child: Text(_loadError!),
-            ),
-          Expanded(
-            child: TweenAnimationBuilder<double>(
-              key: ValueKey<bool>(_grid),
-              tween: Tween<double>(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, child) => Opacity(
-                opacity: value,
-                child: Transform.translate(
-                  offset: Offset(0, 6 * (1 - value)),
-                  child: child,
+            if (_loadError != null)
+              TextButton(
+                onPressed: () => unawaited(
+                  _seasons.isEmpty
+                      ? _loadSeasons()
+                      : _selectSeason(_seasonGuid),
                 ),
+                child: Text(_loadError!),
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  _positionCurrentEpisode(constraints);
-                  return _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _episodes.isEmpty
-                      ? _EmptyPanel(widget.emptyLabel)
-                      : _grid
-                      ? GridView.builder(
-                          controller: _gridScrollController,
-                          padding: EdgeInsets.zero,
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 64,
-                                childAspectRatio: 1,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                              ),
-                          itemCount: _episodes.length,
-                          itemBuilder: (_, i) => _EpisodeNumberTile(
-                            episode: _episodes[i],
-                            fallbackNumber: i + 1,
-                            current: _isCurrent(_episodes[i]),
-                            enabled: widget.onSelected != null,
-                            onTap: widget.onSelected == null
-                                ? null
-                                : () => widget.onSelected!(_episodes[i]),
-                          ),
-                        )
-                      : ListView.builder(
-                          controller: _listScrollController,
-                          padding: EdgeInsets.zero,
-                          itemCount: _episodes.length,
-                          itemExtent: 92,
-                          itemBuilder: (_, i) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _EpisodeCard(
-                              _episodes[i],
-                              _isCurrent(_episodes[i]),
-                              widget.onSelected != null,
-                              false,
-                              widget.onSelected == null
+            Expanded(
+              child: TweenAnimationBuilder<double>(
+                key: ValueKey<bool>(_grid),
+                tween: Tween<double>(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) => Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, 6 * (1 - value)),
+                    child: child,
+                  ),
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    _positionCurrentEpisode(constraints);
+                    return _loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _episodes.isEmpty
+                        ? _EmptyPanel(widget.emptyLabel)
+                        : _grid
+                        ? GridView.builder(
+                            controller: _gridScrollController,
+                            padding: EdgeInsets.zero,
+                            gridDelegate:
+                                const SliverGridDelegateWithMaxCrossAxisExtent(
+                                  maxCrossAxisExtent: 64,
+                                  childAspectRatio: 1,
+                                  crossAxisSpacing: 8,
+                                  mainAxisSpacing: 8,
+                                ),
+                            itemCount: _episodes.length,
+                            itemBuilder: (_, i) => _EpisodeNumberTile(
+                              episode: _episodes[i],
+                              fallbackNumber: i + 1,
+                              current: _isCurrent(_episodes[i]),
+                              enabled: widget.onSelected != null,
+                              onTap: widget.onSelected == null
                                   ? null
                                   : () => widget.onSelected!(_episodes[i]),
                             ),
-                          ),
-                        );
-                },
+                          )
+                        : ListView.builder(
+                            controller: _listScrollController,
+                            padding: EdgeInsets.zero,
+                            itemCount: _episodes.length,
+                            itemExtent: 92,
+                            itemBuilder: (_, i) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _EpisodeCard(
+                                _episodes[i],
+                                _isCurrent(_episodes[i]),
+                                widget.onSelected != null,
+                                false,
+                                widget.onSelected == null
+                                    ? null
+                                    : () => widget.onSelected!(_episodes[i]),
+                              ),
+                            ),
+                          );
+                  },
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
+
   bool _isCurrent(Map<String, dynamic> e) =>
       '${e['itemGuid'] ?? e['guid'] ?? ''}'.trim() ==
           widget.currentItemGuid.trim() &&
@@ -486,6 +503,7 @@ class _DesktopDanmakuSettingsPanelState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       child: Padding(
         padding: widget.embedded
@@ -495,7 +513,7 @@ class _DesktopDanmakuSettingsPanelState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             if (!widget.embedded) ...<Widget>[
-              const _SettingsHeader(title: '弹幕设置'),
+              _SettingsHeader(title: l10n.danmakuSettingsTitle),
               const SizedBox(height: 18),
             ],
             Expanded(
@@ -503,48 +521,48 @@ class _DesktopDanmakuSettingsPanelState
                 padding: EdgeInsets.zero,
                 children: <Widget>[
                   _SettingsSwitchTile(
-                    title: '滚动弹幕',
-                    subtitle: '从右向左滚动显示',
+                    title: l10n.danmakuScrollTitle,
+                    subtitle: l10n.danmakuScrollSubtitle,
                     value: _settings.scrollEnabled,
                     onChanged: (value) =>
                         _update(_settings.copyWith(scrollEnabled: value)),
                   ),
                   const SizedBox(height: 10),
                   _SettingsSwitchTile(
-                    title: '顶部弹幕',
-                    subtitle: '固定在画面顶部显示',
+                    title: l10n.danmakuTopTitle,
+                    subtitle: l10n.danmakuTopSubtitle,
                     value: _settings.topEnabled,
                     onChanged: (value) =>
                         _update(_settings.copyWith(topEnabled: value)),
                   ),
                   const SizedBox(height: 10),
                   _SettingsSwitchTile(
-                    title: '底部弹幕',
-                    subtitle: '固定在弹幕显示区域底部',
+                    title: l10n.danmakuBottomTitle,
+                    subtitle: l10n.danmakuBottomSubtitle,
                     value: _settings.bottomEnabled,
                     onChanged: (value) =>
                         _update(_settings.copyWith(bottomEnabled: value)),
                   ),
                   const SizedBox(height: 10),
                   _SettingsSwitchTile(
-                    title: '保留弹幕颜色',
-                    subtitle: '关闭后统一使用白色',
+                    title: l10n.danmakuKeepColorTitle,
+                    subtitle: l10n.danmakuKeepColorSubtitle,
                     value: _settings.colorEnabled,
                     onChanged: (value) =>
                         _update(_settings.copyWith(colorEnabled: value)),
                   ),
                   const SizedBox(height: 10),
                   _SettingsSwitchTile(
-                    title: '隐藏重复弹幕',
-                    subtitle: '同一时间窗口只显示一次相同内容',
+                    title: l10n.danmakuHideDuplicateTitle,
+                    subtitle: l10n.danmakuHideDuplicateOnceSubtitle,
                     value: _settings.hideDuplicate,
                     onChanged: (value) =>
                         _update(_settings.copyWith(hideDuplicate: value)),
                   ),
                   const SizedBox(height: 10),
                   _SettingsSwitchTile(
-                    title: '避让字幕区域',
-                    subtitle: '减少弹幕与底部字幕重叠',
+                    title: l10n.danmakuAvoidSubtitleArea,
+                    subtitle: l10n.danmakuAvoidSubtitleAreaSubtitle,
                     value: _settings.avoidSubtitleArea,
                     onChanged: (value) =>
                         _update(_settings.copyWith(avoidSubtitleArea: value)),
@@ -553,17 +571,19 @@ class _DesktopDanmakuSettingsPanelState
                   if (!Platform.isWindows ||
                       DesktopDanmakuSegmenter.isSupported)
                     _SettingsSwitchTile(
-                      title: Platform.isWindows ? '主体穿透遮挡' : '避让画面中心',
+                      title: Platform.isWindows
+                          ? l10n.danmakuAvoidCenterTitle
+                          : l10n.danmakuAvoidCenterAltTitle,
                       subtitle: Platform.isWindows
-                          ? '用本地 AI 蒙版扣除人物区域内的弹幕'
-                          : '优先把弹幕限制在画面上部',
+                          ? l10n.danmakuSubjectMaskSubtitle
+                          : l10n.danmakuAvoidCenterAltSubtitle,
                       value: _settings.avoidCenterArea,
                       onChanged: (value) =>
                           _update(_settings.copyWith(avoidCenterArea: value)),
                     ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
-                    title: '不透明度',
+                    title: l10n.danmakuOpacity,
                     valueLabel: '${(_settings.opacity * 100).round()}%',
                     value: _settings.opacity,
                     min: 0.2,
@@ -577,7 +597,7 @@ class _DesktopDanmakuSettingsPanelState
                   ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
-                    title: '显示密度',
+                    title: l10n.danmakuDisplayDensity,
                     valueLabel: '${(_settings.density * 100).round()}%',
                     value: _settings.density,
                     min: 0.2,
@@ -591,7 +611,7 @@ class _DesktopDanmakuSettingsPanelState
                   ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
-                    title: '字体大小',
+                    title: l10n.danmakuFontSize,
                     valueLabel: '${(_settings.fontScale * 100).round()}%',
                     value: _settings.fontScale,
                     min: 0.6,
@@ -605,7 +625,7 @@ class _DesktopDanmakuSettingsPanelState
                   ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
-                    title: '字体粗细',
+                    title: l10n.danmakuFontWeight,
                     valueLabel: _settings.fontThickness.toStringAsFixed(1),
                     value: _settings.fontThickness,
                     min: 0.8,
@@ -620,7 +640,7 @@ class _DesktopDanmakuSettingsPanelState
                   ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
-                    title: '滚动速度',
+                    title: l10n.danmakuScrollSpeed,
                     valueLabel: '${_settings.speed.toStringAsFixed(2)}×',
                     value: _settings.speed,
                     min: danmakuSpeedMin,
@@ -634,7 +654,7 @@ class _DesktopDanmakuSettingsPanelState
                   ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
-                    title: '显示区域',
+                    title: l10n.danmakuDisplayArea,
                     valueLabel:
                         '${(_settings.displayAreaRatio * 100).round()}%',
                     value: _settings.displayAreaRatio,
@@ -651,7 +671,7 @@ class _DesktopDanmakuSettingsPanelState
                   ),
                   const SizedBox(height: 10),
                   _SettingsSliderTile(
-                    title: '刷新率',
+                    title: l10n.danmakuRefreshRate,
                     valueLabel: '${_settings.targetFrameRateHz} Hz',
                     value: _settings.targetFrameRateHz.toDouble(),
                     min: 30,
@@ -817,6 +837,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final currentSource = widget.currentSourceLabel.trim();
     final currentTitle = widget.initialKeyword.trim();
     final currentTmdb = int.tryParse(
@@ -826,10 +847,10 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
       ),
     );
     final currentStatus = widget.loading
-        ? '正在加载'
+        ? l10n.danmakuStatusLoading
         : widget.commentCount > 0
-        ? '${widget.commentCount} 条'
-        : '暂无弹幕';
+        ? l10n.playerDanmakuCountShort(widget.commentCount)
+        : l10n.danmakuNoneLoaded;
     return SafeArea(
       child: Padding(
         padding: widget.embedded
@@ -839,7 +860,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             if (!widget.embedded) ...<Widget>[
-              const _SettingsHeader(title: '弹幕源'),
+              _SettingsHeader(title: l10n.danmakuSourceTitle),
               const SizedBox(height: 18),
             ],
             Expanded(
@@ -847,19 +868,21 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                 padding: EdgeInsets.zero,
                 children: <Widget>[
                   _SettingsStatusCard(
-                    title: '当前弹幕源',
-                    value: currentSource.isEmpty ? '未选择' : currentSource,
+                    title: l10n.danmakuCurrentSource,
+                    value: currentSource.isEmpty
+                        ? l10n.playerSourceUnselected
+                        : currentSource,
                     description: currentStatus,
                   ),
                   const SizedBox(height: 10),
                   _SettingsMenuTile(
-                    title: '导入本地弹幕',
-                    subtitle: '支持 XML 与 JSON 文件',
+                    title: l10n.danmakuImportLocalTitle,
+                    subtitle: l10n.danmakuImportLocalSubtitle,
                     icon: Icons.file_open_rounded,
                     onTap: () => unawaited(_import()),
                   ),
                   const SizedBox(height: 18),
-                  const _DanmakuSectionTitle('在线搜索'),
+                  _DanmakuSectionTitle(l10n.danmakuSearchSection),
                   const SizedBox(height: 8),
                   Material(
                     color: Colors.transparent,
@@ -869,7 +892,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                       textInputAction: TextInputAction.search,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        hintText: '作品名或 TMDB:编号（如 TMDB:100049）',
+                        hintText: l10n.danmakuSearchPanelHint,
                         hintStyle: const TextStyle(color: Colors.white38),
                         filled: true,
                         fillColor: const Color(0x14FFFFFF),
@@ -878,7 +901,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                           borderSide: BorderSide.none,
                         ),
                         suffixIcon: IconButton(
-                          tooltip: '搜索',
+                          tooltip: l10n.danmakuSearchButton,
                           onPressed: _searching
                               ? null
                               : () => unawaited(_search()),
@@ -900,12 +923,12 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                       if (currentTitle.isNotEmpty)
                         TextButton(
                           onPressed: () => _fillSearch(currentTitle),
-                          child: const Text('填入当前片名'),
+                          child: Text(l10n.danmakuFillCurrentTitle),
                         ),
                       if (currentTmdb != null && currentTmdb > 0)
                         TextButton(
                           onPressed: () => _fillSearch('TMDB:$currentTmdb'),
-                          child: const Text('填入当前 TMDB'),
+                          child: Text(l10n.danmakuFillCurrentTmdb),
                         ),
                     ],
                   ),
@@ -916,7 +939,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                         title: '${result['title'] ?? '弹弹play'}',
                         subtitle: '${result['subtitle'] ?? ''}',
                         trailing: result['matchesCurrentEpisode'] == true
-                            ? '当前集'
+                            ? l10n.danmakuMatchCurrentEpisode
                             : '',
                         onTap: _applying || _searching
                             ? null
@@ -926,7 +949,7 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                     ],
                   ],
                   const SizedBox(height: 10),
-                  const _DanmakuSectionTitle('已保存弹幕源'),
+                  _DanmakuSectionTitle(l10n.danmakuSavedSourcesSection),
                   const SizedBox(height: 8),
                   if (_loadingSources)
                     const Center(
@@ -936,19 +959,21 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
                       ),
                     )
                   else if (_savedSources.isEmpty)
-                    const _SettingsStatusCard(
-                      title: '来源库',
-                      value: '暂无已保存来源',
-                      description: '在线匹配、随片下载和本地导入的来源会显示在这里。',
+                    _SettingsStatusCard(
+                      title: l10n.danmakuLibraryTitle,
+                      value: l10n.danmakuLibraryEmpty,
+                      description: l10n.danmakuLibraryHint,
                     )
                   else
                     for (final source in _savedSources) ...<Widget>[
                       _DanmakuSourceTile(
                         title:
                             '${source['label'] ?? source['sourceKey'] ?? ''}',
-                        subtitle: _savedSourceSubtitle(source),
+                        subtitle: _savedSourceSubtitle(source, l10n),
                         selected: source['active'] == true,
-                        trailing: source['active'] == true ? '使用中' : '',
+                        trailing: source['active'] == true
+                            ? l10n.danmakuSourceInUse
+                            : '',
                         onTap: _applying
                             ? null
                             : () => unawaited(_applySaved(source)),
@@ -965,17 +990,20 @@ class _DesktopDanmakuSourcePanelState extends State<DesktopDanmakuSourcePanel> {
     );
   }
 
-  String _savedSourceSubtitle(Map<String, dynamic> source) {
+  String _savedSourceSubtitle(
+    Map<String, dynamic> source,
+    AppLocalizations l10n,
+  ) {
     final type = switch ('${source['type'] ?? ''}') {
-      'danDanPlay' => '弹弹play',
-      'downloadedFile' => '随片下载',
-      _ => '本地',
+      'danDanPlay' => l10n.danmakuSourceTypeDanDanPlay,
+      'downloadedFile' => l10n.danmakuSourceTypeDownloaded,
+      _ => l10n.danmakuSourceTypeLocal,
     };
     final count = (source['commentCount'] as num?)?.toInt() ?? 0;
     final detail = '${source['detail'] ?? ''}'.trim();
     return <String>[
       type,
-      if (count > 0) '$count 条',
+      if (count > 0) l10n.playerDanmakuCountShort(count),
       if (detail.isNotEmpty) detail,
     ].join(' · ');
   }
@@ -1039,7 +1067,7 @@ class _DanmakuSourceTile extends StatelessWidget {
         if (onDelete != null) ...<Widget>[
           const SizedBox(width: 6),
           IconButton(
-            tooltip: '删除来源',
+            tooltip: AppLocalizations.of(context).danmakuDeleteSource,
             onPressed: onDelete,
             icon: const Icon(Icons.delete_outline_rounded, size: 19),
             color: Colors.white54,
@@ -1337,18 +1365,21 @@ class _DesktopPlaybackSettingsPanelState
     DesktopPlaybackSettingsPage.main => l10n.playerSettingsTitle,
     DesktopPlaybackSettingsPage.videoAdjust => l10n.mpvInstantAdjustTitle,
     DesktopPlaybackSettingsPage.advancedMpv => l10n.playerAdvancedSettingsTitle,
-    DesktopPlaybackSettingsPage.playbackBehavior => '播放行为',
-    DesktopPlaybackSettingsPage.introOutro => '片头片尾跳过',
-    DesktopPlaybackSettingsPage.chapters => '章节',
-    DesktopPlaybackSettingsPage.subtitleStyle => '字幕样式',
+    DesktopPlaybackSettingsPage.playbackBehavior =>
+      l10n.playerPlaybackBehaviorTitle,
+    DesktopPlaybackSettingsPage.introOutro => l10n.playerIntroOutroEntryTitle,
+    DesktopPlaybackSettingsPage.chapters => l10n.playerChaptersTitle,
+    DesktopPlaybackSettingsPage.subtitleStyle => l10n.playerSubtitleStyleTitle,
     DesktopPlaybackSettingsPage.bookmarks => l10n.playerBookmarkTitle,
     DesktopPlaybackSettingsPage.trackInfo => l10n.playerVideoInfoTitle,
-    DesktopPlaybackSettingsPage.audioAdjust => '音频调整',
-    DesktopPlaybackSettingsPage.audioEq => '自定义均衡器',
-    DesktopPlaybackSettingsPage.picturePresets => '已保存画面预设',
-    DesktopPlaybackSettingsPage.audioPresets => '已保存音频预设',
-    DesktopPlaybackSettingsPage.danmakuSettings => '弹幕设置',
-    DesktopPlaybackSettingsPage.danmakuSources => '弹幕源',
+    DesktopPlaybackSettingsPage.audioAdjust => l10n.playerAudioAdjustTitle,
+    DesktopPlaybackSettingsPage.audioEq => l10n.playerAudioEqTitle,
+    DesktopPlaybackSettingsPage.picturePresets =>
+      l10n.playerSavedPicturePresetsTitle,
+    DesktopPlaybackSettingsPage.audioPresets =>
+      l10n.playerSavedAudioPresetsTitle,
+    DesktopPlaybackSettingsPage.danmakuSettings => l10n.danmakuSettingsTitle,
+    DesktopPlaybackSettingsPage.danmakuSources => l10n.danmakuSourceTitle,
   };
 
   Widget _buildPage(AppLocalizations l10n) => switch (_page) {
@@ -1359,7 +1390,7 @@ class _DesktopPlaybackSettingsPanelState
       l10n,
     ),
     DesktopPlaybackSettingsPage.introOutro => _buildIntroOutroPage(l10n),
-    DesktopPlaybackSettingsPage.chapters => _buildChaptersPage(),
+    DesktopPlaybackSettingsPage.chapters => _buildChaptersPage(l10n),
     DesktopPlaybackSettingsPage.subtitleStyle => _buildSubtitleStylePage(l10n),
     DesktopPlaybackSettingsPage.bookmarks => _buildBookmarksPage(l10n),
     DesktopPlaybackSettingsPage.trackInfo => _buildTrackInfoPage(l10n),
@@ -1395,7 +1426,7 @@ class _DesktopPlaybackSettingsPanelState
   // 根页：对齐安卓设置根面板的分组（画面 / 弹幕 / 播放）。
   // 音轨/字幕/画质桌面走底栏悬停直达，不重复（安卓横屏同理）。
   Widget _buildMainPage(AppLocalizations l10n) => _settingsList(<Widget>[
-    const _SettingsSectionHeader('画面'),
+    _SettingsSectionHeader(l10n.playerSectionPicture),
     _SettingsMenuTile(
       title: l10n.mpvInstantAdjustTitle,
       subtitle: l10n.mpvVideoAdjustDrawerDescription,
@@ -1417,44 +1448,50 @@ class _DesktopPlaybackSettingsPanelState
       icon: Icons.tune_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.advancedMpv),
     ),
-    const _SettingsSectionHeader('弹幕'),
+    _SettingsSectionHeader(l10n.playerSectionDanmaku),
     _SettingsMenuTile(
-      title: '弹幕设置',
-      subtitle: '显示区域、透明度、密度、字号与弹幕类型',
-      trailing: widget.danmakuEnabled ? '已开启' : '已关闭',
+      title: l10n.danmakuSettingsTitle,
+      subtitle: l10n.playerEntryDanmakuSubtitle,
+      trailing: widget.danmakuEnabled
+          ? l10n.playerEnabled
+          : l10n.playerDisabled,
       icon: Icons.format_size_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.danmakuSettings),
     ),
     _SettingsMenuTile(
-      title: '弹幕源',
+      title: l10n.danmakuSourceTitle,
       subtitle: widget.danmakuSourceLabel.trim().isEmpty
-          ? '在线搜索、本地导入与已保存来源'
+          ? l10n.playerEntryDanmakuSourceSubtitle
           : widget.danmakuSourceLabel,
       trailing: widget.danmakuCommentCount > 0
-          ? '${widget.danmakuCommentCount} 条'
+          ? l10n.playerDanmakuCountShort(widget.danmakuCommentCount)
           : '',
       icon: Icons.comment_bank_outlined,
       onTap: () => _push(DesktopPlaybackSettingsPage.danmakuSources),
     ),
-    const _SettingsSectionHeader('播放'),
+    _SettingsSectionHeader(l10n.playerSectionPlayback),
     _SettingsMenuTile(
-      title: '播放行为',
-      subtitle: '自动连播、下一级预加载',
-      trailing: _autoPlayEnabled ? '已开启' : '已关闭',
+      title: l10n.playerPlaybackBehaviorTitle,
+      subtitle: l10n.playerPlaybackBehaviorSubtitle,
+      trailing: _autoPlayEnabled ? l10n.playerEnabled : l10n.playerDisabled,
       icon: Icons.playlist_play_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.playbackBehavior),
     ),
     _SettingsMenuTile(
-      title: '片头片尾跳过',
-      subtitle: '按时长窗口提示跳过片头片尾',
-      trailing: widget.introOutroEnabled ? '已开启' : '已关闭',
+      title: l10n.playerIntroOutroEntryTitle,
+      subtitle: l10n.playerIntroOutroEntrySubtitle,
+      trailing: widget.introOutroEnabled
+          ? l10n.playerEnabled
+          : l10n.playerDisabled,
       icon: Icons.skip_next_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.introOutro),
     ),
     _SettingsMenuTile(
-      title: '章节',
-      subtitle: '跳转到当前视频的章节时间点',
-      trailing: widget.chapters.isEmpty ? '暂无' : '${widget.chapters.length}',
+      title: l10n.playerChaptersTitle,
+      subtitle: l10n.playerChaptersSubtitle,
+      trailing: widget.chapters.isEmpty
+          ? l10n.playerNoneLabel
+          : '${widget.chapters.length}',
       icon: Icons.format_list_numbered_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.chapters),
     ),
@@ -1468,7 +1505,7 @@ class _DesktopPlaybackSettingsPanelState
       onTap: () => _push(DesktopPlaybackSettingsPage.bookmarks),
     ),
     _SettingsMenuTile(
-      title: '视频/轨道信息',
+      title: l10n.playerTrackInfoEntryTitle,
       subtitle: l10n.playerVideoInfoSubtitle,
       icon: Icons.info_outline_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.trackInfo),
@@ -1477,14 +1514,14 @@ class _DesktopPlaybackSettingsPanelState
 
   // 画质与解码：对齐安卓 buildAdvancedMpvPage 的四段分组。
   Widget _buildAdvancedMpvPage(AppLocalizations l10n) => _settingsList(<Widget>[
-    const _SettingsSectionHeader('预设'),
+    _SettingsSectionHeader(l10n.playerSectionPresets),
     _SettingsMenuTile(
-      title: '选择已保存预设',
-      subtitle: '应用已保存的画面与解码预设',
+      title: l10n.playerPresetSelectTitle,
+      subtitle: l10n.playerPresetSelectPictureSubtitle,
       icon: Icons.bookmarks_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.picturePresets),
     ),
-    const _SettingsSectionHeader('解码与画面'),
+    _SettingsSectionHeader(l10n.playerSectionDecodePicture),
     _SettingsSegmentTile(
       title: l10n.playerDecoderTitle,
       options: [
@@ -1506,7 +1543,7 @@ class _DesktopPlaybackSettingsPanelState
       selectedValue: _aspectRatioMode,
       onSelected: (value) => _setAspectRatio(value),
     ),
-    const _SettingsSectionHeader('画质增强'),
+    _SettingsSectionHeader(l10n.playerSectionQuality),
     for (final key in const <String>[
       MpvSettingsCatalog.deinterlaceKey,
       MpvSettingsCatalog.debandKey,
@@ -1517,7 +1554,7 @@ class _DesktopPlaybackSettingsPanelState
       MpvSettingsCatalog.frameInterpolationKey,
     ])
       _definitionSegment(l10n, key),
-    const _SettingsSectionHeader('同步与缓存'),
+    _SettingsSectionHeader(l10n.playerSectionSyncCache),
     for (final key in const <String>[
       MpvSettingsCatalog.videoSyncKey,
       MpvSettingsCatalog.cacheProfileKey,
@@ -1560,7 +1597,7 @@ class _DesktopPlaybackSettingsPanelState
       outroSeconds: widget.outroMaxSeconds,
     );
     Widget statusCard({required bool intro}) {
-      final label = intro ? '片头' : '片尾';
+      final label = intro ? l10n.playerIntroLabel : l10n.playerOutroLabel;
       final start = intro ? bounds.introStart : bounds.outroStart;
       final end = intro
           ? bounds.introEnd
@@ -1574,55 +1611,55 @@ class _DesktopPlaybackSettingsPanelState
       if (start == null || end == null) {
         final String reason;
         if (!widget.introOutroEnabled && !widget.fixedDurationSkipEnabled) {
-          reason = '章节识别与固定时长跳过均已关闭。';
+          reason = l10n.playerIntroOutroDisabled;
         } else if (widget.duration <= Duration.zero) {
-          reason = '正在等待视频时长和章节信息。';
+          reason = l10n.playerIntroOutroWaiting;
         } else if (!widget.fixedDurationSkipEnabled && !fromChapter) {
           reason = widget.chapters.isEmpty
-              ? '当前未读取到章节；未启用固定时长跳过。'
-              : '未识别到$label章节；未启用固定时长跳过。';
+              ? l10n.playerIntroOutroNoChapters
+              : l10n.playerIntroOutroNoChapterMatch(label);
         } else {
-          reason = '当前跳过范围无效或片头片尾范围重叠。';
+          reason = l10n.playerIntroOutroInvalidRange;
         }
         return _SettingsStatusCard(
-          title: '当前$label',
-          value: '不提示跳过',
+          title: l10n.playerIntroOutroCurrent(label),
+          value: l10n.playerIntroOutroNoSkipLabel,
           description: reason,
         );
       }
       final basis = fromChapter
-          ? '章节识别'
+          ? l10n.playerIntroBasisChapter
           : fromPattern
-          ? '编号章节推测'
-          : '固定时长';
+          ? l10n.playerIntroBasisPattern
+          : l10n.playerIntroBasisFixed;
       final target = intro
-          ? '跳到 ${_duration(end)}'
+          ? l10n.playerSkipToLabel(_duration(end))
           : bounds.outroEnd != null
-          ? '跳到 ${_duration(end)}'
+          ? l10n.playerSkipToLabel(_duration(end))
           : widget.hasNextEpisode
-          ? '播放下一集'
-          : '跳到视频结束';
+          ? l10n.playerIntroPlayNextLabel
+          : l10n.playerSkipToEndLabel;
       return _SettingsStatusCard(
-        title: '当前$label',
+        title: l10n.playerIntroOutroCurrent(label),
         value: '$basis · ${_duration(start)}–${_duration(end)}',
         description: intro
-            ? '点击后$target。'
+            ? l10n.playerIntroActionTap(target)
             : bounds.outroEnd != null
-            ? '点击后$target，继续播放片尾后的内容。'
-            : '点击后$target，片尾起点之后的内容会一并跳过。',
+            ? l10n.playerIntroActionOutroEnd(target)
+            : l10n.playerIntroActionOutroSkipAll(target),
       );
     }
 
     final children = <Widget>[
       _SettingsSwitchTile(
-        title: '按章节识别',
-        subtitle: '匹配 OP、ED、片头、片尾等章节名称，进入范围后提示跳过',
+        title: l10n.playerIntroByChapterTitle,
+        subtitle: l10n.playerIntroByChapterSubtitle,
         value: widget.introOutroEnabled,
         onChanged: (value) => _setIntroOutro(enabled: value),
       ),
       _SettingsSwitchTile(
-        title: '固定时长跳过',
-        subtitle: '按设定的前后时长提示；同时开启章节识别时，优先使用章节',
+        title: l10n.playerFixedSkipTitle,
+        subtitle: l10n.playerFixedSkipSubtitle,
         value: widget.fixedDurationSkipEnabled,
         onChanged: (value) => _setIntroOutro(fixedDurationEnabled: value),
       ),
@@ -1630,9 +1667,9 @@ class _DesktopPlaybackSettingsPanelState
     if (widget.fixedDurationSkipEnabled) {
       children.add(
         _SettingsSliderTile(
-          title: '固定片头时长',
-          subtitle: '从视频开头到设定时间，点击跳过会跳到该时间点',
-          valueLabel: _skipSecondsLabel(widget.introMaxSeconds),
+          title: l10n.playerFixedIntroLengthTitle,
+          subtitle: l10n.playerFixedIntroLengthSubtitle,
+          valueLabel: _skipSecondsLabel(widget.introMaxSeconds, l10n),
           value: widget.introMaxSeconds.toDouble(),
           min: 0,
           max: 600,
@@ -1644,9 +1681,9 @@ class _DesktopPlaybackSettingsPanelState
       );
       children.add(
         _SettingsSliderTile(
-          title: '固定片尾时长',
-          subtitle: '在视频最后这段时间内提示跳过',
-          valueLabel: _skipSecondsLabel(widget.outroMaxSeconds),
+          title: l10n.playerFixedOutroLengthTitle,
+          subtitle: l10n.playerFixedOutroLengthSubtitle,
+          valueLabel: _skipSecondsLabel(widget.outroMaxSeconds, l10n),
           value: widget.outroMaxSeconds.toDouble(),
           min: 0,
           max: 600,
@@ -1661,8 +1698,8 @@ class _DesktopPlaybackSettingsPanelState
       // 自动跳过子开关（默认开启，对齐安卓）：关闭后仅弹出提示，由用户手动点击跳过。
       children.add(
         _SettingsSwitchTile(
-          title: '倒计时结束自动跳过',
-          subtitle: '开启后提前弹出并倒计时，归零自动跳过；关闭仅提示',
+          title: l10n.playerAutoSkipTitle,
+          subtitle: l10n.playerAutoSkipSubtitle,
           value: widget.introOutroAutoSkip,
           onChanged: (value) => _setIntroOutro(autoSkip: value),
         ),
@@ -1670,9 +1707,11 @@ class _DesktopPlaybackSettingsPanelState
       if (widget.introOutroAutoSkip) {
         children.add(
           _SettingsSliderTile(
-            title: '跳过倒计时',
-            subtitle: '提示提前弹出的秒数，倒计时归零自动跳过',
-            valueLabel: '${widget.skipCountdownSeconds} 秒',
+            title: l10n.playerSkipCountdownTitle,
+            subtitle: l10n.playerSkipCountdownSubtitle,
+            valueLabel: l10n.playerCountdownSecondsValue(
+              widget.skipCountdownSeconds,
+            ),
             value: widget.skipCountdownSeconds.toDouble(),
             min: 2,
             max: 10,
@@ -1690,13 +1729,13 @@ class _DesktopPlaybackSettingsPanelState
   }
 
   /// 固定时长按秒展示（与飞牛官方配置同单位）；0 表示该侧不提示。
-  static String _skipSecondsLabel(int seconds) {
-    if (seconds <= 0) return '关闭';
+  String _skipSecondsLabel(int seconds, AppLocalizations l10n) {
+    if (seconds <= 0) return l10n.mpvOptionOff;
     final minutes = seconds ~/ 60;
     final rest = seconds % 60;
-    if (minutes == 0) return '$seconds 秒';
-    if (rest == 0) return '$minutes 分钟';
-    return '$minutes 分 $rest 秒';
+    if (minutes == 0) return l10n.playerDurationSecondsValue(seconds);
+    if (rest == 0) return l10n.playerDurationMinutesValue(minutes);
+    return l10n.playerDurationMinSecValue(minutes, rest);
   }
 
   Future<void> _setIntroOutro({
@@ -1723,10 +1762,11 @@ class _DesktopPlaybackSettingsPanelState
     AppLocalizations l10n,
   ) => _settingsList(<Widget>[
     _SettingsSliderTile(
-      title: '字幕延迟',
-      subtitle: '正值让字幕更晚出现',
-      valueLabel:
-          '${widget.subtitleDelaySeconds > 0 ? '+' : ''}${widget.subtitleDelaySeconds.toStringAsFixed(1)} 秒',
+      title: l10n.playerSubtitleDelayTitle,
+      subtitle: l10n.playerSubtitleDelaySubtitle,
+      valueLabel: l10n.playerDelaySecondsValue(
+        '${widget.subtitleDelaySeconds > 0 ? '+' : ''}${widget.subtitleDelaySeconds.toStringAsFixed(1)}',
+      ),
       value: widget.subtitleDelaySeconds,
       min: -10,
       max: 10,
@@ -1741,8 +1781,8 @@ class _DesktopPlaybackSettingsPanelState
       ),
     ),
     _SettingsSliderTile(
-      title: '字幕位置',
-      subtitle: '数值越小字幕越靠上',
+      title: l10n.playerSubtitlePositionTitle,
+      subtitle: l10n.playerSubtitlePositionSubtitle,
       valueLabel: '${widget.subtitlePosition}',
       value: widget.subtitlePosition.toDouble(),
       min: 0,
@@ -1756,8 +1796,8 @@ class _DesktopPlaybackSettingsPanelState
       onChangeEnd: (value) => _setSubtitleStyle(position: value.round()),
     ),
     _SettingsSliderTile(
-      title: '字幕缩放',
-      subtitle: '整体放大或缩小字幕',
+      title: l10n.playerSubtitleScaleTitle,
+      subtitle: l10n.playerSubtitleScaleSubtitle,
       valueLabel: '${widget.subtitleScale.toStringAsFixed(2)}x',
       value: widget.subtitleScale,
       min: 0.5,
@@ -1786,13 +1826,13 @@ class _DesktopPlaybackSettingsPanelState
   }
 
   // 章节：对齐安卓 buildChapterPage（当前章节高亮，点击跳转）。
-  Widget _buildChaptersPage() {
+  Widget _buildChaptersPage(AppLocalizations l10n) {
     if (widget.chapters.isEmpty) {
       return _settingsList(<Widget>[
-        const _SettingsStatusCard(
-          title: '章节',
-          value: '当前视频没有章节信息',
-          description: '片源带内嵌章节时这里会列出可跳转的时间点。',
+        _SettingsStatusCard(
+          title: l10n.playerChaptersTitle,
+          value: l10n.playerChaptersEmpty,
+          description: l10n.playerChaptersEmptyHint,
         ),
       ]);
     }
@@ -1816,7 +1856,7 @@ class _DesktopPlaybackSettingsPanelState
               Expanded(
                 child: _SettingsTileText(
                   title: chapter.title.trim().isEmpty
-                      ? '章节 ${index + 1}'
+                      ? l10n.playerChapterN(index + 1)
                       : chapter.title,
                   subtitle: '',
                 ),
@@ -1838,10 +1878,11 @@ class _DesktopPlaybackSettingsPanelState
   // 音频调整：对齐安卓 buildAudioPage 的分段结构（延迟 / 预设 / 输出 / 增益与音效 / 均衡器）。
   Widget _buildAudioAdjustPage(AppLocalizations l10n) => _settingsList(<Widget>[
     _SettingsSliderTile(
-      title: '音频延迟',
-      subtitle: '正值让声音更晚，负值让声音更早',
-      valueLabel:
-          '${_audioDelaySeconds > 0 ? '+' : ''}${_audioDelaySeconds.toStringAsFixed(1)} 秒',
+      title: l10n.playerAudioDelayTitle,
+      subtitle: l10n.playerAudioDelaySubtitle,
+      valueLabel: l10n.playerDelaySecondsValue(
+        '${_audioDelaySeconds > 0 ? '+' : ''}${_audioDelaySeconds.toStringAsFixed(1)}',
+      ),
       value: _audioDelaySeconds,
       min: -10,
       max: 10,
@@ -1849,22 +1890,22 @@ class _DesktopPlaybackSettingsPanelState
       onChanged: (value) => setState(() => _audioDelaySeconds = value),
       onChangeEnd: _setAudioDelay,
     ),
-    const _SettingsSectionHeader('预设'),
+    _SettingsSectionHeader(l10n.playerSectionPresets),
     _SettingsMenuTile(
-      title: '选择已保存预设',
-      subtitle: '应用已保存的音频预设',
+      title: l10n.playerPresetSelectTitle,
+      subtitle: l10n.playerPresetSelectAudioSubtitle,
       icon: Icons.library_music_rounded,
       onTap: () => _push(DesktopPlaybackSettingsPage.audioPresets),
     ),
-    const _SettingsSectionHeader('输出'),
+    _SettingsSectionHeader(l10n.playerSectionOutput),
     _definitionSegment(l10n, MpvSettingsCatalog.audioPassthroughKey),
     if (_passthroughActive)
-      const _SettingsStatusCard(
-        title: '音频直通',
-        value: '已开启',
-        description: '位流直通由功放解码，音效与均衡器暂时不生效。',
+      _SettingsStatusCard(
+        title: l10n.playerPassthroughTitle,
+        value: l10n.playerEnabled,
+        description: l10n.playerPassthroughDescription,
       ),
-    const _SettingsSectionHeader('增益与音效'),
+    _SettingsSectionHeader(l10n.playerSectionGainEffects),
     for (final key in const <String>[
       MpvSettingsCatalog.volumeGainKey,
       MpvSettingsCatalog.audioHighFidelityKey,
@@ -1875,15 +1916,15 @@ class _DesktopPlaybackSettingsPanelState
       MpvSettingsCatalog.channelMixKey,
     ])
       _definitionSegment(l10n, key, enabled: !_passthroughActive),
-    const _SettingsSectionHeader('均衡器'),
+    _SettingsSectionHeader(l10n.playerSectionEqualizer),
     _definitionSegment(
       l10n,
       MpvSettingsCatalog.audioEqKey,
       enabled: !_passthroughActive,
     ),
     _SettingsMenuTile(
-      title: '自定义均衡器',
-      subtitle: '五个频段增益微调',
+      title: l10n.playerAudioEqTitle,
+      subtitle: l10n.playerAudioEqSubtitle,
       trailing: _labelFor(l10n, MpvSettingsCatalog.audioEqKey),
       icon: Icons.equalizer_rounded,
       onTap:
@@ -1899,7 +1940,7 @@ class _DesktopPlaybackSettingsPanelState
     for (final band in MpvSettingsCatalog.audioEqBands)
       _SettingsSliderTile(
         title: '${band.label} Hz',
-        subtitle: '自定义均衡器频段',
+        subtitle: l10n.playerAudioEqBandSubtitle,
         valueLabel: MpvSettingsCatalog.formatAudioEqBandValue(
           MpvSettingsCatalog.audioEqBandValue(band.key, _mpvSettings),
         ),
@@ -1945,7 +1986,7 @@ class _DesktopPlaybackSettingsPanelState
         _mpvSettings[MpvSettingsCatalog.frameInterpolationKey] == 'on';
     return _SettingsSegmentTile(
       title: interpolationSync
-          ? '${definition.title} · 插帧期间自动同步'
+          ? l10n.playerInterpolationSyncSuffix(definition.title)
           : definition.title,
       options: <(String, String)>[
         for (final option in definition.options) (option.value, option.label),
@@ -1988,22 +2029,28 @@ class _DesktopPlaybackSettingsPanelState
         ? '${source.videoWidth} × ${source.videoHeight}'
         : source.resolution;
     final rows = <(String, String)>[
-      ('标题', source.title),
-      ('位置', _duration(widget.position)),
-      ('时长', _duration(Duration(seconds: source.durationSeconds))),
-      ('分辨率', dimensions),
-      ('视频编码', source.videoCodecName),
-      ('编码配置', source.videoProfile),
-      ('位深', source.bitDepth > 0 ? '${source.bitDepth} bit' : ''),
-      ('色彩空间', source.colorSpace),
-      ('传输特性', source.colorTransfer),
+      (l10n.playerDiagnosticsTitleLabel, source.title),
+      (l10n.playerInfoPosition, _duration(widget.position)),
       (
-        '码率',
+        l10n.playerInfoDuration,
+        _duration(Duration(seconds: source.durationSeconds)),
+      ),
+      (l10n.playerDiagnosticsResolution, dimensions),
+      (l10n.playerDiagnosticsVideoCodec, source.videoCodecName),
+      (l10n.playerInfoVideoProfile, source.videoProfile),
+      (
+        l10n.playerInfoBitDepth,
+        source.bitDepth > 0 ? '${source.bitDepth} bit' : '',
+      ),
+      (l10n.mediaDetailsFieldColorSpace, source.colorSpace),
+      (l10n.playerInfoColorTransfer, source.colorTransfer),
+      (
+        l10n.mediaDetailsFieldBitrate,
         source.bitrate > 0
             ? '${(source.bitrate / 1000000).toStringAsFixed(1)} Mbps'
             : '',
       ),
-      ('播放模式', source.playbackMode.name),
+      (l10n.playerInfoPlaybackMode, source.playbackMode.name),
     ].where((entry) => entry.$2.trim().isNotEmpty).toList(growable: false);
     return ListView.separated(
       padding: EdgeInsets.zero,
@@ -2172,13 +2219,14 @@ class _SavedPresetsPageState extends State<_SavedPresetsPage> {
       );
     }
     if (_presets.isEmpty) {
+      final l10n = AppLocalizations.of(context);
       return ListView(
         padding: EdgeInsets.zero,
-        children: const <Widget>[
+        children: <Widget>[
           _SettingsStatusCard(
-            title: '已保存预设',
-            value: '暂无已保存预设',
-            description: '在全局设置的 MPV 播放器设置里保存过预设后，这里可以直接应用。',
+            title: l10n.playerSavedPresetsTitle,
+            value: l10n.playerSavedPresetsEmpty,
+            description: l10n.playerSavedPresetsHint,
           ),
         ],
       );
@@ -2685,7 +2733,9 @@ class _BookmarkTile extends StatelessWidget {
         Expanded(
           child: _SettingsTileText(
             title: time,
-            subtitle: note.trim().isEmpty ? '点击跳转到此时间点' : note,
+            subtitle: note.trim().isEmpty
+                ? AppLocalizations.of(context).playerBookmarkJumpHint
+                : note,
           ),
         ),
         IconButton(
@@ -2878,19 +2928,24 @@ class _ViewToggle extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext c) => IconButton(
-    icon: Icon(icon, size: 18),
-    color: selected ? Colors.white : Colors.white38,
-    tooltip: selected ? '当前视图' : '切换视图',
-    onPressed: onTap,
-    style: IconButton.styleFrom(
-      fixedSize: const Size.square(34),
-      padding: EdgeInsets.zero,
-      backgroundColor: selected ? const Color(0x246EA8FF) : Colors.transparent,
-      hoverColor: const Color(0x1AFFFFFF),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-    ),
-  );
+  Widget build(BuildContext c) {
+    final l10n = AppLocalizations.of(c);
+    return IconButton(
+      icon: Icon(icon, size: 18),
+      color: selected ? Colors.white : Colors.white38,
+      tooltip: selected ? l10n.playerViewCurrent : l10n.playerViewSwitch,
+      onPressed: onTap,
+      style: IconButton.styleFrom(
+        fixedSize: const Size.square(34),
+        padding: EdgeInsets.zero,
+        backgroundColor: selected
+            ? const Color(0x246EA8FF)
+            : Colors.transparent,
+        hoverColor: const Color(0x1AFFFFFF),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+      ),
+    );
+  }
 }
 
 class _EpisodeCard extends StatelessWidget {
@@ -2906,13 +2961,16 @@ class _EpisodeCard extends StatelessWidget {
   final VoidCallback? onTap;
   @override
   Widget build(BuildContext c) {
+    final l10n = AppLocalizations.of(c);
     final shortLabel = '${episode['shortLabel'] ?? ''}'.trim();
     final episodeNumber = '${episode['episodeNumber'] ?? ''}'.trim();
     final numberLabel = shortLabel.isNotEmpty
         ? shortLabel
         : (episodeNumber.isNotEmpty ? episodeNumber : '—');
     final rawTitle = '${episode['title'] ?? ''}'.trim();
-    final title = rawTitle.isNotEmpty ? rawTitle : '第$numberLabel集';
+    final title = rawTitle.isNotEmpty
+        ? rawTitle
+        : l10n.playerEpisodeNumberTemplate(numberLabel);
     final poster = '${episode['poster'] ?? episode['posterPath'] ?? ''}'.trim();
     final headers = _stringMap(episode['imageHeaders']);
     final watched = episode['watched'] == true || episode['watched'] == 1,
@@ -2944,7 +3002,7 @@ class _EpisodeCard extends StatelessWidget {
               Expanded(child: image),
               const SizedBox(height: 7),
               Text(
-                '第$numberLabel集 · $title',
+                l10n.playerEpisodeCardTitle(numberLabel, title),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -2966,7 +3024,7 @@ class _EpisodeCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '第$numberLabel集 · $title',
+                      l10n.playerEpisodeCardTitle(numberLabel, title),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -2985,18 +3043,18 @@ class _EpisodeCard extends StatelessWidget {
                       ),
                     if (downloaded) ...[
                       const SizedBox(height: 4),
-                      const Row(
+                      Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.download_rounded,
                             color: Colors.white70,
                             size: 13,
                           ),
-                          SizedBox(width: 3),
+                          const SizedBox(width: 3),
                           Text(
-                            '已下载',
-                            style: TextStyle(
+                            l10n.playerDownloadedBadge,
+                            style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 10,
                             ),
@@ -3058,6 +3116,7 @@ class DesktopEpisodePoster extends StatelessWidget {
   final double progress;
   @override
   Widget build(BuildContext c) {
+    final l10n = AppLocalizations.of(c);
     final image = path.startsWith('http://') || path.startsWith('https://')
         ? Image.network(
             path,
@@ -3097,11 +3156,14 @@ class DesktopEpisodePoster extends StatelessWidget {
                     color: const Color(0xCC000000),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 2,
+                    ),
                     child: Text(
-                      '已观看',
-                      style: TextStyle(color: Colors.white, fontSize: 10),
+                      l10n.playerEpisodeWatched,
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
                     ),
                   ),
                 ),

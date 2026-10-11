@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'desktop_hover_region.dart';
 import 'desktop_tokens.dart';
+import '../l10n/generated/app_localizations.dart';
 
 /// 横向媒体架的鼠标翻页入口，悬停且内容可滚动时显示。
 /// 按钮完整位于列表内侧，点击按约 0.8 视口宽度翻页。
@@ -208,6 +209,7 @@ class _ScrollArrowState extends State<_ScrollArrow> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final isLeft = widget.icon == Icons.chevron_left;
@@ -229,8 +231,12 @@ class _ScrollArrowState extends State<_ScrollArrow> {
           onExit: (_) => setState(() => _hovering = false),
           child: Tooltip(
             message: widget.enabled
-                ? (isLeft ? '向左翻页' : '向右翻页')
-                : (isLeft ? '已到最左侧' : '已到最右侧'),
+                ? (isLeft
+                      ? l10n.desktopScrollPageLeft
+                      : l10n.desktopScrollPageRight)
+                : (isLeft
+                      ? l10n.desktopScrollAtLeftEdge
+                      : l10n.desktopScrollAtRightEdge),
             child: Semantics(
               button: true,
               enabled: widget.enabled,

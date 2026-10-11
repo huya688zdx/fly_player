@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import '../../l10n/generated/app_localizations.dart';
 import 'external_player_adapter.dart';
 import 'potplayer_session.dart';
 
@@ -28,10 +29,8 @@ class PotPlayerAdapter implements ExternalPlayerAdapter {
   List<String> get fileExtensions => const <String>['exe'];
 
   @override
-  String get usageNotes =>
-      '播放时请保持 Fly Player 运行，用于向 NAS 回报进度。影片详情页和外部播放控制页可暂停、跳转、更换片源、搜索弹幕和选择外挂字幕。\n\n'
-      '飞牛原画剧集会带入各季播放列表；切集时会同步对应字幕、弹幕和进度。连续播放由 PotPlayer 的播放列表设置控制。\n\n'
-      '弹幕与外挂 ASS、SRT、VTT 会合成为临时 ASS。音轨、内封字幕和位图字幕请在 PotPlayer 菜单中切换；AI 人物遮挡暂不支持。';
+  String usageNotes(AppLocalizations l10n) =>
+      l10n.externalPlaybackPotPlayerUsageNotes;
 
   @override
   bool get supportsSubtitles => true;
@@ -43,20 +42,25 @@ class PotPlayerAdapter implements ExternalPlayerAdapter {
   bool get supportsMiniPlayer => true;
 
   @override
-  Future<String?> validateExecutable(String executablePath) async {
-    if (!Platform.isWindows) return '外部播放器接入目前仅支持 Windows。';
+  Future<String?> validateExecutable(
+    String executablePath, {
+    required AppLocalizations l10n,
+  }) async {
+    if (!Platform.isWindows) return l10n.externalPlaybackWindowsOnly;
     final candidate = executablePath.trim();
-    if (candidate.isEmpty) return '请先选择或自动查找 PotPlayer 程序。';
+    if (candidate.isEmpty) return l10n.externalPlaybackChoosePlayer;
     final name = path.windows.basename(candidate).toLowerCase();
     if (!_executableNames.any((value) => value.toLowerCase() == name)) {
-      return '请选择 PotPlayerMini64.exe 或 PotPlayerMini.exe。';
+      return l10n.externalPlaybackChoosePotPlayerBinary;
     }
-    if (!await File(candidate).exists()) return '程序文件不存在，请重新选择 PotPlayer。';
+    if (!await File(candidate).exists()) {
+      return l10n.externalPlaybackPlayerMissing;
+    }
     return null;
   }
 
   @override
-  Future<String?> detectExecutable() async {
+  Future<String?> detectExecutable({required AppLocalizations l10n}) async {
     if (!Platform.isWindows) return null;
     for (final hive in const <String>['HKCU', 'HKLM']) {
       for (final name in _executableNames) {
@@ -79,7 +83,9 @@ class PotPlayerAdapter implements ExternalPlayerAdapter {
               (match) =>
                   Platform.environment[match.group(1)!] ?? match.group(0)!,
             );
-            if (await validateExecutable(candidate) == null) return candidate;
+            if (await validateExecutable(candidate, l10n: l10n) == null) {
+              return candidate;
+            }
           } on ProcessException {
             // 注册表不可用时继续检查常见安装目录。
           }
@@ -99,7 +105,9 @@ class PotPlayerAdapter implements ExternalPlayerAdapter {
       ]) {
         for (final name in _executableNames) {
           final candidate = path.windows.join(root, directory, name);
-          if (await validateExecutable(candidate) == null) return candidate;
+          if (await validateExecutable(candidate, l10n: l10n) == null) {
+            return candidate;
+          }
         }
       }
     }
@@ -143,6 +151,7 @@ class PotPlayerAdapter implements ExternalPlayerAdapter {
     onProgress,
     required Future<void> Function() onFinished,
     required void Function(String message) onError,
+    required AppLocalizations l10n,
     Future<Duration?> Function(String mediaUrl)? onMediaChanged,
   }) async {
     final pid = await PotPlayerSession.channel.invokeMethod<int>('launch', {
@@ -152,9 +161,12 @@ class PotPlayerAdapter implements ExternalPlayerAdapter {
       'title': title,
       'headers': headers,
     });
-    if (pid == null || pid <= 0) throw StateError('未能启动 PotPlayer');
+    if (pid == null || pid <= 0) {
+      throw StateError(l10n.externalPotPlayerLaunchFailed);
+    }
     return PotPlayerSession(
       pid: pid,
+      l10n: l10n,
       mediaUrl: mediaUrl,
       isCurrentSession: isCurrentSession,
       onProgress: onProgress,

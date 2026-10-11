@@ -10,6 +10,7 @@ import 'package:fly_player/screens/home/widgets/home_horizontal_shelf.dart';
 import 'package:fly_player/screens/home/widgets/home_landscape_media_section.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/layout_adaptive.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 MediaLayoutProfile? _capturedProfile;
 
@@ -17,6 +18,9 @@ MediaLayoutProfile? _capturedProfile;
 /// MediaLayoutProfile.of / HoverLift / 右键包装按桌面档生效。
 Widget desktopApp({required double width, required Widget child}) =>
     MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: AppThemeBuilder.build(AppThemePreset.midnight),
       home: MediaQuery(
         data: MediaQueryData(size: Size(width, 900)),

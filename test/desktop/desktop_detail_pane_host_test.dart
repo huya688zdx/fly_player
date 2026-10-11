@@ -40,7 +40,7 @@ Future<DesktopDetailPaneHostState> _pumpHost(
   required DesktopSplitController controller,
   double width = 900,
   RouteFactory? onGenerateRoute = _testRouteFactory,
-  Locale? locale,
+  Locale? locale = const Locale('zh', 'CN'),
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -130,7 +130,13 @@ void main() {
     addTearDown(() => DesktopEnvironment.debugOverridePlatform = null);
     final navigator = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
-      MaterialApp(navigatorKey: navigator, home: const Text('首页')),
+      MaterialApp(
+        navigatorKey: navigator,
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Text('首页'),
+      ),
     );
     final route = AppTransitions.leftToRightPageTurnRoute<void>(
       const Text('详情'),
@@ -346,6 +352,9 @@ void main() {
           DesktopDetailPaneHost(splitController: controller);
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: AppThemeBuilder.build(AppThemePreset.midnight),
           home: Scaffold(
             body: Center(

@@ -114,6 +114,9 @@ void main() {
   testWidgets('选集缩略图显示观看状态，下载文字独立且零续播值不遮掉观看进度', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: DesktopEpisodePanel(
             title: '选集',
@@ -199,6 +202,9 @@ void main() {
     ];
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: Stack(
             children: [
@@ -288,6 +294,9 @@ void main() {
     Duration? sought;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: DesktopPlayerControls(
             player: player,
@@ -418,6 +427,9 @@ void main() {
     final queries = <String>[];
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: DesktopDanmakuSourcePanel(
             currentSourceLabel: '',
@@ -520,12 +532,7 @@ void main() {
           position: Duration(seconds: 90),
         ),
       ], const Duration(minutes: 24)),
-      (
-        introStart: null,
-        introEnd: null,
-        outroStart: null,
-        outroEnd: null,
-      ),
+      (introStart: null, introEnd: null, outroStart: null, outroEnd: null),
     );
   });
 
@@ -792,7 +799,10 @@ void main() {
     final mixed = desktopPlaybackSkipBounds(
       [
         const DesktopPlayerChapter(title: 'OP', position: Duration.zero),
-        const DesktopPlayerChapter(title: '正片', position: Duration(seconds: 90)),
+        const DesktopPlayerChapter(
+          title: '正片',
+          position: Duration(seconds: 90),
+        ),
         numbered(1300),
         numbered(1400),
       ],
@@ -931,12 +941,12 @@ void main() {
 
     // 章节来自 mpv chapter-list；入口常显，无章节时展示空态。
     expect(source, contains("getProperty('chapter-list')"));
-    expect(panelSource, contains('当前视频没有章节信息'));
+    expect(panelSource, contains('playerChaptersEmpty'));
 
     // 片头片尾跳过：时长窗口逻辑 + 右下角提示卡。
     expect(source, contains('_computeSkipPromptKind'));
     expect(source, contains('_buildSkipPromptLayer'));
-    expect(panelSource, contains('片头片尾跳过'));
+    expect(panelSource, contains('playerIntroOutroEntryTitle'));
 
     // 音轨「调节」在原悬浮卡上放大，不另开独立窗口。
     expect(source, contains('_expandHoverOverlayToSettings'));
@@ -1037,13 +1047,18 @@ void main() {
   test('Windows 音轨标题复用语言映射而不是显示原始代码', () {
     const track = AudioTrack('3', null, 'jpn');
 
-    final title = DesktopMpvRuntime.audioTrackTitle(track, '轨道 1');
+    final title = DesktopMpvRuntime.audioTrackTitle(
+      track,
+      '轨道 1',
+      uiLocaleName: 'zh_CN',
+    );
 
     expect(title, '日语');
     expect(
       DesktopMpvRuntime.audioTrackTitle(
         const AudioTrack('3', 'Japanese Audio', 'jpn'),
         '轨道 1',
+        uiLocaleName: 'zh_CN',
       ),
       '日语',
     );
@@ -1089,7 +1104,11 @@ void main() {
   test('Windows 字幕标题复用语言映射而不是显示原始代码', () {
     const track = SubtitleTrack('3', null, 'jpn');
 
-    final title = DesktopMpvRuntime.subtitleTrackTitle(track, '轨道 1');
+    final title = DesktopMpvRuntime.subtitleTrackTitle(
+      track,
+      '轨道 1',
+      uiLocaleName: 'zh_CN',
+    );
 
     expect(title, '日语');
   });
@@ -1126,12 +1145,12 @@ void main() {
     final theme = AppThemeBuilder.build(AppThemePreset.latte);
     await tester.pumpWidget(
       MaterialApp(
-        // 本测试断言中文文案（原画/自定义）；加入 en/ja 后测试默认 locale 会解析到
-        // English，这里显式钉住 zh-CN 以保持原语义。
         locale: const Locale('zh', 'CN'),
-        theme: theme,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        // 本测试断言中文文案（原画/自定义）；加入 en/ja 后测试默认 locale 会解析到
+        // English，这里显式钉住 zh-CN 以保持原语义。
+        theme: theme,
         home: Scaffold(
           body: Center(
             child: SizedBox(
@@ -1182,6 +1201,9 @@ void main() {
   testWidgets('Windows 弹幕显示设置与弹幕源分开呈现', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: DesktopDanmakuSettingsPanel(
           settings: DanmakuSettings.defaults,
           onChanged: (_) async {},
@@ -1194,6 +1216,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: DesktopDanmakuSourcePanel(
           currentSourceLabel: 'dandan:42',
           commentCount: 120,
@@ -1219,14 +1244,15 @@ void main() {
     var fixedEnabled = false;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(
             context,
           ).copyWith(padding: const EdgeInsets.only(top: 32)),
           child: child!,
         ),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
         home: StatefulBuilder(
           builder: (context, setState) => SizedBox(
             width: 410,
@@ -1336,11 +1362,19 @@ void main() {
           matching: find.byType(Scrollable),
         )
         .last;
-    await tester.scrollUntilVisible(find.text('当前片头'), 80, scrollable: settingsScrollable);
+    await tester.scrollUntilVisible(
+      find.text('当前片头'),
+      80,
+      scrollable: settingsScrollable,
+    );
     await tester.pumpAndSettle();
     expect(find.text('固定时长 · 00:00–02:00'), findsOneWidget);
     expect(find.text('点击后跳到 02:00。'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('当前片尾'), 80, scrollable: settingsScrollable);
+    await tester.scrollUntilVisible(
+      find.text('当前片尾'),
+      80,
+      scrollable: settingsScrollable,
+    );
     await tester.pumpAndSettle();
     expect(find.text('固定时长 · 22:00–24:00'), findsOneWidget);
     expect(find.text('点击后播放下一集，片尾起点之后的内容会一并跳过。'), findsOneWidget);

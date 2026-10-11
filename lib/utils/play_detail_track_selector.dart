@@ -170,7 +170,10 @@ class PlayDetailTrackSelector {
     AudioTrackOption track, {
     required AppLocalizations l10n,
   }) {
-    final mapped = MediaLanguageMapper.languageName(track.language).trim();
+    final mapped = MediaLanguageMapper.languageName(
+      track.language,
+      uiLocaleName: l10n.localeName,
+    ).trim();
     if (mapped.isNotEmpty) return mapped;
     final raw = track.language.trim();
     final normalized = raw.toLowerCase();
@@ -201,7 +204,10 @@ class PlayDetailTrackSelector {
     SubtitleTrackOption track, {
     required AppLocalizations l10n,
   }) {
-    final language = MediaLanguageMapper.subtitleLabel(track.language).trim();
+    final language = MediaLanguageMapper.subtitleLabel(
+      track.language,
+      uiLocaleName: l10n.localeName,
+    ).trim();
     final unknownSubtitle = l10n.trackSubtitleUnknownLanguage;
     final normalized =
         (language.isEmpty || language == '字幕' || language == '未知')

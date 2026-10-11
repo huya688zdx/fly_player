@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/desktop_environment.dart';
 import 'package:fly_player/ui/app_motion.dart';
 import 'package:fly_player/ui/app_sheet_transitions.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 /// 弹层入场方向约定：手机平台横竖屏统一从下方滑入；
 /// 桌面端保持横屏从右、竖屏从下（app_motion.dart 两个 offset 的分工）。
@@ -20,6 +21,9 @@ void main() {
     late final BuildContext hostContext;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Builder(
           builder: (context) {
             hostContext = context;

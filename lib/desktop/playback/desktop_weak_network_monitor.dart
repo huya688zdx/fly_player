@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../playback/playback_source.dart';
 import '../../playback/weak_network_quality_recommender.dart';
 import 'desktop_mpv_runtime.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 /// 只采样当前远程媒体；弱网提示不改变内核缓存策略，也不自动切换画质。
 class DesktopWeakNetworkMonitor extends ChangeNotifier {
@@ -72,6 +73,7 @@ class DesktopWeakNetworkMonitor extends ChangeNotifier {
     }
     final choices = DesktopMpvRuntime.qualityMenu(
       source,
+      l10n: lookupAppLocalizations(PlatformDispatcher.instance.locale),
     ).customGroups.values.expand((group) => group).toList();
     final current = choices
         .where((choice) => DesktopMpvRuntime.isCurrentQuality(source, choice))

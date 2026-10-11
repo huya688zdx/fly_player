@@ -24,6 +24,22 @@ enum AppLocaleMode {
 class AppLocaleProvider extends ChangeNotifier {
   static const String _localeModeKey = 'app_locale_mode';
 
+  /// load/setMode 同步的当前覆盖值；供无 BuildContext 的服务层经
+  /// [effectiveLocale] 取词（system 模式回退平台语言）。
+  static Locale? _currentOverride;
+
+  /// 服务层无 context 场景的同步语言入口。绑定未就绪（纯 Dart 测试、
+  /// 极早启动路径）时回退中文兜底，与 lookupAppLocalizations 的历史兜底一致。
+  static Locale get effectiveLocale {
+    final override = _currentOverride;
+    if (override != null) return override;
+    try {
+      return WidgetsBinding.instance.platformDispatcher.locale;
+    } catch (_) {
+      return const Locale('zh', 'CN');
+    }
+  }
+
   AppLocaleMode _mode = AppLocaleMode.system;
   bool _isReady = false;
 
@@ -49,6 +65,7 @@ class AppLocaleProvider extends ChangeNotifier {
     final changed = !_isReady || nextMode != _mode;
     _mode = nextMode;
     _isReady = true;
+    _currentOverride = locale;
     if (changed) notifyListeners();
   }
 
@@ -56,6 +73,7 @@ class AppLocaleProvider extends ChangeNotifier {
     if (_mode == mode && _isReady) return;
     _mode = mode;
     _isReady = true;
+    _currentOverride = locale;
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();

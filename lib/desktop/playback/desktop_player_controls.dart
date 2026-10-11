@@ -11,6 +11,7 @@ import 'desktop_playback_chapters.dart';
 import 'desktop_player_motion_icon.dart';
 import 'desktop_seek_thumbnails.dart';
 import 'desktop_semantics_safe_slider.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 Widget _tooltipOrChild({
   required String message,
@@ -350,20 +351,20 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                      if (!widget.isLive)
-                        SizedBox(
-                          height: 26,
-                          child: _DesktopTimeline(
-                            position: position,
-                            duration: duration,
-                            buffered: widget.showBuffer ? buffer : Duration.zero,
-                            chapters: widget.chapters,
-                            skipBounds: widget.skipBounds,
-                            thumbnails: _thumbnails,
-                            accent: colors.accent,
-                            onSeek: widget.onSeek,
-                          ),
+                    if (!widget.isLive)
+                      SizedBox(
+                        height: 26,
+                        child: _DesktopTimeline(
+                          position: position,
+                          duration: duration,
+                          buffered: widget.showBuffer ? buffer : Duration.zero,
+                          chapters: widget.chapters,
+                          skipBounds: widget.skipBounds,
+                          thumbnails: _thumbnails,
+                          accent: colors.accent,
+                          onSeek: widget.onSeek,
                         ),
+                      ),
                     SizedBox(height: compact ? 2 : 4),
                     Row(
                       children: <Widget>[
@@ -422,7 +423,9 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
                               inactiveColor: Colors.white.withValues(
                                 alpha: 0.18,
                               ),
-                              semanticsLabel: '音量',
+                              semanticsLabel: AppLocalizations.of(
+                                context,
+                              ).playerVolumeSemantics,
                               semanticsValue: '${widget.volume.round()}%',
                               trackHeight: 2.5,
                               thumbRadius: 5,
@@ -452,7 +455,10 @@ class _DesktopPlayerControlsState extends State<DesktopPlayerControls> {
   /// 时间显示（.pl-time：当前白色加粗，总时长 60% 白）。
   Widget _buildTimeText(Duration position, Duration duration) {
     if (widget.isLive) {
-      return const Text('直播', style: TextStyle(color: Colors.white));
+      return Text(
+        AppLocalizations.of(context).playerLiveSourceLabel,
+        style: const TextStyle(color: Colors.white),
+      );
     }
     return Text.rich(
       TextSpan(
@@ -1090,10 +1096,10 @@ class _TimelinePainter extends CustomPainter {
       void band(Duration? start, Duration? end) {
         if (start == null || end == null || end <= start) return;
         if (start >= duration) return;
-        final x0 =
-            size.width * start.inMilliseconds / duration.inMilliseconds;
+        final x0 = size.width * start.inMilliseconds / duration.inMilliseconds;
         final x1 =
-            size.width * end.inMilliseconds.clamp(0, duration.inMilliseconds) /
+            size.width *
+            end.inMilliseconds.clamp(0, duration.inMilliseconds) /
             duration.inMilliseconds;
         canvas.drawRect(
           Rect.fromLTRB(x0, top - 1, x1, top + trackHeight + 1),

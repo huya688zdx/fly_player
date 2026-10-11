@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/desktop/desktop.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/screens/home/widgets/home_horizontal_shelf.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 double _opacityOf(WidgetTester tester, IconData icon) => tester
     .widget<AnimatedOpacity>(
@@ -33,6 +34,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: Scaffold(
           body: Center(
@@ -121,6 +125,9 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         builder: (context, child) =>
             DesktopPointerPositionTracker(child: child!),
@@ -174,6 +181,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.latte),
         home: Scaffold(
           body: SizedBox(

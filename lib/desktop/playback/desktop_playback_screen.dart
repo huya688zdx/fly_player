@@ -472,8 +472,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       _fixedDurationSkipEnabled =
           prefs.getBool(_fixedDurationSkipPrefKey) ?? false;
       _introOutroAutoSkip = prefs.getBool(_introOutroAutoSkipPrefKey) ?? true;
-      _skipCountdownSeconds = (prefs.getInt(_skipCountdownPrefKey) ?? 5)
-          .clamp(2, 10);
+      _skipCountdownSeconds = (prefs.getInt(_skipCountdownPrefKey) ?? 5).clamp(
+        2,
+        10,
+      );
       _subtitleDelaySeconds = prefs.getDouble(_subDelayPrefKey) ?? 0;
       _subtitlePosition = prefs.getInt(_subPosPrefKey) ?? 92;
       _subtitleScale = prefs.getDouble(_subScalePrefKey) ?? 1;
@@ -579,7 +581,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       }
       _updateView(() {});
       _reportProgress();
-      _showPlayerMessage('已导入本地字幕');
+      _showPlayerMessage(_l10n.desktopSubtitleImported);
     } catch (_) {
       if (_isCurrentSourceChange(generation) && identical(source, _source)) {
         _source = previousSource;
@@ -835,7 +837,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   Future<bool> _importDanmakuFile() async {
     final generation = _sourceChangeGeneration;
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: '导入弹幕文件',
+      dialogTitle: _l10n.externalDanmakuImportDialogTitle,
       type: FileType.custom,
       allowedExtensions: const <String>['xml', 'json'],
       lockParentWindow: true,
@@ -856,7 +858,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!_isCurrentSourceChange(generation)) return false;
     final payloadPath = imported?['danmakuFile']?.toString().trim() ?? '';
     if (payloadPath.isEmpty) {
-      _showPlayerMessage('弹幕文件无法识别');
+      _showPlayerMessage(_l10n.desktopDanmakuFileUnrecognized);
       return false;
     }
     final loaded = await _loadDanmakuForSource(
@@ -865,7 +867,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       enableOnSuccess: true,
     );
     if (loaded) {
-      _showPlayerMessage('已导入 ${_danmakuComments.length} 条弹幕');
+      _showPlayerMessage(
+        _l10n.desktopDanmakuImportedCount(_danmakuComments.length),
+      );
     }
     return loaded;
   }
@@ -904,7 +908,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!_isCurrentSourceChange(generation)) return false;
     final path = result?['danmakuFile']?.toString().trim() ?? '';
     if (path.isEmpty) {
-      _showPlayerMessage('弹幕源加载失败');
+      _showPlayerMessage(_l10n.desktopDanmakuSourceLoadFailed);
       return false;
     }
     final label = '${source['label'] ?? sourceKey}'.trim();
@@ -913,7 +917,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       sourceLabel: label,
       enableOnSuccess: true,
     );
-    if (loaded) _showPlayerMessage('已切换弹幕源');
+    if (loaded) _showPlayerMessage(_l10n.desktopDanmakuSourceSwitched);
     return loaded;
   }
 
@@ -939,7 +943,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (!_isCurrentSourceChange(generation)) return false;
     final path = result?['danmakuFile']?.toString().trim() ?? '';
     if (path.isEmpty) {
-      _showPlayerMessage('在线弹幕加载失败');
+      _showPlayerMessage(_l10n.desktopDanmakuOnlineLoadFailed);
       return false;
     }
     final episodeTitle = '${candidate['episodeTitle'] ?? ''}'.trim();
@@ -949,7 +953,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       sourceLabel: episodeTitle.isNotEmpty ? episodeTitle : animeTitle,
       enableOnSuccess: true,
     );
-    if (loaded) _showPlayerMessage('已加载在线弹幕');
+    if (loaded) _showPlayerMessage(_l10n.desktopDanmakuOnlineLoaded);
     return loaded;
   }
 
@@ -964,7 +968,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       episodeNumber: _source.episodeNumber,
       seriesTitle: _source.seriesTitle,
     );
-    if (removed) _showPlayerMessage('已删除弹幕源');
+    if (removed) _showPlayerMessage(_l10n.desktopDanmakuSourceDeleted);
   }
 
   void _toggleDanmaku() {
@@ -1119,7 +1123,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
     if (!_outroSkipDismissed &&
         outroStart != null &&
-        position >= (outroStart - showLead < twoSeconds ? twoSeconds : outroStart - showLead)) {
+        position >=
+            (outroStart - showLead < twoSeconds
+                ? twoSeconds
+                : outroStart - showLead)) {
       return _SkipPromptKind.outro;
     }
     return null;
@@ -1502,7 +1509,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final wasPlaying = _isPlaying || (_isBuffering && !_pausedByUser);
     final quality = qualityIndex == null
         ? null
-        : DesktopMpvRuntime.qualityMenu(_source).customGroups.values
+        : DesktopMpvRuntime.qualityMenu(_source, l10n: _l10n)
+              .customGroups
+              .values
               .expand((group) => group)
               .where((choice) => choice.sourceIndex == qualityIndex)
               .firstOrNull;
@@ -1837,7 +1846,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   void _onCompletedChanged(bool completed) {
     if (_source.isLive) {
       if (completed && mounted && !_isLoading) {
-        _showGenericError('直播已中断，请重试或切换线路');
+        _showGenericError(_l10n.desktopLiveInterrupted);
       }
       return;
     }
@@ -2802,13 +2811,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
               : (_menuSubtitleTrack ?? _player.state.track.subtitle).id == 'no',
           actions: <DesktopPanelHeaderAction>[
             DesktopPanelHeaderAction(
-              label: '样式',
+              label: _l10n.desktopPanelStyle,
               onTap: () => _expandHoverOverlayToSettings(
                 DesktopPlaybackSettingsPage.subtitleStyle,
               ),
             ),
             DesktopPanelHeaderAction(
-              label: '导入',
+              label: _l10n.desktopPanelImport,
               onTap: () => unawaited(_importLocalSubtitle()),
             ),
           ],
@@ -2824,7 +2833,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           emptyLabel: _l10n.desktopPlaybackNoAudioTracks,
           actions: <DesktopPanelHeaderAction>[
             DesktopPanelHeaderAction(
-              label: '调节',
+              label: _l10n.desktopPanelAdjust,
               onTap: () => _expandHoverOverlayToSettings(
                 DesktopPlaybackSettingsPage.audioAdjust,
               ),
@@ -2992,12 +3001,12 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       if (onOff != null)
         const PopupMenuDivider(height: 8, indent: 8, endIndent: 8),
       if (options.isEmpty)
-        const PopupMenuItem<void>(
+        PopupMenuItem<void>(
           enabled: false,
           height: 38,
           child: Text(
-            '暂无可用选项',
-            style: TextStyle(color: Colors.white54, fontSize: 12),
+            _l10n.desktopNoOptionsAvailable,
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
         )
       else
@@ -3148,7 +3157,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     if (_source.qualities.isEmpty || widget.reloadSource == null || !mounted) {
       return;
     }
-    final menu = DesktopMpvRuntime.qualityMenu(_source);
+    final menu = DesktopMpvRuntime.qualityMenu(_source, l10n: _l10n);
     final options = <DesktopPlayerPanelOption>[
       for (final choice in menu.mainChoices)
         DesktopPlayerPanelOption(
@@ -3260,9 +3269,13 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     final rawTitle = '${episode['title'] ?? ''}'.trim();
     final title = rawTitle.isNotEmpty
         ? rawTitle
-        : (numberLabel.isNotEmpty ? '第$numberLabel集' : '');
+        : (numberLabel.isNotEmpty
+              ? _l10n.playerEpisodeNumberTemplate(numberLabel)
+              : '');
     if (title.isEmpty) return '—';
-    return numberLabel.isNotEmpty ? '第$numberLabel集 · $title' : title;
+    return numberLabel.isNotEmpty
+        ? _l10n.playerEpisodeCardTitle(numberLabel, title)
+        : title;
   }
 
   /// 上一集（与 [_nextEpisode] 同一定位规则，向前找一集）。
@@ -3650,7 +3663,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
             _toggleLock();
           } else {
             _wakeControls();
-            _showPlayerMessage('再按一次 Esc 解锁');
+            _showPlayerMessage(_l10n.desktopEscUnlockHint);
           }
         } else {
           _lastLockedEscapeTime = null;
@@ -4067,8 +4080,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                                       _l10n.desktopPlaybackScreenshotAction,
                                   danmakuEnabled: _danmakuSettings.enabled,
                                   danmakuLabel: _danmakuSettings.enabled
-                                      ? '弹幕设置 · 已开启'
-                                      : '弹幕设置 · 已关闭',
+                                      ? _l10n.desktopDanmakuSettingsOn
+                                      : _l10n.desktopDanmakuSettingsOff,
                                   onBack: () =>
                                       unawaited(_leavePlayer(videoState)),
                                   onToggle: () => unawaited(_togglePlayback()),
@@ -4086,10 +4099,10 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                                       ? 'A'
                                       : 'AB',
                                   abRepeatTooltip: _abLoopEnd != null
-                                      ? '关闭 A-B 循环'
+                                      ? _l10n.desktopAbLoopOff
                                       : _abLoopStart != null
-                                      ? '设置 B 点'
-                                      : '设置 A 点',
+                                      ? _l10n.desktopAbLoopSetB
+                                      : _l10n.desktopAbLoopSetA,
                                   onAbRepeat: () =>
                                       unawaited(_toggleAbRepeat()),
                                   onToggleDanmaku: _toggleDanmaku,
@@ -4235,7 +4248,9 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                 opacity: _controlsVisible ? 1 : 0,
                 duration: _controlsAnimationDuration,
                 child: IconButton(
-                  tooltip: _isLocked ? '解锁（连按两次 Esc）' : '返回锁',
+                  tooltip: _isLocked
+                      ? _l10n.desktopUnlockTooltip
+                      : _l10n.desktopLockTooltip,
                   onPressed: _toggleLock,
                   style: IconButton.styleFrom(
                     fixedSize: const Size(44, 44),
@@ -4460,15 +4475,15 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                 ? bounds.introFromPattern
                 : bounds.outroFromPattern;
             final basis = fromChapter
-                ? '章节识别'
+                ? _l10n.playerIntroBasisChapter
                 : fromPattern
-                ? '编号章节推测'
-                : '固定时长';
+                ? _l10n.playerIntroBasisPattern
+                : _l10n.playerIntroBasisFixed;
             final message = kind == _SkipPromptKind.intro
-                ? '片头 · $basis'
+                ? _l10n.desktopIntroBasisPrefix(basis)
                 : kind == null
                 ? null
-                : '片尾 · $basis';
+                : _l10n.desktopOutroBasisPrefix(basis);
             return IgnorePointer(
               ignoring: kind == null,
               child: AnimatedSlide(
@@ -4504,12 +4519,18 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
                             ),
                             child: Text(
                               kind == _SkipPromptKind.intro
-                                  ? '跳到 ${_formatDuration(bounds.introEnd ?? Duration.zero)}'
+                                  ? _l10n.playerSkipToLabel(
+                                      _formatDuration(
+                                        bounds.introEnd ?? Duration.zero,
+                                      ),
+                                    )
                                   : bounds.outroEnd != null
-                                  ? '跳到 ${_formatDuration(bounds.outroEnd!)}'
+                                  ? _l10n.playerSkipToLabel(
+                                      _formatDuration(bounds.outroEnd!),
+                                    )
                                   : hasNext
-                                  ? '播放下一集'
-                                  : '跳到视频结束',
+                                  ? _l10n.playerIntroPlayNextLabel
+                                  : _l10n.playerSkipToEndLabel,
                               style: const TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w700,
@@ -4556,7 +4577,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
           if (autoSkipAt != null) {
             final position = snapshot.data ?? _player.state.position;
             final remaining = (autoSkipAt - position).inSeconds.clamp(0, 99);
-            suffix = ' · ${remaining}s 后自动跳过';
+            suffix = _l10n.desktopAutoSkipSuffix(remaining);
           }
         }
         return Text('$message$suffix', style: style);

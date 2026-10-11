@@ -131,6 +131,9 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: Scaffold(
           body: SizedBox(

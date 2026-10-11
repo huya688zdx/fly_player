@@ -22,6 +22,7 @@ import 'storage_management_host.dart';
 import '../theme/app_theme.dart';
 import '../theme/dynamic_theme_runtime_controller.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
+import '../providers/app_locale_provider.dart';
 
 /// 定义存储概览中展示的存储分类。
 enum StorageItemKind {
@@ -635,7 +636,11 @@ class StorageManagementService {
           key == _mpvAudioEqPresetsKey) {
         final removed = await prefs.remove(key);
         if (!removed) {
-          throw StateError('设置项重置失败: $key');
+          throw StateError(
+            lookupAppLocalizations(
+              AppLocaleProvider.effectiveLocale,
+            ).storageResetFailed(key),
+          );
         }
       }
     }

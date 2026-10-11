@@ -34,6 +34,8 @@ import '../utils/app_exception.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/private_network_http_overrides.dart';
 import '../utils/swallowed_error_logger.dart';
+import '../l10n/generated/app_localizations.dart';
+import '../providers/app_locale_provider.dart';
 
 const bool _verboseApiLogsEnabled = false;
 
@@ -2405,7 +2407,11 @@ class FeiniuApi {
     final base = Uri.parse(ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl));
     final uri = base.resolve(path);
     if (uri.origin != base.origin || !uri.path.startsWith('/v/media/')) {
-      throw ArgumentError('字幕资源不属于当前飞牛播放会话');
+      throw ArgumentError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).feiniuSubtitleSessionMismatch,
+      );
     }
     final response = await _dio.get<String>(
       uri.toString(),

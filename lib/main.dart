@@ -73,7 +73,13 @@ void main() {
       }
       if (Platform.isWindows) {
         await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
-        await windowManager.setTitle('飞翔播放器');
+        // 窗口标题在 runApp 前取词：读持久化语言覆盖，system 模式回退平台语言。
+        final storedLocale = await AppLocaleProvider.loadStoredLocale();
+        await windowManager.setTitle(
+          lookupAppLocalizations(
+            storedLocale ?? PlatformDispatcher.instance.locale,
+          ).appTitle,
+        );
       }
       await initializeSqliteRuntime();
       // Phase 4.3：默认 ImageCache 上限 100MB 偏小——详情页 hero 背景最高 1440px

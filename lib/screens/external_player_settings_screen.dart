@@ -8,6 +8,7 @@ import '../desktop/playback/external_player_adapters.dart';
 import '../desktop/playback/external_player_settings.dart';
 import '../desktop/playback/external_playback_host.dart';
 import '../desktop/playback/external_playback_mini_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../widgets/common/app_ambient_page.dart';
@@ -56,7 +57,12 @@ class _ExternalPlayerSettingsScreenState
       });
       await _loadDanmakuSettings();
     } catch (_) {
-      _showMessage('读取外部播放器设置失败，请重新打开此页面。', error: true);
+      if (mounted) {
+        _showMessage(
+          AppLocalizations.of(context).externalPlayerSettingsLoadFailed,
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -68,7 +74,12 @@ class _ExternalPlayerSettingsScreenState
       if (!mounted) return;
       setState(() => _danmakuEnabled = settings.enabled);
     } catch (_) {
-      _showMessage('读取弹幕设置失败，请重新打开此页面。', error: true);
+      if (mounted) {
+        _showMessage(
+          AppLocalizations.of(context).externalPlayerSettingsDanmakuLoadFailed,
+          error: true,
+        );
+      }
     }
   }
 
@@ -87,13 +98,17 @@ class _ExternalPlayerSettingsScreenState
   }
 
   Future<void> _save({bool? enabled}) async {
+    final l10n = AppLocalizations.of(context);
     final nextEnabled = enabled ?? _enabled;
     final executablePath = _pathController.text.trim();
     setState(() => _busy = true);
     try {
       // 关闭始终可用，避免程序被移动后无法退出外部播放模式。
       if (enabled != false && (nextEnabled || executablePath.isNotEmpty)) {
-        final error = await _player.validateExecutable(executablePath);
+        final error = await _player.validateExecutable(
+          executablePath,
+          l10n: l10n,
+        );
         if (!mounted) return;
         if (error != null) {
           _showMessage(error, error: true);
@@ -104,18 +119,22 @@ class _ExternalPlayerSettingsScreenState
         enabled: nextEnabled,
         executablePath: executablePath,
         playerId: _player.id,
-      ).save();
+      ).save(l10n: l10n);
       if (!mounted) return;
       setState(() {
         _enabled = nextEnabled;
         _playerChanged = false;
       });
       _showMessage(
-        nextEnabled ? '已启用 ${_player.displayName}，下一次播放时生效。' : '设置已保存。',
+        nextEnabled
+            ? l10n.externalPlayerSettingsEnabledToast(_player.displayName)
+            : l10n.externalPlayerSettingsSavedToast,
       );
     } catch (error) {
       _showMessage(
-        error is StateError ? error.message.toString() : '保存失败，请重试。',
+        error is StateError
+            ? error.message.toString()
+            : l10n.externalPlayerSettingsSaveFailed,
         error: true,
       );
     } finally {
@@ -124,10 +143,13 @@ class _ExternalPlayerSettingsScreenState
   }
 
   Future<void> _selectExecutable() async {
+    final l10n = AppLocalizations.of(context);
     setState(() => _busy = true);
     try {
       final result = await FilePicker.platform.pickFiles(
-        dialogTitle: '选择 ${_player.displayName} 程序',
+        dialogTitle: l10n.externalPlayerSettingsPickDialogTitle(
+          _player.displayName,
+        ),
         type: FileType.custom,
         allowedExtensions: _player.fileExtensions,
       );
@@ -137,25 +159,35 @@ class _ExternalPlayerSettingsScreenState
       _pathController.text = selected;
       await _save();
     } catch (_) {
-      _showMessage('无法选择程序，请手动填写 ${_player.displayName} 路径。', error: true);
+      _showMessage(
+        l10n.externalPlayerSettingsPickFailed(_player.displayName),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _detectExecutable() async {
+    final l10n = AppLocalizations.of(context);
     setState(() => _busy = true);
     try {
-      final detected = await _player.detectExecutable();
+      final detected = await _player.detectExecutable(l10n: l10n);
       if (!mounted) return;
       if (detected == null) {
-        _showMessage('未找到 ${_player.displayName}，请选择程序或填写安装路径。', error: true);
+        _showMessage(
+          l10n.externalPlayerSettingsDetectNotFound(_player.displayName),
+          error: true,
+        );
         return;
       }
       _pathController.text = detected;
       await _save();
     } catch (_) {
-      _showMessage('自动查找失败，请手动选择 ${_player.displayName} 程序。', error: true);
+      _showMessage(
+        l10n.externalPlayerSettingsDetectFailed(_player.displayName),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -164,6 +196,7 @@ class _ExternalPlayerSettingsScreenState
   @override
   Widget build(BuildContext context) {
     final colors = AppAmbientPage.controlColorsOf(context);
+    final l10n = AppLocalizations.of(context);
     final desktop = DesktopEnvironment.isDesktopPlatform;
     final controlTheme = AppThemeBuilder.buildFromColors(
       colors,
@@ -185,7 +218,10 @@ class _ExternalPlayerSettingsScreenState
       data: controlTheme,
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: buildSecondaryHostAppBar(context, title: const Text('外部播放器接入')),
+        appBar: buildSecondaryHostAppBar(
+          context,
+          title: Text(l10n.externalPlayerSettingsTitle),
+        ),
         body: SafeArea(
           top: false,
           child: Align(
@@ -221,7 +257,9 @@ class _ExternalPlayerSettingsScreenState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${_player.displayName} 接入',
+                              l10n.externalPlayerSettingsPlayerTitle(
+                                _player.displayName,
+                              ),
                               style: TextStyle(
                                 color: colors.textPrimary,
                                 fontSize: 18,
@@ -230,7 +268,7 @@ class _ExternalPlayerSettingsScreenState
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '由 Fly Player 管理片源、弹幕与播放进度',
+                              l10n.externalPlayerSettingsSubtitle,
                               style: TextStyle(
                                 color: colors.textSecondary,
                                 fontSize: 12,
@@ -253,7 +291,9 @@ class _ExternalPlayerSettingsScreenState
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          _enabled ? '已启用' : '未启用',
+                          _enabled
+                              ? l10n.externalPlayerSettingsEnabledBadge
+                              : l10n.externalPlayerSettingsDisabledBadge,
                           style: TextStyle(
                             color: _enabled
                                 ? colors.accentStrong
@@ -304,8 +344,9 @@ class _ExternalPlayerSettingsScreenState
                                             _playerChanged = true;
                                           });
                                         },
-                                  decoration: const InputDecoration(
-                                    labelText: '播放器',
+                                  decoration: InputDecoration(
+                                    labelText: l10n
+                                        .externalPlayerSettingsPlayerFieldLabel,
                                   ),
                                 ),
                           ),
@@ -315,7 +356,9 @@ class _ExternalPlayerSettingsScreenState
                             vertical: 8,
                           ),
                           title: Text(
-                            '使用 ${_player.displayName} 播放',
+                            l10n.externalPlayerSettingsUseToggleTitle(
+                              _player.displayName,
+                            ),
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 14,
@@ -323,7 +366,9 @@ class _ExternalPlayerSettingsScreenState
                             ),
                           ),
                           subtitle: Text(
-                            '启用后，此电脑上的视频将交给 ${_player.displayName}。',
+                            l10n.externalPlayerSettingsUseToggleSubtitle(
+                              _player.displayName,
+                            ),
                             style: TextStyle(
                               color: colors.textSecondary,
                               fontSize: 12,
@@ -356,7 +401,7 @@ class _ExternalPlayerSettingsScreenState
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '程序路径',
+                                l10n.externalPlayerSettingsPathLabel,
                                 style: TextStyle(
                                   color: colors.textPrimary,
                                   fontSize: 13,
@@ -424,7 +469,9 @@ class _ExternalPlayerSettingsScreenState
                                       Icons.folder_open_rounded,
                                       size: 18,
                                     ),
-                                    label: const Text('选择'),
+                                    label: Text(
+                                      l10n.externalPlayerSettingsPickButton,
+                                    ),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: _busy ? null : _detectExecutable,
@@ -433,7 +480,9 @@ class _ExternalPlayerSettingsScreenState
                                       Icons.search_rounded,
                                       size: 18,
                                     ),
-                                    label: const Text('自动查找'),
+                                    label: Text(
+                                      l10n.externalPlayerSettingsDetectButton,
+                                    ),
                                   ),
                                   FilledButton(
                                     onPressed: _busy ? null : () => _save(),
@@ -448,7 +497,7 @@ class _ExternalPlayerSettingsScreenState
                                       ),
                                       shape: buttonShape,
                                     ),
-                                    child: const Text('保存'),
+                                    child: Text(l10n.commonSave),
                                   ),
                                 ],
                               ),
@@ -490,7 +539,7 @@ class _ExternalPlayerSettingsScreenState
                   Padding(
                     padding: const EdgeInsets.only(left: 2, bottom: 7),
                     child: Text(
-                      '常用操作',
+                      l10n.externalPlayerSettingsCommonActions,
                       style: TextStyle(
                         color: colors.textSecondary,
                         fontSize: 12,
@@ -518,7 +567,9 @@ class _ExternalPlayerSettingsScreenState
                             size: 21,
                           ),
                           title: Text(
-                            _player.supportsSubtitles ? '弹幕设置' : '弹幕设置不可用',
+                            _player.supportsSubtitles
+                                ? l10n.danmakuSettingsTitle
+                                : l10n.externalPlayerSettingsDanmakuUnavailable,
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 13,
@@ -528,11 +579,18 @@ class _ExternalPlayerSettingsScreenState
                           subtitle: Text(
                             _player.supportsSubtitles
                                 ? switch (_danmakuEnabled) {
-                                    true => '已开启，匹配后会带入 ${_player.displayName}',
-                                    false => '已关闭，开启后才会显示弹幕',
-                                    null => '暂未读取到弹幕状态',
+                                    true =>
+                                      l10n.externalPlayerSettingsDanmakuOnWithPlayer(
+                                        _player.displayName,
+                                      ),
+                                    false =>
+                                      l10n.externalPlayerSettingsDanmakuOffHint,
+                                    null =>
+                                      l10n.externalPlayerSettingsDanmakuStatusUnknown,
                                   }
-                                : '${_player.displayName} 不支持由 Fly Player 注入弹幕',
+                                : l10n.externalPlayerSettingsDanmakuUnsupported(
+                                    _player.displayName,
+                                  ),
                             style: TextStyle(
                               color: colors.textSecondary,
                               fontSize: 12,
@@ -580,7 +638,7 @@ class _ExternalPlayerSettingsScreenState
                           size: 21,
                         ),
                         title: Text(
-                          '使用说明',
+                          l10n.externalPlayerSettingsUsageTitle,
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: 13,
@@ -588,7 +646,7 @@ class _ExternalPlayerSettingsScreenState
                           ),
                         ),
                         subtitle: Text(
-                          '进度同步、播放列表与字幕限制',
+                          l10n.externalPlayerSettingsUsageSubtitle,
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: 12,
@@ -602,7 +660,7 @@ class _ExternalPlayerSettingsScreenState
                         ),
                         children: [
                           Text(
-                            _player.usageNotes,
+                            _player.usageNotes(l10n),
                             style: TextStyle(
                               color: colors.textSecondary,
                               height: 1.55,
@@ -633,63 +691,77 @@ class _ExternalPlayerSettingsScreenState
         valueListenable: ExternalPlaybackMiniController.available,
         builder: (context, available, _) => ValueListenableBuilder<bool>(
           valueListenable: ExternalPlaybackMiniController.active,
-          builder: (context, active, _) => ListTile(
-            dense: true,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 4,
-            ),
-            enabled:
-                available && status != null && status.player.supportsMiniPlayer,
-            leading: Icon(
-              active ? Icons.picture_in_picture_alt : Icons.push_pin_outlined,
-              color:
+          builder: (context, active, _) {
+            final l10n = AppLocalizations.of(context);
+            return ListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
+              enabled:
                   available &&
-                      status != null &&
-                      status.player.supportsMiniPlayer
-                  ? colors.accentStrong
-                  : colors.textMuted,
-              size: 21,
-            ),
-            title: Text(
-              active ? '极简模式已开启' : '打开极简模式',
-              style: TextStyle(
+                  status != null &&
+                  status.player.supportsMiniPlayer,
+              leading: Icon(
+                active ? Icons.picture_in_picture_alt : Icons.push_pin_outlined,
                 color:
                     available &&
                         status != null &&
                         status.player.supportsMiniPlayer
-                    ? colors.textPrimary
+                    ? colors.accentStrong
                     : colors.textMuted,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+                size: 21,
               ),
-            ),
-            subtitle: Text(
-              status == null
-                  ? '开始外部播放后可用'
-                  : available
-                  ? status.player.supportsMiniPlayer
-                        ? '顶部居中显示，可拖动并保持置顶'
-                        : '${status.player.displayName} 不支持极简模式'
-                  : '当前窗口暂不可用',
-              style: TextStyle(color: colors.textMuted, fontSize: 12),
-            ),
-            trailing: Icon(
-              Icons.north_east_rounded,
-              size: 18,
-              color: colors.textSecondary,
-            ),
-            onTap:
-                available && status != null && status.player.supportsMiniPlayer
-                ? () async {
-                    try {
-                      await ExternalPlaybackMiniController.enter();
-                    } catch (_) {
-                      _showMessage('无法打开极简模式，请重试', error: true);
+              title: Text(
+                active
+                    ? l10n.externalPlaybackMiniModeOnTooltip
+                    : l10n.externalPlaybackMiniModeOpenTooltip,
+                style: TextStyle(
+                  color:
+                      available &&
+                          status != null &&
+                          status.player.supportsMiniPlayer
+                      ? colors.textPrimary
+                      : colors.textMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              subtitle: Text(
+                status == null
+                    ? l10n.externalPlayerSettingsMiniNeedsPlayback
+                    : available
+                    ? status.player.supportsMiniPlayer
+                          ? l10n.externalPlayerSettingsMiniPinnedHint
+                          : l10n.externalPlayerSettingsMiniUnsupported(
+                              status.player.displayName,
+                            )
+                    : l10n.externalPlayerSettingsMiniWindowUnavailable,
+                style: TextStyle(color: colors.textMuted, fontSize: 12),
+              ),
+              trailing: Icon(
+                Icons.north_east_rounded,
+                size: 18,
+                color: colors.textSecondary,
+              ),
+              onTap:
+                  available &&
+                      status != null &&
+                      status.player.supportsMiniPlayer
+                  ? () async {
+                      try {
+                        await ExternalPlaybackMiniController.enter();
+                      } catch (_) {
+                        _showMessage(
+                          l10n.externalPlaybackMiniModeOpenFailed,
+                          error: true,
+                        );
+                      }
                     }
-                  }
-                : null,
-          ),
+                  : null,
+            );
+          },
         ),
       ),
     );

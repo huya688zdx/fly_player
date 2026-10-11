@@ -375,7 +375,12 @@ class MpvSettingsL10n {
         option.value,
         fallback: option.label,
       ),
-      description: option.description,
+      description: optionDescriptionForSetting(
+        l10n,
+        key,
+        option.value,
+        fallback: option.description,
+      ),
     );
   }
 
@@ -403,6 +408,149 @@ class MpvSettingsL10n {
       return l10n.mpvDefault;
     }
     return optionLabel(l10n, value, fallback: fallback);
+  }
+
+  /// 选项描述按（设置项, 取值）外置到 ARB；未覆盖的组合回退 catalog 原文。
+  static String optionDescriptionForSetting(
+    AppLocalizations l10n,
+    String key,
+    String value, {
+    required String fallback,
+  }) {
+    return switch (key) {
+      MpvSettingsCatalog.debandKey => switch (value) {
+        'off' => l10n.mpvDebandOffDesc,
+        'low' => l10n.mpvDebandLowDesc,
+        'medium' => l10n.mpvDebandMediumDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.sharpenKey => switch (value) {
+        'off' => l10n.mpvSharpenOffDesc,
+        'low' => l10n.mpvSharpenLowDesc,
+        'medium' => l10n.mpvSharpenMediumDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.denoiseKey => switch (value) {
+        'off' => l10n.mpvDenoiseOffDesc,
+        'low' => l10n.mpvDenoiseLowDesc,
+        'medium' => l10n.mpvDenoiseMediumDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.deinterlaceKey => switch (value) {
+        'auto' => l10n.mpvDeinterlaceAutoDesc,
+        'off' => l10n.mpvDeinterlaceOffDesc,
+        'force' => l10n.mpvDeinterlaceForceDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.scaleProfileKey => switch (value) {
+        'fast' => l10n.mpvScaleProfileFastDesc,
+        'balanced' => l10n.mpvScaleProfileBalancedDesc,
+        'quality' => l10n.mpvScaleProfileQualityDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.hdrModeKey => switch (value) {
+        'auto' => l10n.mpvHdrModeAutoDesc,
+        'sdr_map' => l10n.mpvHdrModeSdrMapDesc,
+        'enhanced' => l10n.mpvHdrModeEnhancedDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.toneMappingKey => switch (value) {
+        'auto' => l10n.mpvToneMappingAutoDesc,
+        'bt2390' => l10n.mpvToneMappingBt2390Desc,
+        'mobius' => l10n.mpvToneMappingMobiusDesc,
+        'hable' => l10n.mpvToneMappingHableDesc,
+        'reinhard' => l10n.mpvToneMappingReinhardDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.frameInterpolationKey => switch (value) {
+        'off' => l10n.mpvFrameInterpolationOffDesc,
+        'auto' => l10n.mpvFrameInterpolationAutoDesc,
+        'on' => l10n.mpvFrameInterpolationOnDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.videoSyncKey => switch (value) {
+        'auto' => l10n.mpvVideoSyncAutoDesc,
+        'audio' => l10n.mpvVideoSyncAudioDesc,
+        'smooth' => l10n.mpvVideoSyncSmoothDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.cacheProfileKey => switch (value) {
+        'default' => l10n.mpvCacheProfileDefaultDesc,
+        'low_latency' => l10n.mpvCacheProfileLowLatencyDesc,
+        'stable' => l10n.mpvCacheProfileStableDesc,
+        'network' => l10n.mpvCacheProfileNetworkDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.cacheSizeMbKey => switch (value) {
+        'auto' => l10n.mpvCacheSizeMbAutoDesc,
+        '64' => l10n.mpvCacheSizeMb64Desc,
+        '128' => l10n.mpvCacheSizeMb128Desc,
+        '256' => l10n.mpvCacheSizeMb256Desc,
+        '512' => l10n.mpvCacheSizeMb512Desc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.volumeGainKey => switch (value) {
+        '100' => l10n.mpvVolumeGain100Desc,
+        '150' => l10n.mpvVolumeGain150Desc,
+        '200' => l10n.mpvVolumeGain200Desc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.audioHighFidelityKey => switch (value) {
+        'off' => l10n.mpvAudioHighFidelityOffDesc,
+        'on' => l10n.mpvAudioHighFidelityOnDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.dynamicRangeKey => switch (value) {
+        'off' => l10n.mpvDynamicRangeOffDesc,
+        'low' => l10n.mpvDynamicRangeLowDesc,
+        'medium' => l10n.mpvDynamicRangeMediumDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.audioEqKey => switch (value) {
+        'off' => l10n.mpvAudioEqOffDesc,
+        'soft' => l10n.mpvAudioEqSoftDesc,
+        'clarity' => l10n.mpvAudioEqClarityDesc,
+        'cinema' => l10n.mpvAudioEqCinemaDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.audioLimiterKey => switch (value) {
+        'off' => l10n.mpvAudioLimiterOffDesc,
+        'light' => l10n.mpvAudioLimiterLightDesc,
+        'strong' => l10n.mpvAudioLimiterStrongDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.audioBassBoostKey => switch (value) {
+        'off' => l10n.mpvAudioBassBoostOffDesc,
+        'low' => l10n.mpvAudioBassBoostLowDesc,
+        'medium' => l10n.mpvAudioBassBoostMediumDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.audioVoiceEnhanceKey => switch (value) {
+        'off' => l10n.mpvAudioVoiceEnhanceOffDesc,
+        'low' => l10n.mpvAudioVoiceEnhanceLowDesc,
+        'medium' => l10n.mpvAudioVoiceEnhanceMediumDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.channelMixKey => switch (value) {
+        'auto' => l10n.mpvChannelMixAutoDesc,
+        'stereo' => l10n.mpvChannelMixStereoDesc,
+        'surround' => l10n.mpvChannelMixSurroundDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.audioPassthroughKey => switch (value) {
+        'off' => l10n.mpvAudioPassthroughOffDesc,
+        'auto' => l10n.mpvAudioPassthroughAutoDesc,
+        'on' => l10n.mpvAudioPassthroughOnDesc,
+        _ => fallback,
+      },
+      MpvSettingsCatalog.compatibilityKey => switch (value) {
+        'default' => l10n.mpvCompatibilityProfileDefaultDesc,
+        'conservative' => l10n.mpvCompatibilityProfileConservativeDesc,
+        'software_fallback' => l10n.mpvCompatibilityProfileSoftwareFallbackDesc,
+        _ => fallback,
+      },
+      _ => fallback,
+    };
   }
 
   static MpvPerformanceImpactWarning? performanceWarningForSelection(

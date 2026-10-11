@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/ui/app_info_popover.dart';
 import 'package:fly_player/utils/app_top_tip.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('brief tip keeps local light text contrast on a dark root', (
@@ -13,6 +14,9 @@ void main() {
     ).extension<AppThemeColors>()!;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: colors,
@@ -48,6 +52,9 @@ void main() {
     ).extension<AppThemeColors>()!;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         theme: AppThemeBuilder.build(AppThemePreset.midnight),
         home: AppRuntimeColorScope(
           colors: colors,

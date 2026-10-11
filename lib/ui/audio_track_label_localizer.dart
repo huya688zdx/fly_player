@@ -7,7 +7,10 @@ import '../utils/media_language_mapper.dart';
 /// 用户可见的完整文案；"XX音频" 这类拼接一律由本函数在 UI 层经 l10n 模板完成，
 /// 模型/store/provider 层禁止直接拼出该文案。
 String audioTrackLabel(AppLocalizations l10n, String audioLanguage) {
-  final name = MediaLanguageMapper.languageName(audioLanguage);
+  final name = MediaLanguageMapper.languageName(
+    audioLanguage,
+    uiLocaleName: l10n.localeName,
+  );
   if (name.isEmpty) return '';
   return l10n.trackAudioLanguageLabel(name);
 }

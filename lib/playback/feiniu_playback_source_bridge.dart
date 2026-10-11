@@ -9,6 +9,7 @@ import '../utils/player_artwork_path_resolver.dart';
 import '../utils/player_title_formatter.dart';
 import 'playback_source.dart';
 import 'player_source_controller.dart';
+import '../providers/app_locale_provider.dart';
 
 /// 飞牛播放桥接器：把后端中立 [MediaPlaybackBundle] + 飞牛不透明上下文
 /// [FeiniuPlaybackContext] 装配成播放器最终的 [MpvMediaSource]。
@@ -30,10 +31,20 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
     final stream = await api.getPlaybackStream(source.mediaGuid);
     final index = source.directLinkQualityIndex;
     if (!stream.directLinkQualities.any((quality) => quality.index == index)) {
-      throw StateError('当前直链档位已不可用');
+      throw StateError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).feiniuBridgeTierUnavailable,
+      );
     }
     final target = stream.buildDirectLinkTarget(index);
-    if (target == null) throw StateError('未返回有效直链');
+    if (target == null) {
+      throw StateError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).feiniuBridgeNoDirectLink,
+      );
+    }
     final playable = await PlayerSourceController.buildPlayableSource(
       api,
       target.url,
@@ -70,7 +81,11 @@ class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
       );
     }
     if (context is! FeiniuPlaybackContext) {
-      throw StateError('飞牛播放桥接器收到不匹配的后端上下文');
+      throw StateError(
+        lookupAppLocalizations(
+          AppLocaleProvider.effectiveLocale,
+        ).feiniuBridgeBackendMismatch,
+      );
     }
     final source = await assemble(
       request: request,

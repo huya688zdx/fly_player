@@ -44,6 +44,9 @@ Widget responsiveTestApp({
   required double devicePixelRatio,
   required Widget child,
 }) => MaterialApp(
+  locale: const Locale('zh', 'CN'),
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
   home: MediaQuery(
     data: MediaQueryData(
@@ -442,6 +445,9 @@ void main() {
     for (final scale in <double>[2, 3]) {
       await tester.pumpWidget(
         MaterialApp(
+          locale: const Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           theme: AppThemeBuilder.build(AppThemePreset.midnight),
           home: Scaffold(
             body: MediaQuery(

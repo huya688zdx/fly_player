@@ -35,6 +35,9 @@ Widget _app({
 
 Widget _runtimeApp({required AppThemeColors colors, required Widget child}) =>
     MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: AppThemeBuilder.build(AppThemePreset.midnight),
       home: AppRuntimeColorScope(
         colors: colors,

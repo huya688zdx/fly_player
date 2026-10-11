@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import 'external_player_adapter.dart';
 import 'external_player_adapters.dart';
 
@@ -44,10 +46,18 @@ class ExternalPlayerSettings {
     }
   }
 
-  Future<void> save() async {
+  Future<void> save({AppLocalizations? l10n}) async {
     final player = adapter;
     if (enabled) {
-      final error = await player.validateExecutable(executablePath);
+      final strings =
+          l10n ??
+          lookupAppLocalizations(
+            WidgetsBinding.instance.platformDispatcher.locale,
+          );
+      final error = await player.validateExecutable(
+        executablePath,
+        l10n: strings,
+      );
       if (error != null) throw StateError(error);
     }
     final preferences = await SharedPreferences.getInstance();

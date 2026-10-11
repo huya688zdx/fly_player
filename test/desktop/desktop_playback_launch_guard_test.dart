@@ -10,6 +10,7 @@ import 'package:fly_player/providers/media_backend_provider.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('不同页面和入口共享首个起播请求及当前标题', (tester) async {
@@ -153,6 +154,9 @@ Future<(BuildContext, BuildContext)> _mountContexts(WidgetTester tester) async {
         ChangeNotifierProvider.value(value: backend),
       ],
       child: MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: Row(
             children: [

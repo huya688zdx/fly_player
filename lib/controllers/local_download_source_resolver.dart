@@ -16,6 +16,7 @@ import '../utils/player_artwork_path_resolver.dart';
 import '../utils/player_title_formatter.dart';
 import '../utils/local_subtitle_bundle.dart';
 import '../utils/swallowed_error_logger.dart';
+import '../providers/app_locale_provider.dart';
 
 /// 已下载视频查询在线元数据的总等待上限，超时后直接使用本地记录。
 const localDownloadMetadataTimeout = Duration(seconds: 2);
@@ -64,7 +65,11 @@ resolveLocalDownloadSource(
     Future<T> readMetadata<T>(Future<T> Function() read) {
       final remaining = localDownloadMetadataTimeout - deadline.elapsed;
       if (remaining <= Duration.zero) {
-        throw TimeoutException('本地播放的在线元数据查询超时');
+        throw TimeoutException(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).localDownloadMetadataTimeout,
+        );
       }
       return read().timeout(remaining);
     }
@@ -184,7 +189,11 @@ resolveLocalDownloadSource(
   final localArtwork = await DownloadTaskService.instance
       .resolveExistingLocalCover(record);
   if (statsScope != PlayStatsService.instance.currentScope) {
-    throw StateError('媒体账号已切换，请重新播放。');
+    throw StateError(
+      lookupAppLocalizations(
+        AppLocaleProvider.effectiveLocale,
+      ).mediaAccountSwitched,
+    );
   }
   final source = MpvMediaSource.localFile(
     filePath: path,

@@ -3971,6 +3971,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                   currentVideo,
                                   currentAudio,
                                   currentSubtitle,
+                                  l10n: AppLocalizations.of(context),
                                 ),
                                 onViewAll: () => _showMediaInfoDetail(context),
                               ),

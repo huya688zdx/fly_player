@@ -9,6 +9,7 @@ import '../../providers/media_backend_provider.dart';
 import '../../providers/nas_provider.dart';
 import '../../services/native_reentry_support.dart';
 import '../../theme/app_theme.dart';
+import '../../l10n/generated/app_localizations.dart';
 import '../desktop_floating_panel.dart';
 
 /// 一次用户点击的所有异步准备共用此凭据，取消后不可再次启动。
@@ -49,6 +50,7 @@ class DesktopPlaybackLaunchRequest {
     _entry = OverlayEntry(
       builder: (context) {
         final colors = context.appColors;
+        final l10n = AppLocalizations.of(context);
         final size = MediaQuery.sizeOf(context);
         return Positioned(
           top: size.height < 240 ? 4 : MediaQuery.paddingOf(context).top + 64,
@@ -73,7 +75,9 @@ class DesktopPlaybackLaunchRequest {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          cancelled ? '正在取消，等待清理…' : '正在准备：$title',
+                          cancelled
+                              ? l10n.desktopLaunchGuardCancelling
+                              : l10n.desktopLaunchGuardPreparing(title),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -84,7 +88,7 @@ class DesktopPlaybackLaunchRequest {
                       ),
                       TextButton(
                         onPressed: cancelled ? null : () => unawaited(cancel()),
-                        child: const Text('取消加载'),
+                        child: Text(l10n.desktopLaunchGuardCancelLoading),
                       ),
                     ],
                   ),
@@ -123,7 +127,9 @@ class DesktopPlaybackLaunchGuard {
     }
     final request = DesktopPlaybackLaunchRequest(
       context,
-      title.trim().isEmpty ? '所选影片' : title,
+      title.trim().isEmpty
+          ? AppLocalizations.of(context).desktopLaunchGuardFallbackTitle
+          : title,
     );
     // 在 await 之前保存账号引用，页面退出后仍能释放迟到的片源。
     final nas = context.read<NasProvider>();

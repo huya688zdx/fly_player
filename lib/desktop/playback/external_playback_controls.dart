@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../playback/playback_source.dart';
 import '../../services/native_danmaku_prefetch.dart';
 import 'desktop_player_dialogs.dart';
@@ -26,11 +27,14 @@ Future<void> showExternalDanmakuSources(
   if (!status.player.supportsSubtitles) {
     _externalPlaybackMessage(
       context,
-      '${status.player.displayName} 暂不支持由 Fly Player 编辑字幕或弹幕。',
+      AppLocalizations.of(
+        context,
+      ).externalPlaybackUnsupportedEdit(status.player.displayName),
     );
     return Future<void>.value();
   }
   final source = status.source;
+  final l10n = AppLocalizations.of(context);
 
   Future<bool> applyPayload(
     Future<Map<String, dynamic>?> Function() resolve,
@@ -41,14 +45,20 @@ Future<void> showExternalDanmakuSources(
       final result = await resolve();
       if (!_isCurrentExternalSource(source)) {
         if (context.mounted) {
-          _externalPlaybackMessage(context, '播放内容已切换，请重新选择当前影片的弹幕');
+          _externalPlaybackMessage(
+            context,
+            l10n.externalDanmakuContentSwitched,
+          );
         }
         return false;
       }
       final path = result?['danmakuFile']?.toString().trim() ?? '';
       if (path.isEmpty) {
         if (context.mounted) {
-          _externalPlaybackMessage(context, '弹幕源加载失败，请重试或选择其他来源');
+          _externalPlaybackMessage(
+            context,
+            l10n.externalDanmakuSourceLoadFailedRetry,
+          );
         }
         return false;
       }
@@ -62,13 +72,15 @@ Future<void> showExternalDanmakuSources(
         _externalPlaybackMessage(
           context,
           applied
-              ? '弹幕已应用到 ${status.player.displayName}'
-              : '弹幕未能应用，请确认当前影片和字幕选项',
+              ? l10n.externalDanmakuAppliedToPlayer(status.player.displayName)
+              : l10n.externalDanmakuApplyConfirmFailed,
         );
       }
       return applied;
     } catch (_) {
-      if (context.mounted) _externalPlaybackMessage(context, '弹幕源加载失败，请重试');
+      if (context.mounted) {
+        _externalPlaybackMessage(context, l10n.externalDanmakuSourceLoadFailed);
+      }
       return false;
     }
   }
@@ -76,7 +88,7 @@ Future<void> showExternalDanmakuSources(
   Future<bool> importFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        dialogTitle: '导入弹幕文件',
+        dialogTitle: l10n.externalDanmakuImportDialogTitle,
         type: FileType.custom,
         allowedExtensions: const ['xml', 'json'],
         lockParentWindow: true,
@@ -98,7 +110,9 @@ Future<void> showExternalDanmakuSources(
         result!.files.single.name,
       );
     } catch (_) {
-      if (context.mounted) _externalPlaybackMessage(context, '弹幕文件无法读取，请重新选择');
+      if (context.mounted) {
+        _externalPlaybackMessage(context, l10n.externalDanmakuFileUnreadable);
+      }
       return false;
     }
   }
@@ -106,8 +120,8 @@ Future<void> showExternalDanmakuSources(
   return showPlayerOverlayPanel(
     context,
     style: PlayerOverlayPanelStyle.centeredDialog,
-    barrierLabel: '关闭弹幕源',
-    closeTooltip: '关闭',
+    barrierLabel: l10n.externalDanmakuCloseSourceBarrier,
+    closeTooltip: l10n.commonClose,
     builder: (dialogContext) => DesktopDanmakuSourcePanel(
       currentSourceLabel: status.danmakuLabel,
       commentCount: status.danmakuCount,
@@ -131,7 +145,7 @@ Future<void> showExternalDanmakuSources(
           seasonNumber: source.seasonNumber,
         );
         if (results.isEmpty && context.mounted) {
-          _externalPlaybackMessage(context, '未找到弹幕，请检查关键词或网络后重试');
+          _externalPlaybackMessage(context, l10n.externalDanmakuSearchEmpty);
         }
         return results;
       },
@@ -175,7 +189,10 @@ Future<void> showExternalDanmakuSources(
           seriesTitle: source.seriesTitle,
         );
         if (!removed && context.mounted) {
-          _externalPlaybackMessage(context, '弹幕源删除失败，请重试');
+          _externalPlaybackMessage(
+            context,
+            l10n.externalDanmakuSourceDeleteFailed,
+          );
         }
       },
       onImportFile: importFile,

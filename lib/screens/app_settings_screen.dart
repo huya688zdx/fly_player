@@ -192,17 +192,17 @@ class AppSettingsScreen extends StatelessWidget {
       if (DesktopEnvironment.isDesktopPlatform && DesktopEnvironment.isWindows)
         SettingsSearchEntry(
           id: 'external_player_settings',
-          title: '外部播放器接入',
-          subtitle: '使用外部播放器播放并回报进度',
+          title: AppLocalizations.of(context).externalPlayerSettingsTitle,
+          subtitle: AppLocalizations.of(context).externalPlayerSettingsSubtitle,
           location: l10n.settingsLocationRoot,
           keywords: <String>[
             ...ExternalPlayerAdapters.available.map(
               (player) => player.displayName,
             ),
-            '外部播放器',
-            '字幕',
-            '弹幕',
-            '进度回报',
+            AppLocalizations.of(context).externalPlayerChipLabel,
+            AppLocalizations.of(context).mediaDetailsSubtitleSection,
+            AppLocalizations.of(context).playerSectionDanmaku,
+            AppLocalizations.of(context).settingsProgressReportKeyword,
           ],
           onSelect: () => _openSettingsDestination(
             context,
@@ -572,8 +572,10 @@ class AppSettingsScreen extends StatelessWidget {
               DesktopEnvironment.isWindows)
             _DesktopRowData(
               icon: Icons.launch_rounded,
-              title: '外部播放器接入',
-              subtitle: '使用外部播放器播放并回报进度',
+              title: AppLocalizations.of(context).externalPlayerSettingsTitle,
+              subtitle: AppLocalizations.of(
+                context,
+              ).externalPlayerSettingsSubtitle,
               onTap: () => _openSettingsDestination(
                 context,
                 SettingsDestinationRoutes.externalPlayer,

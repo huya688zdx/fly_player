@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../desktop_floating_panel.dart';
 
@@ -18,9 +19,10 @@ void showExternalPlaybackNotice(
   if (!context.mounted) return;
   final overlay = Overlay.maybeOf(context, rootOverlay: true);
   if (overlay == null) return;
+  final l10n = AppLocalizations.of(context);
   _removeExternalPlaybackNotice();
   final token = ++_externalPlaybackNoticeToken;
-  final text = normalizeExternalPlaybackNotice(message);
+  final text = normalizeExternalPlaybackNotice(message, l10n);
   final overlayContext = overlay.context;
   final colors = overlayContext.appColors;
   final top = MediaQuery.paddingOf(overlayContext).top + 64;
@@ -66,7 +68,7 @@ void showExternalPlaybackNotice(
                         _removeExternalPlaybackNotice();
                       }
                     },
-                    tooltip: '关闭提示',
+                    tooltip: l10n.externalPlaybackNoticeClose,
                     visualDensity: VisualDensity.compact,
                     iconSize: 17,
                     color: colors.textSecondary,
@@ -104,7 +106,7 @@ void _removeExternalPlaybackNotice() {
   }
 }
 
-String normalizeExternalPlaybackNotice(Object message) {
+String normalizeExternalPlaybackNotice(Object message, AppLocalizations l10n) {
   var text = '$message'.trim();
   text = text.replaceFirst(
     RegExp(
@@ -113,5 +115,5 @@ String normalizeExternalPlaybackNotice(Object message) {
     ),
     '',
   );
-  return text.isEmpty ? '操作未能完成，请稍后重试' : text;
+  return text.isEmpty ? l10n.externalPlaybackNoticeFallback : text;
 }

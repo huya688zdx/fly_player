@@ -301,7 +301,7 @@ final class DesktopPlaybackHost implements PlaybackHost {
           );
           if (result == null || result.isEmpty) {
             seasonEpisodes.remove(seasonGuid);
-            throw StateError('加载该季剧集失败，请重试');
+            throw StateError(l10n.desktopPlaybackSeasonEpisodesLoadFailed);
           }
           return [
             for (final episode in result)
@@ -324,7 +324,9 @@ final class DesktopPlaybackHost implements PlaybackHost {
                     )
                   : (await backend.getItemDetail(source.itemGuid)).seriesId;
             }
-            if (seriesGuid.isEmpty) throw StateError('未找到所属剧集，请重试');
+            if (seriesGuid.isEmpty) {
+              throw StateError(l10n.desktopPlaybackSeriesNotFound);
+            }
             return await backend.getItemSeasons(seriesGuid);
           } catch (_) {
             seasonsRequest = null;

@@ -178,7 +178,9 @@ class _ContinueCard extends StatelessWidget {
                       child: IconButton(
                         key: ValueKey<String>('continue-play-${item.id}'),
                         onPressed: onPlay,
-                        tooltip: '继续播放',
+                        tooltip: AppLocalizations.of(
+                          context,
+                        ).detailContinuePlay,
                         icon: DecoratedBox(
                           key: ValueKey<String>(
                             'continue-play-visual-${item.id}',

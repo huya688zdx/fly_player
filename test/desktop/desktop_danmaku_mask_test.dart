@@ -4,12 +4,16 @@ import 'package:fly_player/desktop/playback/desktop_player_panels.dart';
 import 'package:fly_player/desktop/playback/desktop_danmaku_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 void main() {
   testWidgets('Windows lite 隐藏 AI 遮挡入口并保留普通弹幕设置', (tester) async {
     if (!Platform.isWindows) return;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('zh', 'CN'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: DesktopDanmakuSettingsPanel(
             settings: DanmakuSettings.defaults,

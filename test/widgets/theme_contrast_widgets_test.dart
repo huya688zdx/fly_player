@@ -7,9 +7,13 @@ import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/ui/media_poster_card.dart';
 import 'package:fly_player/widgets/detail/capability_badge.dart';
 import 'package:fly_player/widgets/detail/detail_icon_button.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 
 Widget _themedApp(AppThemePreset preset, Widget child) {
   return MaterialApp(
+    locale: const Locale('zh', 'CN'),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     theme: AppThemeBuilder.build(preset),
     home: Scaffold(body: Center(child: child)),
   );

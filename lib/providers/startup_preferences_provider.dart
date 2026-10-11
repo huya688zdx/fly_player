@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../l10n/generated/app_localizations.dart';
+import 'app_locale_provider.dart';
 
 typedef StartupPreferenceLoader = Future<bool> Function();
 typedef StartupPreferenceSaver = Future<bool> Function(bool value);
@@ -51,7 +53,11 @@ class StartupPreferencesProvider extends ChangeNotifier {
     try {
       final saved = await _persistPreference(value);
       if (!saved) {
-        throw StateError('启动目的地偏好保存失败');
+        throw StateError(
+          lookupAppLocalizations(
+            AppLocaleProvider.effectiveLocale,
+          ).startupPrefsSaveFailed,
+        );
       }
     } catch (_) {
       try {

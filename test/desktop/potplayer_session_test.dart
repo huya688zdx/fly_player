@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/desktop/playback/potplayer_session.dart';
 
 void main() {
@@ -57,6 +59,8 @@ void main() {
         });
     session = PotPlayerSession(
       pid: 1,
+      l10n: lookupAppLocalizations(const Locale('zh', 'CN')),
+
       mediaUrl: reportingFile,
       isCurrentSession: () => true,
       onProgress: (position, _, paused) => samples.add((

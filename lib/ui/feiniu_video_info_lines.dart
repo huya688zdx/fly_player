@@ -1,3 +1,4 @@
+import '../l10n/generated/app_localizations.dart';
 import '../models/stream_track_data.dart';
 import '../utils/media_language_mapper.dart';
 import '../widgets/detail/video_info_section.dart';
@@ -8,12 +9,13 @@ import '../widgets/detail/video_info_section.dart';
 VideoInfoLines feiniuVideoInfoLines(
   VideoStreamInfo? video,
   AudioTrackOption? audio,
-  SubtitleTrackOption? subtitle,
-) {
+  SubtitleTrackOption? subtitle, {
+  AppLocalizations? l10n,
+}) {
   return VideoInfoLines(
     video: _videoLine(video),
-    audio: _audioLine(audio),
-    subtitle: _subtitleLine(subtitle),
+    audio: _audioLine(audio, l10n),
+    subtitle: _subtitleLine(subtitle, l10n),
   );
 }
 
@@ -36,9 +38,12 @@ String _videoLine(VideoStreamInfo? video) {
   return parts.join(' ');
 }
 
-String _audioLine(AudioTrackOption? audio) {
+String _audioLine(AudioTrackOption? audio, AppLocalizations? l10n) {
   if (audio == null) return '';
-  final lan = MediaLanguageMapper.languageName(audio.language);
+  final lan = MediaLanguageMapper.languageName(
+    audio.language,
+    uiLocaleName: l10n?.localeName,
+  );
   final codec = audio.codecName.trim().isEmpty
       ? ''
       : audio.codecName.toUpperCase();
@@ -55,9 +60,12 @@ String _audioLine(AudioTrackOption? audio) {
   return parts.join('  ');
 }
 
-String _subtitleLine(SubtitleTrackOption? subtitle) {
+String _subtitleLine(SubtitleTrackOption? subtitle, AppLocalizations? l10n) {
   if (subtitle == null) return '';
-  final lan = MediaLanguageMapper.languageName(subtitle.language);
+  final lan = MediaLanguageMapper.languageName(
+    subtitle.language,
+    uiLocaleName: l10n?.localeName,
+  );
   final fmt =
       (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
           .trim()
