@@ -19,15 +19,16 @@ permissions:
 
 jobs:
   build:
-    name: ${{ matrix.platform }}-arm64-standard
+    name: ${{ matrix.platform }}-${{ matrix.arch }}-standard
     runs-on: macos-15
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { platform: ios }
-          - { platform: macos }
+          - { platform: ios, arch: arm64 }
+          - { platform: macos, arch: arm64 }
+          - { platform: macos, arch: x64 }
     defaults:
       run:
         shell: pwsh
@@ -35,6 +36,7 @@ jobs:
       RELEASE_VERSION: ${{ inputs.version }}
       RELEASE_BUILD: ${{ inputs.build_number }}
       BUILD_PLATFORM: ${{ matrix.platform }}
+      BUILD_ARCH: ${{ matrix.arch }}
       FLUTTER_SUPPRESS_ANALYTICS: 'true'
 
     steps:
@@ -100,6 +102,11 @@ jobs:
               # --no-codesign：云端无证书，产出未签名包，侧载时再签名。
               flutter build ios @buildArgs --no-codesign
             } else {
+              # Xcode 的 ARCHS_STANDARD 是 arm64 + x86_64，默认产出通用二进制。
+              # 这里按矩阵锁定单架构：带 FLUTTER_XCODE_ 前缀的环境变量会被 flutter 透传给 xcodebuild，
+              # 同时 xcode_backend 据此只生成对应架构的 AOT 快照，并把引擎 framework 瘦身到该架构。
+              $env:FLUTTER_XCODE_ARCHS = if ($env:BUILD_ARCH -eq 'x64') { 'x86_64' } else { 'arm64' }
+              Write-Output "macOS 目标架构：$env:FLUTTER_XCODE_ARCHS"
               flutter build macos @buildArgs
             }
             if ($LASTEXITCODE -ne 0) { throw 'Apple 安装包构建失败。' }
@@ -111,7 +118,7 @@ jobs:
         run: |
           $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
           New-Item -ItemType Directory -Path $dist -Force | Out-Null
-          $name = "fly-player-$env:RELEASE_VERSION-$env:RELEASE_BUILD-$env:BUILD_PLATFORM-arm64-standard"
+          $name = "fly-player-$env:RELEASE_VERSION-$env:RELEASE_BUILD-$env:BUILD_PLATFORM-$env:BUILD_ARCH-standard"
           if ($env:BUILD_PLATFORM -eq 'ios') {
             $app = 'build/ios/iphoneos/Runner.app'
             if (-not (Test-Path "$app/Runner")) { throw '未找到 iOS 主程序。' }
@@ -130,6 +137,24 @@ jobs:
           } else {
             $bundle = 'build/macos/Build/Products/Release/fly_player.app'
             if (-not (Test-Path "$bundle/Contents/MacOS/fly_player")) { throw '未找到 macOS 主程序。' }
+            # 校验产物架构，避免构建参数失效后静默产出错误架构的包。
+            $expectedArch = if ($env:BUILD_ARCH -eq 'x64') { 'x86_64' } else { 'arm64' }
+            $binaries = @("$bundle/Contents/MacOS/fly_player")
+            foreach ($fw in Get-ChildItem -LiteralPath "$bundle/Contents/Frameworks" -Directory -Filter '*.framework') {
+              $stem = $fw.Name -replace '\.framework$', ''
+              foreach ($candidate in @("$($fw.FullName)/Versions/A/$stem", "$($fw.FullName)/$stem")) {
+                if (Test-Path -LiteralPath $candidate) { $binaries += $candidate }
+              }
+            }
+            $mismatched = @()
+            foreach ($binary in $binaries) {
+              $archs = (& lipo -archs $binary).Trim()
+              if ($LASTEXITCODE -ne 0 -or $archs -ne $expectedArch) { $mismatched += "$binary=$archs" }
+            }
+            if ($mismatched.Count -gt 0) {
+              throw "以下二进制架构不符（期望 $expectedArch）：`n$($mismatched -join "`n")"
+            }
+            Write-Output "macOS 架构校验通过：$($binaries.Count) 个二进制均为 $expectedArch"
             $package = Join-Path $dist "$name.zip"
             & ditto -c -k --sequesterRsrc --keepParent $bundle $package
             if ($LASTEXITCODE -ne 0) { throw 'macOS 应用包打包失败。' }
@@ -143,7 +168,8 @@ jobs:
               '2. 持有 Apple 开发者账号（99 美元/年）时，可用开发者证书签名后长期安装。') |
               Set-Content -LiteralPath (Join-Path $dist "$name.readme.txt") -Encoding utf8NoBOM
           } else {
-            @('飞翔播放器 macOS arm64（Apple Silicon）应用包。',
+            $target = if ($env:BUILD_ARCH -eq 'x64') { 'x86_64（Intel）' } else { 'arm64（Apple Silicon）' }
+            @("飞翔播放器 macOS $target 应用包。",
               '解压得到 fly_player.app，拖入「应用程序」文件夹使用。',
               '应用未经 Apple 公证，首次打开被拦截时：',
               '在应用图标上右键选择「打开」，或在终端执行：xattr -cr /Applications/fly_player.app。',
@@ -153,13 +179,13 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $(Split-Path $package -Leaf)" | Set-Content -LiteralPath "$package.sha256" -Encoding utf8NoBOM
           @("版本：$env:RELEASE_VERSION+$env:RELEASE_BUILD", "源码提交：$env:GITHUB_SHA",
-            'Flutter：3.41.6', "目标：$env:BUILD_PLATFORM arm64 standard（未签名）") |
+            'Flutter：3.41.6', "目标：$env:BUILD_PLATFORM $env:BUILD_ARCH standard（未签名）") |
             Set-Content -LiteralPath (Join-Path $dist "$name.build-info.txt") -Encoding utf8NoBOM
 
       - name: 上传构建产物（不创建 Release）
         uses: actions/upload-artifact@v4
         with:
-          name: fly-player-${{ inputs.version }}-${{ inputs.build_number }}-${{ matrix.platform }}-arm64-standard
+          name: fly-player-${{ inputs.version }}-${{ inputs.build_number }}-${{ matrix.platform }}-${{ matrix.arch }}-standard
           path: dist/*
           if-no-files-found: error
           compression-level: 0
