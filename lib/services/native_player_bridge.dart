@@ -8,10 +8,12 @@ import 'package:flutter/widgets.dart' show BuildContext, Locale, NavigatorState;
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
+import '../playback/playback_platform.dart';
 import '../playback/settings/mpv_settings_store.dart';
 import '../playback/playback_source.dart';
 import '../providers/app_locale_provider.dart';
 import '../providers/nas_provider.dart';
+import '../utils/swallowed_error_logger.dart';
 import 'app_log_service.dart';
 import 'native_artwork_prefetch.dart';
 import 'native_danmaku_prefetch.dart';
@@ -197,6 +199,12 @@ class NativePlayerBridge {
     })?
     onSaveIntroOutroConfig,
   }) {
+    // 本 channel 只在 Android 注册（`FlutterHostActivity.registerNativePlayerChannel`）——
+    // 桌面与 iOS 走 media_kit，压根没有原生播放壳可反向调用。详情页等入口的 bind 调用没有
+    // 平台门控，必须在桥这一层收口：否则下面的 bindReentryHost 会抛 MissingPluginException，
+    // 又因 unawaited 冒到 zone 兜底，被记成 error 级日志（macOS 实测）。
+    // 返回一个不会成为当前持有者的 token，调用方照常持有，unbind 时因 token 不匹配自然空转。
+    if (!PlaybackPlatform.usesAndroidHost) return Object();
     final token = Object();
     final statsScope = PlayStatsService.instance.currentScope;
     bool acceptsScope(Object? scope) =>
@@ -285,7 +293,8 @@ class NativePlayerBridge {
                     : null,
                 // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1=继承「关闭」。
                 audioTrackIndex: (args['audioTrackIndex'] as num?)?.toInt(),
-                subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)?.toInt(),
+                subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)
+                    ?.toInt(),
                 // 切集按分辨率继承画质：native（转码态）传当前分辨率；空=不继承，走默认梯度。
                 preferredQualityResolution: () {
                   final v = (args['preferredQualityResolution'] ?? '')
@@ -294,7 +303,9 @@ class NativePlayerBridge {
                   return v.isEmpty ? null : v;
                 }(),
               ),
-              retainedPlayLink: (args['currentPlayLink'] ?? '').toString().trim(),
+              retainedPlayLink: (args['currentPlayLink'] ?? '')
+                  .toString()
+                  .trim(),
             );
           } catch (error, stack) {
             // 反向解析异常必须带栈落日志：通道 error 只回 message，堆栈只有这里拿得到。
@@ -652,8 +663,26 @@ class NativePlayerBridge {
     // engine 配置时 eager attach（会被最后配置的 engine 覆盖，导致 dispatch 落到没有
     // reentry handler 的 engine → notImplemented）；必须由真正注册了 handler 的 engine
     // 主动认领。
-    unawaited(_channel.invokeMethod<void>('bindReentryHost'));
+    unawaited(_claimReentryHost());
     return token;
+  }
+
+  /// 认领反向通道宿主。
+  ///
+  /// 认领失败（例如该 engine 未注册本 channel）不该升级成未处理异步异常：原先直接
+  /// unawaited 调用，异常冒到 zone 兜底被记成 error 级日志，而实际后果只是反向通道
+  /// 降级为不可用，播放本身不受影响。收进这里统一记警告。
+  static Future<void> _claimReentryHost() async {
+    try {
+      await _channel.invokeMethod<void>('bindReentryHost');
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'bind native player reentry host',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'native_player_bridge',
+      );
+    }
   }
 
   /// 解绑反向通道。仅当 [token] 仍是当前持有者时才真正清除——避免旧入口 dispose 清掉
