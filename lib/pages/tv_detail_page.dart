@@ -248,10 +248,21 @@ class _TvDetailPageState extends State<TvDetailPage>
   }
 
   /// 统一入口。锚点已挂载（正常路径）：经叶子句柄等待，页根不注册任何依赖。
-  /// 锚点未挂载（首帧竞态等不应发生的路径）：兜底走旧 API 保语义不破，且必须
-  /// 留下全模式可观测痕迹（docs/plans/route-gate-popup-jank-fix.md §3.4/§3.5）。
-  Future<void> _waitOwnTransition() {
-    final gate = _gateKey.currentState;
+  /// 锚点未挂载：先让出一帧等锚点挂载（首帧竞态，见下）；确实等不到才兜底走旧 API
+  /// 保语义不破，且必须留下全模式可观测痕迹
+  /// （docs/plans/route-gate-popup-jank-fix.md §3.4/§3.5）。
+  Future<void> _waitOwnTransition() async {
+    var gate = _gateKey.currentState;
+    if (gate == null) {
+      // 首帧前页根还没 build，而锚点是在 build 里建立的，此处必然拿不到句柄。
+      // initialItemDetail 预取命中时 _load 全程无 await、由 initState 同步调到这里
+      // （列表页 240ms 预取成功即走此路），于是每次进详情页都误触兜底：页根经
+      // of(context) 注册 _ModalScopeStatus 依赖、整页重建，并留下 anchor missing 日志。
+      // 让出一帧等锚点挂载再取叶子句柄——转场本身 380ms，一帧不影响语义。
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      gate = _gateKey.currentState;
+    }
     if (gate != null) {
       return gate.waitTransition();
     }
@@ -1352,7 +1363,8 @@ class _TvDetailPageState extends State<TvDetailPage>
       // 故无选集静态兜底，选集数据由后端按 seriesGuid 派生）。画质切换回传当前集 guid →
       // resolveForNative 重解析（launcher 已后端中立）。分屏下播放器比本页活得久（副栏可
       // 自由导航），resolver 锚到导航器根 context，页面 dispose 后选集/切版本仍可解析。
-      final resolveContext = NativePlayerBridge.engineRootContext(context) ?? context;
+      final resolveContext =
+          NativePlayerBridge.engineRootContext(context) ?? context;
       _reentryToken = NativePlaybackReentry.bind(
         backend: backend,
         nas: nas,

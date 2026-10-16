@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/ui/route_transition_gate.dart';
@@ -149,6 +151,26 @@ void main() {
     expect(page.rootBuildCount, rootBaseline, reason: '两轮弹窗开关后页根 build 计数全程不变');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('initState 里等一帧后锚点句柄已可用，且不额外重建页根', (tester) async {
+    // 锁住生产兜底所依赖的 SDK 时序：锚点是在 build 里建立的，首帧前取句柄必然为空，
+    // 所以 `tv_detail_page.dart` 的 `_waitOwnTransition` 先 await endOfFrame 再取。
+    // 这条假设一旦不成立，该路径就会退化回 of(context)：页根注册 _ModalScopeStatus
+    // 依赖并整页重建，同时刷出 route gate anchor missing 日志。
+    final navKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(_app(navKey));
+    await tester.pump();
+
+    final page = tester.state<_InstrumentedPageState>(
+      find.byType(_InstrumentedPage),
+    );
+    expect(
+      page.anchorReadyAfterFirstFrame,
+      isTrue,
+      reason: '首帧结束后锚点应已挂载，否则兜底会被误触',
+    );
+    expect(page.rootBuildCount, 1, reason: '等一帧不额外触发页根重建');
+  });
 }
 
 Widget _app(GlobalKey<NavigatorState> navKey) => MaterialApp(
@@ -173,6 +195,22 @@ class _InstrumentedPageState extends State<_InstrumentedPage> {
   /// §3.4：锚点句柄存 final 字段，setState 重建与热重载都保留锚点 State。
   final GlobalKey<RouteGateAnchorState> gateKey =
       GlobalKey<RouteGateAnchorState>();
+
+  /// initState 里让出一帧后，锚点句柄是否已可用（生产用法见
+  /// `tv_detail_page.dart` 的 `_waitOwnTransition`）。
+  bool? anchorReadyAfterFirstFrame;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_probeAnchorAfterFirstFrame());
+  }
+
+  Future<void> _probeAnchorAfterFirstFrame() async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    anchorReadyAfterFirstFrame = gateKey.currentState != null;
+  }
 
   void _openBottomSheet(BuildContext context) {
     showModalBottomSheet<void>(
