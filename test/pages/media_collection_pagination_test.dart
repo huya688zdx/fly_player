@@ -12,19 +12,40 @@ void main() {
     'lib/pages/media_collection_detail_page.dart',
   ).readAsStringSync();
 
-  test('子项列表按 100 条分页，不再一次拉 500 条', () {
-    expect(source, contains('static const int _pageSize = 100'));
+  test('子项列表按 50 条分页，全文件不再出现一次拉 500 条', () {
+    // 50 对齐本项目其它列表口径（CategoryItemsScreen._pageSize、
+    // ItemListRequest.pageSize 默认值都是 50）。
+    // 注意必须带上分号：'..._pageSize = 50' 是 '..._pageSize = 500' 的子串，会漏判。
+    expect(source, contains('int _pageSize = 50;'));
+    expect(
+      source,
+      isNot(contains('int _pageSize = 500;')),
+      reason: '页大小又退回 500 了',
+    );
+    expect(source, isNot(contains('page_size: 500')), reason: '仍有分支在一次拉 500 条');
+    expect(source, isNot(contains('pageSize: 500')), reason: '仍有分支在一次拉 500 条');
 
-    // 只约束飞牛的取数口径。中立（Emby 合集）分支的 _loadNeutralItems 仍是单次
-    // 500 条：它没有分页，单纯调小页大小会截断数据，留待单独改造。
+    // 请求里的页码必须来自参数，不能写死。
     final payloadBuilder = source.substring(
       source.indexOf('Map<String, dynamic>? _buildItemListPayload('),
       source.indexOf('String _detailType('),
     );
-    expect(payloadBuilder, isNot(contains('500')), reason: '飞牛取数分支仍在一次拉 500 条');
-    // 请求里的页码必须来自参数，不能写死。
     expect(payloadBuilder, contains("'page': page,"));
     expect(payloadBuilder, contains('pageSize: _pageSize,'));
+  });
+
+  test('中立（Emby 合集）分支同样分页，改小页大小不会截断', () {
+    // Emby 的 queryChildItems 本身就分页（startIndex / limit + totalRecordCount），
+    // 所以这里也能安全按 _pageSize 取，不需要留 500 的例外。
+    expect(source, contains('_fetchNeutralItemPage'));
+    expect(source, contains('page: page,'));
+    expect(
+      source,
+      contains('Future<_CollectionItemsPage> _loadNeutralItems('),
+      reason: '中立分支未接入分页结果结构',
+    );
+    // 续拉要覆盖两个后端。
+    expect(source, contains('await _fetchNeutralItemPage('));
   });
 
   test('hasMore 依据服务器原始行数判定，而不是过滤后的可见条数', () {
@@ -32,7 +53,7 @@ void main() {
     expect(
       source,
       contains(
-        '_hasMore = page.items.isNotEmpty && merged.length < page.total;',
+        '_hasMore = next.items.isNotEmpty && merged.length < next.total;',
       ),
     );
     expect(source, contains('List<MediaLibraryItem> _rawItems'));
