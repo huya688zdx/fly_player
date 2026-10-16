@@ -185,6 +185,11 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   late final DesktopPlaybackReporter _reporter;
   bool _reportReady = false;
   String? _errorMessage;
+  // 报错浮层弹出时的位置：位置继续前进即说明是误报，自动撤掉浮层。
+  Duration? _errorMessagePosition;
+  // 瞬时错误结算（详见 _onPlayerError）：报错瞬间的位置锚点 + 结算定时器。
+  Timer? _playerErrorSettleTimer;
+  Duration? _playerErrorAnchor;
   String? _toastMessage;
   bool _isLoading = true;
   String? _qualitySwitchingMessage;
@@ -420,6 +425,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _resumePromptTimer?.cancel();
     _autoNextTimer?.cancel();
     _toastTimer?.cancel();
+    _cancelPlayerErrorSettle();
     unawaited(_errorSubscription.cancel());
     unawaited(_playingSubscription.cancel());
     unawaited(_volumeSubscription.cancel());
@@ -1072,6 +1078,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _syncSystemMediaControls();
     if (_source.isLive) return;
     _weakNetwork.onPosition(position);
+    _dismissStaleErrorMessage(position);
     unawaited(_refreshSegmentedSubtitle(position));
     if (!_isLoading && _errorMessage == null) {
       final remaining = _player.state.duration - position;
@@ -1799,8 +1806,33 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   }
 
   void _showGenericError(String message) {
-    if (mounted) _updateView(() => _errorMessage = message);
+    if (mounted) {
+      _updateView(() {
+        _errorMessage = message;
+        _errorMessagePosition = _player.state.position;
+      });
+    }
   }
+
+  /// 浮层弹出后位置仍在前进 = 误报（结算口径见 [_onPlayerError]），自动撤掉浮层，
+  /// 不必等用户点「重试」。1s 容差用于避开弹出瞬间的位置抖动。
+  /// 直播中断提示不走这条：[_onPositionChanged] 对直播已提前返回。
+  void _dismissStaleErrorMessage(Duration position) {
+    final anchor = _errorMessagePosition;
+    if (_errorMessage == null || anchor == null) return;
+    if (position <= anchor + const Duration(seconds: 1)) return;
+    _errorMessagePosition = null;
+    _updateView(() => _errorMessage = null);
+  }
+
+  /// 误报结算窗口：mpv 的 error 级日志（file / ffmpeg tcp: / vd / ad / cplayer / stream
+  /// 前缀）会被 media_kit 一律投到 `Player.stream.error`，其中相当一部分是**瞬时失败**——
+  /// 缓冲中拖动进度、解码器重建、网络读重试等，播放随后自愈。此时直接弹「播放发生错误」
+  /// 是误报（macOS 实测：拖到未缓冲区间后必现，画面照常走）。口径对齐 Android 侧
+  /// b870347d：瞬时失败只记日志，只有播放器真的停住才提示。
+  ///
+  /// 判据用「位置是否继续前进」：自愈在秒级恢复，媒体真不可达则位置永远不动。
+  static const Duration _playerErrorSettleWindow = Duration(milliseconds: 3200);
 
   void _onPlayerError(String error) {
     final diagnostic = error.replaceAll(RegExp(r'https?://\S+'), '<media-url>');
@@ -1809,7 +1841,36 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       '(pausedByUser=$_pausedByUser, loading=$_isLoading): $diagnostic',
     );
     if (!mounted || _pausedByUser || _isLoading) return;
+    // 已在结算中就不重置锚点：连发的错误共用同一个窗口，真不可达才会如期提示。
+    if (_playerErrorSettleTimer != null) return;
+    _playerErrorAnchor = _player.state.position;
+    _playerErrorSettleTimer = Timer(
+      _playerErrorSettleWindow,
+      _settlePlayerError,
+    );
+  }
+
+  void _settlePlayerError() {
+    _playerErrorSettleTimer = null;
+    final anchor = _playerErrorAnchor;
+    _playerErrorAnchor = null;
+    if (!mounted || anchor == null || _pausedByUser) return;
+    final position = _player.state.position;
+    if (position > anchor) {
+      debugPrint(
+        '[desktop-playback] media_kit error 已自愈，不提示 '
+        '(from=$anchor, now=$position)',
+      );
+      return;
+    }
+    if (_playbackCompleted || _errorMessage != null) return;
     _showGenericError(_l10n.desktopPlaybackErrorGeneric);
+  }
+
+  void _cancelPlayerErrorSettle() {
+    _playerErrorSettleTimer?.cancel();
+    _playerErrorSettleTimer = null;
+    _playerErrorAnchor = null;
   }
 
   void _onPlayingChanged(bool playing) {
@@ -1869,6 +1930,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     _resumePromptTimer?.cancel();
     _autoNextTimer?.cancel();
     _toastTimer?.cancel();
+    _cancelPlayerErrorSettle();
+    _errorMessagePosition = null;
     _introSkipDismissed = false;
     _outroSkipDismissed = false;
     _updateSkipPromptKind(null);

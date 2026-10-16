@@ -875,6 +875,23 @@ void main() {
     expect(source, contains('_pausedByUser || _isLoading'));
   });
 
+  test('瞬时 MPV 错误先结算位置再决定弹层，误报随后自动撤掉', () {
+    final source = File(
+      'lib/desktop/playback/desktop_playback_screen.dart',
+    ).readAsStringSync();
+
+    // 报错不立刻弹层：先起结算窗口，窗口结束位置仍在前进即认定自愈（对齐 Android
+    // b870347d「瞬时失败只记日志，只有播放器真的停住才提示」）。
+    expect(source, contains('_playerErrorSettleTimer = Timer('));
+    expect(source, contains('if (position > anchor)'));
+    // 连发错误共用同一窗口，避免媒体真不可达时被反复顺延而永不提示。
+    expect(source, contains('if (_playerErrorSettleTimer != null) return;'));
+    // 兜底：浮层已弹出但位置仍在前进 → 自动撤掉，不必等用户点「重试」。
+    expect(source, contains('_dismissStaleErrorMessage(position)'));
+    // 直播中断提示不受自动撤销影响。
+    expect(source, contains('if (_source.isLive) return;'));
+  });
+
   test('悬停弹层不以全屏手势层遮挡触发按钮', () {
     final source = File(
       'lib/desktop/playback/desktop_playback_screen.dart',
