@@ -34,6 +34,7 @@ import '../utils/detail_top_tip.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_catalog_query_sheets.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/bird_loader.dart';
 import '../widgets/common/liquid_glass.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
 import '../widgets/detail/detail_status_page.dart';
@@ -106,17 +107,48 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   String? _selectedResolutionFilter;
   int? _selectedWatchedFilter;
 
+  /// 单页条数。
+  ///
+  /// 原实现首页固定一次拉 500 条（`page:1, page_size:500`）且**没有下一页**：实测
+  /// `item/list` 约 1.1–1.5 KB/条 → 单响应可达 ~600 KB，在 10s receiveTimeout 下很容易
+  /// 整页失败（用户反馈的「媒体库加载不出来」即此形态）；而且超过 500 条的条目会静默
+  /// 不可达。改为分页 + 滚动续拉。
+  static const int _pageSize = 100;
+  static const double _loadMoreTriggerOffset = 400;
+
+  /// 视口没填满时最多自动续拉几页。`mediadb` 的 4 类查询里季目录会被 [_filterItems]
+  /// 丢掉（实测过滤比约 2:1），单页可见条目可能很少甚至为 0——若不自动续拉，用户会
+  /// 卡在寥寥几条且滚不动。设上限防跑飞。
+  static const int _maxAutoFillPages = 3;
+
+  int _currentPage = 1;
+  bool _hasMore = false;
+  bool _isLoadingMore = false;
+  String? _loadMoreError;
+
+  /// 服务器原样返回的行（未过 [_filterItems]）。分页累计与 hasMore 判定都基于它——
+  /// [_filterItems] 会按 parent_guid 丢掉非顶层行，用它算会误判「还有更多」。
+  List<MediaLibraryItem> _rawItems = const <MediaLibraryItem>[];
+
+  /// 首次加载代次；换排序 / 换筛选时自增，用于丢弃过期的分页响应。
+  int _itemLoadSeq = 0;
+
+  /// 本次首屏已自动续拉的页数（上限 [_maxAutoFillPages]）。
+  int _autoFillPages = 0;
+
   @override
   void initState() {
     super.initState();
     if (widget.initialItemDetail != null) {
       _applyDetail(widget.initialItemDetail!);
     }
+    _scrollController.addListener(_onScroll);
     _load();
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _topTip.dispose();
     super.dispose();
@@ -221,10 +253,18 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       // 把"骨架→正文"整树替换推迟到转场结束后，避免落在 380ms 转场窗口中段。
       await _waitOwnTransition();
       if (!mounted) return;
+      _itemLoadSeq++;
+      _autoFillPages = 0;
       setState(() {
         _applyDetail(detail);
-        _allItems = items;
-        _items = _applyLocalFilters(items);
+        _rawItems = items.raw;
+        _currentPage = 1;
+        _hasMore = items.paginated && items.raw.length < items.total;
+        _loadMoreError = null;
+        // 代次已变时在途的续拉会提前 return，这里把加载态一并复位，避免页脚转圈卡住。
+        _isLoadingMore = false;
+        _allItems = items.items;
+        _items = _applyLocalFilters(items.items);
         _sortColumn = _normalizeSortColumn(setting?.sortField);
         _sortType = _normalizeSortType(setting?.sortType);
         _viewType = MediaCollectionViewTypeX.fromStorage(
@@ -232,6 +272,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         );
         _loading = false;
       });
+      _scheduleAutoFill();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -315,24 +356,60 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     );
   }
 
-  Future<List<MediaLibraryItem>> _loadItems(
+  /// 拉一页**原始行**（未过 [_filterItems]），并回传服务器 total 供分页判定。
+  Future<({List<MediaLibraryItem> items, int total})> _fetchItemPage(
     FeiniuApi api, {
     required Map<String, dynamic> detail,
     required String sortColumn,
     required String sortType,
+    required int page,
   }) async {
     final queryPayload = _buildItemListPayload(
       detail,
       sortColumn: sortColumn,
       sortType: sortType,
+      page: page,
     );
     if (queryPayload == null) {
-      return const <MediaLibraryItem>[];
+      return (items: const <MediaLibraryItem>[], total: 0);
     }
-    final page = await api.getItemsPage(queryPayload);
+    final result = await api.getItemsPage(queryPayload);
+    return (items: result.items, total: result.total);
+  }
+
+  /// 首页加载结果。
+  ///
+  /// [raw] / [total] 供分页累计；[paginated] 为 false 表示这批数据来自
+  /// playInfo / streamList 兜底——那类数据没有服务端分页，不能再续拉。
+  Future<
+    ({
+      List<MediaLibraryItem> items,
+      List<MediaLibraryItem> raw,
+      int total,
+      bool paginated,
+    })
+  >
+  _loadItems(
+    FeiniuApi api, {
+    required Map<String, dynamic> detail,
+    required String sortColumn,
+    required String sortType,
+  }) async {
+    final page = await _fetchItemPage(
+      api,
+      detail: detail,
+      sortColumn: sortColumn,
+      sortType: sortType,
+      page: 1,
+    );
     final filtered = _filterItems(page.items, detail);
     if (filtered.isNotEmpty) {
-      return filtered;
+      return (
+        items: filtered,
+        raw: page.items,
+        total: page.total,
+        paginated: true,
+      );
     }
     final currentGuid = (detail['guid'] ?? '').toString().trim();
     if (currentGuid.isNotEmpty) {
@@ -342,13 +419,117 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         detail: detail,
       );
       if (playInfoItems.isNotEmpty) {
-        return playInfoItems;
+        return (
+          items: playInfoItems,
+          raw: const <MediaLibraryItem>[],
+          total: playInfoItems.length,
+          paginated: false,
+        );
       }
     }
     final playItemGuid = (detail['play_item_guid'] ?? '').toString().trim();
-    return playItemGuid.isEmpty
-        ? filtered
-        : _buildFallbackItemsFromStreamList(api, playItemGuid);
+    if (playItemGuid.isEmpty) {
+      // 本页没有可显示的顶层行，但服务端可能还有后续页（例如 mediadb 首页整页
+      // 都是会被 _filterItems 丢掉的季目录）——保留分页，让滚动继续拉。
+      return (
+        items: filtered,
+        raw: page.items,
+        total: page.total,
+        paginated: true,
+      );
+    }
+    return (
+      items: await _buildFallbackItemsFromStreamList(api, playItemGuid),
+      raw: const <MediaLibraryItem>[],
+      total: 0,
+      paginated: false,
+    );
+  }
+
+  /// 滚动续拉下一页。
+  void _onScroll() {
+    // _loadMoreError 存在时不自动重试：留给页脚的重试按钮，避免反复打服务端。
+    if (!_hasMore ||
+        _isLoadingMore ||
+        _loading ||
+        _error != null ||
+        _loadMoreError != null ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    final position = _scrollController.position;
+    if (position.maxScrollExtent - position.pixels <= _loadMoreTriggerOffset) {
+      unawaited(_loadMoreItems());
+    }
+  }
+
+  /// 首屏 / 续拉之后，若视口还没填满而服务端仍有数据，再补一页。
+  void _scheduleAutoFill() {
+    if (!_hasMore || _autoFillPages >= _maxAutoFillPages) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !_hasMore ||
+          _isLoadingMore ||
+          _loading ||
+          _loadMoreError != null ||
+          !_scrollController.hasClients) {
+        return;
+      }
+      final position = _scrollController.position;
+      if (position.maxScrollExtent - position.pixels > _loadMoreTriggerOffset) {
+        return;
+      }
+      _autoFillPages++;
+      unawaited(_loadMoreItems());
+    });
+  }
+
+  Future<void> _loadMoreItems() async {
+    if (!mounted || !_hasMore || _isLoadingMore || _loading) return;
+    final seq = _itemLoadSeq;
+    final nextPage = _currentPage + 1;
+    setState(() {
+      _isLoadingMore = true;
+      _loadMoreError = null;
+    });
+    try {
+      final api = FeiniuApi(context.read<NasProvider>());
+      final page = await _fetchItemPage(
+        api,
+        detail: _detail,
+        sortColumn: _sortColumn,
+        sortType: _sortType,
+        page: nextPage,
+      );
+      if (!mounted || seq != _itemLoadSeq) return;
+      final merged = <MediaLibraryItem>[..._rawItems, ...page.items];
+      setState(() {
+        _rawItems = merged;
+        _currentPage = nextPage;
+        _hasMore = page.items.isNotEmpty && merged.length < page.total;
+        _allItems = _filterItems(merged, _detail);
+        _items = _applyLocalFilters(_allItems);
+        _isLoadingMore = false;
+      });
+      _scheduleAutoFill();
+    } catch (error, stackTrace) {
+      if (!mounted || seq != _itemLoadSeq) return;
+      setState(() {
+        _isLoadingMore = false;
+        _loadMoreError = AppException.from(
+          error,
+          action: 'media collection load more',
+          fallbackKind: AppExceptionKind.transient,
+        ).message;
+      });
+      await logSwallowedError(
+        action: 'media collection load more',
+        id: widget.itemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'media_collection_detail_page',
+      );
+    }
   }
 
   Future<List<MediaLibraryItem>> _buildFallbackItemsFromPlayInfo(
@@ -496,6 +677,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     Map<String, dynamic> detail, {
     required String sortColumn,
     required String sortType,
+    required int page,
   }) {
     final type = _detailType(detail);
     if (type == 'directory') {
@@ -503,10 +685,12 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       if (parentGuid.isEmpty) {
         return null;
       }
+      // 目录的直接子项可能是季 / 集（Season / Episode），所以这里**不能**锁类型，
+      // 靠 parent_guid 收窄即可（实测锁成 Movie/TV/Directory/Video 会把这些子项滤掉）。
       return <String, dynamic>{
         'parent_guid': parentGuid,
-        'page': 1,
-        'page_size': 500,
+        'page': page,
+        'page_size': _pageSize,
         'sort_column': sortColumn,
         'sort_type': sortType,
         'tags': const <String, dynamic>{},
@@ -517,10 +701,12 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     if (ancestorGuid.isEmpty) {
       return null;
     }
+    // 注意 ancestor_guid 是**递归含后代**的（实测：库 guid 能查到其下 TV + Season +
+    // Episode）。类型锁保留 Directory——部分库的顶层就是一个目录，滤掉会让页面空掉。
     return ItemListRequest(
       ancestorGuid: ancestorGuid,
-      page: 1,
-      pageSize: 500,
+      page: page,
+      pageSize: _pageSize,
       sortColumn: sortColumn,
       sortType: sortType,
       tags: const <String, dynamic>{
@@ -747,27 +933,44 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     await _reloadItemsOnly();
   }
 
+  /// 换排序 / 换筛选后重取首页。分页状态一并复位（旧排序的后续页不再有效）。
   Future<void> _reloadItemsOnly() async {
     final nas = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
     try {
-      final items = _isFeiniuBackend
-          ? await _loadItems(
-              FeiniuApi(nas),
-              detail: _detail,
-              sortColumn: _sortColumn,
-              sortType: _sortType,
-            )
-          : await _loadNeutralItems(
-              backend,
-              sortColumn: _sortColumn,
-              sortType: _sortType,
-            );
+      if (!_isFeiniuBackend) {
+        final items = await _loadNeutralItems(
+          backend,
+          sortColumn: _sortColumn,
+          sortType: _sortType,
+        );
+        if (!mounted) return;
+        setState(() {
+          _allItems = items;
+          _items = _applyLocalFilters(items);
+        });
+        return;
+      }
+      final items = await _loadItems(
+        FeiniuApi(nas),
+        detail: _detail,
+        sortColumn: _sortColumn,
+        sortType: _sortType,
+      );
       if (!mounted) return;
+      _itemLoadSeq++;
+      _autoFillPages = 0;
       setState(() {
-        _allItems = items;
-        _items = _applyLocalFilters(items);
+        _rawItems = items.raw;
+        _currentPage = 1;
+        _hasMore = items.paginated && items.raw.length < items.total;
+        _loadMoreError = null;
+        // 代次已变时在途的续拉会提前 return，这里把加载态一并复位，避免页脚转圈卡住。
+        _isLoadingMore = false;
+        _allItems = items.items;
+        _items = _applyLocalFilters(items.items);
       });
+      _scheduleAutoFill();
     } catch (e) {
       if (!mounted) return;
       _showErrorTopTip(
@@ -1372,6 +1575,25 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                       onItemMoreTap: _showItemActions,
                     ),
                   ),
+                  if (_isLoadingMore || _loadMoreError != null)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 28),
+                        child: Center(
+                          child: _loadMoreError == null
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: BirdGlyph(size: 20),
+                                )
+                              : TextButton.icon(
+                                  onPressed: () => unawaited(_loadMoreItems()),
+                                  icon: const Icon(Icons.refresh, size: 16),
+                                  label: Text(_l10n.commonRefreshRetry),
+                                ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
