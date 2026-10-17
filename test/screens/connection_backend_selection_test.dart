@@ -44,7 +44,8 @@ void main() {
     await tester.dragFrom(const Offset(400, 300), const Offset(-360, 0));
     await tester.pumpAndSettle();
 
-    // Emby 表单已完善为正式登录：登录按钮、记住登录勾选，下载/FN Connect 仍是飞牛专属。
+    // Emby 表单已完善为正式登录：登录按钮、记住登录勾选，下载仍是飞牛专属。
+    // FN Connect 重登入口已从产品中移除，两种后端都不应出现。
     expect(find.text('Emby 服务器地址'), findsOneWidget);
     expect(find.text('用户名'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);
@@ -71,7 +72,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('登录'), findsOneWidget);
-    expect(find.text('重新登录 FN Connect'), findsOneWidget);
+    expect(find.text('重新登录 FN Connect'), findsNothing);
     expect(find.byType(SegmentedButton<String>), findsNothing);
   });
 

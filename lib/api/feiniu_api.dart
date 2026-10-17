@@ -418,6 +418,21 @@ class FeiniuApi {
   static const String _fnConnectApiKey = 'zIGtkc3dqZnJpd29qZXJqa2w7c';
   static const String _fnConnectAuthxPrefix = _publicAuthxKey;
   static final RegExp _fnConnectIdPattern = RegExp(r'^[a-z][a-z0-9-]{5,31}$');
+
+  /// 列表读请求（`item/list`、`favorite/list`）的 TTFB 预算。
+  ///
+  /// dio 5.9.2 的 `receiveTimeout` 在 io_adapter 里只包 `request.close()`——即「等到响应
+  /// 头」，**不约束响应体传输**（大响应不会因为它变慢）。所以放宽它只是多容忍服务端
+  /// 「迟迟不开始回」，代价是服务端真挂时用户多等一会儿。
+  ///
+  /// 飞牛大库要现算 total，实测 TTFB 会顶到默认的 10s：用户反馈的「媒体库加载不出来」
+  /// 与导出日志里 `load category filter schema` 的 receive timeout 都是这一类（那次
+  /// 响应体只有 8.5 KB，可见瓶颈不是体积）。
+  static const Duration _listReadReceiveTimeout = Duration(seconds: 20);
+
+  /// 列表读瞬时失败的重试间隔。
+  static const Duration _listRetryDelay = Duration(milliseconds: 600);
+
   static final Map<String, Object?> _sharedResourceCache = <String, Object?>{};
   static final Map<String, Future<Object?>> _sharedResourceInflight =
       <String, Future<Object?>>{};
@@ -1832,13 +1847,61 @@ class FeiniuApi {
     }
   }
 
+  /// 是否值得重试一次。
+  ///
+  /// 只认「快速失败」的瞬时错误：连接类 + 5xx。**超时不重试**——它已经耗掉完整的
+  /// TTFB 预算（20s），再等一轮只会让用户多等一个周期，不如把失败早点交给 UI。
+  static bool _shouldRetryListRead(Object error) {
+    if (error is! DioException) return false;
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.connectionError:
+        return true;
+      case DioExceptionType.badResponse:
+        final status = error.response?.statusCode ?? 0;
+        // 501/505 是「本版本未实现」，重试必然同样失败（实测飞牛部分接口会回 501）。
+        return status >= 500 && status != 501 && status != 505;
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.cancel:
+      case DioExceptionType.badCertificate:
+      case DioExceptionType.unknown:
+        return false;
+    }
+  }
+
+  /// 发一次列表读请求：单独放宽 TTFB 预算 + 瞬时失败重试一次。
+  ///
+  /// 失败时抛原始异常，由调用方统一经 `AppException.from` 归类。
+  Future<Response<dynamic>> _postListRead(
+    String path,
+    Map<String, dynamic> payload,
+    String logTag,
+  ) async {
+    Future<Response<dynamic>> attempt() => _dio.post(
+      path,
+      data: payload,
+      options: Options(receiveTimeout: _listReadReceiveTimeout),
+    );
+    try {
+      return await attempt();
+    } catch (error) {
+      if (!_shouldRetryListRead(error)) rethrow;
+      debugPrint(
+        '[API][$logTag] 首次失败可重试，${_listRetryDelay.inMilliseconds}ms 后重试: $error',
+      );
+      await Future<void>.delayed(_listRetryDelay);
+      return attempt();
+    }
+  }
+
   Future<ItemListPage> _doGetItemsPage(
     Map<String, dynamic> payload,
     String key,
   ) async {
     try {
       debugPrint('[API][ITEM_LIST] request payload=$payload');
-      final response = await _dio.post(_itemListPath, data: payload);
+      final response = await _postListRead(_itemListPath, payload, 'ITEM_LIST');
       final page = _extractItemListPage(response.data, 'item list');
       debugPrint(
         '[API][ITEM_LIST] key=$key items=${page.items.length} total=${page.total}',
@@ -1859,7 +1922,11 @@ class FeiniuApi {
   ) async {
     try {
       debugPrint('[API][FAVORITE_LIST] request payload=$payload');
-      final response = await _dio.post(_favoriteListPath, data: payload);
+      final response = await _postListRead(
+        _favoriteListPath,
+        payload,
+        'FAVORITE_LIST',
+      );
       final page = _extractItemListPage(response.data, 'favorite list');
       debugPrint(
         '[API][FAVORITE_LIST] key=$key items=${page.items.length} total=${page.total}',

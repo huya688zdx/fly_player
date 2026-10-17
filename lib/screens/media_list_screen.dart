@@ -206,6 +206,14 @@ class _MediaListScreenState extends State<MediaListScreen>
       ? _secondaryCategoryPreviewLimit
       : _defaultCategoryPreviewLimit;
 
+  /// 视觉性能档位（决定首页缩略图的解码宽度）。
+  ///
+  /// 必须在页面级 build 里经 `context.select` 取一次再缓存：首页海报行是在 sliver 的
+  /// itemBuilder 里构建的，那里用的仍是本 State 的 context，而此刻该 element 并不在
+  /// build 中——provider 会抛 "Tried to use `context.select` outside of the `build`
+  /// method"，把整块区块打成「加载失败」（实测首页三个海报行全挂）。
+  AppVisualPerformanceTier _visualTier = AppVisualPerformanceTier.balanced;
+
   double get _scrollCacheExtent => widget.secondaryHost ? 80 : 160;
 
   double _rowCacheExtent(double itemExtent) {

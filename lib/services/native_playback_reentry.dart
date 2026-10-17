@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../api/feiniu_api.dart';
+import '../playback/playback_platform.dart';
 import '../playback/playback_source.dart';
 import 'feiniu_segmented_subtitle.dart';
 
@@ -61,6 +62,11 @@ class NativePlaybackReentry {
     Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleImported,
     Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleRemoved,
   }) {
+    // 反向通道只服务 Android 原生播放壳；桌面与 iOS 走 media_kit（PlaybackPlatform.usesMediaKit），
+    // 没有壳可反向调用。各入口的 bind 调用点没有平台门控，这里先挡住，免得白建
+    // FeiniuSegmentedSubtitle（持临时目录）与 ServerPlaybackReporter——它们只在 onUnbind
+    // 里 dispose，而 bind 被挡掉后 onUnbind 根本不会登记。
+    if (!PlaybackPlatform.usesAndroidHost) return Object();
     if (backend.capabilities.usesLegacyFeiniuFlow) {
       final subtitles = FeiniuSegmentedSubtitle(FeiniuApi(nas));
       final boundScope = 'feiniu:${nas.baseUrl}:${nas.userName}';

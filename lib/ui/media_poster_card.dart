@@ -323,8 +323,18 @@ class _PosterImage extends StatefulWidget {
 }
 
 class _PosterImageState extends State<_PosterImage> {
+  /// 候选 URL 全部失败后的重试次数与间隔。
+  ///
+  /// 之前没有任何重试：一次瞬时失败（NAS 按需缩图超时、连接被重置）就让海报永久停在
+  /// 占位图，只有滚走再滚回（widget 重建）才恢复——实测 424 部电影时一屏约一半空白。
+  /// Flutter 的 ImageCache 不缓存失败结果，所以重置候选索引 + setState 就会重新请求。
+  static const int _maxRetries = 1;
+  static const Duration _retryDelay = Duration(milliseconds: 800);
+
   int _index = 0;
   bool _fallbackScheduled = false;
+  int _retryCount = 0;
+  bool _retryScheduled = false;
   final Set<String> _reportedUrls = <String>{};
 
   @override
@@ -333,6 +343,8 @@ class _PosterImageState extends State<_PosterImage> {
     if (!listEquals(oldWidget.images.urls, widget.images.urls)) {
       _index = 0;
       _fallbackScheduled = false;
+      _retryCount = 0;
+      _retryScheduled = false;
     }
   }
 
@@ -408,6 +420,7 @@ class _PosterImageState extends State<_PosterImage> {
               '[IMG][POSTER] failed url=$url error=$error -> no_more_fallback',
             );
             _reportFinalFailure(url, error);
+            _scheduleRetry();
             return widget.fallback;
           },
         );
@@ -442,5 +455,21 @@ class _PosterImageState extends State<_PosterImage> {
         _index += 1;
       });
     });
+  }
+
+  /// 候选 URL 全部失败后，延迟重试一轮（回到第一个候选）。
+  void _scheduleRetry() {
+    if (_retryScheduled || _retryCount >= _maxRetries) return;
+    _retryScheduled = true;
+    unawaited(
+      Future<void>.delayed(_retryDelay).then((_) {
+        if (!mounted) return;
+        _retryScheduled = false;
+        setState(() {
+          _retryCount++;
+          _index = 0;
+        });
+      }),
+    );
   }
 }

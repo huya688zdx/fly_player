@@ -18,6 +18,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     final token = imageCredentials.token;
     final accessCode = imageCredentials.accessCode;
     final colors = context.appColors;
+    // 页面级 build 里注册对视觉档位的依赖并缓存；海报行等处只读 [_visualTier]
+    // （它们跑在 sliver 的 itemBuilder 里，那里调 context.select 会触发 provider 断言）。
+    _visualTier = context.select<AppThemeProvider, AppVisualPerformanceTier>(
+      (provider) => provider.visualPerformanceTier,
+    );
     final hasRuntimeDynamicTheme = context.hasRuntimeAppColors;
     final atmosphere = AppAtmospherePalette.resolve(
       baseColors: context.baseAppColors,
@@ -294,11 +299,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String accessCode,
     required MediaLayoutProfile layout,
   }) {
-    final catalogDecodeWidth = context
-        .select<AppThemeProvider, AppVisualPerformanceTier>(
-          (provider) => provider.visualPerformanceTier,
-        )
-        .homeThumbnailDecodeWidth(layout.homeCatalogDecodeWidth);
+    final catalogDecodeWidth = _visualTier.homeThumbnailDecodeWidth(
+      layout.homeCatalogDecodeWidth,
+    );
     final backendKind = context
         .read<MediaBackendProvider>()
         .backend
@@ -409,11 +412,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String accessCode,
     required MediaLayoutProfile layout,
   }) {
-    final continueDecodeWidth = context
-        .select<AppThemeProvider, AppVisualPerformanceTier>(
-          (provider) => provider.visualPerformanceTier,
-        )
-        .homeThumbnailDecodeWidth(layout.continueDecodeWidth);
+    final continueDecodeWidth = _visualTier.homeThumbnailDecodeWidth(
+      layout.continueDecodeWidth,
+    );
     return ListenableBuilder(
       listenable: DownloadTaskService.instance,
       builder: (context, _) {
@@ -485,11 +486,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String accessCode,
     required MediaLayoutProfile layout,
   }) {
-    final continueDecodeWidth = context
-        .select<AppThemeProvider, AppVisualPerformanceTier>(
-          (provider) => provider.visualPerformanceTier,
-        )
-        .homeThumbnailDecodeWidth(layout.continueDecodeWidth);
+    final continueDecodeWidth = _visualTier.homeThumbnailDecodeWidth(
+      layout.continueDecodeWidth,
+    );
     final itemsById = <String, MediaLibraryItem>{
       for (final item in items) item.guid: item,
     };
@@ -770,11 +769,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String heroTagPrefix,
   }) {
     final colors = context.appColors;
-    final posterDecodeWidth = context
-        .select<AppThemeProvider, AppVisualPerformanceTier>(
-          (provider) => provider.visualPerformanceTier,
-        )
-        .homeThumbnailDecodeWidth(layout.homePosterDecodeWidth);
+    final posterDecodeWidth = _visualTier.homeThumbnailDecodeWidth(
+      layout.homePosterDecodeWidth,
+    );
     if (items.isEmpty) {
       return SizedBox(
         height: 220,
