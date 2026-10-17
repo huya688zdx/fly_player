@@ -113,10 +113,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     return schemaFields.isNotEmpty ? schemaFields : _fallbackSortColumns;
   }
 
-  double _viewportCacheExtent(BuildContext context) {
-    final factor = widget.secondaryHost ? 0.7 : 1.0;
-    return min(MediaQuery.of(context).size.height * factor, 900.0);
-  }
+  /// 视口外预建距离。
+  ///
+  /// 原实现取屏高 0.7~1.0 倍（1080p 下约 700~900px）。在海报网格上这等于上下各多建
+  /// 4~5 行：屏幕上可见约 18 张时，实际在同时请求 ~70 张海报——请求量被放大 4 倍以上，
+  /// 424 部电影这类库会直接把图片服务打满，表现为大量海报卡在占位图。
+  /// 降到接近 Flutter 默认 `cacheExtent`（250）的量级，只预建一屏多一点。
+  double get _viewportCacheExtent => widget.secondaryHost ? 220.0 : 300.0;
 
   bool get _typeLocked =>
       widget.initialTypeTags != null && widget.initialTypeTags!.isNotEmpty;
@@ -1044,7 +1047,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               if (_viewType == MediaCollectionViewType.list)
                 ListView.separated(
                   controller: _scrollController,
-                  cacheExtent: _viewportCacheExtent(context),
+                  cacheExtent: _viewportCacheExtent,
                   padding: EdgeInsets.fromLTRB(
                     layout.pageHorizontalPadding,
                     0,
@@ -1105,7 +1108,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
                     return GridView.builder(
                       controller: _scrollController,
-                      cacheExtent: _viewportCacheExtent(context),
+                      cacheExtent: _viewportCacheExtent,
                       padding: EdgeInsets.fromLTRB(
                         layout.pageHorizontalPadding,
                         0,
@@ -1182,7 +1185,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               else
                 GridView.builder(
                   controller: _scrollController,
-                  cacheExtent: _viewportCacheExtent(context),
+                  cacheExtent: _viewportCacheExtent,
                   padding: EdgeInsets.fromLTRB(
                     layout.pageHorizontalPadding,
                     0,
