@@ -94,4 +94,50 @@ void main() {
     expect(source, contains('_scheduleAutoFill();'));
     expect(source, contains('_autoFillPages = 0;'));
   });
+
+  test('排序切换在请求之前就作废在途分页', () {
+    // 代次自增若写在「新首页请求返回之后」，旧排序的第 N 页会在偏好写入 / 重取期间
+    // 完成并通过代次校验，把旧排序的行追加进来；若重取随后失败，这些行会留在新排序下。
+    final changeSort = source.substring(
+      source.indexOf('Future<void> _changeSort('),
+      source.indexOf('Future<void> _reloadItemsOnly('),
+    );
+    final seqInChangeSort = changeSort.indexOf('_itemLoadSeq++;');
+    final firstAwait = changeSort.indexOf('await ');
+    expect(seqInChangeSort, greaterThanOrEqualTo(0), reason: '排序切换未作废在途分页');
+    expect(firstAwait, greaterThanOrEqualTo(0));
+    expect(seqInChangeSort, lessThan(firstAwait), reason: '作废必须发生在首个 await 之前');
+
+    final reload = source.substring(
+      source.indexOf('Future<void> _reloadItemsOnly('),
+    );
+    expect(
+      reload.indexOf('_itemLoadSeq++;'),
+      lessThan(reload.indexOf('await ')),
+      reason: '重取首页同样要在请求前作废',
+    );
+  });
+
+  test('本地筛选后主动补页，避免匹配项到不了', () {
+    // 筛选可能把已加载的这一页全部滤掉；此时内容短于视口、没有滚动事件，页脚也不显示，
+    // 不主动补页的话后续页里的匹配项永远到不了。
+    final filterApply = source.substring(
+      source.indexOf('final resolutions = result['),
+      source.indexOf('void _replaceItemLocally('),
+    );
+    expect(filterApply, contains('_autoFillPages = 0;'));
+    expect(filterApply, contains('_scheduleAutoFill();'));
+  });
+
+  test('可见列表为空时自动补页不受页数上限约束', () {
+    // mediadb 的前几页可能整页都是会被 _filterItems 丢掉的季目录：可见列表为空、内容
+    // 短于视口没有滚动事件。若上限照样生效，页面会永远空着且无法触发续拉。
+    expect(
+      source,
+      contains(
+        'if (_items.isNotEmpty && _autoFillPages >= _maxAutoFillPages) return;',
+      ),
+    );
+    expect(source, contains('if (_items.isNotEmpty) _autoFillPages++;'));
+  });
 }

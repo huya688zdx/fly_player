@@ -506,7 +506,11 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   /// 首屏 / 续拉之后，若视口还没填满而服务端仍有数据，再补一页。
   void _scheduleAutoFill() {
-    if (!_hasMore || _autoFillPages >= _maxAutoFillPages) return;
+    if (!_hasMore) return;
+    // 上限只在「已经显示出内容」时生效。mediadb 的前几页可能整页都是会被 _filterItems
+    // 丢掉的季目录，此时可见列表为空、内容也短于视口没有滚动事件——卡在上限会让页面
+    // 永远空着且无法触发续拉。空结果时一直补到出现可见条目或服务端翻完为止。
+    if (_items.isNotEmpty && _autoFillPages >= _maxAutoFillPages) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           !_hasMore ||
@@ -520,7 +524,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       if (position.maxScrollExtent - position.pixels > _loadMoreTriggerOffset) {
         return;
       }
-      _autoFillPages++;
+      if (_items.isNotEmpty) _autoFillPages++;
       unawaited(_loadMoreItems());
     });
   }
@@ -975,6 +979,9 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       _sortColumn = column;
       _sortType = sortType;
     });
+    // 立刻作废在途的分页请求：否则旧排序的第 N 页可能在下面的偏好写入 / 首页重取期间
+    // 完成并通过代次校验，把旧排序的行追加进来；若重取随后失败，这些行会留在新排序下。
+    _itemLoadSeq++;
     if (_settingsMdbGuid.isNotEmpty) {
       await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
         _settingsMdbGuid,
@@ -988,6 +995,10 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   /// 换排序 / 换筛选后重取首页。分页状态一并复位（旧排序的后续页不再有效）。
   Future<void> _reloadItemsOnly() async {
+    // 在**发起请求之前**作废在途分页：等新首页回来再自增，会让旧排序 / 旧筛选的第 N 页
+    // 在等待期间通过代次校验并追加进来；若重取随后失败，这些过期行会留在新状态下面。
+    _itemLoadSeq++;
+    _autoFillPages = 0;
     final nas = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
     try {
@@ -998,8 +1009,6 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
           sortType: _sortType,
         );
         if (!mounted) return;
-        _itemLoadSeq++;
-        _autoFillPages = 0;
         setState(() {
           _rawItems = items.raw;
           _currentPage = 1;
@@ -1019,8 +1028,6 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         sortType: _sortType,
       );
       if (!mounted) return;
-      _itemLoadSeq++;
-      _autoFillPages = 0;
       setState(() {
         _rawItems = items.raw;
         _currentPage = 1;
@@ -1266,6 +1273,10 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       _selectedWatchedFilter = watched.isEmpty ? null : watched.first as int;
       _items = _applyLocalFilters(_allItems);
     });
+    // 本地筛选可能把已加载的这一页全部滤掉，而后续页里还有匹配项。此时既没有滚动事件
+    // （内容短于视口）也没有页脚，必须主动补页，否则匹配项永远到不了。
+    _autoFillPages = 0;
+    _scheduleAutoFill();
   }
 
   void _replaceItemLocally(
