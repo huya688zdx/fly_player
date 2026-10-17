@@ -17,7 +17,7 @@ import 'package:fly_player/theme/app_theme.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('飞牛登录页默认保留历史、FN Connect 和下载入口', (tester) async {
+  testWidgets('飞牛登录页默认保留历史与下载入口（FN Connect 重登入口已移除）', (tester) async {
     await _pumpConnectionScreen(tester, baseUrl: 'https://nas.example.test');
     await tester.pump();
 
@@ -25,7 +25,8 @@ void main() {
     expect(find.byIcon(Icons.history_rounded), findsOneWidget);
     expect(find.byType(Switch), findsNothing);
     expect(find.text('查看已下载数据'), findsOneWidget);
-    expect(find.text('重新登录 FN Connect'), findsOneWidget);
+    // FN Connect 重登入口已从产品中移除（l10n 键仍在，但 UI 不再渲染）。
+    expect(find.text('重新登录 FN Connect'), findsNothing);
     expect(find.text('登录'), findsOneWidget);
     expect(find.text('访问码（可选）'), findsNothing);
     expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
