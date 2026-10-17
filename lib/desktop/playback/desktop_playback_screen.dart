@@ -190,6 +190,8 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   // 瞬时错误结算（详见 _onPlayerError）：报错瞬间的位置锚点 + 结算定时器。
   Timer? _playerErrorSettleTimer;
   Duration? _playerErrorAnchor;
+  // 报错时的源代次：结算时若已切源则作废（切源路径不一定都复位浮层）。
+  int? _playerErrorSettleGeneration;
   String? _toastMessage;
   bool _isLoading = true;
   String? _qualitySwitchingMessage;
@@ -1805,11 +1807,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     }
   }
 
-  void _showGenericError(String message) {
+  /// [selfHealing] 只给「播放器流报错结算」那条路径用：只有它才适用「位置继续前进＝
+  /// 误报，自动撤掉」的判据。音轨/画质/剧集切换失败等提示**必须**留到用户看见——
+  /// 那些场景旧源还在播、位置一直在前进，若也记锚点，浮层会在 1s 后被自动撤掉。
+  void _showGenericError(String message, {bool selfHealing = false}) {
     if (mounted) {
       _updateView(() {
         _errorMessage = message;
-        _errorMessagePosition = _player.state.position;
+        _errorMessagePosition = selfHealing ? _player.state.position : null;
       });
     }
   }
@@ -1844,6 +1849,7 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
     // 已在结算中就不重置锚点：连发的错误共用同一个窗口，真不可达才会如期提示。
     if (_playerErrorSettleTimer != null) return;
     _playerErrorAnchor = _player.state.position;
+    _playerErrorSettleGeneration = _sourceChangeGeneration;
     _playerErrorSettleTimer = Timer(
       _playerErrorSettleWindow,
       _settlePlayerError,
@@ -1853,8 +1859,20 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
   void _settlePlayerError() {
     _playerErrorSettleTimer = null;
     final anchor = _playerErrorAnchor;
+    final generation = _playerErrorSettleGeneration;
     _playerErrorAnchor = null;
+    _playerErrorSettleGeneration = null;
     if (!mounted || anchor == null || _pausedByUser) return;
+    // 期间切过源（换集 / 换画质 / 重开）就作废：那次错误属于旧源，新源可能已经成功，
+    // 拿旧锚点去比新源的位置会误报。切源路径不一定都调 _resetPlaybackOverlays，
+    // 所以这里必须自己校验代次。
+    if (generation != _sourceChangeGeneration) {
+      debugPrint(
+        '[desktop-playback] media_kit error 结算作废：源已切换 '
+        '(gen=$generation, now=$_sourceChangeGeneration)',
+      );
+      return;
+    }
     final position = _player.state.position;
     if (position > anchor) {
       debugPrint(
@@ -1864,13 +1882,14 @@ class _DesktopPlaybackScreenState extends State<DesktopPlaybackScreen>
       return;
     }
     if (_playbackCompleted || _errorMessage != null) return;
-    _showGenericError(_l10n.desktopPlaybackErrorGeneric);
+    _showGenericError(_l10n.desktopPlaybackErrorGeneric, selfHealing: true);
   }
 
   void _cancelPlayerErrorSettle() {
     _playerErrorSettleTimer?.cancel();
     _playerErrorSettleTimer = null;
     _playerErrorAnchor = null;
+    _playerErrorSettleGeneration = null;
   }
 
   void _onPlayingChanged(bool playing) {

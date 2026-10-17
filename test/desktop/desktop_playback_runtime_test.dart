@@ -892,6 +892,55 @@ void main() {
     expect(source, contains('if (_source.isLive) return;'));
   });
 
+  test('自愈撤销只适用于播放器流报错，切换失败提示必须留到用户看见', () {
+    final source = File(
+      'lib/desktop/playback/desktop_playback_screen.dart',
+    ).readAsStringSync();
+
+    // _showGenericError 同时服务于音轨 / 画质 / 剧集切换失败。那些场景旧源仍在播、
+    // 位置一直在前进，若也记位置锚点，浮层会被 _dismissStaleErrorMessage 在 1s 后撤掉，
+    // 用户根本看不到失败。只有播放器流报错的结算路径才传 selfHealing。
+    expect(
+      source,
+      contains(
+        'void _showGenericError(String message, {bool selfHealing = false})',
+      ),
+    );
+    expect(
+      source,
+      contains(
+        '_errorMessagePosition = selfHealing ? _player.state.position : null;',
+      ),
+    );
+    expect(
+      'selfHealing: true'.allMatches(source).length,
+      1,
+      reason: '只允许 _settlePlayerError 一处开启自愈撤销',
+    );
+    expect(
+      source,
+      contains(
+        '_showGenericError(_l10n.desktopPlaybackErrorGeneric, selfHealing: true);',
+      ),
+    );
+  });
+
+  test('结算定时器绑定源代次，切集 / 换画质后旧错误作废', () {
+    final source = File(
+      'lib/desktop/playback/desktop_playback_screen.dart',
+    ).readAsStringSync();
+
+    // _openEpisode / _reloadSource 会自增 _sourceChangeGeneration 但**不**调
+    // _resetPlaybackOverlays，旧源的结算定时器会活到新源加载期间。只比位置锚点不够：
+    // 新源位置可能还没越过旧锚点，于是在成功的切换上误弹「播放发生错误」。
+    expect(source, contains('int? _playerErrorSettleGeneration;'));
+    expect(
+      source,
+      contains('_playerErrorSettleGeneration = _sourceChangeGeneration;'),
+    );
+    expect(source, contains('if (generation != _sourceChangeGeneration)'));
+  });
+
   test('悬停弹层不以全屏手势层遮挡触发按钮', () {
     final source = File(
       'lib/desktop/playback/desktop_playback_screen.dart',
